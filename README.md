@@ -1,25 +1,139 @@
-# Noise Radar
+# Shill or Chill
 
-Detects coordinated amplification (bot or campaign behaviour) on Bluesky from behaviour signals,
-explains each flagged cluster with evidence, and reports its own measured error rates.
+**Shill or chill? We check the receipts.**
 
-## Layout
+Shill or Chill watches Bluesky live and finds groups of accounts that amplify the same thing
+together, such as rings of fresh accounts pushing one link within seconds, reply floods or
+like-farms. It explains every flagged group with evidence you can click through, says when
+something is most likely just people reacting to the news, refuses to guess when the evidence is
+thin, and publishes its own measured error rates.
+
+Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS). API health:
+[`/api/health`](https://noise-radar.srv2159172.hstgr.cloud/api/health), measured accuracy:
+[`/api/metrics`](https://noise-radar.srv2159172.hstgr.cloud/api/metrics).
+
+Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
+
+## The thesis
+
+The common way to fight "noise" is to paste a post into a language model and ask whether it is
+propaganda. That judges opinions, can't be checked, and fails on exactly the cases that matter:
+a true message pushed by a bot ring, or a false one shared by real, angry people.
+
+We don't look at what a post says. We look at **how accounts act together**: the same text or
+file from many accounts, bursts tighter than chance allows, the same accounts liking the same posts
+again and again, accounts created last week with template handles. Coordination is a property of
+a group, so every verdict is about a group, and every piece of evidence is a number with links to
+the posts behind it.
+
+- **Statistics decide, models explain.** The status of a cluster comes from fixed rules over four
+  independent signal families and a permutation test against a null model. Gemini writes the
+  explanation, but code makes sure it cites only real evidence and can only be more cautious than
+  the detector, never less.
+- **False positives are the main risk.** Breaking news and viral posts look like coordination.
+  Popular items are dropped before clustering, organic guards produce counter-evidence, and
+  conflicting evidence leads to "can't tell" instead of a flag.
+- **Honest numbers.** Every accuracy figure in the app is produced by `eval/` on held-out data
+  and served from the database. Nothing is typed in by hand.
+
+## Verdicts
+
+| Label | API value (`clusters.status`) | Meaning |
+|---|---|---|
+| 🚩 Shill | `coordinated` | At least two independent signal families fired, timing beats the null model, no strong organic explanation. |
+| 😎 Chill | `likely_organic` | A strong organic explanation (established accounts, a wider crowd doing the same) and at most one suspicious family. |
+| 🤷 Can't tell (yet) | `insufficient` | Everything else. We abstain. |
+
+"Shill" labels a cluster's verdict, never a person: we can show that accounts acted together, not
+that anyone was paid or why.
+
+## Architecture
+
+```
+   Bluesky Jetstream (public firehose, read-only)
+              │ posts, reposts, likes, follows, account events
+              ▼
+         ingest/ ──────────────▶ Postgres + pgvector ◀────────── eval/
+                                   ▲        │                 (recorded slices → eval_runs:
+                                   │        │                  recall, false-positive rate)
+                                   │        ▼
+                          signals/  every minute (10 min window) and every 5 min (1 h window):
+                                    shared keys → account graph → clusters →
+                                    4 signal families + null-model p-value + organic guards →
+                                    status (coordinated | likely_organic | insufficient)
+                                   │
+       ┌───────────────────────────┼───────────────────────────┐
+       ▼                           ▼                           ▼
+   sources/                     media/                      analyst/
+   Oxylabs Web API              Nemotron 3.5 Super VL       Gemini
+   /scrape linked pages,        reads images / frames:      explains the status, cites
+   /search where the text       OCR, reuse cues             evidence ids, counter-evidence;
+   or headline appears                                      code-checked (analyst/guard.py)
+       └───────────────────────────┴───────────────────────────┘
+                                   ▼  evidence (signal | source | media | analyst)
+                         api/ (FastAPI) ──▶ web/ dashboard   (Caddy, behind Hostinger's Traefik)
+```
+
+## Components
 
 | Dir | What it does |
 |---|---|
-| `ingest/` | Bluesky Jetstream consumer → Postgres (`posts`, `reposts`, `likes`, `follows`, `account_events`); record/replay |
-| `signals/` | Coordination detector: windows, signals, clusters, score + confidence, abstention |
-| `media/` | Nemotron Super VL: reads images/video frames, near-duplicate media |
-| `sources/` | Oxylabs `/scrape` + `/search` on cluster links (source URLs kept with every fact) |
-| `analyst/` | Gemini: per-cluster verdict with evidence and counter-evidence, or abstains |
-| `eval/` | Precision / recall / F1 / FPR on held-out labelled data → `eval_runs` |
-| `api/` | FastAPI backend |
-| `web/` | Dashboard (`web/public/index.html` is a placeholder until the real app lands) |
-| `common/` | Shared settings (`common.config`) and DB connections (`common.db`) |
-| `db/schema.sql` | Database schema, applied by the Postgres container on first start |
-| `deploy/` | Docker Compose + Caddy for the production VPS |
+| `ingest/` | Bluesky Jetstream consumer → Postgres (`posts`, `reposts`, `likes`, `follows`, `account_events`); hour-partitioned raw tables with retention; record/replay. See `ingest/README.md`. |
+| `signals/` | The coordination detector: windows, shared keys, account graph, clusters, four signal families, permutation null model, organic guards, deterministic status, enrichment. See `signals/README.md`. |
+| `sources/` | Oxylabs Web API: `/scrape` with AI extraction on a cluster's most-shared links, `/search` for its headline and repeated text. Every fact keeps its source URL. |
+| `media/` | Nemotron 3.5 Super VL: describes images and video frames in candidate clusters, extracts text, notes reuse cues. |
+| `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
+| `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. |
+| `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
+| `web/` | Dashboard served by Caddy. |
+| `common/` | Shared settings (`common.config`) and DB connections (`common.db`), migrations runner. |
+| `db/` | `schema.sql` plus `migrations/`. |
+| `deploy/` | Docker Compose, Caddy, deploy and outside-check scripts for the Hostinger VPS. |
 
-## Dev setup
+## How the metrics are made
+
+`eval/` replays recorded Jetstream hours offline, through the same normaliser and the same
+detector entry point as the live worker, and writes one `eval_runs` row per dataset and split.
+`GET /api/metrics` returns the latest row per dataset and split, unchanged.
+
+- **Recall**: synthetic campaigns (three difficulty levels) are injected one at a time into real
+  recorded windows; a campaign counts as caught when most of its accounts land in `coordinated`
+  clusters. Reported with a 95% Wilson interval.
+- **False-positive rate**: synthetic hard negatives (viral post, news link, live event, fandom)
+  and real organic bursts picked by a fixed rule that never looks at detector output.
+- **Split**: odd UTC hours are held out, even hours are for development. We tune only on dev.
+- Each row carries the detector version and the eval commit.
+- An empty `/api/metrics` means no run has been published to that deployment yet, so there are
+  no accuracy numbers to show yet.
+
+Live precision and confidence calibration need hand-labelled live clusters; they aren't reported
+until those labels exist. Details: [docs/METHODOLOGY.md](docs/METHODOLOGY.md#how-the-metrics-are-made).
+
+## Limits
+
+Short version (the full list is in
+[docs/METHODOLOGY.md](docs/METHODOLOGY.md#known-failure-modes-and-limits)):
+
+- Slow-drip campaigns with aged accounts and paraphrased text mostly come out "can't tell".
+- Only timing has a null model; content and identity base rates aren't modelled yet.
+- Declared automation (news feeds, schedulers, one publisher's several feed accounts) can look
+  coordinated; guards catch some of it, not all.
+- Rings that only push items that are already viral are invisible, because popular items are
+  dropped to protect breaking news.
+- Very short texts and unspaced scripts (Chinese, Japanese, Thai) don't produce text keys.
+- `confidence` is a heuristic until it's calibrated on labelled data.
+
+## Ethics
+
+We flag **behaviour, not opinions**: what a message says is never a signal. We show coordination,
+never payment or intent, and no account is ever called "a shill". Every verdict shows its
+counter-evidence and the rule behind it. Analysis is **read-only**: we never post, like, follow or
+create accounts on Bluesky, and test campaigns exist only in offline replays labelled synthetic.
+We use public data only and don't try to identify the people behind accounts.
+
+## Run locally
+
+Needs Python 3.12, [uv](https://docs.astral.sh/uv/) and a Postgres 16 with pgvector (or Docker).
 
 ```bash
 # uv: curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -29,6 +143,25 @@ uv run pytest
 uv run ruff check . && uv run ruff format .
 uv run uvicorn api.main:app --port <your port>   # e.g. GET /api/health
 ```
+
+The whole pipeline, against the database in `DATABASE_URL`:
+
+```bash
+uv run python -m common.migrate            # schema.sql + db/migrations/*.sql (idempotent)
+uv run python -m ingest run                # Jetstream → Postgres (add --record DIR to keep raw files)
+uv run python -m signals run               # detector worker (10m window every minute, 1h every 5 min)
+uv run python -m sources worker            # Oxylabs checks for clusters with score >= 0.5
+uv run python -m analyst worker            # Gemini verdicts for clusters with score >= 0.5
+uv run uvicorn api.main:app --port <your port>
+```
+
+One-off and offline tools: `python -m signals once --window 10m --dry-run` (one detector pass,
+writes nothing), `python -m sources cluster <id> --dry-run`, `python -m analyst prompt <id>` (shows
+the prompt), `python -m ingest replay DIR --database-url URL` (recorded files into another DB).
+Keys you need: `GEMINI_API_KEY` + `GEMINI_MODEL` (analyst), `OXYLABS_WEB_API_KEY` (sources and the
+web part of `/api/analyze`), `NVIDIA_API_KEY` (media). Without them the detector and API still run.
+
+Or run the production stack with Docker: `docker compose -f deploy/docker-compose.yml --env-file .env up -d --build`.
 
 On the shared team server, dev servers must use ports 3000-3099 or 8000-8099 (`je ports`).
 Add dependencies with `uv add <pkg>` and commit `uv.lock`.
