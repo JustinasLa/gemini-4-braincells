@@ -236,6 +236,7 @@ def main_args(args) -> int:
         print(f"no recorded {args.split} hours under {args.slice} ({hours})", file=sys.stderr)
         return 2
     t0 = time.monotonic()
+    commit = _git_sha()  # at start: the tree may change while a long run goes
     skipped = []
     for info, wd in iter_windows(files, args.window_s, DEFAULT):
         if wd is None:
@@ -275,7 +276,7 @@ def main_args(args) -> int:
         "what": "share of injected synthetic campaigns (did:plc:synth*) whose accounts the "
         "detector marks coordinated",
         "detector_version": DEFAULT.version,
-        "eval_commit": _git_sha(),
+        "eval_commit": commit,
         "hit_rule": f">= {MIN_COVERAGE:.0%} of the campaign's accounts in clusters with "
         "status 'coordinated'",
         "per_level": summary["per_level"],
