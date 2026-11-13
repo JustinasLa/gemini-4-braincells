@@ -6,6 +6,7 @@ from media.nemotron import MediaAnalysis, NotVisionModelError
 from media.worker import (
     TEMPLATE_KEY,
     ClusterMedia,
+    ClusterProgress,
     FailureBackoff,
     group_media,
     ocr_template,
@@ -213,3 +214,18 @@ def test_backed_off_media_is_counted_as_deferred_then_retried():
     fetcher.missing.clear()
     third = process_cluster_media(posts, FakeClient(), fetcher, skip=backoff)
     assert third.deferred == 0 and {f.group.media_hash for f in third.findings} == {"flaky", "ok"}
+
+
+def test_cluster_progress_holds_incomplete_clusters_back_for_a_while():
+    from media.worker import MediaFailure, MediaRun
+
+    now = [0.0]
+    progress = ClusterProgress(retry_s=300, clock=lambda: now[0])
+    progress.record(1, "t1", MediaRun())  # fully read
+    progress.record(2, "t2", MediaRun(failures=[MediaFailure("h", "did:a", "404")]))
+    progress.record(3, "t3", MediaRun(deferred=1))
+    assert progress.done() == {1: "t1", 2: "t2", 3: "t3"}
+    now[0] = 301  # incomplete ones become candidates again; the read one stays done
+    assert progress.done() == {1: "t1"}
+    progress.record(2, "t2", MediaRun())
+    assert progress.done() == {1: "t1", 2: "t2"}
