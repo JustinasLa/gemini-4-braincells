@@ -27,6 +27,11 @@ services:
     depends_on:
       db: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, sys, urllib.request; sys.exit(0 if json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5))['ok'] else 1)"]
+      interval: 60s
+      start_period: 30s
+      retries: 3
 
   # Applies db/schema.sql + db/migrations/*.sql (idempotent), then exits.
   migrate:
