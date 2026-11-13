@@ -17,10 +17,32 @@ _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:(?!\d)", re.IGNORECASE)
 
 # Query parameters that only track clicks; dropping them makes the same link compare equal.
 _TRACKING_PARAMS = {
-    "fbclid", "gclid", "dclid", "msclkid", "igshid", "mc_cid", "mc_eid", "_ga", "_gl",
-    "ref", "ref_src", "ref_url", "si", "feature", "share", "s", "t", "smid", "cmpid",
-    "yclid", "twclid", "ttclid", "spm", "src", "via",
-}  # fmt: skip
+    "fbclid",
+    "gclid",
+    "dclid",
+    "msclkid",
+    "igshid",
+    "mc_cid",
+    "mc_eid",
+    "_ga",
+    "_gl",
+    "ref",
+    "ref_src",
+    "ref_url",
+    "si",
+    "feature",
+    "share",
+    "s",
+    "t",
+    "smid",
+    "cmpid",
+    "yclid",
+    "twclid",
+    "ttclid",
+    "spm",
+    "src",
+    "via",
+}
 
 
 def normalize_text(text: str | None) -> str:

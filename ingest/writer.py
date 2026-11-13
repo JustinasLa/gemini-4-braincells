@@ -133,13 +133,27 @@ class Writer:
                 cur.executemany(
                     _POST_SQL,
                     [
-                        (p.uri, p.cid, p.did, p.text, p.langs, p.created_at, p.seen_at,
-                         p.reply_to, p.reply_root, p.quote_uri, p.embed_kind,
-                         p.embed_urls or None, p.media_hashes or None, p.mentions or None,
-                         p.tags or None, p.text_hash)
+                        (
+                            p.uri,
+                            p.cid,
+                            p.did,
+                            p.text,
+                            p.langs,
+                            p.created_at,
+                            p.seen_at,
+                            p.reply_to,
+                            p.reply_root,
+                            p.quote_uri,
+                            p.embed_kind,
+                            p.embed_urls or None,
+                            p.media_hashes or None,
+                            p.mentions or None,
+                            p.tags or None,
+                            p.text_hash,
+                        )
                         for p in batch.posts
                     ],
-                )  # fmt: skip
+                )
             for table, rows in batch.actions.items():
                 if not rows:
                     continue
@@ -169,9 +183,14 @@ class Writer:
                         last_event_at = EXCLUDED.last_event_at,
                         events_per_s = EXCLUDED.events_per_s, updated_at = now()
                     """,
-                    (self.stream, batch.last_time_us, host, us_to_dt(batch.last_time_us),
-                     events_per_s),
-                )  # fmt: skip
+                    (
+                        self.stream,
+                        batch.last_time_us,
+                        host,
+                        us_to_dt(batch.last_time_us),
+                        events_per_s,
+                    ),
+                )
         self.rows_written += batch.n
         return time.monotonic() - t0
 

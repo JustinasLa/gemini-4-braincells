@@ -35,8 +35,9 @@ STOP = object()
 class Reader(threading.Thread):
     """Reads raw messages from Jetstream into a queue. Owns reconnects and host failover."""
 
-    def __init__(self, hosts: list[str], cursor_us: int | None, out: queue.Queue,
-                 recorder: Recorder | None) -> None:  # fmt: skip
+    def __init__(
+        self, hosts: list[str], cursor_us: int | None, out: queue.Queue, recorder: Recorder | None
+    ) -> None:
         super().__init__(name="jetstream-reader", daemon=True)
         self.hosts = hosts
         self.cursor_us = cursor_us
@@ -84,8 +85,9 @@ class Reader(threading.Thread):
                 self.reconnects += 1
                 i += 1  # fail over to the next host
                 sleep = min(backoff, 30.0) * (0.5 + random.random())
-                log.warning("jetstream %s: %s: %s; next host in %.1fs",
-                            host, type(exc).__name__, exc, sleep)  # fmt: skip
+                log.warning(
+                    "jetstream %s: %s: %s; next host in %.1fs", host, type(exc).__name__, exc, sleep
+                )
                 time.sleep(sleep)
                 backoff = min(backoff * 2, 30.0)
         if self.recorder:
@@ -100,10 +102,18 @@ def load_cursor(conn: psycopg.Connection, stream: str) -> int | None:
     return row[0] if row else None
 
 
-def write_loop(source: queue.Queue, writer: Writer, *, host_fn=lambda: None,
-               batch_size: int = 2000, flush_s: float = 1.0, stats_s: float = 30.0,
-               maintain_fn=None, lag_fn=None,
-               max_events: int | None = None) -> int:  # fmt: skip
+def write_loop(
+    source: queue.Queue,
+    writer: Writer,
+    *,
+    host_fn=lambda: None,
+    batch_size: int = 2000,
+    flush_s: float = 1.0,
+    stats_s: float = 30.0,
+    maintain_fn=None,
+    lag_fn=None,
+    max_events: int | None = None,
+) -> int:
     """Drain the queue into the DB until STOP (or max_events). Returns events processed."""
     batch = Batch()
     last_flush = last_stats = time.monotonic()
@@ -142,10 +152,13 @@ def write_loop(source: queue.Queue, writer: Writer, *, host_fn=lambda: None,
             lag = lag_fn() if lag_fn else None
             log.info(
                 "events/s=%.0f lag_s=%s queue=%d rows=%d dupes=%d %s",
-                eps, f"{lag:.1f}" if lag is not None else "-", source.qsize(),
-                writer.rows_written, writer.dupes_dropped,
+                eps,
+                f"{lag:.1f}" if lag is not None else "-",
+                source.qsize(),
+                writer.rows_written,
+                writer.dupes_dropped,
                 " ".join(f"{k}={v}" for k, v in sorted(window_counts.items())),
-            )  # fmt: skip
+            )
             window_n = 0
             window_counts = {}
             last_stats = now
@@ -160,9 +173,15 @@ def write_loop(source: queue.Queue, writer: Writer, *, host_fn=lambda: None,
             return total
 
 
-def run_live(database_url: str, hosts: list[str], record_dir: str | None,
-             retention_hours: int, likes_retention_hours: int | None = None,
-             record_keep_hours: int = 24, max_events: int | None = None) -> None:  # fmt: skip
+def run_live(
+    database_url: str,
+    hosts: list[str],
+    record_dir: str | None,
+    retention_hours: int,
+    likes_retention_hours: int | None = None,
+    record_keep_hours: int = 24,
+    max_events: int | None = None,
+) -> None:
     with psycopg.connect(database_url, autocommit=True) as conn:
         writer = Writer(conn, stream="jetstream")
         cursor = load_cursor(conn, "jetstream")
@@ -180,16 +199,27 @@ def run_live(database_url: str, hosts: list[str], record_dir: str | None,
                 prune_recordings(record_dir, record_keep_hours)
 
         try:
-            n = write_loop(q, writer, host_fn=lambda: reader.host, lag_fn=lag,
-                           maintain_fn=maintain, max_events=max_events)  # fmt: skip
+            n = write_loop(
+                q,
+                writer,
+                host_fn=lambda: reader.host,
+                lag_fn=lag,
+                maintain_fn=maintain,
+                max_events=max_events,
+            )
         finally:
             reader.stop_event.set()
             reader.join(timeout=35)
         log.info("stopped after %d events (reconnects=%d)", n, reader.reconnects)
 
 
-def run_replay(database_url: str, paths: list, speed: float = 0.0,
-               max_events: int | None = None, stream: str = "replay") -> int:  # fmt: skip
+def run_replay(
+    database_url: str,
+    paths: list,
+    speed: float = 0.0,
+    max_events: int | None = None,
+    stream: str = "replay",
+) -> int:
     """Feed recorded files through the same normaliser and writer. speed=0: as fast as possible;
     speed=1: real time; speed=10: 10x."""
     q: queue.Queue = queue.Queue(maxsize=50_000)
