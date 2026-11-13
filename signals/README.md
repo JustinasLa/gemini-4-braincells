@@ -69,6 +69,25 @@ Only clusters that are `coordinated` or where some family scored >= 0.5 are stor
  "status_rule": {"coordinated": "...", "likely_organic": "..."}}
 ```
 
+Data for the dashboard's visuals, also in `clusters.signals` (since v1.3):
+```json
+{"window": {"kind": "10m", "start": "2026-11-13T19:49:00+00:00", "end": "..."},
+ "null_distribution": {"bin_edges": [0.0, 0.05, "...", 1.0], "counts": [0, 0, 51, 271, "..."],
+                       "observed": 1.0, "worlds": 500, "worlds_at_least_observed": 0},
+ "timeline": [{"t": 1794599361.2, "n": 3, "kind": "text", "key": "9f2c11ab", "uri": "at://..."}],
+ "member_graph": {"nodes": ["did:plc:...", "..."], "edges": [[0, 3, 2, 5]], "truncated": false}}
+```
+- `null_distribution`: the permutation test as a picture. `counts` per bin of the synchrony
+  statistic over 500 randomly time-shifted worlds; draw `observed` as a line. "Only
+  `worlds_at_least_observed` of `worlds` random worlds look this synchronized." `null` when the
+  cluster had too few shared actions to test.
+- `timeline`: member actions on shared items in time order (<= 150, evenly sampled). `t` is epoch
+  seconds (server time), `n` indexes `member_graph.nodes`, `key` groups actions on the same item
+  (colour by it), `kind` is the key kind (text, neardup, media, url, like, repost, quote, follow).
+- `member_graph`: `nodes` are the member DIDs (same order as `n`); `edges` are
+  `[i, j, shared_content, shared_engagement]`, strongest first, <= 150. No edges for clusters
+  over 150 members (`truncated: true`).
+
 **`evidence`** with `kind='signal'`: one row per signal (and per organic guard), upserted by name
 so `id`s stay stable while the episode updates. `summary` is one human sentence. `source_url` is
 the first bsky.app post link. `model` = `detector:<version>`. `detail`:

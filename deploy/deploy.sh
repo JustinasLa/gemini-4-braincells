@@ -2,7 +2,8 @@
 # Ship a committed git ref to the Hostinger VPS and (re)start the stack there.
 #   deploy/deploy.sh [ref]          # default: origin/main (run `git fetch` first)
 # Env: HOSTINGER_HOST (required), HOSTINGER_USER (default root), HOSTINGER_SSH_KEY (optional key file),
-#      HOSTINGER_DIR (default /opt/noise-radar).
+#      HOSTINGER_DIR (default /opt/noise-radar), CHECK_URL (public base URL; when set, deploy/check.sh
+#      runs against it after the deploy and the script fails if the site is unhealthy).
 # The VPS needs no GitHub access: the tree goes over SSH with `git archive`, so only committed files
 # ship. Each deploy lands in $DIR/releases/<sha>, `current` points at it, and $DIR/.env (created once
 # by hand on the VPS, never committed) is linked into every release. Roll back: deploy an older sha.
@@ -48,7 +49,17 @@ dc=(docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.hosting
 "${dc[@]}" up -d --remove-orphans
 ln -sfn "releases/$sha" "$dir/current"
 docker image prune -f --filter label=com.docker.compose.project=noise-radar >/dev/null
+docker builder prune -f --filter until=72h >/dev/null   # build cache grows ~1 GB per deploy otherwise
 # keep the 5 newest finished releases
 ls -1dt "$dir"/releases/*/ | { grep -v '\.tmp/$' || true; } | tail -n +6 | xargs -r rm -rf
 "${dc[@]}" ps
 REMOTE
+
+if [[ -n ${CHECK_URL:-} ]]; then
+  for _ in 1 2 3 4 5 6; do   # api and ingest need a moment after a recreate
+    if "$(dirname "$0")/check.sh" "$CHECK_URL"; then exit 0; fi
+    sleep 15
+  done
+  echo "deployed $sha, but $CHECK_URL is unhealthy" >&2
+  exit 1
+fi
