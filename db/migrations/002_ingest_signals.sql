@@ -1,5 +1,5 @@
 -- 002: ingest + signals schema (owner: kirill). Additive to db/schema.sql, with one exception:
--- the raw event tables (posts, reposts, follows; likes is new) become day-partitioned by
+-- the raw event tables (posts, reposts, follows; likes is new) become hour-partitioned by
 -- `seen_at` (Jetstream server time, derived from time_us). Record `createdAt` is client-supplied
 -- and can be backdated or in the future, so it can't be the partition key; it stays in `created_at`.
 -- The conversion only runs while those tables are empty and refuses otherwise.
@@ -54,7 +54,9 @@ CREATE INDEX IF NOT EXISTS account_events_did_idx ON account_events (did, time_u
 CREATE INDEX IF NOT EXISTS account_events_status_idx ON account_events (status, time_us)
     WHERE status IS NOT NULL;
 
--- 3. Raw event tables, partitioned by day on seen_at ----------------------------------------------
+-- 3. Raw event tables, partitioned by hour on seen_at (hourly so retention can be tight: ~550 B/row
+-- with indexes at ~500 events/s is ~20 GB/day). seen_at indexes are BRIN: rows arrive in time order.
+-- ----------------------------------------------
 CREATE TABLE IF NOT EXISTS posts (
     uri           TEXT NOT NULL,
     cid           TEXT,
@@ -80,7 +82,7 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE INDEX IF NOT EXISTS posts_created_at_idx  ON posts (created_at);
 CREATE INDEX IF NOT EXISTS posts_ingested_at_idx ON posts (ingested_at);
 CREATE INDEX IF NOT EXISTS posts_did_idx         ON posts (did, seen_at);
-CREATE INDEX IF NOT EXISTS posts_seen_at_idx     ON posts (seen_at);
+CREATE INDEX IF NOT EXISTS posts_seen_at_idx ON posts USING BRIN (seen_at);
 CREATE INDEX IF NOT EXISTS posts_reply_to_idx    ON posts (reply_to, seen_at) WHERE reply_to IS NOT NULL;
 CREATE INDEX IF NOT EXISTS posts_quote_idx       ON posts (quote_uri, seen_at) WHERE quote_uri IS NOT NULL;
 CREATE INDEX IF NOT EXISTS posts_text_hash_idx   ON posts (text_hash, seen_at) WHERE text_hash IS NOT NULL;
@@ -99,7 +101,7 @@ CREATE TABLE IF NOT EXISTS reposts (
 ) PARTITION BY RANGE (seen_at);
 CREATE INDEX IF NOT EXISTS reposts_subject_idx ON reposts (subject_uri, seen_at);
 CREATE INDEX IF NOT EXISTS reposts_did_idx     ON reposts (did, seen_at);
-CREATE INDEX IF NOT EXISTS reposts_seen_at_idx ON reposts (seen_at);
+CREATE INDEX IF NOT EXISTS reposts_seen_at_idx ON reposts USING BRIN (seen_at);
 
 CREATE TABLE IF NOT EXISTS likes (
     uri           TEXT NOT NULL,
@@ -113,7 +115,7 @@ CREATE TABLE IF NOT EXISTS likes (
 ) PARTITION BY RANGE (seen_at);
 CREATE INDEX IF NOT EXISTS likes_subject_idx ON likes (subject_uri, seen_at);
 CREATE INDEX IF NOT EXISTS likes_did_idx     ON likes (did, seen_at);
-CREATE INDEX IF NOT EXISTS likes_seen_at_idx ON likes (seen_at);
+CREATE INDEX IF NOT EXISTS likes_seen_at_idx ON likes USING BRIN (seen_at);
 
 CREATE TABLE IF NOT EXISTS follows (
     uri           TEXT NOT NULL,
@@ -126,55 +128,62 @@ CREATE TABLE IF NOT EXISTS follows (
 ) PARTITION BY RANGE (seen_at);
 CREATE INDEX IF NOT EXISTS follows_subject_idx ON follows (subject_did, seen_at);
 CREATE INDEX IF NOT EXISTS follows_did_idx     ON follows (did, seen_at);
-CREATE INDEX IF NOT EXISTS follows_seen_at_idx ON follows (seen_at);
+CREATE INDEX IF NOT EXISTS follows_seen_at_idx ON follows USING BRIN (seen_at);
 
--- Partition helpers. Day boundaries are UTC.
-CREATE OR REPLACE FUNCTION noise_ensure_day_partitions(d date) RETURNS void
-LANGUAGE plpgsql AS $$
+-- Partition helpers. Hour boundaries are UTC; partitions are named <table>_pYYYYMMDDHH.
+CREATE OR REPLACE FUNCTION noise_ensure_partitions(from_ts timestamptz, to_ts timestamptz)
+RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
     t text;
+    h timestamp;
     part text;
 BEGIN
-    FOREACH t IN ARRAY ARRAY['posts', 'reposts', 'likes', 'follows'] LOOP
-        part := t || '_p' || to_char(d, 'YYYYMMDD');
-        IF to_regclass(part) IS NULL THEN
-            BEGIN
-                EXECUTE format(
-                    'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
-                    part, t,
-                    (d::timestamp AT TIME ZONE 'UTC'),
-                    ((d + 1)::timestamp AT TIME ZONE 'UTC'));
-            EXCEPTION WHEN duplicate_table THEN NULL;
-            END;
-        END IF;
+    h := date_trunc('hour', from_ts AT TIME ZONE 'UTC');
+    WHILE h <= date_trunc('hour', to_ts AT TIME ZONE 'UTC') LOOP
+        FOREACH t IN ARRAY ARRAY['posts', 'reposts', 'likes', 'follows'] LOOP
+            part := t || '_p' || to_char(h, 'YYYYMMDDHH24');
+            IF to_regclass(part) IS NULL THEN
+                BEGIN
+                    EXECUTE format(
+                        'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+                        part, t, (h AT TIME ZONE 'UTC'), ((h + interval '1 hour') AT TIME ZONE 'UTC'));
+                EXCEPTION WHEN duplicate_table THEN NULL;
+                END;
+            END IF;
+        END LOOP;
+        h := h + interval '1 hour';
     END LOOP;
 END $$;
 
--- Drops raw partitions whose whole day ended more than keep_hours before ref. Returns dropped names.
-CREATE OR REPLACE FUNCTION noise_drop_old_partitions(keep_hours integer, ref timestamptz DEFAULT now())
+-- Drops raw hour partitions of the given tables that ended more than keep_hours before ref.
+CREATE OR REPLACE FUNCTION noise_drop_old_partitions(
+    keep_hours integer,
+    ref timestamptz DEFAULT now(),
+    tables text[] DEFAULT ARRAY['posts', 'reposts', 'likes', 'follows'])
 RETURNS SETOF text LANGUAGE plpgsql AS $$
 DECLARE
     r record;
-    day_end timestamptz;
+    part_end timestamptz;
 BEGIN
     FOR r IN
         SELECT c.relname AS part
         FROM pg_inherits i
         JOIN pg_class c ON c.oid = i.inhrelid
         JOIN pg_class p ON p.oid = i.inhparent
-        WHERE p.relname IN ('posts', 'reposts', 'likes', 'follows')
-          AND c.relname ~ '_p[0-9]{8}$'
+        WHERE p.relname = ANY (tables)
+          AND c.relname ~ '_p[0-9]{10}$'
+        ORDER BY c.relname
     LOOP
-        day_end := ((to_date(right(r.part, 8), 'YYYYMMDD') + 1)::timestamp AT TIME ZONE 'UTC');
-        IF day_end < ref - make_interval(hours => keep_hours) THEN
+        part_end := (to_timestamp(right(r.part, 10), 'YYYYMMDDHH24')::timestamp
+                     + interval '1 hour') AT TIME ZONE 'UTC';
+        IF part_end < ref - make_interval(hours => keep_hours) THEN
             EXECUTE format('DROP TABLE %I', r.part);
             RETURN NEXT r.part;
         END IF;
     END LOOP;
 END $$;
 
-SELECT noise_ensure_day_partitions(current_date);
-SELECT noise_ensure_day_partitions(current_date + 1);
+SELECT noise_ensure_partitions(now() - interval '1 hour', now() + interval '3 hours');
 
 -- 4. Ingest cursor / health -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ingest_state (

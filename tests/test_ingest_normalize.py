@@ -1,0 +1,200 @@
+from datetime import UTC, datetime
+
+from ingest.normalize import AccountEvent, Action, Delete, Post, did_of, normalize, parse_ts
+from signals.textnorm import normalize_text, normalize_url, text_hash
+
+DID = "did:plc:abc123"
+T_US = 1794598323302197
+
+
+def commit(collection, record=None, op="create", rkey="3n27pxszzdz2w"):
+    c = {"rev": "r", "operation": op, "collection": collection, "rkey": rkey}
+    if record is not None:
+        c["record"] = record
+        c["cid"] = "bafyrecordcid"
+    return {"did": DID, "time_us": T_US, "kind": "commit", "commit": c}
+
+
+def blob(cid):
+    return {"$type": "blob", "ref": {"$link": cid}, "mimeType": "image/jpeg", "size": 1}
+
+
+def test_plain_post():
+    row = normalize(commit("app.bsky.feed.post", {
+        "$type": "app.bsky.feed.post", "text": "Hello  World!", "langs": ["en"],
+        "createdAt": "2026-11-13T19:32:02.801Z",
+    }))  # fmt: skip
+    assert isinstance(row, Post)
+    assert row.uri == f"at://{DID}/app.bsky.feed.post/3n27pxszzdz2w"
+    assert row.text == "Hello  World!"
+    assert row.langs == ["en"]
+    assert row.created_at == datetime(2026, 11, 13, 19, 32, 2, 801000, tzinfo=UTC)
+    assert row.seen_at == datetime.fromtimestamp(T_US / 1e6, tz=UTC)
+    assert row.text_hash == text_hash("hello world")
+    assert row.embed_kind is None and row.embed_urls == [] and row.media_hashes == []
+
+
+def test_post_with_images():
+    row = normalize(commit("app.bsky.feed.post", {
+        "text": "look", "createdAt": "2026-11-13T19:32:02Z",
+        "embed": {"$type": "app.bsky.embed.images",
+                  "images": [{"alt": "", "image": blob("bafkimg1")},
+                             {"alt": "", "image": {"cid": "bafklegacy", "mimeType": "image/png"}}]},
+    }))  # fmt: skip
+    assert row.embed_kind == "images"
+    assert row.media_hashes == ["bafkimg1", "bafklegacy"]
+
+
+def test_post_with_video():
+    row = normalize(commit("app.bsky.feed.post", {
+        "text": "", "createdAt": "2026-11-13T19:32:02Z",
+        "embed": {"$type": "app.bsky.embed.video", "video": blob("bafkvid")},
+    }))  # fmt: skip
+    assert row.embed_kind == "video"
+    assert row.media_hashes == ["bafkvid"]
+    assert row.text_hash is None
+
+
+def test_external_link_and_facets():
+    row = normalize(commit("app.bsky.feed.post", {
+        "text": "read this #News @bob.bsky.social example.org/x",
+        "createdAt": "2026-11-13T19:32:02Z",
+        "embed": {"$type": "app.bsky.embed.external",
+                  "external": {"uri": "https://WWW.Example.com/a/?utm_source=x&id=2#frag",
+                               "title": "t", "description": "d"}},
+        "facets": [
+            {"index": {"byteStart": 0, "byteEnd": 1},
+             "features": [{"$type": "app.bsky.richtext.facet#link",
+                           "uri": "https://example.org/x?fbclid=zzz"}]},
+            {"index": {"byteStart": 0, "byteEnd": 1},
+             "features": [{"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:bob"}]},
+            {"index": {"byteStart": 0, "byteEnd": 1},
+             "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": "News"}]},
+            {"index": {"byteStart": 0, "byteEnd": 1},
+             "features": [{"$type": "app.bsky.richtext.facet#link",
+                           "uri": "https://example.com/a?id=2"}]},
+        ],
+    }))  # fmt: skip
+    assert row.embed_kind == "external"
+    assert row.embed_urls == ["https://example.com/a?id=2", "https://example.org/x"]
+    assert row.mentions == ["did:plc:bob"]
+    assert row.tags == ["news"]
+
+
+def test_reply():
+    parent = "at://did:plc:p/app.bsky.feed.post/1"
+    root = "at://did:plc:r/app.bsky.feed.post/0"
+    row = normalize(commit("app.bsky.feed.post", {
+        "text": "I love this show, such a hidden gem.", "createdAt": "2026-11-13T19:32:02Z",
+        "reply": {"parent": {"uri": parent, "cid": "c1"}, "root": {"uri": root, "cid": "c0"}},
+    }))  # fmt: skip
+    assert row.reply_to == parent and row.reply_root == root
+
+
+def test_quote_and_record_with_media():
+    q = "at://did:plc:q/app.bsky.feed.post/9"
+    row = normalize(commit("app.bsky.feed.post", {
+        "text": "lol", "createdAt": "2026-11-13T19:32:02Z",
+        "embed": {"$type": "app.bsky.embed.record", "record": {"uri": q, "cid": "c"}},
+    }))  # fmt: skip
+    assert row.embed_kind == "record" and row.quote_uri == q
+    row = normalize(commit("app.bsky.feed.post", {
+        "text": "lol", "createdAt": "2026-11-13T19:32:02Z",
+        "embed": {"$type": "app.bsky.embed.recordWithMedia",
+                  "record": {"$type": "app.bsky.embed.record", "record": {"uri": q, "cid": "c"}},
+                  "media": {"$type": "app.bsky.embed.images", "images": [{"image": blob("m")}]}},
+    }))  # fmt: skip
+    assert row.embed_kind == "recordWithMedia"
+    assert row.quote_uri == q and row.media_hashes == ["m"]
+
+
+def test_repost_like_follow():
+    subj = "at://did:plc:author/app.bsky.feed.post/xyz"
+    for coll, table in (("app.bsky.feed.repost", "reposts"), ("app.bsky.feed.like", "likes")):
+        row = normalize(
+            commit(
+                coll,
+                {
+                    "subject": {"uri": subj, "cid": "c"},
+                    "createdAt": "2026-11-13T19:32:02.908768+00:00",
+                },
+            )
+        )
+        assert isinstance(row, Action) and row.table == table
+        assert row.subject_uri == subj and row.subject_did == "did:plc:author"
+        assert row.created_at is not None
+    row = normalize(
+        commit(
+            "app.bsky.graph.follow",
+            {"subject": "did:plc:target", "createdAt": "2026-11-13T19:32:03Z"},
+        )
+    )
+    assert row.table == "follows" and row.subject_did == "did:plc:target"
+    assert row.subject_uri is None
+
+
+def test_deletes():
+    for coll, table in (
+        ("app.bsky.feed.post", "posts"),
+        ("app.bsky.feed.like", "likes"),
+        ("app.bsky.feed.repost", "reposts"),
+        ("app.bsky.graph.follow", "follows"),
+    ):
+        row = normalize(commit(coll, op="delete", rkey="k1"))
+        assert isinstance(row, Delete)
+        assert row.table == table and row.uri == f"at://{DID}/{coll}/k1"
+
+
+def test_account_and_identity_events():
+    row = normalize({"did": DID, "time_us": T_US, "kind": "account", "account": {
+        "active": False, "did": DID, "seq": 5, "status": "takendown",
+        "time": "2026-11-13T19:32:06.412Z"}})  # fmt: skip
+    assert isinstance(row, AccountEvent)
+    assert (row.kind, row.active, row.status, row.seq) == ("account", False, "takendown", 5)
+    row = normalize(
+        {
+            "did": DID,
+            "time_us": T_US,
+            "kind": "account",
+            "account": {"active": True, "did": DID, "seq": 6, "time": "x"},
+        }
+    )
+    assert row.status == "active" and row.event_time is None
+    row = normalize(
+        {
+            "did": DID,
+            "time_us": T_US,
+            "kind": "identity",
+            "identity": {
+                "did": DID,
+                "seq": 7,
+                "time": "2026-11-13T19:32:09Z",
+                "handle": "new.bsky.social",
+            },
+        }
+    )
+    assert row.kind == "identity" and row.handle == "new.bsky.social"
+
+
+def test_garbage_is_ignored():
+    assert normalize({}) is None
+    assert normalize({"did": DID, "time_us": "x", "kind": "commit"}) is None
+    assert normalize(commit("app.bsky.actor.profile", {"x": 1})) is None
+    assert normalize(commit("app.bsky.feed.like", {"subject": "not-a-ref"})) is None
+    assert normalize(commit("app.bsky.feed.post", "not-a-dict")) is None
+    row = normalize(commit("app.bsky.feed.post", {"text": "a\x00b", "createdAt": "99999-01-01"}))
+    assert row.text == "ab" and row.created_at is None
+
+
+def test_helpers():
+    assert parse_ts("2026-11-13T19:32:02.908768+00:00").tzinfo is not None
+    assert parse_ts("1970-01-01T00:00:00Z") is None
+    assert did_of("at://did:plc:x/app.bsky.feed.post/1") == "did:plc:x"
+    assert did_of("at://handle.example/app.bsky.feed.post/1") is None
+    assert normalize_text("🔥 BUY NOW!!! https://x.co/a @bob.bsky.social #Deal") == "buy now #deal"
+    assert (
+        normalize_url("HTTP://www.Example.COM:443/?b=2&a=1&utm_x=3")
+        == "https://example.com?a=1&b=2"
+    )
+    assert normalize_url("javascript:alert(1)") is None
+    assert normalize_url("") is None
