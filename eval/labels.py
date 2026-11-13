@@ -364,15 +364,21 @@ def build_evidence(
 # ---------------------------------------------------------------- sampling (DB part)
 
 
-def fetch_candidates(conn, settled_min: float, include_synthetic: bool = False) -> list[Candidate]:
+def fetch_candidates(
+    conn, settled_min: float, max_age_h: float, include_synthetic: bool = False
+) -> list[Candidate]:
+    """max_age_h: only windows that started within this many hours, so the raw likes/reposts/
+    follows they need are still retained (ingest prunes likes after 12 h, the rest after 24 h);
+    otherwise the frozen evidence would silently show zero activity."""
     rows = conn.execute(
         """
         SELECT id, campaign_id, status, score, window_start FROM clusters
         WHERE updated_at < now() - make_interval(secs => %s)
+          AND window_start > now() - make_interval(secs => %s)
           AND (%s OR NOT coalesce(synthetic, false))
         ORDER BY id
         """,
-        (settled_min * 60, include_synthetic),
+        (settled_min * 60, max_age_h * 3600, include_synthetic),
     ).fetchall()
     return [Candidate(r[0], r[1], r[2], float(r[3]), r[4]) for r in rows]
 
@@ -519,8 +525,10 @@ def fetch_cluster(conn, cluster_id: int) -> tuple[dict, dict]:
     return det, ev
 
 
-def build_sample(conn, name: str, n: int, seed: int, settled_min: float, source: str) -> dict:
-    cands = fetch_candidates(conn, settled_min)
+def build_sample(
+    conn, name: str, n: int, seed: int, settled_min: float, max_age_h: float, source: str
+) -> dict:
+    cands = fetch_candidates(conn, settled_min, max_age_h)
     reps = one_per_campaign(cands, random.Random(seed))
     picked, strata = stratified_sample(reps, n, seed)
     items = []
@@ -546,7 +554,8 @@ def build_sample(conn, name: str, n: int, seed: int, settled_min: float, source:
         "seed": seed,
         "eval_commit": _git_sha(),
         "rule": (
-            f"clusters not updated for >= {settled_min:g} min, synthetic excluded; one random "
+            f"clusters not updated for >= {settled_min:g} min and starting within the last "
+            f"{max_age_h:g} h (raw actions still retained), synthetic excluded; one random "
             "episode per campaign; stratified by detector status (target shares "
             f"{STATUS_SHARE}) x 4 equal-count score bands; weight = stratum population / sampled"
         ),
@@ -585,7 +594,10 @@ def load_records(path: Path) -> tuple[dict[str, dict[int, dict]], dict[int, dict
     adj: dict[int, dict] = {}
     if not path.exists():
         return {}, {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    with open(path, encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_SH)  # writers hold LOCK_EX: never read half a record
+        text = f.read()
+    for line in text.splitlines():
         if not line.strip():
             continue
         r = json.loads(line)
@@ -847,6 +859,12 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         default=15.0,
         help="only clusters not updated for this many minutes",
     )
+    s.add_argument(
+        "--max-age-h",
+        type=float,
+        default=10.0,
+        help="only windows that started this recently (likes are kept 12 h)",
+    )
     s.add_argument("--source", default="live", help="free text: which deployment was read")
     s.add_argument("--database-url", help="DB to read (default: DATABASE_URL / .env)")
     v = sub.add_parser("serve", help="labelling web page")
@@ -874,7 +892,7 @@ def main_args(a: argparse.Namespace) -> int:
             url = get_settings().database_url
         with psycopg.connect(url, connect_timeout=10) as conn:
             conn.read_only = True
-            sample = build_sample(conn, a.name, a.n, a.seed, a.settled_min, a.source)
+            sample = build_sample(conn, a.name, a.n, a.seed, a.settled_min, a.max_age_h, a.source)
         out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(".tmp")
         tmp.write_text(json.dumps(sample, ensure_ascii=False, indent=1, default=str))

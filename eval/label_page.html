@@ -99,6 +99,8 @@ const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : null;
 const link = (u, t) => safeUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(t ?? u)}</a>` : esc(t ?? u ?? "");
 let me = null; try { me = localStorage.getItem("labeller"); } catch (e) {}
 let N = 0, cur = 1, done = {}, mode = "label", t0 = Date.now(), adjItems = [];
+// shown = item whose evidence is on screen (null while loading); labels always go to it
+let shown = null, busy = false, loadSeq = 0;
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : {});
@@ -125,6 +127,7 @@ async function refresh() {
 function nextOpen(from) { for (let i = 1; i <= N; i++) { const k = ((from - 1 + i) % N) + 1; if (!done[k]) return k; } return null; }
 
 async function route() {
+  shown = null;
   const h = location.hash;
   await refresh();
   if (h.startsWith("#adj")) return showAdj(h.split("/")[1]);
@@ -177,22 +180,30 @@ function render(d) {
 function go(k) { location.hash = (mode === "adj" ? "#adj/" : "#") + k; }
 
 async function show(k) {
+  shown = null;
+  const seq = ++loadSeq;
   const d = await api(`/api/item/${k}?labeller=${encodeURIComponent(me)}`);
+  if (seq !== loadSeq) return;  // a newer navigation won
   render(d);
   $("#bar").style.display = "block";
   $("#note").value = d.mine ? d.mine.note : "";
   document.querySelectorAll("[data-l]").forEach(b => b.classList.toggle("sel", !!d.mine && d.mine.label === b.dataset.l));
   t0 = Date.now(); window.scrollTo(0, 0);
+  shown = d.item;
 }
 
 async function choose(label) {
-  const body = {item: cur, labeller: me, label, note: $("#note").value, seconds: Math.round((Date.now() - t0) / 1000)};
+  if (shown === null || busy) return;  // still loading or saving: ignore the key
+  const item = shown;
+  const body = {item, labeller: me, label, note: $("#note").value, seconds: Math.round((Date.now() - t0) / 1000)};
+  busy = true;
   try {
     if (mode === "adj") { await api("/api/adjudicate", body); location.hash = "#adj"; return; }
     await api("/api/label", body);
   } catch (e) { alert("not saved: " + e.message); return; }
-  done[cur] = label;
-  const n = nextOpen(cur);
+  finally { busy = false; }
+  done[item] = label;
+  const n = nextOpen(item);
   if (n) go(n); else { await refresh(); $("#view").insertAdjacentHTML("afterbegin", `<div class="card"><b>All ${N} items labelled. Thank you.</b> You can still go back and change any label.</div>`); }
 }
 document.querySelectorAll("[data-l]").forEach(b => b.onclick = () => choose(b.dataset.l));

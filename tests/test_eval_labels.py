@@ -330,3 +330,36 @@ def test_server_label_flow_and_disagreements(client):
     labs, adj = L.load_records(L.labels_path("t", root))
     assert adj[1]["label"] == "organic" and labs["bob"][1]["label"] == "organic"
     assert c.get("/api/item/1", params={"labeller": "ann"}).json()["mine"]["label"] == "coordinated"
+
+
+def _race_write(path, k):
+    for i in range(150):
+        rec = {**_lab(i % 50 + 1, "organic", f"w{k}"), "note": "\U0001f642" * 2000}
+        L.append_record(path, rec)
+
+
+def _race_read(path, stop, errors):
+    while not stop.is_set():
+        try:
+            L.load_records(path)
+        except Exception:  # a torn record: JSON/Unicode decode error
+            with errors.get_lock():
+                errors.value += 1
+            return
+
+
+def test_store_readers_never_see_half_a_record(tmp_path):
+    import multiprocessing as mp
+
+    ctx = mp.get_context("fork")
+    p, stop, errors = tmp_path / "c.labels.jsonl", ctx.Event(), ctx.Value("i", 0)
+    writers = [ctx.Process(target=_race_write, args=(p, k)) for k in range(3)]
+    readers = [ctx.Process(target=_race_read, args=(p, stop, errors)) for _ in range(3)]
+    for x in writers + readers:
+        x.start()
+    for x in writers:
+        x.join()
+    stop.set()
+    for x in readers:
+        x.join()
+    assert errors.value == 0
