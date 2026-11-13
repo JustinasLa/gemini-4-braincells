@@ -1,0 +1,8 @@
+Answer these three questions about this repository. Be precise: name files, functions and line numbers.
+1. Trace how a cluster status ("coordinated", "likely_organic", "insufficient") is produced in signals/ and reaches the JSON of GET /api/clusters/{id}: list every function on that path in order.
+2. Which code paths can trigger a live Oxylabs /scrape or /search call at runtime? List each caller chain from a worker or API entry point down to the HTTP call.
+3. What depends on the analyst guard (analyst/guard.py)? List its callers and what would break if it raised an exception instead of returning a verdict.
+
+Use Entire Graph and Brain as this repository's agent guide says (entire brain brief, entire graph query/def/neighbors/impact) for locating code and relationships.
+
+Write your final answers to ab/graph.md (create the ab/ folder if needed), then run: git add ab/graph.md && git commit -m "token A/B: graph arm answers to the 3 code questions"
