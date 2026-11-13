@@ -1,0 +1,15 @@
+# Override for the Hostinger VPS. Its Docker Manager already runs Traefik on :80/:443
+# (host network, Let's Encrypt, /docker/traefik). Caddy stays our in-stack router but takes
+# no host ports; Traefik sends https://$PUBLIC_HOST to it and handles the certificate.
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.hostinger.yml --env-file .env up -d --build
+services:
+  caddy:
+    ports: !reset []
+    environment:
+      PUBLIC_DOMAIN: ":80"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.noise-radar.rule=Host(`${PUBLIC_HOST:?set PUBLIC_HOST in .env}`)
+      - traefik.http.routers.noise-radar.entrypoints=websecure
+      - traefik.http.routers.noise-radar.tls.certresolver=letsencrypt
+      - traefik.http.services.noise-radar.loadbalancer.server.port=80
