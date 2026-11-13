@@ -48,6 +48,10 @@ def _summary(row: dict, *, n_signals: int = 3) -> ClusterSummary:
                 summary=v.get("summary"),
                 model=v.get("model"),
                 created_at=row["verdict_at"],
+                llm_assessment=v.get("llm_assessment"),
+                agrees_with_detector=v.get("agrees_with_detector"),
+                disagreement_reason=v.get("disagreement_reason") or None,
+                tool_calls=len(v.get("tool_calls") or []),
             )
             if v
             else None
