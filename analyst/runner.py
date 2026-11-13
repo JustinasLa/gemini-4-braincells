@@ -47,7 +47,7 @@ class Analyst:
         return self.agent.name
 
     @classmethod
-    def from_settings(cls, web: WebClient | None) -> "Analyst":
+    def from_settings(cls, web: WebClient | None, *, tools: bool | None = None) -> "Analyst":
         s = get_settings()
         batch = (
             GeminiVerdictModel(s.gemini_api_key, s.gemini_batch_model)
@@ -58,7 +58,7 @@ class Analyst:
             agent=GeminiAgent.from_settings(),
             batch=batch,
             web=web,
-            tools=s.analyst_tools,
+            tools=s.analyst_tools if tools is None else tools,
             budget={
                 "max_tool_calls": s.analyst_max_tool_calls,
                 "max_web_calls": s.analyst_max_web_calls,
@@ -71,7 +71,13 @@ class Analyst:
     ) -> Verdict:
         if self.batch is not None and ctx.status not in TOOL_STATUSES:
             return analyze(ctx, self.batch)
-        sink: EvidenceSink = MemorySink() if dry_run or conn is None else DbSink(conn, ctx.id)
+        sink: EvidenceSink
+        if conn is None:
+            sink = MemorySink()
+        elif dry_run:  # writes nothing, but reuses rows already stored (no repeat Oxylabs calls)
+            sink = MemorySink(read_through=DbSink(conn, ctx.id).existing)
+        else:
+            sink = DbSink(conn, ctx.id)
         box = ToolBox(
             ctx,
             web=self.web if self.tools else None,

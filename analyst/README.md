@@ -144,6 +144,18 @@ Why these two:
   abstained; Gemini, after looking, sometimes commits). They are stored as
   `agrees_with_detector=false` with a reason and do not change the status.
 
+The numbers above were measured at commit 1821ed3. The review fixes after it (post links seeded
+into the fetch allowlist, a broken tool returns an error instead of aborting, clearer search
+summaries) change what the agent may fetch, not the models, so they were not re-measured.
+
+Example after those fixes (cluster 675, `--dry-run`, gemini-4-hydrogen, $0.062, 4 model turns):
+4 established accounts shared a CNN link about the FAA nationwide ground stop. Gemini read the
+posts, scraped the CNN page (`/scrape`, 5.5 s), searched the story (`/search`, 1.6 s; CNBC among
+the hits) and cited both. Its assessment was `likely_organic` against the detector's
+`insufficient`, with the reason that the organic guard (0.525) was just under its 0.6 threshold
+while live coverage by several major outlets confirms real breaking news. The status stays
+`insufficient`; the disagreement is stored and shown.
+
 Re-run: `uv run python -m analyst.compare --per-status 5` (needs `DATABASE_URL`,
 `GEMINI_API_KEY`, `OXYLABS_WEB_API_KEY`; about 25 min and $3 for 5 models x 2 modes x 15
 clusters).

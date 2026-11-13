@@ -27,16 +27,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 
-from google.genai import types
-
 from analyst import store
-from analyst.agent import GeminiAgent, _parse
+from analyst.agent import GeminiAgent
 from analyst.gemini import GeminiVerdictModel
 from analyst.guard import enforce
-from analyst.pricing import cost_usd
 from analyst.prompt import SYSTEM, build_prompt
 from analyst.tools import Budget, MemorySink, ToolBox, WebCache
-from analyst.verdict import VerdictDraft
 from common.config import get_settings
 from common.db import connect
 
@@ -72,34 +68,6 @@ def pick_clusters(conn, per_status: int) -> list[int]:
         ).fetchall()
         ids += [r["id"] for r in rows]
     return ids
-
-
-class _CountingGemini(GeminiVerdictModel):
-    """Single-shot model that also keeps the usage of its last call."""
-
-    def draft(self, system, prompt):
-        started = time.monotonic()
-        res = self._client.models.generate_content(
-            model=self.name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                response_mime_type="application/json",
-                response_schema=VerdictDraft,
-                temperature=self._temperature,
-            ),
-        )
-        u = res.usage_metadata
-        out = (getattr(u, "candidates_token_count", 0) or 0) + (
-            getattr(u, "thoughts_token_count", 0) or 0
-        )
-        self.last = {
-            "latency_ms": int((time.monotonic() - started) * 1000),
-            "prompt_tokens": getattr(u, "prompt_token_count", None),
-            "output_tokens": out,
-            "cost_usd": cost_usd(self.name, getattr(u, "prompt_token_count", 0), out),
-        }
-        return _parse(res)
 
 
 def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web) -> list[dict]:
@@ -147,10 +115,10 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
                         ],
                     )
                 else:
-                    m = _CountingGemini(s.gemini_api_key, model)
+                    m = GeminiVerdictModel(s.gemini_api_key, model)
                     draft = m.draft(SYSTEM, build_prompt(ctx))
                     known, full = ctx.evidence_ids, ctx
-                    rec.update(m.last, model_turns=1, tool_calls=0, web_calls=0)
+                    rec.update(m.last_call, model_turns=1, tool_calls=0, web_calls=0)
                 v = enforce(draft, full, model=model)
                 cited = [c.evidence_id for c in draft.evidence]
                 rec.update(

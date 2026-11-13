@@ -114,7 +114,7 @@ class GeminiAgent:
         ]
         mode = types.FunctionCallingConfigMode.AUTO if allow_calls else "NONE"
         return types.GenerateContentConfig(
-            system_instruction=system + AGENT_RULES,
+            system_instruction=system + AGENT_RULES if decls else system,
             tools=[types.Tool(function_declarations=decls)] if decls else None,
             tool_config=(
                 types.ToolConfig(function_calling_config=types.FunctionCallingConfig(mode=mode))

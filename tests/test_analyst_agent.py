@@ -226,3 +226,116 @@ def test_no_tools_without_web_or_db():
     box = ToolBox(ctx(), web=None, sink=MemorySink(), cache=WebCache(), budget=Budget())
     investigate(ctx(), GeminiAgent("m", client=gemini), box)
     assert gemini.configs[0].tools is None
+
+
+def test_forced_final_turn_at_turn_limit():
+    gemini = FakeGemini(
+        reply(call("search_web", query="a", why="w")),
+        reply(verdict_json()),
+    )
+    GeminiAgent("m", client=gemini, max_turns=1).run("sys", "prompt", toolbox())
+    assert gemini.configs[0].tool_config.function_calling_config.mode != "NONE"
+    assert gemini.configs[1].tool_config.function_calling_config.mode == "NONE"
+    assert gemini.contents[1][-1].parts[-1].text == FINAL_NUDGE
+
+
+def test_scrape_refuses_uncheckable_urls_even_if_listed():
+    web = FakeWeb()
+    box = toolbox(web=web)
+    box.allow_urls(["https://bsky.app/profile/x/post/1", "https://cdn.example/a.jpg"])
+    for url in (
+        "https://bsky.app/profile/x/post/1",
+        "https://cdn.example/a.jpg",
+        "http://10.0.0.1/",
+    ):
+        assert "not a checkable URL" in box.call("scrape_url", {"url": url})["error"]
+    assert web.scrapes == [] and box.budget.web_calls == 0
+
+
+def test_tool_exception_becomes_an_error_result():
+    class Broken(FakeWeb):
+        def search(self, query, max_results=10):
+            raise RuntimeError("socket closed")
+
+    box = toolbox(web=Broken())
+    assert box.call("search_web", {"query": "q"}) == {"error": "tool failed; do not retry it"}
+    assert box.records[0].error == "RuntimeError"
+
+
+def test_unknown_tool_does_not_use_the_budget():
+    box = toolbox(max_tool_calls=1)
+    box.call("made_up", {})
+    assert box.budget.tool_calls == 0
+    assert "evidence_id" in box.call("search_web", {"query": "q"})
+
+
+def test_agent_search_summary_names_the_query():
+    box = toolbox()
+    box.call("search_web", {"query": '"water poisoned"'})
+    [ev] = box.new_evidence.values()
+    assert ev.summary.startswith('Web search for "water poisoned" (asked by Gemini): 2 results')
+    assert ev.detail["type"] == "web_search" and ev.detail["purpose"] == "agent"
+
+
+def test_dry_run_sink_reads_through_to_stored_rows():
+    stored = MemorySink(start_id=7)
+    toolbox(sink=stored).call("search_web", {"query": "q"})
+    web = FakeWeb()
+    dry = MemorySink(read_through=stored.existing)
+    out = toolbox(web=web, sink=dry).call("search_web", {"query": "q"})
+    assert out["evidence_id"] == 7 and web.searches == [] and dry.items == {}
+
+
+class FakeBatch:
+    name = "batch-model"
+
+    def __init__(self):
+        self.calls = 0
+
+    def draft(self, system, prompt):
+        from tests.test_analyst import draft
+
+        self.calls += 1
+        return draft(status="likely_organic")
+
+
+@pytest.mark.parametrize(
+    "status,uses_agent", [("coordinated", True), ("insufficient", True), ("likely_organic", False)]
+)
+def test_runner_routes_candidates_to_the_agent(status, uses_agent):
+    from analyst.runner import Analyst
+
+    gemini, batch = FakeGemini(reply(verdict_json(status=status))), FakeBatch()
+    a = Analyst(agent=GeminiAgent("agent-model", client=gemini), batch=batch, web=FakeWeb())
+    v = a.verdict(None, ctx(status=status))
+    assert v.model == ("agent-model" if uses_agent else "batch-model")
+    assert (len(gemini.configs), batch.calls) == ((1, 0) if uses_agent else (0, 1))
+
+
+def test_runner_without_tools_still_uses_batch_and_offers_no_tools():
+    from analyst.runner import Analyst
+
+    gemini, batch = FakeGemini(reply(verdict_json())), FakeBatch()
+    a = Analyst(
+        agent=GeminiAgent("agent-model", client=gemini), batch=batch, web=FakeWeb(), tools=False
+    )
+    a.verdict(None, ctx(status="likely_organic"))
+    assert batch.calls == 1
+    a.verdict(None, ctx(status="coordinated"))
+    assert gemini.configs[0].tools is None
+
+
+def test_make_model_always_routes(monkeypatch):
+    import analyst.__main__ as cli
+    from analyst.runner import Analyst
+    from common.config import get_settings
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("OXYLABS_WEB_API_KEY", "")
+    get_settings.cache_clear()
+    try:
+        m = cli._make_model(no_tools=True)
+        assert isinstance(m, Analyst) and m.tools is False and m.web is None
+        assert m.batch is not None
+    finally:
+        get_settings.cache_clear()

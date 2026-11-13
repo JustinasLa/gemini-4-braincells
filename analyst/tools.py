@@ -23,7 +23,7 @@ import psycopg
 
 from analyst.context import ClusterContext, EvidenceItem
 from sources.checker import WebClient, _page_evidence, _search_evidence
-from sources.links import checkable_url
+from sources.links import checkable_url, domain
 from sources.models import SourceEvidence
 from sources.oxylabs import OxylabsError
 
@@ -106,12 +106,20 @@ class DbSink:
 class MemorySink:
     """Dry runs and tests: ids from a private range, nothing written."""
 
-    def __init__(self, start_id: int = 900_000_000):
+    def __init__(
+        self,
+        start_id: int = 900_000_000,
+        *,
+        read_through: Callable[[str], EvidenceItem | None] | None = None,
+    ):
         self._next = start_id
+        self._read_through = read_through  # e.g. DbSink(...).existing: reuse stored rows
         self.items: dict[str, EvidenceItem] = {}
 
     def existing(self, key: str) -> EvidenceItem | None:
-        return self.items.get(key)
+        if key in self.items:
+            return self.items[key]
+        return self._read_through(key) if self._read_through else None
 
     def save(self, ev: SourceEvidence) -> EvidenceItem:
         item = _item(self._next, ev.model_dump())
@@ -264,6 +272,18 @@ class ToolBox:
             self._allow(_urls_in(e.detail))
             if e.source_url:
                 self._allow([e.source_url])
+        if conn is not None:
+            self._allow(
+                r["url"]
+                for r in conn.execute(
+                    """
+                    SELECT DISTINCT unnest(s.embed_urls) AS url FROM cluster_posts cp
+                    JOIN cluster_posts_snapshot s ON s.uri = cp.post_uri
+                    WHERE cp.cluster_id = %s LIMIT 500
+                    """,
+                    (ctx.id,),
+                ).fetchall()
+            )
 
     def declarations(self) -> list[dict[str, Any]]:
         names = {"get_cluster_posts", "get_account"} if self._conn is not None else set()
@@ -278,6 +298,9 @@ class ToolBox:
         for u in urls:
             if isinstance(u, str) and u.startswith(("http://", "https://")):
                 self._allowed_urls.add(u.rstrip("/"))
+                norm = checkable_url(u)
+                if norm:
+                    self._allowed_urls.add(norm.rstrip("/"))
 
     def call(self, name: str, args: dict) -> dict:
         """Run one tool call and return the function response for the model."""
@@ -289,7 +312,6 @@ class ToolBox:
             if refusal:
                 rec.error = refusal
                 return {"error": refusal + "; write your verdict with what you have"}
-            self.budget.tool_calls += 1
             handler: Callable[[dict, ToolCallRecord], dict] | None = {
                 "search_web": self._search_web,
                 "scrape_url": self._scrape_url,
@@ -297,13 +319,20 @@ class ToolBox:
                 "get_account": self._get_account,
             }.get(name)
             if handler is None or name not in {d["name"] for d in self.declarations()}:
-                rec.error = f"unknown tool {name}"
+                rec.error = f"unknown tool {name}"  # not counted against the budget
                 return {"error": rec.error}
+            self.budget.tool_calls += 1
             try:
                 out = handler(args, rec)
             except BudgetRefused as exc:
                 rec.error = str(exc)
                 return {"error": f"{exc}; write your verdict with what you have"}
+            except Exception as exc:  # a broken tool must not cost the cluster its verdict
+                log.exception("analyst tool %s failed for cluster %s", name, self.ctx.id)
+                if isinstance(exc, psycopg.Error) and self._conn is not None:
+                    self._conn.rollback()
+                rec.error = f"{type(exc).__name__}"
+                return {"error": "tool failed; do not retry it"}
             rec.ok = "error" not in out
             if not rec.ok:
                 rec.error = str(out["error"])
@@ -364,9 +393,7 @@ class ToolBox:
         item = self._web_evidence(
             key,
             rec,
-            lambda: _search_evidence(
-                key, "agent", query.strip('"'), query, self._web.search(query, MAX_SEARCH_HITS)
-            ),
+            lambda: _agent_search_evidence(key, query, self._web.search(query, MAX_SEARCH_HITS)),
         )
         if item is None:
             return {"error": "search failed; do not retry it"}
@@ -384,20 +411,19 @@ class ToolBox:
     def _scrape_url(self, args: dict, rec: ToolCallRecord) -> dict:
         raw = str(args.get("url") or "").strip()
         rec.endpoint = "/scrape"
-        url = checkable_url(raw) or (raw if raw.startswith(("http://", "https://")) else None)
+        url = checkable_url(raw)
         if url is None:
-            return {"error": "not a checkable http(s) URL"}
+            return {"error": "not a checkable URL (Bluesky, media file, local or IP host)"}
         if url.rstrip("/") not in self._allowed_urls and raw.rstrip("/") not in self._allowed_urls:
             return {
                 "error": "URL not allowed: only URLs from this cluster's posts or evidence, or "
                 "from an earlier search_web result, may be fetched"
             }
         key = f"page:{url}"
-        shared_by, n_accounts = self._sharing(url)
         item = self._web_evidence(
             key,
             rec,
-            lambda: _page_evidence(key, self._web.scrape_facts(url), shared_by, n_accounts),
+            lambda: _page_evidence(key, self._web.scrape_facts(url), *self._sharing(url)),
         )
         if item is None:
             return {"error": "page could not be fetched; do not retry it"}
@@ -487,6 +513,24 @@ class ToolBox:
             out["since"] = out["since"].isoformat()
         out["note"] = "context only, not citable"
         return out
+
+
+def _agent_search_evidence(key: str, query: str, hits) -> SourceEvidence:
+    """sources' web_search evidence, with a summary that names Gemini's own query."""
+    ev = _search_evidence(key, "agent", query.strip('"'), query, hits)
+    d = ev.detail
+    if not hits:
+        summary = f"Web search for {query} (asked by Gemini) returned no results."
+    else:
+        summary = (
+            f"Web search for {query} (asked by Gemini): {len(hits)} results on "
+            f"{d['distinct_domains']} domains"
+        )
+        if d.get("earliest_dated"):
+            e = d["earliest_dated"]
+            summary += f"; earliest dated: {domain(e['url'])} ({e['published_hint']})"
+        summary += "."
+    return ev.model_copy(update={"summary": summary})
 
 
 def _urls_in(detail: dict) -> list[str]:

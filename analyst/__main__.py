@@ -14,7 +14,7 @@ import sys
 import time
 
 from analyst import store
-from analyst.gemini import GeminiVerdictModel, VerdictModel
+from analyst.gemini import VerdictModel
 from analyst.prompt import SYSTEM, build_prompt
 from analyst.runner import Analyst
 from analyst.service import analyze
@@ -138,17 +138,18 @@ def main() -> None:
         )
 
 
-def _make_model(*, no_tools: bool) -> VerdictModel | Analyst:
-    if no_tools or not get_settings().analyst_tools:
-        return GeminiVerdictModel.from_settings()
+def _make_model(*, no_tools: bool) -> Analyst:
+    """Always the routing Analyst (batch model for likely_organic); tools only if enabled."""
+    tools = not no_tools and get_settings().analyst_tools
     web = None
-    try:
-        from sources.oxylabs import OxylabsClient
+    if tools:
+        try:
+            from sources.oxylabs import OxylabsClient
 
-        web = OxylabsClient.from_settings()
-    except ValueError as exc:
-        log.warning("%s; analyst runs with DB lookups only (no web tools)", exc)
-    return Analyst.from_settings(web)
+            web = OxylabsClient.from_settings()
+        except ValueError as exc:
+            log.warning("%s; analyst runs with DB lookups only (no web tools)", exc)
+    return Analyst.from_settings(web, tools=tools)
 
 
 if __name__ == "__main__":
