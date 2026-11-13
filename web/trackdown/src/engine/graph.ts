@@ -518,6 +518,17 @@ export class Graph {
     this.flyTo((x0 + x1) / 2 - offX, (y0 + y1) / 2 - offY, k, dur);
   }
 
+  /** keep re-framing everything while the layout settles; any user input stops it */
+  private followUntil = 0;
+  private followNext = 0;
+  followFit(ms = 2500) {
+    this.followUntil = performance.now() + ms;
+    this.followNext = 0;
+  }
+  stopFollow() {
+    this.followUntil = 0;
+  }
+
   focus(id: string, k = 1.05, dur = 800) {
     const n = this.byId.get(id);
     if (!n) return;
@@ -526,6 +537,7 @@ export class Graph {
   }
 
   zoomBy(f: number, sx = this.W / 2, sy = this.H / 2) {
+    this.stopFollow();
     const base = this.zoomTarget?.k ?? this.k;
     this.camAnim = null;
     this.zoomTarget = { k: clamp(base * f, 0.06, 2.6), sx, sy };
@@ -592,6 +604,7 @@ export class Graph {
       const p = local(e);
       this.pointers.set(e.pointerId, p);
       st.setPointerCapture(e.pointerId);
+      this.stopFollow();
       this.camAnim = null;
       this.zoomTarget = null;
       if (this.pointers.size === 2) {
@@ -694,6 +707,7 @@ export class Graph {
       (e) => {
         if ((e.target as HTMLElement).closest("[data-ui]")) return;
         e.preventDefault();
+        this.stopFollow();
         const p = local(e);
         if (e.shiftKey && !e.ctrlKey) {
           this.cx += (e.deltaY || e.deltaX) / this.k;
@@ -790,6 +804,10 @@ export class Graph {
     const dt = clamp((t - this.lastT) / 16.67, 0.2, 2.5);
     this.lastT = t;
     if (this.alpha > 0.004 || this.dragNode) this.step(dt);
+    if (t < this.followUntil && t > this.followNext) {
+      this.followNext = t + 450;
+      this.fit(undefined, 700);
+    }
     this.cameraStep(dt);
     this.render(t);
     this.onFrame();

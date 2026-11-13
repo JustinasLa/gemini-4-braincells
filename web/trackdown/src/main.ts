@@ -118,7 +118,21 @@ function railItem(c: TraceCase) {
   </button>`;
 }
 
-const userCases: TraceCase[] = [];
+const USER_KEY = "soc-trackdown-traces";
+const userCases: TraceCase[] = (() => {
+  try {
+    return (JSON.parse(localStorage.getItem(USER_KEY) ?? "[]") as TraceCase[]).slice(0, 8);
+  } catch {
+    return [];
+  }
+})();
+function saveUserCases() {
+  try {
+    localStorage.setItem(USER_KEY, JSON.stringify(userCases.slice(0, 8)));
+  } catch {
+    /* private mode: keep in memory only */
+  }
+}
 function renderRail() {
   const sims = simulatedCases();
   const live = liveRows
@@ -251,12 +265,12 @@ function openCase(c: TraceCase, how: "spread" | "static") {
         if (performance.now() - t0 < 4000) requestAnimationFrame(follow);
       };
       follow();
-      setTimeout(() => g.fit(undefined, 1400), 1400);
-      setTimeout(() => current === c && g.fit(undefined, 1200), 3400);
+      setTimeout(() => current === c && g.followFit(4200), 1200);
     }, 350);
   } else {
     dock.u = 1;
     g.fit(undefined, 0);
+    g.followFit(1500);
   }
 }
 
@@ -406,7 +420,7 @@ async function runTrace(c: TraceCase) {
   const b2 = $(".console-body", consoleEl);
   const hops = Math.max(0, subPath.length - 1);
   b2.innerHTML = `<div class="step"><span class="tool">${toolChip("gemini")}</span><span class="txt">${STATUS[c.status].word} · ${hops} hops · ${c.nodes.length} posts</span><span class="res"></span></div>`;
-  g.fit(undefined, 1100);
+  g.followFit(3200);
   const wasSkipped = skipFlag;
   skipFlag = false;
   await wait(wasSkipped ? 300 : 900);
@@ -493,6 +507,7 @@ function openModal() {
       toast("Live API not reachable: running a simulated trackdown");
     }
     userCases.unshift(c);
+    saveUserCases();
     close();
     runTrace(c);
   }
