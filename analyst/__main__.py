@@ -68,17 +68,33 @@ def run_worker(
     """Keep verdicts fresh. With a `cap`, Gemini requests are counted at the client and a
     verdict starts only if its worst case (`model.max_requests`) still fits in the hour."""
     cap = cap or HourlyCap(0)
-    if cap.limit > 0 and isinstance(model, Analyst):
-        model.count_requests(cap)
-        reserve = model.max_requests
-    else:
-        reserve = 1
+    reserve = 1
+    if cap.limit > 0:
+        if hasattr(model, "count_requests"):
+            model.count_requests(cap)
+        else:
+            log.warning(
+                "model %r can't count its requests; the Gemini cap only sees the seed", model
+            )
+        # worst case one verdict can spend; never more than the whole limit, or nothing would run
+        reserve = min(getattr(model, "max_requests", 1), cap.limit)
     seeded = cap.limit <= 0
     failed: dict[int, float] = {}  # cluster_id -> monotonic time it may be retried
     capped_logged = False
     while True:
         now = time.monotonic()
         failed = {cid: t for cid, t in failed.items() if t > now}
+        if seeded and not cap.allows(reserve):  # full: skip the DB until there is room
+            if not capped_logged:
+                log.warning(
+                    "Gemini cap reached (%d/%d requests this hour); next verdict in ~%.0f s",
+                    cap.used(),
+                    cap.limit,
+                    cap.seconds_until_free(reserve),
+                )
+                capped_logged = True
+            time.sleep(interval_s)
+            continue
         try:
             with connect() as conn:
                 if not seeded:
@@ -94,16 +110,7 @@ def run_worker(
                     exclude=failed.keys(),
                 ):
                     if not cap.allows(reserve):
-                        if not capped_logged:
-                            log.warning(
-                                "Gemini cap reached (%d/%d requests this hour); next verdict "
-                                "in ~%.0f s",
-                                cap.used(),
-                                cap.limit,
-                                cap.seconds_until_free(reserve),
-                            )
-                            capped_logged = True
-                        break
+                        break  # logged at the top of the next pass
                     capped_logged = False
                     try:
                         run_cluster(conn, model, cluster_id)

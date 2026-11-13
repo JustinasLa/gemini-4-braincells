@@ -62,7 +62,12 @@ class HourlyCap:
         return WINDOW_S  # reserve > limit: never fits; check again in an hour
 
     def wrap(self, client):
-        """A genai.Client stand-in whose `models.generate_content` records one request first."""
+        """A genai.Client stand-in whose `models.generate_content` records one request first.
+
+        Wrapping an already counting client returns it unchanged (no double counting). Only
+        `generate_content` is counted; the analyst uses no streaming or async calls."""
+        if isinstance(client, _CountingClient):
+            return client
         return _CountingClient(client, self)
 
     def seed_from_db(self, conn: psycopg.Connection) -> int:
@@ -75,6 +80,7 @@ class HourlyCap:
                    END AS calls
             FROM evidence
             WHERE kind = 'analyst' AND created_at > now() - interval '1 hour'
+            ORDER BY created_at
             """
         ).fetchall()
         total = 0
@@ -89,9 +95,9 @@ class _CountingModels:
         self._models = models
         self._cap = cap
 
-    def generate_content(self, **kwargs):
+    def generate_content(self, *args, **kwargs):
         self._cap.record(1)
-        return self._models.generate_content(**kwargs)
+        return self._models.generate_content(*args, **kwargs)
 
     def __getattr__(self, name):
         return getattr(self._models, name)

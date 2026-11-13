@@ -204,3 +204,39 @@ def test_no_cap_does_not_wrap_the_model(monkeypatch):
     model.cap = HourlyCap(0)  # fake_run_cluster records into it
     run_one_pass(monkeypatch, model, HourlyCap(0), [1, 2, 3])
     assert model.cap.limit == 0
+
+
+def test_wrapping_twice_counts_once():
+    cap = HourlyCap(100)
+    raw = FakeClient()
+    client = cap.wrap(cap.wrap(raw))
+    client.models.generate_content(model="m")
+    assert cap.used() == 1
+
+
+def test_limit_below_the_reserve_still_runs(monkeypatch):
+    cap = HourlyCap(3)
+    monkeypatch.setattr(cap, "seed_from_db", lambda conn: 0)
+    ran = run_one_pass(monkeypatch, FakeAnalyst(per_cluster=1, max_requests=9), cap, [1, 2, 3])
+    assert ran == [1]  # reserve is clamped to the limit (3), so one verdict fits
+
+
+class PlainModel:
+    """A non-Analyst model with its own counting hook (like GeminiVerdictModel)."""
+
+    per_cluster = 1
+
+    def __init__(self):
+        self.cap = None
+
+    def count_requests(self, cap):
+        self.cap = cap
+
+
+def test_plain_model_is_counted_too(monkeypatch):
+    cap = HourlyCap(2)
+    monkeypatch.setattr(cap, "seed_from_db", lambda conn: 0)
+    model = PlainModel()
+    ran = run_one_pass(monkeypatch, model, cap, [1, 2, 3])
+    assert model.cap is cap
+    assert ran == [1, 2]  # reserve 1 each; the third doesn't fit
