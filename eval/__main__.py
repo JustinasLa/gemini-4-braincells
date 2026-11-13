@@ -2,13 +2,14 @@
 
 recall        recall on synthetic campaigns injected into recorded windows (eval/recall.py)
 copy-slices   keep recorded Jetstream hours (the recorder prunes after 24 h) (eval/slices.py)
+labels        sample|serve|score: hand labels on live clusters -> precision, FPR, kappa
 """
 
 import argparse
 import logging
 import sys
 
-from eval import recall, slices
+from eval import labels, recall, slices
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -16,12 +17,15 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="command", required=True)
     recall.add_arguments(sub.add_parser("recall", help="recall on synthetic campaigns"))
     slices.add_arguments(sub.add_parser("copy-slices", help="copy recorded hours for eval"))
+    labels.add_arguments(sub.add_parser("labels", help="hand labels on live clusters"))
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if a.command == "recall":
         return recall.main_args(a)
     if a.command == "copy-slices":
         return slices.main_args(a)
+    if a.command == "labels":
+        return labels.main_args(a)
     return 2
 
 
