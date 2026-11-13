@@ -1,0 +1,166 @@
+"""Source checks for one cluster: what its shared links say, and where its message appears.
+
+Produces `SourceEvidence` items; storing them is `sources.store`'s job. Every item carries the
+URL it came from. Failures are logged and skipped: a missing check is not evidence either way.
+"""
+
+import logging
+import time
+from collections.abc import Collection, Sequence
+from typing import Protocol
+
+from sources.links import claim_phrase, domain, top_links
+from sources.models import ClusterPost, PageFacts, SearchHit, SourceEvidence
+from sources.oxylabs import OxylabsError
+
+log = logging.getLogger(__name__)
+
+SCRAPE_MODEL = "oxylabs-web-api/scrape"
+SEARCH_MODEL = "oxylabs-web-api/search"
+EARLIEST_NOTE = "Earliest date shown among the top search results. A hint, not proof of origin."
+
+
+class WebClient(Protocol):
+    def search(self, query: str, max_results: int = 10) -> list[SearchHit]: ...
+    def scrape_facts(self, url: str) -> PageFacts: ...
+
+
+class SourceChecker:
+    def __init__(
+        self,
+        client: WebClient,
+        *,
+        max_links: int = 3,
+        max_hits: int = 8,
+        cache_ttl_s: float = 6 * 3600,
+    ):
+        self._client = client
+        self._max_links = max_links
+        self._max_hits = max_hits
+        self._ttl = cache_ttl_s
+        self._cache: dict[str, tuple[float, object]] = {}
+
+    def check(
+        self, posts: Sequence[ClusterPost], *, skip_keys: Collection[str] = ()
+    ) -> list[SourceEvidence]:
+        """Evidence for checks not already in `skip_keys` (keys of stored evidence)."""
+        n_accounts = len({p.did for p in posts})
+        out: list[SourceEvidence] = []
+
+        for url, shared_by in top_links(posts, self._max_links):
+            key = f"page:{url}"
+            if key in skip_keys:  # checked in an earlier pass; its headline search was too
+                continue
+            facts = self._cached(f"scrape:{url}", lambda u=url: self._client.scrape_facts(u))
+            if facts is None:
+                continue
+            out.append(_page_evidence(key, facts, shared_by, n_accounts))
+            if facts.headline:
+                ev = self._search_evidence("headline", facts.headline, skip_keys)
+                if ev:
+                    out.append(ev)
+
+        phrase = claim_phrase(p.text for p in posts)
+        if phrase:
+            ev = self._search_evidence("post_text", phrase, skip_keys)
+            if ev:
+                out.append(ev)
+        return out
+
+    def _search_evidence(
+        self, purpose: str, phrase: str, skip_keys: Collection[str]
+    ) -> SourceEvidence | None:
+        key = f"search:{purpose}:{phrase.lower()}"
+        if key in skip_keys:
+            return None
+        query = f'"{phrase}"'
+        hits = self._cached(f"search:{query}", lambda: self._client.search(query, self._max_hits))
+        if hits is None:
+            return None
+        return _search_evidence(key, purpose, phrase, query, hits)
+
+    def _cached(self, key: str, fetch):
+        now = time.monotonic()
+        hit = self._cache.get(key)
+        if hit and now - hit[0] < self._ttl:
+            return hit[1]
+        try:
+            value = fetch()
+        except OxylabsError as exc:
+            log.warning("source check skipped (%s): %s", key, exc)
+            return None
+        self._cache[key] = (now, value)
+        return value
+
+
+def _page_evidence(key: str, f: PageFacts, shared_by: int, n_accounts: int) -> SourceEvidence:
+    title = f'"{f.headline}"' if f.headline else domain(f.final_url)
+    by = ", ".join(x for x in (f.publisher, f.author, f.published_at) if x) or "publisher unknown"
+    summary = f"Linked page shared by {shared_by} of {n_accounts} accounts: {title} ({by})."
+    if f.http_status and f.http_status != 200:
+        summary += f" The page returned HTTP {f.http_status}."
+    return SourceEvidence(
+        summary=summary,
+        detail={
+            "key": key,
+            "type": "linked_page",
+            "url": f.url,
+            "final_url": f.final_url,
+            "domain": domain(f.final_url),
+            "http_status": f.http_status,
+            "shared_by_accounts": shared_by,
+            "cluster_accounts": n_accounts,
+            "publisher": f.publisher,
+            "author": f.author,
+            "published_at": f.published_at,
+            "headline": f.headline,
+            "claims": f.claims,
+        },
+        source_url=f.final_url,
+        model=SCRAPE_MODEL,
+    )
+
+
+def _search_evidence(
+    key: str, purpose: str, phrase: str, query: str, hits: list[SearchHit]
+) -> SourceEvidence:
+    domains = sorted({domain(h.url) for h in hits})
+    dated = [h for h in hits if h.published_hint]
+    earliest = min(dated, key=lambda h: (h.published_hint, h.position)) if dated else None
+    what = "The cluster's message text" if purpose == "post_text" else "The linked headline"
+    if not hits:
+        summary = f'{what} returned no web search results for "{phrase}".'
+    else:
+        summary = f"{what} matches {len(hits)} web results on {len(domains)} domains"
+        if earliest:
+            summary += f"; earliest dated: {domain(earliest.url)} ({earliest.published_hint})"
+        summary += "."
+    return SourceEvidence(
+        summary=summary,
+        detail={
+            "key": key,
+            "type": "web_search",
+            "purpose": purpose,
+            "query": query,
+            "distinct_domains": len(domains),
+            "hits": [
+                {
+                    "url": h.url,
+                    "domain": domain(h.url),
+                    "title": h.title,
+                    "snippet": h.snippets[0] if h.snippets else "",
+                    "position": h.position,
+                    "published_hint": h.published_hint.isoformat() if h.published_hint else None,
+                }
+                for h in hits
+            ],
+            "earliest_dated": (
+                {"url": earliest.url, "published_hint": earliest.published_hint.isoformat()}
+                if earliest
+                else None
+            ),
+            "note": EARLIEST_NOTE,
+        },
+        source_url=earliest.url if earliest else (hits[0].url if hits else None),
+        model=SEARCH_MODEL,
+    )
