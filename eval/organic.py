@@ -54,6 +54,7 @@ SLICES = Path(os.environ.get("EVAL_SLICES_DIR", "/srv/junction-espoo/data/eval-s
 FIXTURE_LIVE = REPO / "eval" / "fixtures" / "organic_live.json"
 WINDOW_S = 600  # the detector's main window (10m), aligned to the UTC clock
 SYNTH_KINDS = ("viral", "news_link", "live_event", "fandom")
+SEEDS = 3  # synthetic seeds per kind and window in a published run
 ENRICH_BUDGET = 400  # accounts per detector pass, as signals/ enriches in production
 OUTCOMES = ("coordinated", "likely_organic", "insufficient", "no_cluster")
 
@@ -769,7 +770,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         q.add_argument("--offline", action="store_true", help="no profile fetching")
         q.add_argument("--max-windows", type=int)
     r = sub.choices["run"]
-    r.add_argument("--seeds", type=int, default=3, help="synthetic seeds per kind and window")
+    r.add_argument("--seeds", type=int, default=SEEDS, help="synthetic seeds per kind and window")
     r.add_argument("--workers", type=int, default=4)
     r.add_argument("--budget", type=int, default=ENRICH_BUDGET)
     r.add_argument("--json", type=Path, help="also write both eval rows as JSON here")
@@ -816,9 +817,10 @@ def main_args(a: argparse.Namespace) -> int:
         print(f"{len(cases)} live cases -> {a.fixture}  {dict(Counter(c['type'] for c in cases))}")
         return 0
 
-    if a.write and a.max_windows is not None:
-        # a partial run is not the split's result: never publish it as one (same rule as recall)
-        print("--max-windows is for ad-hoc runs; it can't be used with --write", file=sys.stderr)
+    adhoc = a.max_windows is not None or a.seeds != SEEDS or a.budget != ENRICH_BUDGET
+    if a.write and adhoc:
+        # an ad-hoc run is not the split's result: never publish it as one (same rule as recall)
+        print("--max-windows, --seeds, --budget: ad-hoc runs, never --write", file=sys.stderr)
         return 2
     if not a.fixture.exists():
         print(f"no live-case fixture at {a.fixture}: run `python -m eval organic select` first")

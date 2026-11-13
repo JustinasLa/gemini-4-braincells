@@ -357,9 +357,10 @@ def test_run_reports_fixture_cases_it_could_not_score(tmp_path):
     assert live["details"]["missing_cases"] == ["link_share:gone"]
 
 
-def test_partial_run_is_never_written(tmp_path):
+@pytest.mark.parametrize("flag", [["--max-windows", "1"], ["--seeds", "1"], ["--budget", "50"]])
+def test_adhoc_run_is_never_written(tmp_path, flag):
     from eval.__main__ import main
 
-    argv = ["organic", "run", "--offline", "--max-windows", "1", "--write"]
+    argv = ["organic", "run", "--offline", "--write", *flag]
     argv += ["--slices", str(tmp_path), "--fixture", str(tmp_path / "f.json")]
-    assert main(argv) == 2
+    assert main(argv) == 2  # refused before anything runs (no fixture would give 1)

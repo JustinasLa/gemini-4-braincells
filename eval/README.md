@@ -147,9 +147,10 @@ the same split rule as above.
   other accounts in earlier passes, so the eval's guards and identity signals can see fewer
   accounts than live ones. The established-accounts guard is a share of the accounts with known
   age, so this can move the FPR either way.
-- **Partial runs** (`--max-windows`) are refused with `--write`, like `recall`. Live cases whose
-  window is no longer complete on disk are listed in `details.missing_cases` instead of being
-  scored.
+- **Ad-hoc runs** (`--max-windows`, `--seeds` other than 3, `--budget` other than 400) are
+  refused with `--write`, like `recall`, so they can't replace a split's published row. Live
+  cases whose window is no longer complete on disk are listed in `details.missing_cases` instead
+  of being scored.
 
 | dataset | cases | labels |
 |---|---|---|
