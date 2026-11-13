@@ -4,6 +4,8 @@ import { fmtClock, fmtDate, fmtDur, fmtShort, ROLE } from "./format";
 import { icon } from "./icons";
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+// pigments lifted for the black chrome strip
+const ON_BLACK: Record<string, string> = { origin: "#d9b45a", mutation: "#d07a33", relay: "#8c8070", amplifier: "#d0533f", organic: "#55a48f", submitted: "#ecebe6", source: "#7f9ad6" };
 
 function fitCanvas(c: HTMLCanvasElement) {
   const r = c.getBoundingClientRect();
@@ -156,24 +158,22 @@ export class Dock {
         const cnt = b.roles[r];
         if (!cnt) continue;
         const sh = (cnt / b.n) * hh;
-        c.fillStyle = ROLE[r as keyof typeof ROLE].color;
-        c.globalAlpha = x > playX ? 0.18 : 0.85;
-        c.beginPath();
-        c.roundRect(x + 0.5, y - sh, Math.max(1.5, bw - 1.5), sh, 1.5);
-        c.fill();
+        c.fillStyle = ON_BLACK[r];
+        c.globalAlpha = x > playX ? 0.2 : 0.95;
+        c.fillRect(x + 0.5, y - sh, Math.max(1.5, bw - 1.5), sh);
         y -= sh;
       }
     });
     c.globalAlpha = 1;
     // axis
-    c.strokeStyle = "rgba(255,255,255,0.12)";
+    c.strokeStyle = "#2a2a2d";
     c.beginPath();
     c.moveTo(L, base + 0.5);
     c.lineTo(R, base + 0.5);
     c.stroke();
     // break + endpoint labels
-    c.font = '500 9.5px "Geist Mono", monospace';
-    c.fillStyle = "rgba(169,175,189,0.75)";
+    c.font = '400 9.5px "IBM Plex Mono", monospace';
+    c.fillStyle = "#9b9a94";
     c.textBaseline = "top";
     const first = g.timeMap[0]?.[0];
     const last = g.timeMap[g.timeMap.length - 1]?.[0];
@@ -187,10 +187,10 @@ export class Dock {
     let lastB = -1e9;
     for (const b of g.timeBreaks) {
       const x = ux(b.x);
-      if (x < L + 60 || x > R - 60 || x - lastB < 70) continue;
+      if (x < L + 80 || x > R - 95 || x - lastB < 80) continue;
       lastB = x;
-      c.fillStyle = "rgba(255,193,77,0.75)";
-      c.fillText(`⋯ ${fmtDur(b.gap)} ⋯`, x, base + 4);
+      c.fillStyle = "#d9b45a";
+      c.fillText(`// ${fmtDur(b.gap)} //`, x, base + 4);
     }
     // origin + submitted markers
     const mark = (id: string, col: string) => {
@@ -205,17 +205,16 @@ export class Dock {
       c.lineTo(x - 4, top + 3);
       c.fill();
     };
-    mark(g.case.originId, ROLE.origin.color);
-    mark(g.case.submittedId, "#fff");
+    mark(g.case.originId, ON_BLACK.origin);
+    mark(g.case.submittedId, "#ecebe6");
     // playhead
-    c.fillStyle = "rgba(255,255,255,0.9)";
-    c.fillRect(playX - 1, top - 2, 2, base - top + 6);
+    c.fillStyle = "#ecebe6";
+    c.fillRect(playX - 0.5, top - 4, 1, base - top + 8);
     c.beginPath();
-    c.arc(playX, base + 0.5, 5, 0, Math.PI * 2);
+    c.moveTo(playX - 5, top - 6);
+    c.lineTo(playX + 5, top - 6);
+    c.lineTo(playX, top);
     c.fill();
-    c.strokeStyle = "rgba(7,8,11,0.9)";
-    c.lineWidth = 2;
-    c.stroke();
     // clock
     const t = this.u >= 0.9999 ? last : this.timeForU(this.u);
     if (t != null && first != null) {
@@ -223,7 +222,7 @@ export class Dock {
       const rel = this.clock.querySelector(".rel")!;
       const txt = `${fmtDate(t, false)} ${fmtClock(t)}`;
       if (d.textContent !== txt) d.textContent = txt;
-      const r2 = `T+${fmtDur(t - first)} since origin`;
+      const r2 = `T+${fmtDur(t - first)} // since origin`;
       if (rel.textContent !== r2) rel.textContent = r2;
     }
   }
@@ -235,22 +234,28 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   c.clearRect(0, 0, w, h);
   if (g.mode !== "timeline" || !g.case) return;
   const ns = g.nodes.filter((n) => n.vis).sort((a, b) => a.tx - b.tx);
-  c.font = '500 10px "Geist Mono", monospace';
+  c.font = 'italic 400 14px "EB Garamond", serif';
   c.textBaseline = "middle";
   c.textAlign = "left";
+  // engraved baseline
+  c.fillStyle = "rgba(29,24,19,0.55)";
+  c.fillRect(0, h - 1, w, 1);
   let lastX = -1e9;
   let lastT = -1e15;
+  let lastLabel = "";
   for (const n of ns) {
     const s = g.toScreen(n.tx, 0);
     if (s.x < -20 || s.x > w + 20) continue;
-    c.fillStyle = "rgba(255,255,255,0.18)";
-    c.fillRect(s.x, h - 6, 1, 6);
+    c.fillStyle = "rgba(29,24,19,0.35)";
+    c.fillRect(s.x, h - 5, 1, 5);
     if (s.x - lastX < 120) continue;
     if (g.timeBreaks.some((b) => Math.abs(g.toScreen(b.x, 0).x - s.x - 40) < 95)) continue;
     const label = n.d.t - lastT > 86400000 ? fmtDate(n.d.t, false) : fmtClock(n.d.t);
-    c.fillStyle = "rgba(169,175,189,0.9)";
-    c.fillRect(s.x, h - 11, 1, 11);
-    c.fillText(label, s.x + 5, h / 2 - 2);
+    if (label === lastLabel) continue;
+    lastLabel = label;
+    c.fillStyle = "#1d1813";
+    c.fillRect(s.x, h - 12, 1, 12);
+    c.fillText(label, s.x + 5, h / 2 - 1);
     lastX = s.x;
     lastT = n.d.t;
   }
@@ -260,16 +265,16 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     const s = g.toScreen(b.x, 0);
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
     lastPill = s.x;
-    c.fillStyle = "rgba(10,11,15,0.9)";
     const label = `${fmtDur(b.gap)} later`;
-    const tw = c.measureText(label).width + 14;
-    c.beginPath();
-    c.roundRect(s.x - tw / 2, h / 2 - 11, tw, 18, 9);
-    c.fill();
-    c.strokeStyle = "rgba(255,193,77,0.35)";
-    c.stroke();
-    c.fillStyle = "rgba(255,193,77,0.9)";
-    c.fillText(label, s.x, h / 2 - 2);
+    c.font = '500 11px Cinzel, serif';
+    const tw = c.measureText(label).width + 16;
+    c.fillStyle = "#efe7d6";
+    c.fillRect(s.x - tw / 2, h / 2 - 10, tw, 18);
+    c.strokeStyle = "rgba(168,123,34,0.8)";
+    c.strokeRect(s.x - tw / 2 + 0.5, h / 2 - 9.5, tw - 1, 17);
+    c.fillStyle = "#8a6418";
+    c.fillText(label, s.x, h / 2);
+    c.font = 'italic 400 14px "EB Garamond", serif';
   }
 }
 
@@ -327,9 +332,9 @@ export class Minimap {
     const g = this.g;
     const tl = g.toWorld(0, 0);
     const br = g.toWorld(g.W, g.H);
-    c.strokeStyle = "rgba(255,255,255,0.7)";
+    c.strokeStyle = "#1d1813";
     c.lineWidth = 1;
-    c.fillStyle = "rgba(255,255,255,0.05)";
+    c.fillStyle = "rgba(29,24,19,0.05)";
     const rx = ox + (tl.x - x0) * s;
     const ry = oy + (tl.y - y0) * s;
     const rw = (br.x - tl.x) * s;

@@ -128,9 +128,13 @@ export class Graph {
     this.uctx = this.under.getContext("2d")!;
     this.octx = this.over.getContext("2d")!;
     for (const r of Object.keys(ROLE)) this.colors[r] = ROLE[r as keyof typeof ROLE].color;
-    this.colors.shill = cssVar("--shill");
-    this.colors.chill = cssVar("--chill");
-    this.colors.unsure = cssVar("--unsure");
+    this.colors.shill = cssVar("--cinnabar");
+    this.colors.chill = cssVar("--verdigris");
+    this.colors.unsure = cssVar("--slate");
+    this.colors.ink = cssVar("--ink");
+    this.colors.ink2 = cssVar("--ink-2");
+    this.colors.ink3 = cssVar("--ink-3");
+    this.colors.paper = cssVar("--paper");
     new ResizeObserver(() => this.resize()).observe(stage);
     this.resize();
     this.bind();
@@ -171,12 +175,13 @@ export class Graph {
     this.hl = null;
     const childCount = new Map<string, number>();
     for (const e of c.edges) childCount.set(e.from, (childCount.get(e.from) ?? 0) + 1);
+    const order = new Map([...c.nodes].sort((a, b) => a.t - b.t).map((n, i) => [n.id, i + 1]));
     for (const d of c.nodes) {
       const el = document.createElement("div");
       const compact = d.role === "amplifier" && !childCount.get(d.id);
       el.className = `card role-${d.role} plat-${d.platform}${compact ? " chip" : ""}`;
       el.dataset.id = d.id;
-      el.innerHTML = cardHtml(d, compact);
+      el.innerHTML = cardHtml(d, compact, order.get(d.id) ?? 0);
       this.world.appendChild(el);
       const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], tilt: 0, last: "", drag: false };
       this.nodes.push(n);
@@ -224,13 +229,15 @@ export class Graph {
     let x = 0;
     let prevT = sorted[0]?.d.t ?? 0;
     this.timeBreaks = [];
+    const span = (sorted[sorted.length - 1]?.d.t ?? 0) - prevT;
+    const breakAt = Math.max(3 * 86400000, span / 40);
     this.grid = new Map();
     const xs: number[] = [];
     const COLW = 236;
     for (const g of groups) {
       const gap = g[0].d.t - prevT;
       const dx = gap <= 0 ? 0 : Math.min(40 * Math.log2(1 + gap / 60000), 280 + 18 * Math.log2(1 + gap / 86400000));
-      if (gap > 3 * 86400000) this.timeBreaks.push({ x: x + dx / 2, gap });
+      if (gap > breakAt) this.timeBreaks.push({ x: x + dx / 2, gap });
       x += dx;
       const chips = g.filter((n) => n.compact).length;
       if (g.length > 6 && chips >= g.length / 2) {
@@ -848,66 +855,85 @@ export class Graph {
     const c = this.uctx;
     const k = this.k;
     const dpr = this.dpr;
+    const C = this.colors;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, this.W, this.H);
-    // dot grid in world space
-    let step = 32;
-    while (step * k < 18) step *= 2;
+    // ruled codex grid (world space), finer lines fade out when zoomed out
+    let step = 64;
+    while (step * k < 26) step *= 2;
     const gx0 = Math.floor((0 - ox) / k / step) * step;
     const gy0 = Math.floor((0 - oy) / k / step) * step;
-    c.fillStyle = "rgba(255,255,255,0.075)";
-    const r = Math.max(0.8, Math.min(1.4, 1.1 * k));
-    for (let x = gx0; x * k + ox < this.W; x += step) {
-      const sx = x * k + ox;
-      for (let y = gy0; y * k + oy < this.H; y += step) {
-        c.fillRect(sx - r / 2, y * k + oy - r / 2, r, r);
-      }
+    c.lineWidth = 1;
+    for (let x = gx0, i = Math.round(gx0 / step); x * k + ox < this.W; x += step, i++) {
+      const sx = Math.round(x * k + ox) + 0.5;
+      c.strokeStyle = i % 4 === 0 ? "rgba(90,70,40,0.11)" : "rgba(90,70,40,0.05)";
+      c.beginPath();
+      c.moveTo(sx, 0);
+      c.lineTo(sx, this.H);
+      c.stroke();
+    }
+    for (let y = gy0, i = Math.round(gy0 / step); y * k + oy < this.H; y += step, i++) {
+      const sy = Math.round(y * k + oy) + 0.5;
+      c.strokeStyle = i % 4 === 0 ? "rgba(90,70,40,0.11)" : "rgba(90,70,40,0.05)";
+      c.beginPath();
+      c.moveTo(0, sy);
+      c.lineTo(this.W, sy);
+      c.stroke();
     }
     c.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
-    // compressed-time bands
+    // compressed time = a lacuna: hatched band
     if (this.mode === "timeline") {
       const top = (0 - oy) / k;
       const bot = (this.H - oy) / k;
       for (const b of this.timeBreaks) {
+        const w = 56;
         c.save();
-        const w = 70;
-        c.fillStyle = "rgba(255,255,255,0.018)";
-        c.fillRect(b.x - w / 2, top, w, bot - top);
-        c.strokeStyle = "rgba(255,255,255,0.05)";
+        c.beginPath();
+        c.rect(b.x - w / 2, top, w, bot - top);
+        c.clip();
+        c.strokeStyle = "rgba(90,70,40,0.14)";
         c.lineWidth = 1 / k;
-        c.setLineDash([4 / k, 6 / k]);
+        const gap = 9;
+        for (let y = top - w; y < bot; y += gap) {
+          c.beginPath();
+          c.moveTo(b.x - w / 2, y + w);
+          c.lineTo(b.x + w / 2, y);
+          c.stroke();
+        }
+        c.restore();
+        c.strokeStyle = "rgba(90,70,40,0.3)";
+        c.lineWidth = 1 / k;
         c.beginPath();
         c.moveTo(b.x - w / 2, top);
         c.lineTo(b.x - w / 2, bot);
         c.moveTo(b.x + w / 2, top);
         c.lineTo(b.x + w / 2, bot);
         c.stroke();
-        c.restore();
       }
     }
-    // cluster hulls
-    if (this.case) for (const cl of this.case.clusters) this.drawHull(c, cl, now);
-    // edges
+    // cluster engravings
+    if (this.case) this.case.clusters.forEach((cl, i) => this.drawHull(c, cl, now, i));
+    // edges: ink lines
     const hl = this.hl;
     c.lineCap = "round";
     for (const e of this.edges) {
       if (!e.a.vis || !e.b.vis) continue;
       const pts = this.edgePts(e);
-      const prog = clamp((now - e.born) / 650, 0, 1);
+      const prog = clamp((now - e.born) / 700, 0, 1);
       const on = hl ? hl.has(e.a.d.id) && hl.has(e.b.d.id) : false;
       const dim = hl && !on;
-      const col = this.colors[e.b.d.role] ?? "#8b93a7";
+      const role = this.colors[e.b.d.role] ?? C.ink2;
+      const col = on ? (e.b.d.role === "submitted" || e.b.d.role === "relay" ? C.ink : role) : C.ink2;
       c.save();
-      c.globalAlpha = dim ? 0.06 : on ? 0.95 : 0.4;
+      c.globalAlpha = dim ? 0.12 : on ? 1 : 0.55;
       c.strokeStyle = col;
-      c.lineWidth = (on ? 2.6 : 1.5) / k;
-      const dash = REL[e.e.rel].dash;
-      c.setLineDash(dash.map((d) => d / Math.sqrt(k)));
+      c.lineWidth = (on ? 2.2 : 1.1) / k;
+      c.setLineDash(REL[e.e.rel].dash.map((d) => d / Math.sqrt(k)));
       c.beginPath();
       c.moveTo(pts[0], pts[1]);
       if (prog >= 1) c.bezierCurveTo(pts[2], pts[3], pts[4], pts[5], pts[6], pts[7]);
       else {
-        const N = 24;
+        const N = 28;
         for (let i = 1; i <= N * prog; i++) {
           const t = i / N;
           c.lineTo(bez(pts[0], pts[2], pts[4], pts[6], t), bez(pts[1], pts[3], pts[5], pts[7], t));
@@ -915,100 +941,126 @@ export class Graph {
       }
       c.stroke();
       c.restore();
-      // ignition head
       if (prog < 1) {
+        // the nib drawing the line
         const hx = bez(pts[0], pts[2], pts[4], pts[6], prog);
         const hy = bez(pts[1], pts[3], pts[5], pts[7], prog);
-        this.glow(c, hx, hy, 7 / k, col, 1);
+        c.fillStyle = C.ink;
+        c.beginPath();
+        c.arc(hx, hy, 3.2 / k, 0, Math.PI * 2);
+        c.fill();
       }
-      // end dot
       if (prog >= 1 && !dim) {
+        // arrowhead into the child
+        const tx = pts[6] - bez(pts[0], pts[2], pts[4], pts[6], 0.97);
+        const ty = pts[7] - bez(pts[1], pts[3], pts[5], pts[7], 0.97);
+        const L = Math.hypot(tx, ty) || 1;
+        const ux = tx / L;
+        const uy = ty / L;
+        const s = (on ? 7 : 5.5) / k;
         c.fillStyle = col;
         c.globalAlpha = on ? 1 : 0.6;
         c.beginPath();
-        c.arc(pts[6], pts[7], (on ? 3 : 2.2) / k, 0, Math.PI * 2);
+        c.moveTo(pts[6], pts[7]);
+        c.lineTo(pts[6] - ux * s - uy * s * 0.45, pts[7] - uy * s + ux * s * 0.45);
+        c.lineTo(pts[6] - ux * s + uy * s * 0.45, pts[7] - uy * s - ux * s * 0.45);
+        c.closePath();
         c.fill();
         c.globalAlpha = 1;
-      }
-      // flow particles (parent -> child)
-      if (prog >= 1 && !dim) {
+        // ink travelling down the line, parent -> child
         const n = on ? 3 : 1;
-        const speed = on ? 0.00055 : 0.00022;
+        const speed = on ? 0.0005 : 0.00018;
+        c.fillStyle = col;
         for (let i = 0; i < n; i++) {
           const u = (now * speed + e.seed + i / n) % 1;
-          const px = bez(pts[0], pts[2], pts[4], pts[6], u);
-          const py = bez(pts[1], pts[3], pts[5], pts[7], u);
-          this.glow(c, px, py, (on ? 4.5 : 3) / k, col, (on ? 0.95 : 0.5) * Math.sin(u * Math.PI));
+          c.globalAlpha = (on ? 0.9 : 0.45) * Math.sin(u * Math.PI);
+          c.beginPath();
+          c.arc(bez(pts[0], pts[2], pts[4], pts[6], u), bez(pts[1], pts[3], pts[5], pts[7], u), (on ? 2.6 : 1.8) / k, 0, Math.PI * 2);
+          c.fill();
         }
+        c.globalAlpha = 1;
       }
-      // relation label
-      if (prog >= 1 && k > 0.55 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on) && !dim) {
+      if (prog >= 1 && k > 0.5 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on) && !dim) {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
-        const label = `${REL[e.e.rel].label}${e.e.sim != null ? ` ${Math.round(e.e.sim * 100)}%` : ""}`;
-        this.pill(c, mx, my, label, col);
+        this.pill(c, mx, my, `${REL[e.e.rel].label}${e.e.sim != null ? `, ${Math.round(e.e.sim * 100)}%` : ""}`, on ? col : C.ink2);
       }
     }
-    // far-zoom dots
+    // far zoom: specimens as inked dots
     if (op < 1) {
-      c.globalAlpha = 1 - op;
       for (const n of this.nodes) {
         if (!n.vis) continue;
-        const col = this.colors[n.d.role] ?? "#888";
+        const col = this.colors[n.d.role] ?? C.ink2;
         const big = n.d.role === "origin" || n.d.role === "submitted";
-        const rad = (big ? 9 : n.compact ? 4.5 : 6.5) / k;
+        const rad = (big ? 8 : n.compact ? 4 : 6) / k;
         const dim = hl && !hl.has(n.d.id);
-        c.globalAlpha = clamp(1 - op * 1.7, 0, 1) * (dim ? 0.2 : 1);
-        this.glow(c, n.x, n.y, rad * 2.4, col, 0.35);
+        c.globalAlpha = clamp(1 - op * 1.7, 0, 1) * (dim ? 0.25 : 1);
         c.fillStyle = col;
+        c.strokeStyle = C.ink;
+        c.lineWidth = 1 / k;
         c.beginPath();
         c.arc(n.x, n.y, rad, 0, Math.PI * 2);
         c.fill();
+        c.stroke();
+        if (n.d.role === "origin") {
+          c.beginPath();
+          c.arc(n.x, n.y, rad + 4 / k, 0, Math.PI * 2);
+          c.strokeStyle = col;
+          c.stroke();
+        }
         if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId) {
-          c.font = `600 ${12 / k}px Geist, sans-serif`;
-          c.fillStyle = "rgba(238,240,245,0.92)";
+          c.font = `italic 400 ${15 / k}px "EB Garamond", serif`;
+          c.fillStyle = C.ink;
           c.textAlign = "center";
-          c.fillText(n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "You submitted" : n.d.author.name, n.x, n.y - rad - 8 / k);
+          c.fillText(n.d.role === "origin" ? "the original" : n.d.role === "submitted" ? "submitted" : n.d.author.name, n.x, n.y - rad - 8 / k);
         }
       }
       c.globalAlpha = 1;
     }
-    // rejected candidates (ghost cards)
+    // rejected candidates: pencil outlines, struck through
     for (const g of this.ghosts) {
       const t = (now - g.start) / g.dur;
       if (t < 0 || t > 1) continue;
-      const a = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
+      const a = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
       c.save();
-      c.globalAlpha = a * 0.7;
-      c.strokeStyle = "rgba(255,255,255,0.5)";
-      c.setLineDash([5 / k, 5 / k]);
-      c.lineWidth = 1.2 / k;
-      const s = 0.9 + t * 0.15;
-      this.rrect(c, g.x - (g.w * s) / 2, g.y - (g.h * s) / 2, g.w * s, g.h * s, 12);
-      c.stroke();
+      c.globalAlpha = a * 0.75;
+      c.strokeStyle = C.ink3;
+      c.setLineDash([4 / k, 3 / k]);
+      c.lineWidth = 1 / k;
+      c.strokeRect(g.x - g.w / 2, g.y - g.h / 2, g.w, g.h);
       c.setLineDash([]);
-      c.fillStyle = "rgba(255,255,255,0.03)";
-      c.fill();
-      if (t > 0.35) {
-        c.strokeStyle = "rgba(255,90,100,0.9)";
-        c.lineWidth = 2 / k;
-        const xx = 9;
+      c.fillStyle = "rgba(251,248,240,0.5)";
+      c.fillRect(g.x - g.w / 2, g.y - g.h / 2, g.w, g.h);
+      // a few pencil text lines
+      c.strokeStyle = "rgba(125,111,93,0.5)";
+      for (let i = 0; i < 3; i++) {
         c.beginPath();
-        c.moveTo(g.x - xx, g.y - xx);
-        c.lineTo(g.x + xx, g.y + xx);
-        c.moveTo(g.x + xx, g.y - xx);
-        c.lineTo(g.x - xx, g.y + xx);
+        c.moveTo(g.x - g.w / 2 + 12, g.y - g.h / 2 + 18 + i * 12);
+        c.lineTo(g.x - g.w / 2 + 12 + (g.w - 24) * (0.9 - i * 0.2), g.y - g.h / 2 + 18 + i * 12);
         c.stroke();
-        c.font = `500 ${11 / Math.sqrt(k)}px "Geist Mono", monospace`;
-        c.fillStyle = "rgba(255,140,150,0.9)";
+      }
+      const sp = clamp((t - 0.3) / 0.25, 0, 1);
+      if (sp > 0) {
+        c.strokeStyle = C.shill;
+        c.lineWidth = 2 / k;
+        c.beginPath();
+        const x0 = g.x - g.w / 2 - 6;
+        const y0 = g.y + g.h / 2 + 4;
+        c.moveTo(x0, y0);
+        c.lineTo(x0 + (g.w + 12) * sp, y0 - (g.h + 8) * sp);
+        c.stroke();
+        c.font = `italic 400 ${13 / Math.sqrt(k)}px "EB Garamond", serif`;
+        c.fillStyle = C.shill;
         c.textAlign = "center";
-        c.fillText(g.label, g.x, g.y + 24);
+        c.globalAlpha = a * sp;
+        c.fillText(g.label, g.x, g.y + g.h / 2 + 20);
       }
       c.restore();
     }
     this.ghosts = this.ghosts.filter((g) => now - g.start < g.dur);
   }
 
+  /** compass circles: drawn as a sweep with the compass arm, then ticked, then fade */
   private drawOver(now: number, ox: number, oy: number) {
     const c = this.octx;
     const k = this.k;
@@ -1018,63 +1070,65 @@ export class Graph {
     c.setTransform(this.dpr * k, 0, 0, this.dpr * k, this.dpr * ox, this.dpr * oy);
     for (const r of this.rings) {
       const t = clamp((now - r.start) / r.dur, 0, 1);
-      const e = 1 - Math.pow(1 - t, 3);
-      for (let i = 0; i < 2; i++) {
-        const tt = clamp(e - i * 0.15, 0, 1);
-        c.globalAlpha = (1 - t) * (i ? 0.4 : 0.85);
-        c.strokeStyle = r.color;
-        c.lineWidth = ((1 - t) * 6 + 1) / k;
+      const sweep = clamp(t / 0.55, 0, 1);
+      const e = 1 - Math.pow(1 - sweep, 2.4);
+      const fade = t < 0.75 ? 1 : 1 - (t - 0.75) / 0.25;
+      const R = lerp(r.r0 + 20, r.r1, 0.55);
+      const a0 = -Math.PI / 2;
+      c.globalAlpha = fade;
+      c.strokeStyle = r.color;
+      c.lineWidth = 1.4 / k;
+      c.beginPath();
+      c.arc(r.x, r.y, R, a0, a0 + e * Math.PI * 2);
+      c.stroke();
+      c.lineWidth = 0.8 / k;
+      c.beginPath();
+      c.arc(r.x, r.y, R + 10 / k, a0, a0 + e * Math.PI * 2);
+      c.stroke();
+      // ticks every 10 degrees
+      const ticks = Math.floor(36 * e);
+      for (let i = 0; i < ticks; i++) {
+        const ang = a0 + (i / 36) * Math.PI * 2;
+        const L = (i % 9 === 0 ? 14 : 6) / k;
         c.beginPath();
-        c.arc(r.x, r.y, lerp(r.r0, r.r1, tt), 0, Math.PI * 2);
+        c.moveTo(r.x + Math.cos(ang) * R, r.y + Math.sin(ang) * R);
+        c.lineTo(r.x + Math.cos(ang) * (R - L), r.y + Math.sin(ang) * (R - L));
         c.stroke();
+      }
+      if (sweep < 1) {
+        // the compass arm
+        const ang = a0 + e * Math.PI * 2;
+        c.setLineDash([3 / k, 4 / k]);
+        c.beginPath();
+        c.moveTo(r.x, r.y);
+        c.lineTo(r.x + Math.cos(ang) * R, r.y + Math.sin(ang) * R);
+        c.stroke();
+        c.setLineDash([]);
       }
     }
     c.globalAlpha = 1;
     this.rings = this.rings.filter((r) => now - r.start < r.dur);
   }
 
-  private glow(c: CanvasRenderingContext2D, x: number, y: number, r: number, col: string, a: number) {
-    if (a <= 0.01) return;
-    const g = c.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, col);
-    g.addColorStop(0.35, col);
-    g.addColorStop(1, "transparent");
-    c.save();
-    c.globalAlpha *= a;
-    c.globalCompositeOperation = "lighter";
-    c.fillStyle = g;
-    c.beginPath();
-    c.arc(x, y, r, 0, Math.PI * 2);
-    c.fill();
-    c.restore();
-  }
-
   private pill(c: CanvasRenderingContext2D, x: number, y: number, text: string, col: string) {
     const k = this.k;
-    const fs = 10.5 / Math.max(k, 0.7);
-    c.font = `600 ${fs}px "Geist Mono", monospace`;
-    const w = c.measureText(text).width + fs * 1.3;
-    const h = fs * 1.9;
+    const fs = 13.5 / Math.max(k, 0.7);
+    c.font = `italic 400 ${fs}px "EB Garamond", serif`;
+    const w = c.measureText(text).width + fs * 1.1;
+    const h = fs * 1.55;
     c.save();
-    c.fillStyle = "rgba(10,11,15,0.92)";
+    c.fillStyle = this.colors.paper;
     c.strokeStyle = col;
-    c.globalAlpha = 0.95;
     c.lineWidth = 1 / k;
-    this.rrect(c, x - w / 2, y - h / 2, w, h, h / 2);
-    c.fill();
-    c.globalAlpha = 0.5;
-    c.stroke();
+    c.fillRect(x - w / 2, y - h / 2, w, h);
+    c.globalAlpha = 0.7;
+    c.strokeRect(x - w / 2, y - h / 2, w, h);
     c.globalAlpha = 1;
     c.fillStyle = col;
     c.textAlign = "center";
     c.textBaseline = "middle";
-    c.fillText(text, x, y + fs * 0.05);
+    c.fillText(text, x, y + fs * 0.06);
     c.restore();
-  }
-
-  private rrect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-    c.beginPath();
-    c.roundRect(x, y, w, h, r);
   }
 
   /** bezier control points for an edge: [x0,y0,c1x,c1y,c2x,c2y,x1,y1] */
@@ -1103,10 +1157,29 @@ export class Graph {
     return [a.x, y0, a.x, y0 + dy, b.x, y1 - dy, b.x, y1];
   }
 
-  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number) {
+  private hatch: Record<string, CanvasPattern | null> = {};
+  private hatchFor(c: CanvasRenderingContext2D, col: string) {
+    if (this.hatch[col] !== undefined) return this.hatch[col];
+    const t = document.createElement("canvas");
+    t.width = t.height = 16;
+    const x = t.getContext("2d")!;
+    x.strokeStyle = col;
+    x.globalAlpha = 0.5;
+    x.lineWidth = 1;
+    x.beginPath();
+    for (let i = -16; i < 32; i += 8) {
+      x.moveTo(i, 16);
+      x.lineTo(i + 16, 0);
+    }
+    x.stroke();
+    this.hatch[col] = c.createPattern(t, "repeat");
+    return this.hatch[col];
+  }
+
+  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number, idx: number) {
     const ms = cl.members.map((id) => this.byId.get(id)!).filter((n) => n && n.vis);
     if (ms.length < 3) return;
-    const pad = 26;
+    const pad = 28;
     const pts: [number, number][] = [];
     for (const n of ms) {
       const hw = n.w / 2 + pad;
@@ -1115,59 +1188,75 @@ export class Graph {
     }
     const hull = convexHull(pts);
     const col = cl.status === "coordinated" ? this.colors.shill : cl.status === "likely_organic" ? this.colors.chill : this.colors.unsure;
-    const breathe = 0.5 + 0.5 * Math.sin(now / 900);
-    c.save();
-    c.beginPath();
-    const n = hull.length;
-    for (let i = 0; i < n; i++) {
-      const p = hull[i];
-      const q = hull[(i + 1) % n];
-      const mx = (p[0] + q[0]) / 2;
-      const my = (p[1] + q[1]) / 2;
-      if (i === 0) c.moveTo(mx, my);
-      else c.quadraticCurveTo(p[0], p[1], mx, my);
-    }
-    const p0 = hull[0];
-    const p1 = hull[1 % n];
-    c.quadraticCurveTo(p0[0], p0[1], (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2);
-    c.closePath();
-    c.fillStyle = col;
-    c.globalAlpha = 0.045 + 0.02 * breathe;
-    c.fill();
-    c.globalAlpha = 0.35 + 0.15 * breathe;
-    c.strokeStyle = col;
-    c.lineWidth = 1.4 / this.k;
-    c.setLineDash([8 / this.k, 6 / this.k]);
-    c.lineDashOffset = -now / 60 / this.k;
-    c.stroke();
-    c.restore();
-    // label above the hull
-    let minY = Infinity;
-    let sx = 0;
-    for (const p of hull) if (p[1] < minY) ((minY = p[1]), (sx = p[0]));
-    const xs = hull.map((p) => p[0]);
-    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    void sx;
     const k = this.k;
-    const fs = 11 / Math.max(k, 0.12);
+    const path = () => {
+      c.beginPath();
+      const n = hull.length;
+      for (let i = 0; i < n; i++) {
+        const p = hull[i];
+        const q = hull[(i + 1) % n];
+        const mx = (p[0] + q[0]) / 2;
+        const my = (p[1] + q[1]) / 2;
+        if (i === 0) c.moveTo(mx, my);
+        else c.quadraticCurveTo(p[0], p[1], mx, my);
+      }
+      const p0 = hull[0];
+      const p1 = hull[1 % n];
+      c.quadraticCurveTo(p0[0], p0[1], (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2);
+      c.closePath();
+    };
     c.save();
-    c.font = `650 ${fs}px "Geist Mono", monospace`;
-    const label = `${STATUS[cl.status].short.toUpperCase()} · ${cl.label.toUpperCase()}  ·  ${cl.stat}`;
-    const w = c.measureText(label).width + fs * 1.6;
-    const h = fs * 2.1;
-    const y = minY - h / 2 - 8 / k;
-    c.fillStyle = "rgba(10,11,15,0.92)";
-    this.rrect(c, cx - w / 2, y - h / 2, w, h, h / 2);
-    c.fill();
+    path();
+    // engraving: hatched fill, scaled so the hatch stays fine on screen
+    const pat = this.hatchFor(c, col);
+    if (pat) {
+      const m = new DOMMatrix().scale(1 / k, 1 / k);
+      pat.setTransform(m);
+      c.fillStyle = pat;
+      c.globalAlpha = 0.32;
+      c.fill();
+    }
+    c.globalAlpha = 0.85;
+    c.strokeStyle = col;
+    c.lineWidth = 1.2 / k;
+    c.stroke();
+    c.globalAlpha = 0.5;
+    c.lineWidth = 0.7 / k;
+    c.setLineDash([2 / k, 4 / k]);
+    c.lineDashOffset = -now / 80 / k;
+    c.translate(0, 0);
+    c.restore();
+    // outer dashed line, slowly marching
+    c.save();
     c.strokeStyle = col;
     c.globalAlpha = 0.6;
-    c.lineWidth = 1 / k;
+    c.lineWidth = 0.8 / k;
+    c.setLineDash([2 / k, 5 / k]);
+    c.lineDashOffset = -now / 90 / k;
+    const cxm = hull.reduce((s, p) => s + p[0], 0) / hull.length;
+    const cym = hull.reduce((s, p) => s + p[1], 0) / hull.length;
+    c.translate(cxm, cym);
+    c.scale(1.035, 1.05);
+    c.translate(-cxm, -cym);
+    path();
     c.stroke();
-    c.globalAlpha = 1;
-    c.fillStyle = col;
+    c.restore();
+    // figure caption under the engraving
+    let maxY = -Infinity;
+    for (const p of hull) maxY = Math.max(maxY, p[1]);
+    const xs = hull.map((p) => p[0]);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const fs = 15 / Math.max(k, 0.12);
+    c.save();
     c.textAlign = "center";
-    c.textBaseline = "middle";
-    c.fillText(label, cx, y + fs * 0.05);
+    c.textBaseline = "top";
+    c.font = `500 ${fs * 0.82}px Cinzel, serif`;
+    c.fillStyle = col;
+    const fig = `FIG. ${["I", "II", "III", "IV", "V"][idx] ?? idx + 1} · ${STATUS[cl.status].short.toUpperCase()}`;
+    c.fillText(fig, cx, maxY + 14 / k);
+    c.font = `italic 400 ${fs}px "EB Garamond", serif`;
+    c.fillStyle = this.colors.ink;
+    c.fillText(`${cl.label}: ${cl.stat}`, cx, maxY + 14 / k + fs * 1.15);
     c.restore();
   }
 

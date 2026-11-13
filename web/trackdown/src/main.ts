@@ -6,7 +6,7 @@ import { Graph, type Mode } from "./engine/graph";
 import type { TraceCase } from "./types";
 import { coinImg, preloadCoin, tossCoin, wait } from "./ui/coin";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDur, fmtShort, ROLE, STATUS, TOOL, toolChip } from "./ui/format";
+import { esc, fmtDur, fmtShort, ROLE, roman, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { Panel } from "./ui/panel";
 
@@ -16,23 +16,23 @@ document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
     <div class="brand">
-      <button class="btn icon mobile-only rail-btn" data-act="rail" aria-label="Trackdowns">${icon.menu}</button>
+      <button class="cbtn icon mobile-only rail-btn" data-act="rail" aria-label="Catalogue">${icon.menu}</button>
       <div class="brand-coin" style="background-image:url(${coinImg("coordinated")})"></div>
-      <div class="wordmark"><i class="s">Shill</i> <span class="or">or</span> <i class="c">Chill</i></div>
-      <span class="brand-tag">Trackdown</span>
+      <div class="wordmark"><b>Shill</b> <span class="or">or</span> <b>Chill</b></div>
     </div>
-    <div class="case-head"><span class="kicker" id="kicker"></span><h1 id="title"></h1><span id="badges"></span></div>
+    <span class="slash">trackdown</span>
+    <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <div class="seg" id="mode"><span class="seg-thumb"></span><button data-mode="timeline" class="on">${icon.timeline.replace("<svg", '<svg width="14" height="14"')}<span class="lbl">Timeline</span></button><button data-mode="web">${icon.web2.replace("<svg", '<svg width="14" height="14"')}<span class="lbl">Web</span></button></div>
-      <button class="btn icon mobile-only" data-act="sheet" aria-label="Receipts">${icon.receipt}</button>
-      <button class="btn primary" data-act="trace">${icon.search.replace("<svg", '<svg width="15" height="15"')}<span class="lbl">Trace a post</span><span class="kbd">N</span></button>
+      <div class="seg" id="mode"><button data-mode="timeline" class="on">Timeline</button><button data-mode="web">Web</button></div>
+      <button class="cbtn icon mobile-only" data-act="sheet" aria-label="Catalogue entry">${icon.receipt}</button>
+      <button class="cbtn solid" data-act="trace">${icon.search}<span class="lbl">Trace a post</span><span class="kbd">N</span></button>
     </div>
   </header>
   <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
   <main class="stage" id="stage">
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
-    <div class="console hidden" id="console" data-ui></div>
-    <div class="hint" id="hint">drag cards · scroll to zoom · drag the canvas to pan · double-click to focus</div>
+    <div class="term hidden" id="console" data-ui></div>
+    <div class="hint" id="hint">Drag the folios, scroll to zoom, double-click to look closer.</div>
     <div class="legend min" id="legend" data-ui></div>
     <div class="hud" data-ui>
       <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button></div>
@@ -61,9 +61,9 @@ preloadCoin();
 
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
-  `<div class="legend-title"><span>Legend</span><span>+</span></div>` +
+  `<div class="legend-title"><span>Key</span><span>+</span></div>` +
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#ff4757"></span>copied text</div><div class="li"><span class="ln" style="--s:dotted;--c:#ff8a4c"></span>same image</div>`;
+  `<div class="li"><span class="ln" style="--s:dashed"></span>copied text</div><div class="li"><span class="ln" style="--s:dotted"></span>same image</div><div class="li"><span class="ln"></span>reposted, quoted</div><div class="li"><span class="ln" style="--s:dashed;--c:var(--lapis)"></span>cites</div>`;
 $("#legend").addEventListener("click", (e) => {
   if ((e.target as HTMLElement).closest(".legend-title")) {
     const l = $("#legend");
@@ -75,8 +75,8 @@ $("#legend").addEventListener("click", (e) => {
 // ---------------------------------------------------------------- rail
 function spark(c: TraceCase, canvas: HTMLCanvasElement) {
   const dpr = Math.min(2, devicePixelRatio || 1);
-  const w = 220;
-  const h = 22;
+  const w = 200;
+  const h = 16;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   const x = canvas.getContext("2d")!;
@@ -91,29 +91,31 @@ function spark(c: TraceCase, canvas: HTMLCanvasElement) {
     xs.push(acc);
   });
   const max = acc || 1;
-  const col = STATUS[c.status].css.startsWith("var") ? getComputedStyle(document.documentElement).getPropertyValue(STATUS[c.status].css.slice(4, -1)) : STATUS[c.status].css;
+  const col = STATUS[c.status].color;
   const bins = new Array(44).fill(0);
   xs.forEach((v) => bins[Math.min(43, Math.floor((v / max) * 43))]++);
+  x.fillStyle = "rgba(29,24,19,0.35)";
+  x.fillRect(0, h - 0.5, w, 0.5);
   const m = Math.max(...bins);
   bins.forEach((b, i) => {
     if (!b) return;
     const bh = Math.max(2, Math.sqrt(b / m) * (h - 2));
     x.fillStyle = col;
-    x.globalAlpha = 0.25 + 0.6 * (b / m);
-    x.fillRect(i * 5, h - bh, 3.4, bh);
+    x.globalAlpha = 0.35 + 0.65 * (b / m);
+    x.fillRect(i * 4.5, h - bh, 1.2, bh);
   });
   void t0;
 }
 
-function railItem(c: TraceCase) {
+function railItem(c: TraceCase, i: number) {
   const sub = c.nodes.find((n) => n.id === c.submittedId);
   const ori = c.nodes.find((n) => n.id === c.originId);
-  const accounts = new Set(c.nodes.map((n) => n.author.handle)).size;
-  return `<button class="case-item${current?.id === c.id ? " on" : ""}" data-case="${c.id}" style="--vc:${STATUS[c.status].css}">
+  return `<button class="cat-item${current?.id === c.id ? " on" : ""}" data-case="${c.id}" style="--vc:${STATUS[c.status].css}">
+    <span class="no">${roman(i + 1)}.</span>
+    <span class="vd">${STATUS[c.status].short} · ${esc(c.kicker)}</span>
     <span class="mini-coin" style="background-image:url(${coinImg(c.status)})"></span>
-    <span class="k">${STATUS[c.status].short} · ${esc(c.kicker)}</span>
     <span class="ttl">${esc(c.title)}</span>
-    <span class="meta"><span>${ori ? fmtShort(ori.t) : ""} → ${sub ? fmtShort(sub.t) : ""}</span><span>${accounts} accts</span>${sub && ori ? `<span>${fmtDur(sub.t - ori.t)}</span>` : ""}</span>
+    <span class="meta">${ori ? fmtShort(ori.t) : ""} to ${sub ? fmtShort(sub.t) : ""}${sub && ori ? `, ${fmtDur(sub.t - ori.t)}` : ""}</span>
     <canvas class="spark"></canvas>
   </button>`;
 }
@@ -137,17 +139,17 @@ function renderRail() {
   const sims = simulatedCases();
   const live = liveRows
     .map(
-      (r) => `<button class="case-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="mini-coin" style="background-image:url(${coinImg(r.status)})"></span>
-      <span class="k">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster #${r.id}</span>
-      <span class="meta"><span>${r.size ?? "?"} accts</span><span>score ${r.score.toFixed(2)}</span></span></button>`,
+      (r, i) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="no">${roman(i + 1)}.</span>
+      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="mini-coin" style="background-image:url(${coinImg(r.status)})"></span><span class="ttl">Cluster ${r.id}</span>
+      <span class="meta">${r.size ?? "?"} accounts, score ${r.score.toFixed(2)}</span></button>`,
     )
     .join("");
   $("#rail").innerHTML = `
-    ${userCases.length ? `<h3>Your traces <span class="count">${userCases.length}</span></h3>${userCases.map(railItem).join("")}` : ""}
-    ${live ? `<h3><span class="pill live"><span class="blip"></span>live</span> From the monitor <span class="count">${liveRows.length}</span></h3>${live}` : ""}
-    <h3>Trackdown archive <span class="count">${sims.length}</span></h3>
+    ${userCases.length ? `<div class="label">Your traces</div>${userCases.map(railItem).join("")}` : ""}
+    ${live ? `<div class="label">Live from the monitor</div>${live}` : ""}
+    <div class="label">The archive</div>
     ${sims.map(railItem).join("")}
-    <p class="rail-note"><b>Archive cases are simulated</b>: fictional accounts and <code>.example</code> sites, built to show the four ways a trace can end. ${live ? "Live clusters come straight from the detector." : "Live clusters appear here when the monitor API is reachable."}</p>`;
+    <p class="rail-note"><b>The archive is mostly simulated:</b> fictional accounts and <span class="mono" style="font-size:12px">.example</span> sites, built to show the ways a trace can end. The Rhinoceros is real history. ${live ? "Live clusters come straight from the detector." : "Live clusters appear here when the monitor API is reachable."}</p>`;
   $("#rail")
     .querySelectorAll<HTMLButtonElement>("[data-case]")
     .forEach((b) => {
@@ -173,19 +175,12 @@ $("#rail").addEventListener("click", async (e) => {
 
 // ---------------------------------------------------------------- header
 function setHeader(c: TraceCase) {
-  $("#kicker").textContent = c.kicker;
   $("#title").textContent = c.title;
-  $("#badges").innerHTML = c.synthetic ? `<span class="pill sim"><span class="blip"></span>Simulated</span>` : c.live ? `<span class="pill live"><span class="blip"></span>Live data</span>` : "";
+  $("#badges").innerHTML = c.synthetic ? `<span class="tag sim">Simulated</span>` : c.historical ? `<span class="tag hist">Historical record</span>` : c.live ? `<span class="tag live">Live data</span>` : "";
   document.title = `${c.title} · Shill or Chill`;
 }
 
 const seg = $("#mode");
-function placeThumb() {
-  const on = $(".on", seg);
-  const th = $(".seg-thumb", seg);
-  th.style.left = `${on.offsetLeft}px`;
-  th.style.width = `${on.offsetWidth}px`;
-}
 seg.addEventListener("click", (e) => {
   const b = (e.target as HTMLElement).closest<HTMLElement>("[data-mode]");
   if (!b) return;
@@ -193,12 +188,10 @@ seg.addEventListener("click", (e) => {
 });
 function setMode(m: Mode) {
   seg.querySelectorAll("[data-mode]").forEach((x) => x.classList.toggle("on", (x as HTMLElement).dataset.mode === m));
-  placeThumb();
   g.setMode(m);
   $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
   setTimeout(() => g.fit(undefined, 1100), 380);
 }
-requestAnimationFrame(placeThumb);
 
 document.addEventListener("click", (e) => {
   const a = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
@@ -281,8 +274,9 @@ function hideConsole() {
 function cancelTrace() {
   if (tracing) skipFlag = true;
 }
-function consoleHead(state: "run" | "done", sim: boolean) {
-  return `<div class="console-head">${state === "run" ? '<span class="spin"></span>' : '<span class="done">✓</span>'}<span>${state === "run" ? "Trackdown running" : "Trackdown complete"}</span>${sim ? '<span class="pill sim" style="height:18px;margin-left:6px">sim</span>' : ""}<button class="x" data-skip title="Skip (Esc)">${state === "run" ? "skip ›" : "×"}</button></div><div class="console-body"></div>`;
+function consoleHead(state: "run" | "done", c: TraceCase) {
+  const file = c.synthetic ? "trackdown.sh --simulated" : c.historical ? "trackdown.sh --archive" : "trackdown.sh";
+  return `<div class="term-head"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="file">${file}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "skip" : "close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
 }
 consoleEl.addEventListener("click", (e) => {
   if ((e.target as HTMLElement).closest("[data-skip]")) {
@@ -293,8 +287,8 @@ consoleEl.addEventListener("click", (e) => {
 
 async function typeLine(body: HTMLElement, tool: keyof typeof TOOL, text: string, run: number) {
   const row = document.createElement("div");
-  row.className = "step active";
-  row.innerHTML = `<span class="tool">${toolChip(tool)}</span><span class="txt"></span><span class="res"></span>`;
+  row.className = "line active";
+  row.innerHTML = `<span class="gt">&gt;</span><span class="tool t-${tool}">${TOOL[tool].label}</span><span class="txt"></span><span class="res"></span>`;
   body.appendChild(row);
   body.scrollTop = body.scrollHeight;
   const t = row.querySelector<HTMLElement>(".txt")!;
@@ -317,9 +311,9 @@ async function runTrace(c: TraceCase) {
   dock.pause();
   dock.u = 1;
   panel.set(c, true);
-  consoleEl.innerHTML = consoleHead("run", c.synthetic);
+  consoleEl.innerHTML = consoleHead("run", c);
   consoleEl.classList.remove("hidden");
-  const body = $(".console-body", consoleEl);
+  const body = $(".term-body", consoleEl);
   const alive = () => run === tracing && !skipFlag;
   const pause = async (ms: number) => {
     if (alive()) await wait(ms);
@@ -348,7 +342,7 @@ async function runTrace(c: TraceCase) {
       g.focus(c.submittedId, 1.05, 0);
       const el = g.byId.get(c.submittedId)?.el;
       el?.classList.add("scanning");
-      g.ring(c.submittedId, "#ffffff", 260, 1100);
+      g.ring(c.submittedId, "#1d1813", 300, 1300);
       await pause(1300);
       el?.classList.remove("scanning");
       frontier.push(c.submittedId);
@@ -378,7 +372,7 @@ async function runTrace(c: TraceCase) {
       frontier.push(...found);
       await wait(120);
       g.fit([...(g.revealed ?? [])], 1100, 1);
-      row.querySelector(".res")!.innerHTML = `<b>+${newIds.length}</b>${step.rejected ? ` · ${step.rejected} ✕` : ""}`;
+      row.querySelector(".res")!.innerHTML = `<b>+${newIds.length}</b>${step.rejected ? ` −${step.rejected}` : ""}`;
       await pause(1300);
     } else {
       // analysis step: scan the current frontier card
@@ -395,8 +389,8 @@ async function runTrace(c: TraceCase) {
   // origin moment
   if (alive() && c.originId) {
     g.setHighlight(new Set(g.pathToOrigin(c.submittedId)));
-    g.ring(c.originId, ROLE.origin.color, 520, 1700);
-    await typeLine(body, "detector", `Earliest known copy: ${fmtShort(c.nodes.find((n) => n.id === c.originId)!.t)} · ${Math.max(0, subPath.length - 1)} hops back`, run);
+    g.ring(c.originId, ROLE.origin.color, 520, 2200);
+    await typeLine(body, c.historical ? "archive" : "detector", `earliest known copy: ${fmtShort(c.nodes.find((n) => n.id === c.originId)!.t)}, ${Math.max(0, subPath.length - 1)} copies back`, run);
     await pause(1500);
     g.setHighlight(null);
   }
@@ -404,7 +398,7 @@ async function runTrace(c: TraceCase) {
   if (alive()) {
     const rest = c.nodes.filter((n) => !g.revealed?.has(n.id)).sort((a, b) => a.t - b.t);
     if (rest.length) {
-      await typeLine(body, "detector", `Mapping the rest of the spread: ${rest.length} more posts`, run);
+      await typeLine(body, c.historical ? "archive" : "detector", `mapping the rest of the spread: ${rest.length} more`, run);
       g.fit(undefined, 1400);
       for (let i = 0; i < rest.length; i += 3) {
         if (!alive()) break;
@@ -416,10 +410,10 @@ async function runTrace(c: TraceCase) {
   // finish (also the skip path)
   g.revealAll();
   dock.u = 1;
-  consoleEl.innerHTML = consoleHead("done", c.synthetic);
-  const b2 = $(".console-body", consoleEl);
+  consoleEl.innerHTML = consoleHead("done", c);
+  const b2 = $(".term-body", consoleEl);
   const hops = Math.max(0, subPath.length - 1);
-  b2.innerHTML = `<div class="step"><span class="tool">${toolChip("gemini")}</span><span class="txt">${STATUS[c.status].word} · ${hops} hops · ${c.nodes.length} posts</span><span class="res"></span></div>`;
+  b2.insertAdjacentHTML("beforeend", `<div class="line"><span class="gt">&gt;</span><span class="tool t-${c.historical ? "archive" : "gemini"}">verdict</span><span class="txt">${STATUS[c.status].word.toLowerCase()} // ${hops} copies back // ${c.nodes.length} posts</span><span class="res"></span></div>`);
   g.followFit(3200);
   const wasSkipped = skipFlag;
   skipFlag = false;
@@ -445,12 +439,16 @@ function openModal() {
   const back = document.createElement("div");
   back.className = "modal-back";
   back.innerHTML = `<div class="modal" role="dialog" aria-label="Trace a post">
-    <h2>Shill <i>or</i> chill?</h2>
-    <div class="sub">Drop a post, a link or a handle. We walk it back to the earliest copy we can find, then check how it spread.</div>
-    <div class="drop"><textarea placeholder="Paste a post, a bsky.app link or @handle…" autofocus></textarea>
-      <div class="row">${icon.image.replace("<svg", '<svg width="14" height="14"')}<span>Drop a screenshot here (Nemotron reads it)</span><span class="file"></span></div></div>
-    <div class="examples">${EXAMPLES.map((e) => `<button data-ex="${esc(e)}">${esc(e.length > 46 ? e.slice(0, 44) + "…" : e)}</button>`).join("")}</div>
-    <div class="foot"><div class="fine">Asks the live API first. If it isn't reachable, you get a clearly labelled <b>simulated</b> trackdown.</div><button class="btn" data-x>Cancel</button><button class="btn primary" data-go>${icon.search.replace("<svg", '<svg width="15" height="15"')} Trace it</button></div>
+    <div class="art"><div class="streak"></div></div>
+    <div class="form">
+      <span class="slash" style="color:var(--chrome-ink-2)">submit for attribution</span>
+      <h2>Shill <i>or</i> chill?</h2>
+      <div class="sub">Drop a post, a link or a handle. We walk it back to the earliest copy we can find, then look at how it spread.</div>
+      <div class="drop"><textarea placeholder="Paste a post, a bsky.app link or @handle…" autofocus></textarea>
+        <div class="row">// drop a screenshot here, Nemotron reads it<span class="file"></span></div></div>
+      <div class="examples">${EXAMPLES.map((e) => `<button data-ex="${esc(e)}">${esc(e.length > 58 ? e.slice(0, 56) + "…" : e)}</button>`).join("")}</div>
+      <div class="foot"><div class="fine">Asks the live API first. If it isn't reachable, you get a clearly labelled simulated trackdown.</div><button class="cbtn" data-x>Cancel</button><button class="cbtn solid" data-go>Trace it</button></div>
+    </div>
   </div>`;
   document.body.appendChild(back);
   const ta = $<HTMLTextAreaElement>("textarea", back);
@@ -486,7 +484,7 @@ function openModal() {
     const f = e.dataTransfer?.files?.[0];
     if (f) {
       file = f;
-      $(".file", drop).innerHTML = `<span class="att">${icon.image.replace("<svg", '<svg width="12" height="12"')} ${esc(f.name.slice(0, 28))}</span>`;
+      $(".file", drop).innerHTML = `<span class="att">${esc(f.name.slice(0, 28))}</span>`;
     } else {
       const txt = e.dataTransfer?.getData("text");
       if (txt) ta.value = txt;
@@ -500,11 +498,11 @@ function openModal() {
       return;
     }
     const btn = $<HTMLButtonElement>("[data-go]", back);
-    btn.innerHTML = `<span class="spin" style="width:13px;height:13px;border-radius:50%;border:2px solid rgba(0,0,0,.2);border-top-color:#000;animation:spin .8s linear infinite"></span> Asking the API…`;
+    btn.textContent = "Asking the API…";
     let c = await analyze(text);
     if (!c) {
       c = simulateFromInput(text);
-      toast("Live API not reachable: running a simulated trackdown");
+      toast("// live API not reachable: running a simulated trackdown");
     }
     userCases.unshift(c);
     saveUserCases();
@@ -572,11 +570,23 @@ hideHintSoon();
 const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
 if (params.has("static")) openCase(first, "static");
-else
-  document.fonts.ready.then(() => {
-    // first visit: run the full trackdown so the motion explains the product
+else {
+  // first visit: a short title card, then the full trackdown so the motion explains the product
+  const splash = document.createElement("div");
+  splash.className = "splash";
+  splash.innerHTML = `<div class="bg"></div><div class="bars"></div><div class="t"><div class="big">Shill <i>or</i> Chill</div><div class="sub">// provenance for the feed &nbsp;·&nbsp; Junction 2026</div></div>`;
+  document.body.appendChild(splash);
+  let gone = false;
+  const go = () => {
+    if (gone) return;
+    gone = true;
+    splash.classList.add("out");
+    setTimeout(() => splash.remove(), 950);
     runTrace(first);
-  });
+  };
+  splash.addEventListener("click", go);
+  Promise.all([document.fonts.ready, wait(1900)]).then(go);
+}
 listLive().then((rows) => {
   liveRows = rows;
   if (rows.length) renderRail();

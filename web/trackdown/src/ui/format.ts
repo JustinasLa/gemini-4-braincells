@@ -5,15 +5,18 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 
 export function fmtDate(t: number, withTime = true): string {
   const d = new Date(t);
+  if (d.getUTCFullYear() < 1900) return `${d.getUTCFullYear()}`;
   const s = `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
   return withTime ? `${s} · ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}` : s;
 }
 export function fmtClock(t: number): string {
   const d = new Date(t);
+  if (d.getUTCFullYear() < 1900) return `${d.getUTCFullYear()}`;
   return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
 }
 export function fmtShort(t: number): string {
   const d = new Date(t);
+  if (d.getUTCFullYear() < 1900) return `${d.getUTCFullYear()}`;
   return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}`;
 }
 export function fmtDur(ms: number): string {
@@ -29,7 +32,7 @@ export function fmtDur(ms: number): string {
   const mo = d / 30.44;
   if (mo < 24) return `${Math.round(mo)} mo`;
   const y = d / 365.25;
-  return `${y.toFixed(1).replace(/\.0$/, "")} yr`;
+  return y >= 10 ? `${Math.round(y)} yr` : `${y.toFixed(1).replace(/\.0$/, "")} yr`;
 }
 export function fmtNum(n?: number): string {
   if (n == null) return "–";
@@ -48,38 +51,40 @@ export const initials = (name: string) =>
 
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-export const STATUS: Record<Status, { word: string; emoji: string; css: string; short: string; tag: string }> = {
-  coordinated: { word: "Shill", emoji: "🚩", css: "var(--shill)", short: "Shill", tag: "Coordinated spread" },
-  likely_organic: { word: "Chill", emoji: "😎", css: "var(--chill)", short: "Chill", tag: "Certified organic" },
-  insufficient: { word: "Can't tell (yet)", emoji: "🤷", css: "var(--unsure)", short: "Can't tell", tag: "Not enough evidence" },
+export const STATUS: Record<Status, { word: string; css: string; short: string; tag: string; color: string }> = {
+  coordinated: { word: "Shill", css: "var(--cinnabar)", color: "#b23a1e", short: "Shill", tag: "Coordinated spread" },
+  likely_organic: { word: "Chill", css: "var(--verdigris)", color: "#2e7262", short: "Chill", tag: "Organic spread" },
+  insufficient: { word: "Can't tell (yet)", css: "var(--slate)", color: "#5b6475", short: "Can't tell", tag: "Not enough evidence" },
 };
 
-export const ROLE: Record<Role, { label: string; color: string; badge?: string }> = {
-  origin: { label: "Earliest known", color: "#ffc14d", badge: "Earliest known source" },
-  mutation: { label: "Context changed", color: "#ff8a4c", badge: "Context changed" },
-  relay: { label: "Reshare", color: "#8b93a7" },
-  amplifier: { label: "In coordinated cluster", color: "#ff4757" },
-  organic: { label: "Independent", color: "#2fd6a3" },
-  submitted: { label: "You submitted", color: "#ffffff", badge: "You submitted this" },
-  source: { label: "Found by search", color: "#4da3ff", badge: "Found by search" },
+export const ROLE: Record<Role, { label: string; color: string; mark?: string }> = {
+  origin: { label: "Earliest known", color: "#a87b22", mark: "The original" },
+  mutation: { label: "Altered copy", color: "#b7611d", mark: "Altered" },
+  relay: { label: "Reshare", color: "#8c8070" },
+  amplifier: { label: "In coordinated cluster", color: "#b23a1e" },
+  organic: { label: "Independent", color: "#2e7262" },
+  submitted: { label: "Submitted", color: "#1d1813" },
+  source: { label: "Found by search", color: "#2d4f8e", mark: "Found by search" },
 };
 
 export const REL: Record<Relation, { label: string; dash: number[] }> = {
   repost: { label: "reposted", dash: [] },
   quote: { label: "quoted", dash: [] },
-  copy: { label: "copied text", dash: [7, 5] },
-  media: { label: "same image", dash: [2, 5] },
+  copy: { label: "copied", dash: [6, 4] },
+  media: { label: "same image", dash: [1.5, 4] },
   link: { label: "shared link", dash: [] },
   reply: { label: "replied", dash: [] },
-  cites: { label: "cites", dash: [10, 6] },
+  cites: { label: "cites", dash: [10, 5] },
 };
 
 export const TOOL: Record<Tool, { label: string; long: string }> = {
-  detector: { label: "Detector", long: "Behaviour detector" },
-  nemotron: { label: "Nemotron VL", long: "NVIDIA Nemotron 3.5 Super VL" },
-  oxylabs: { label: "Oxylabs", long: "Oxylabs Web API" },
-  gemini: { label: "Gemini", long: "Gemini analyst" },
-  you: { label: "You", long: "Your submission" },
+  detector: { label: "detector", long: "Behaviour detector" },
+  nemotron: { label: "nemotron", long: "NVIDIA Nemotron 3.5 Super VL" },
+  oxylabs: { label: "oxylabs", long: "Oxylabs Web API" },
+  gemini: { label: "gemini", long: "Gemini analyst" },
+  you: { label: "input", long: "Your submission" },
+  archive: { label: "archive", long: "Historical record" },
 };
 
-export const toolChip = (t: Tool) => `<span class="tool-chip tool-${t}">${TOOL[t].label}</span>`;
+export const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
+export const roman = (n: number) => ROMAN[n - 1] ?? String(n);

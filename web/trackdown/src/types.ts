@@ -3,7 +3,7 @@
 
 export type Status = "coordinated" | "likely_organic" | "insufficient";
 
-export type Platform = "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck";
+export type Platform = "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter";
 
 /** What a node is in the story. */
 export type Role =
@@ -19,7 +19,7 @@ export type Role =
 export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" | "cites";
 
 /** Which part of the pipeline produced a link or a receipt. */
-export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you";
+export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive";
 
 export interface Author {
   name: string;
@@ -31,7 +31,8 @@ export interface Author {
 }
 
 export interface Media {
-  kind: "screenshot" | "photo" | "video" | "link";
+  kind: "screenshot" | "photo" | "video" | "link" | "plate";
+  src?: string; // image for plates (public-domain artwork)
   title: string; // headline in the screenshot / link card title / caption
   domain?: string;
   hue?: number;
@@ -92,6 +93,8 @@ export interface TraceCase {
   status: Status;
   confidence: number;
   synthetic: boolean; // simulated demo data
+  historical?: boolean; // real historical record, written by hand (not run through the pipeline)
+  scored?: boolean; // false: no confidence number shown
   live?: boolean; // from the API
   submittedId: string;
   originId: string;

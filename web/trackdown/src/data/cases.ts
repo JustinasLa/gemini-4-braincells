@@ -1,7 +1,127 @@
 // Simulated historical trackdowns. Every account, outlet and domain here is fictional
 // (domains end in .example) and every case is flagged `synthetic: true` in the UI.
 import type { Cluster, TraceCase } from "../types";
+import rhinoCopy from "../assets/rhino-copy.webp";
+import rhino1515 from "../assets/rhino-1515.webp";
+import rhinoPrint from "../assets/rhino-print.webp";
 import { Builder, DAY, HOUR, MIN, SEC, T } from "./build";
+
+const Y = (y: number, m = 0, d = 1) => Date.UTC(y, m, d);
+
+/** A real one: Dürer's Rhinoceros (1515). Written by hand from public history; the only
+ *  invented node is the present-day repost, which is labelled as illustrative. */
+function rhinoceros(): TraceCase {
+  const b = new Builder(1515);
+  const origin = b.add({
+    t: Y(1515, 4, 20),
+    platform: "letter",
+    role: "origin",
+    author: { name: "The animal itself", handle: "Lisbon, 20 May 1515", hue: 40 },
+    text: "An Indian rhinoceros, a gift for King Manuel I of Portugal, arrives in Lisbon. The first one seen alive in Europe in centuries.",
+  });
+  const letter = b.add({
+    t: Y(1515, 5, 1),
+    platform: "letter",
+    role: "relay",
+    author: { name: "A letter from Lisbon", handle: "sender unknown", hue: 30 },
+    text: "A written description and a sketch of the animal travel to Nuremberg. Both are now lost.",
+    flags: ["lost"],
+  });
+  b.link(origin, letter, "quote", { tool: "archive", note: "described in writing" });
+  const drawing = b.add({
+    t: Y(1515, 6, 1),
+    platform: "print",
+    role: "mutation",
+    author: { name: "Albrecht Dürer", handle: "pen drawing, Nuremberg", hue: 25 },
+    text: "Dürer draws the rhinoceros in pen and ink from the letter and the sketch.",
+    flags: ["never saw the animal"],
+  });
+  b.link(letter, drawing, "copy", { tool: "archive", note: "drawn from the description" });
+  const woodcut = b.add({
+    t: Y(1515, 8, 1),
+    platform: "print",
+    role: "mutation",
+    author: { name: "Albrecht Dürer", handle: "woodcut, Nuremberg", hue: 25 },
+    text: "The woodcut. Printed again and again, it becomes the picture of a rhinoceros.",
+    media: { kind: "plate", src: rhino1515, title: "Rhinocerus, woodcut, 1515" },
+    flags: ["invented: armour plates", "invented: small horn on the back"],
+  });
+  b.link(drawing, woodcut, "copy", { tool: "archive" });
+  const burgkmair = b.add({
+    t: Y(1515, 9, 1),
+    platform: "print",
+    role: "organic",
+    author: { name: "Hans Burgkmair", handle: "woodcut, Augsburg", hue: 140 },
+    text: "A second woodcut the same year, from a separate account. Closer to the real animal, and far less copied.",
+  });
+  b.link(origin, burgkmair, "quote", { tool: "archive", note: "a separate account" });
+  const wreck = b.add({
+    t: Y(1516, 0, 15),
+    platform: "letter",
+    role: "source",
+    author: { name: "Shipwreck off Italy", handle: "early 1516", hue: 210 },
+    text: "Sent on as a gift to Pope Leo X, the rhinoceros drowns when its ship goes down. Nobody else gets to look.",
+  });
+  b.link(origin, wreck, "cites", { tool: "archive" });
+  const gessner = b.add({
+    t: Y(1551, 0, 1),
+    platform: "print",
+    role: "relay",
+    author: { name: "Conrad Gessner", handle: "Historiae animalium, Zürich", hue: 60 },
+    text: "The great natural history of the age uses Dürer's image as its rhinoceros.",
+    media: { kind: "plate", src: rhinoCopy, title: "Stand-in image: the woodcut, coarsened to suggest a copy" },
+  });
+  b.link(woodcut, gessner, "media", { tool: "archive", note: "the woodcut, copied" });
+  const textbooks = b.add({
+    t: Y(1930, 0, 1),
+    platform: "print",
+    role: "relay",
+    author: { name: "German school textbooks", handle: "early 20th century", hue: 0 },
+    text: "Still printed as a true picture of the animal, four hundred years on.",
+    media: { kind: "plate", src: rhinoPrint, title: "Stand-in image: the woodcut, reprinted" },
+  });
+  b.link(woodcut, textbooks, "media", { tool: "archive" });
+  const sub = b.add({
+    t: T("2026-11-12T19:20:00Z"),
+    platform: "bluesky",
+    role: "submitted",
+    author: { name: "A repost today", handle: "illustrative.example", hue: 330 },
+    text: "found this 1515 rhino drawing. people really thought rhinos came with armour lmao",
+    media: { kind: "plate", src: rhino1515, title: "the same woodcut" },
+    flags: ["illustrative post"],
+  });
+  b.link(woodcut, sub, "media", { tool: "archive" });
+  return {
+    id: "rhinoceros",
+    title: "Dürer's Rhinoceros, 1515",
+    kicker: "Historical record",
+    status: "likely_organic",
+    confidence: 0,
+    scored: false,
+    synthetic: false,
+    historical: true,
+    submittedId: sub,
+    originId: origin,
+    nodes: b.nodes,
+    edges: b.edges,
+    clusters: [],
+    summary: "The most-copied wrong picture in history. Every copy goes back to one artist who never saw the animal. Wrong, yes. Coordinated, no.",
+    receipts: [
+      { tool: "archive", text: "Dürer never saw the rhinoceros. He worked from a written description and a sketch sent from Lisbon." },
+      { tool: "archive", text: "His woodcut adds things the animal didn't have: plates like armour, and a small twisted horn on its back." },
+      { tool: "archive", text: "Hans Burgkmair's woodcut from the same year is closer to life, but Dürer's became the standard picture for centuries, down to school textbooks in the 20th century." },
+      { tool: "archive", against: true, text: "Wrong is not the same as coordinated. The copies came from different printers over four centuries, with no sign of a common push." },
+    ],
+    wouldChange: ["Many printers releasing the same image at once, paid by one patron to make a point"],
+    steps: [
+      { tool: "you", text: "submitted: a repost of an old print", found: [sub] },
+      { tool: "archive", text: "image matches Dürer's woodcut, 1515", hop: 1, found: [woodcut], rejected: 3 },
+      { tool: "archive", text: "the woodcut follows his own pen drawing", hop: 2, found: [drawing], rejected: 0 },
+      { tool: "archive", text: "the drawing follows a letter from Lisbon, now lost", hop: 3, found: [letter], rejected: 2 },
+      { tool: "archive", text: "the original: the animal itself, Lisbon, 1515", hop: 4, found: [origin], rejected: 0 },
+    ],
+  };
+}
 
 function tapWater(): TraceCase {
   const b = new Builder(7);
@@ -419,5 +539,5 @@ function token(): TraceCase {
 
 let cache: TraceCase[] | null = null;
 export function simulatedCases(): TraceCase[] {
-  return (cache ??= [tapWater(), bridge(), flood(), token()]);
+  return (cache ??= [tapWater(), rhinoceros(), bridge(), flood(), token()]);
 }
