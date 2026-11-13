@@ -1,7 +1,11 @@
 // Trackdown graph engine: DOM cards over canvas layers, custom force physics, inertial camera.
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
+import topoUrl from "../assets/topo.webp";
 import { fmtDur, REL, ROLE, STATUS } from "../ui/format";
+
+const topoImg = new Image();
+topoImg.src = topoUrl;
 
 export type Mode = "timeline" | "web";
 
@@ -33,6 +37,7 @@ interface VEdge {
   seed: number;
 }
 interface Ring {
+  id: string;
   x: number;
   y: number;
   color: string;
@@ -128,13 +133,15 @@ export class Graph {
     this.uctx = this.under.getContext("2d")!;
     this.octx = this.over.getContext("2d")!;
     for (const r of Object.keys(ROLE)) this.colors[r] = ROLE[r as keyof typeof ROLE].color;
-    this.colors.shill = cssVar("--cinnabar");
-    this.colors.chill = cssVar("--verdigris");
-    this.colors.unsure = cssVar("--slate");
+    this.colors.shill = cssVar("--shill");
+    this.colors.chill = cssVar("--chill");
+    this.colors.unsure = cssVar("--unsure");
     this.colors.ink = cssVar("--ink");
     this.colors.ink2 = cssVar("--ink-2");
     this.colors.ink3 = cssVar("--ink-3");
-    this.colors.paper = cssVar("--paper");
+    this.colors.gilt = cssVar("--gilt");
+    this.colors.cv = cssVar("--cv");
+    this.colors.panel = cssVar("--inset");
     new ResizeObserver(() => this.resize()).observe(stage);
     this.resize();
     this.bind();
@@ -181,7 +188,9 @@ export class Graph {
       const compact = d.role === "amplifier" && !childCount.get(d.id);
       el.className = `card role-${d.role} plat-${d.platform}${compact ? " chip" : ""}`;
       el.dataset.id = d.id;
-      el.innerHTML = cardHtml(d, compact, order.get(d.id) ?? 0);
+      const inSim = c.edges.find((e) => e.to === d.id && e.sim != null && (e.rel === "media" || e.rel === "copy"))?.sim;
+      el.innerHTML = cardHtml(d, compact, order.get(d.id) ?? 0, inSim);
+      if (inSim != null && d.media) el.classList.add("matched");
       this.world.appendChild(el);
       const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], tilt: 0, last: "", drag: false };
       this.nodes.push(n);
@@ -792,10 +801,10 @@ export class Graph {
   ring(id: string, color: string, r1 = 340, dur = 1300) {
     const n = this.byId.get(id);
     if (!n) return;
-    this.rings.push({ x: n.x, y: n.y, color, start: performance.now(), dur, r0: Math.max(n.w, n.h) / 2, r1 });
+    this.rings.push({ id, x: n.x, y: n.y, color, start: performance.now(), dur, r0: Math.max(n.w, n.h) / 2, r1 });
   }
 
-  ghost(nearId: string, count: number, label = "no match") {
+  ghost(nearId: string, count: number, label = "NO MATCH") {
     const n = this.byId.get(nearId);
     if (!n) return;
     const now = performance.now();
@@ -851,6 +860,8 @@ export class Graph {
     this.drawOver(now, ox, oy);
   }
 
+  private topoPat: CanvasPattern | null = null;
+
   private drawUnder(now: number, ox: number, oy: number, op: number) {
     const c = this.uctx;
     const k = this.k;
@@ -858,32 +869,51 @@ export class Graph {
     const C = this.colors;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, this.W, this.H);
-    // ruled codex grid (world space), finer lines fade out when zoomed out
-    let step = 64;
-    while (step * k < 26) step *= 2;
-    const gx0 = Math.floor((0 - ox) / k / step) * step;
-    const gy0 = Math.floor((0 - oy) / k / step) * step;
+    // war-table terrain: contour texture pinned to the world
+    if (!this.topoPat && topoImg.complete && topoImg.naturalWidth) this.topoPat = c.createPattern(topoImg, "repeat");
+    if (this.topoPat) {
+      const s = Math.max(0.35, k) * 1.25;
+      this.topoPat.setTransform(new DOMMatrix().translate(ox, oy).scale(s));
+      c.globalAlpha = 0.42;
+      c.fillStyle = this.topoPat;
+      c.fillRect(0, 0, this.W, this.H);
+      c.globalAlpha = 1;
+    }
+    // graticule + HUD crosses
+    let step = 256;
+    while (step * k < 90) step *= 2;
+    const gx0 = Math.floor(-ox / k / step) * step;
+    const gy0 = Math.floor(-oy / k / step) * step;
+    c.strokeStyle = "rgba(201,166,94,0.07)";
     c.lineWidth = 1;
-    for (let x = gx0, i = Math.round(gx0 / step); x * k + ox < this.W; x += step, i++) {
+    c.beginPath();
+    for (let x = gx0; x * k + ox < this.W; x += step) {
       const sx = Math.round(x * k + ox) + 0.5;
-      c.strokeStyle = i % 4 === 0 ? "rgba(90,70,40,0.11)" : "rgba(90,70,40,0.05)";
-      c.beginPath();
       c.moveTo(sx, 0);
       c.lineTo(sx, this.H);
-      c.stroke();
     }
-    for (let y = gy0, i = Math.round(gy0 / step); y * k + oy < this.H; y += step, i++) {
+    for (let y = gy0; y * k + oy < this.H; y += step) {
       const sy = Math.round(y * k + oy) + 0.5;
-      c.strokeStyle = i % 4 === 0 ? "rgba(90,70,40,0.11)" : "rgba(90,70,40,0.05)";
-      c.beginPath();
       c.moveTo(0, sy);
       c.lineTo(this.W, sy);
-      c.stroke();
     }
+    c.stroke();
+    c.strokeStyle = "rgba(201,166,94,0.35)";
+    c.beginPath();
+    for (let x = gx0; x * k + ox < this.W; x += step)
+      for (let y = gy0; y * k + oy < this.H; y += step) {
+        const sx = Math.round(x * k + ox) + 0.5;
+        const sy = Math.round(y * k + oy) + 0.5;
+        c.moveTo(sx - 5, sy);
+        c.lineTo(sx + 5, sy);
+        c.moveTo(sx, sy - 5);
+        c.lineTo(sx, sy + 5);
+      }
+    c.stroke();
     c.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
-    // compressed time = a lacuna: hatched band
+    // compressed time: hatched no-man's-land
     if (this.mode === "timeline") {
-      const top = (0 - oy) / k;
+      const top = -oy / k;
       const bot = (this.H - oy) / k;
       for (const b of this.timeBreaks) {
         const w = 56;
@@ -891,243 +921,271 @@ export class Graph {
         c.beginPath();
         c.rect(b.x - w / 2, top, w, bot - top);
         c.clip();
-        c.strokeStyle = "rgba(90,70,40,0.14)";
+        c.fillStyle = "rgba(0,0,0,0.25)";
+        c.fillRect(b.x - w / 2, top, w, bot - top);
+        c.strokeStyle = "rgba(201,166,94,0.12)";
         c.lineWidth = 1 / k;
-        const gap = 9;
-        for (let y = top - w; y < bot; y += gap) {
+        for (let y = top - w; y < bot; y += 10) {
           c.beginPath();
           c.moveTo(b.x - w / 2, y + w);
           c.lineTo(b.x + w / 2, y);
           c.stroke();
         }
         c.restore();
-        c.strokeStyle = "rgba(90,70,40,0.3)";
+        c.strokeStyle = "rgba(201,166,94,0.35)";
         c.lineWidth = 1 / k;
+        c.setLineDash([6 / k, 6 / k]);
         c.beginPath();
         c.moveTo(b.x - w / 2, top);
         c.lineTo(b.x - w / 2, bot);
         c.moveTo(b.x + w / 2, top);
         c.lineTo(b.x + w / 2, bot);
         c.stroke();
+        c.setLineDash([]);
       }
     }
-    // cluster engravings
-    if (this.case) this.case.clusters.forEach((cl, i) => this.drawHull(c, cl, now, i));
-    // edges: ink lines
+    // territories
+    if (this.case) this.case.clusters.forEach((cl) => this.drawHull(c, cl, now));
+    // links
     const hl = this.hl;
     c.lineCap = "round";
     for (const e of this.edges) {
       if (!e.a.vis || !e.b.vis) continue;
       const pts = this.edgePts(e);
-      const prog = clamp((now - e.born) / 700, 0, 1);
+      const prog = clamp((now - e.born) / 650, 0, 1);
       const on = hl ? hl.has(e.a.d.id) && hl.has(e.b.d.id) : false;
       const dim = hl && !on;
+      const match = e.e.rel === "copy" || e.e.rel === "media";
       const role = this.colors[e.b.d.role] ?? C.ink2;
-      const col = on ? (e.b.d.role === "submitted" || e.b.d.role === "relay" ? C.ink : role) : C.ink2;
+      const col = on ? role : match ? "rgba(240,236,226,0.85)" : e.e.rel === "cites" ? "rgba(91,143,230,0.8)" : "rgba(235,227,209,0.5)";
       c.save();
-      c.globalAlpha = dim ? 0.12 : on ? 1 : 0.55;
+      c.globalAlpha = dim ? 0.1 : on ? 1 : match ? 0.75 : 0.7;
       c.strokeStyle = col;
-      c.lineWidth = (on ? 2.2 : 1.1) / k;
-      c.setLineDash(REL[e.e.rel].dash.map((d) => d / Math.sqrt(k)));
+      c.lineWidth = (on ? 2.2 : match ? 1.1 : 1.3) / k;
+      if (match || e.e.rel === "cites") c.setLineDash([7 / k, 6 / k]);
+      if (match) c.lineDashOffset = -now / 40 / k;
       c.beginPath();
       c.moveTo(pts[0], pts[1]);
       if (prog >= 1) c.bezierCurveTo(pts[2], pts[3], pts[4], pts[5], pts[6], pts[7]);
-      else {
-        const N = 28;
-        for (let i = 1; i <= N * prog; i++) {
+      else
+        for (let i = 1, N = 28; i <= N * prog; i++) {
           const t = i / N;
           c.lineTo(bez(pts[0], pts[2], pts[4], pts[6], t), bez(pts[1], pts[3], pts[5], pts[7], t));
         }
-      }
       c.stroke();
       c.restore();
       if (prog < 1) {
-        // the nib drawing the line
         const hx = bez(pts[0], pts[2], pts[4], pts[6], prog);
         const hy = bez(pts[1], pts[3], pts[5], pts[7], prog);
-        c.fillStyle = C.ink;
-        c.beginPath();
-        c.arc(hx, hy, 3.2 / k, 0, Math.PI * 2);
-        c.fill();
+        c.strokeStyle = C.cv;
+        c.lineWidth = 1.5 / k;
+        const s = 9 / k;
+        c.strokeRect(hx - s / 2, hy - s / 2, s, s);
+        continue;
       }
-      if (prog >= 1 && !dim) {
-        // arrowhead into the child
+      if (dim) continue;
+      if (match) {
+        // detection boxes at both ends, like matched keypoints
+        c.strokeStyle = C.cv;
+        c.lineWidth = 1.5 / k;
+        const s = (on ? 12 : 9) / k;
+        c.strokeRect(pts[0] - s / 2, pts[1] - s / 2, s, s);
+        c.strokeRect(pts[6] - s / 2, pts[7] - s / 2, s, s);
+      } else {
+        // arrowhead
         const tx = pts[6] - bez(pts[0], pts[2], pts[4], pts[6], 0.97);
         const ty = pts[7] - bez(pts[1], pts[3], pts[5], pts[7], 0.97);
         const L = Math.hypot(tx, ty) || 1;
         const ux = tx / L;
         const uy = ty / L;
-        const s = (on ? 7 : 5.5) / k;
+        const s = (on ? 8 : 6) / k;
         c.fillStyle = col;
-        c.globalAlpha = on ? 1 : 0.6;
+        c.globalAlpha = 0.85;
         c.beginPath();
         c.moveTo(pts[6], pts[7]);
-        c.lineTo(pts[6] - ux * s - uy * s * 0.45, pts[7] - uy * s + ux * s * 0.45);
-        c.lineTo(pts[6] - ux * s + uy * s * 0.45, pts[7] - uy * s - ux * s * 0.45);
+        c.lineTo(pts[6] - ux * s - uy * s * 0.5, pts[7] - uy * s + ux * s * 0.5);
+        c.lineTo(pts[6] - ux * s + uy * s * 0.5, pts[7] - uy * s - ux * s * 0.5);
         c.closePath();
         c.fill();
         c.globalAlpha = 1;
-        // ink travelling down the line, parent -> child
-        const n = on ? 3 : 1;
-        const speed = on ? 0.0005 : 0.00018;
-        c.fillStyle = col;
-        for (let i = 0; i < n; i++) {
-          const u = (now * speed + e.seed + i / n) % 1;
-          c.globalAlpha = (on ? 0.9 : 0.45) * Math.sin(u * Math.PI);
-          c.beginPath();
-          c.arc(bez(pts[0], pts[2], pts[4], pts[6], u), bez(pts[1], pts[3], pts[5], pts[7], u), (on ? 2.6 : 1.8) / k, 0, Math.PI * 2);
-          c.fill();
-        }
-        c.globalAlpha = 1;
       }
-      if (prog >= 1 && k > 0.5 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on) && !dim) {
+      // pulses travelling parent -> child
+      const n = on ? 3 : 1;
+      const speed = on ? 0.0005 : 0.0002;
+      c.fillStyle = on ? role : "#f3ecd9";
+      for (let i = 0; i < n; i++) {
+        const u = (now * speed + e.seed + i / n) % 1;
+        c.globalAlpha = (on ? 0.95 : 0.55) * Math.sin(u * Math.PI);
+        c.beginPath();
+        c.arc(bez(pts[0], pts[2], pts[4], pts[6], u), bez(pts[1], pts[3], pts[5], pts[7], u), (on ? 2.8 : 1.9) / k, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.globalAlpha = 1;
+      if (k > 0.45 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on)) {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
-        this.pill(c, mx, my, `${REL[e.e.rel].label}${e.e.sim != null ? `, ${Math.round(e.e.sim * 100)}%` : ""}`, on ? col : C.ink2);
+        this.pill(c, mx, my, e.e.sim != null ? e.e.sim.toFixed(4) : "CITES", e.e.sim != null ? C.cv : "#5b8fe6", REL[e.e.rel].label.toUpperCase());
       }
     }
-    // far zoom: specimens as inked dots
+    // far zoom: cities on the map
     if (op < 1) {
       for (const n of this.nodes) {
         if (!n.vis) continue;
         const col = this.colors[n.d.role] ?? C.ink2;
         const big = n.d.role === "origin" || n.d.role === "submitted";
-        const rad = (big ? 8 : n.compact ? 4 : 6) / k;
+        const r = (big ? 9 : n.compact ? 4.5 : 6.5) / k;
         const dim = hl && !hl.has(n.d.id);
         c.globalAlpha = clamp(1 - op * 1.7, 0, 1) * (dim ? 0.25 : 1);
         c.fillStyle = col;
-        c.strokeStyle = C.ink;
-        c.lineWidth = 1 / k;
+        c.strokeStyle = "#0b1117";
+        c.lineWidth = 1.5 / k;
         c.beginPath();
-        c.arc(n.x, n.y, rad, 0, Math.PI * 2);
+        c.moveTo(n.x, n.y - r);
+        c.lineTo(n.x + r, n.y);
+        c.lineTo(n.x, n.y + r);
+        c.lineTo(n.x - r, n.y);
+        c.closePath();
         c.fill();
         c.stroke();
-        if (n.d.role === "origin") {
-          c.beginPath();
-          c.arc(n.x, n.y, rad + 4 / k, 0, Math.PI * 2);
+        if (big) {
           c.strokeStyle = col;
+          c.lineWidth = 1 / k;
+          c.beginPath();
+          c.arc(n.x, n.y, r + 6 / k, 0, Math.PI * 2);
           c.stroke();
         }
         if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId) {
-          c.font = `italic 400 ${15 / k}px "EB Garamond", serif`;
-          c.fillStyle = C.ink;
+          c.font = `600 ${11.5 / k}px "Chakra Petch", sans-serif`;
+          c.fillStyle = "#ebe3d1";
           c.textAlign = "center";
-          c.fillText(n.d.role === "origin" ? "the original" : n.d.role === "submitted" ? "submitted" : n.d.author.name, n.x, n.y - rad - 8 / k);
+          const label = (n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Exhibit A" : n.d.author.name).toUpperCase();
+          c.fillText(label, n.x, n.y - r - 9 / k);
         }
       }
       c.globalAlpha = 1;
     }
-    // rejected candidates: pencil outlines, struck through
+    // rejected candidates: red detection boxes
     for (const g of this.ghosts) {
       const t = (now - g.start) / g.dur;
       if (t < 0 || t > 1) continue;
-      const a = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+      const a = t < 0.12 ? t / 0.12 : 1 - (t - 0.12) / 0.88;
+      const s = 1.25 - 0.25 * Math.min(1, t * 4);
+      const w = g.w * s;
+      const h = g.h * s;
       c.save();
-      c.globalAlpha = a * 0.75;
-      c.strokeStyle = C.ink3;
-      c.setLineDash([4 / k, 3 / k]);
-      c.lineWidth = 1 / k;
-      c.strokeRect(g.x - g.w / 2, g.y - g.h / 2, g.w, g.h);
+      c.globalAlpha = a * 0.9;
+      c.strokeStyle = C.shill;
+      c.lineWidth = 1.4 / k;
+      c.setLineDash([5 / k, 4 / k]);
+      c.strokeRect(g.x - w / 2, g.y - h / 2, w, h);
       c.setLineDash([]);
-      c.fillStyle = "rgba(251,248,240,0.5)";
-      c.fillRect(g.x - g.w / 2, g.y - g.h / 2, g.w, g.h);
-      // a few pencil text lines
-      c.strokeStyle = "rgba(125,111,93,0.5)";
-      for (let i = 0; i < 3; i++) {
+      c.fillStyle = "rgba(210,68,47,0.06)";
+      c.fillRect(g.x - w / 2, g.y - h / 2, w, h);
+      if (t > 0.25) {
         c.beginPath();
-        c.moveTo(g.x - g.w / 2 + 12, g.y - g.h / 2 + 18 + i * 12);
-        c.lineTo(g.x - g.w / 2 + 12 + (g.w - 24) * (0.9 - i * 0.2), g.y - g.h / 2 + 18 + i * 12);
+        c.moveTo(g.x - w / 2, g.y - h / 2);
+        c.lineTo(g.x + w / 2, g.y + h / 2);
         c.stroke();
-      }
-      const sp = clamp((t - 0.3) / 0.25, 0, 1);
-      if (sp > 0) {
-        c.strokeStyle = C.shill;
-        c.lineWidth = 2 / k;
-        c.beginPath();
-        const x0 = g.x - g.w / 2 - 6;
-        const y0 = g.y + g.h / 2 + 4;
-        c.moveTo(x0, y0);
-        c.lineTo(x0 + (g.w + 12) * sp, y0 - (g.h + 8) * sp);
-        c.stroke();
-        c.font = `italic 400 ${13 / Math.sqrt(k)}px "EB Garamond", serif`;
+        c.font = `600 ${11 / Math.sqrt(k)}px "Chakra Petch", sans-serif`;
         c.fillStyle = C.shill;
-        c.textAlign = "center";
-        c.globalAlpha = a * sp;
-        c.fillText(g.label, g.x, g.y + g.h / 2 + 20);
+        c.textAlign = "left";
+        c.fillText(g.label, g.x - w / 2, g.y - h / 2 - 6);
       }
       c.restore();
     }
     this.ghosts = this.ghosts.filter((g) => now - g.start < g.dur);
   }
 
-  /** compass circles: drawn as a sweep with the compass arm, then ticked, then fade */
+  /** machine-vision lock-on: corner brackets close in on the card, crosshair sweeps, label */
   private drawOver(now: number, ox: number, oy: number) {
     const c = this.octx;
     const k = this.k;
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.clearRect(0, 0, this.W, this.H);
     if (!this.rings.length) return;
-    c.setTransform(this.dpr * k, 0, 0, this.dpr * k, this.dpr * ox, this.dpr * oy);
     for (const r of this.rings) {
+      const n = this.byId.get(r.id);
+      if (!n) continue;
       const t = clamp((now - r.start) / r.dur, 0, 1);
-      const sweep = clamp(t / 0.55, 0, 1);
-      const e = 1 - Math.pow(1 - sweep, 2.4);
-      const fade = t < 0.75 ? 1 : 1 - (t - 0.75) / 0.25;
-      const R = lerp(r.r0 + 20, r.r1, 0.55);
-      const a0 = -Math.PI / 2;
+      const e = 1 - Math.pow(1 - clamp(t / 0.45, 0, 1), 3);
+      const fade = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+      const sx = (n.x - this.cx) * k + this.W / 2;
+      const sy = (n.y - this.cy) * k + this.H / 2;
+      const w0 = (n.w * k) / 2 + 8;
+      const h0 = (n.h * k) / 2 + 8;
+      const grow = lerp(90, 0, e);
+      const hw = w0 + grow;
+      const hh = h0 + grow;
       c.globalAlpha = fade;
       c.strokeStyle = r.color;
-      c.lineWidth = 1.4 / k;
-      c.beginPath();
-      c.arc(r.x, r.y, R, a0, a0 + e * Math.PI * 2);
-      c.stroke();
-      c.lineWidth = 0.8 / k;
-      c.beginPath();
-      c.arc(r.x, r.y, R + 10 / k, a0, a0 + e * Math.PI * 2);
-      c.stroke();
-      // ticks every 10 degrees
-      const ticks = Math.floor(36 * e);
-      for (let i = 0; i < ticks; i++) {
-        const ang = a0 + (i / 36) * Math.PI * 2;
-        const L = (i % 9 === 0 ? 14 : 6) / k;
+      c.lineWidth = 2;
+      const L = Math.min(22, hw * 0.4);
+      for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+        const x = sx + dx * hw;
+        const y = sy + dy * hh;
         c.beginPath();
-        c.moveTo(r.x + Math.cos(ang) * R, r.y + Math.sin(ang) * R);
-        c.lineTo(r.x + Math.cos(ang) * (R - L), r.y + Math.sin(ang) * (R - L));
+        c.moveTo(x, y - dy * L);
+        c.lineTo(x, y);
+        c.lineTo(x - dx * L, y);
         c.stroke();
       }
-      if (sweep < 1) {
-        // the compass arm
-        const ang = a0 + e * Math.PI * 2;
-        c.setLineDash([3 / k, 4 / k]);
-        c.beginPath();
-        c.moveTo(r.x, r.y);
-        c.lineTo(r.x + Math.cos(ang) * R, r.y + Math.sin(ang) * R);
-        c.stroke();
-        c.setLineDash([]);
-      }
+      // crosshair sweep
+      c.globalAlpha = fade * (1 - e) * 0.8;
+      c.lineWidth = 1;
+      c.setLineDash([3, 5]);
+      c.beginPath();
+      c.moveTo(0, sy);
+      c.lineTo(this.W, sy);
+      c.moveTo(sx, 0);
+      c.lineTo(sx, this.H);
+      c.stroke();
+      c.setLineDash([]);
+      // label
+      c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
+      c.font = '600 11px "Chakra Petch", sans-serif';
+      const label = `LOCK · ${ROLE[n.d.role].label.toUpperCase()}`;
+      const tw = c.measureText(label).width + 12;
+      c.fillStyle = r.color;
+      c.fillRect(sx - hw, sy - hh - 20, tw, 16);
+      c.fillStyle = "#0b1117";
+      c.textAlign = "left";
+      c.textBaseline = "middle";
+      c.fillText(label, sx - hw + 6, sy - hh - 12);
+      c.textBaseline = "alphabetic";
     }
     c.globalAlpha = 1;
+    void ox;
+    void oy;
     this.rings = this.rings.filter((r) => now - r.start < r.dur);
   }
 
-  private pill(c: CanvasRenderingContext2D, x: number, y: number, text: string, col: string) {
+  /** score tag on a link: dark plate, coloured border, value + small caption */
+  private pill(c: CanvasRenderingContext2D, x: number, y: number, text: string, col: string, cap = "") {
     const k = this.k;
-    const fs = 13.5 / Math.max(k, 0.7);
-    c.font = `italic 400 ${fs}px "EB Garamond", serif`;
-    const w = c.measureText(text).width + fs * 1.1;
-    const h = fs * 1.55;
+    const fs = 11.5 / Math.max(k, 0.65);
+    c.font = `600 ${fs}px "Chakra Petch", sans-serif`;
+    const w1 = c.measureText(text).width;
+    c.font = `600 ${fs * 0.72}px "Chakra Petch", sans-serif`;
+    const w2 = cap ? c.measureText(cap).width + fs * 0.6 : 0;
+    const w = w1 + w2 + fs * 1.1;
+    const h = fs * 1.7;
     c.save();
-    c.fillStyle = this.colors.paper;
+    c.fillStyle = "rgba(8,12,16,0.92)";
+    c.fillRect(x - w / 2, y - h / 2, w, h);
     c.strokeStyle = col;
     c.lineWidth = 1 / k;
-    c.fillRect(x - w / 2, y - h / 2, w, h);
-    c.globalAlpha = 0.7;
     c.strokeRect(x - w / 2, y - h / 2, w, h);
-    c.globalAlpha = 1;
-    c.fillStyle = col;
-    c.textAlign = "center";
     c.textBaseline = "middle";
-    c.fillText(text, x, y + fs * 0.06);
+    c.textAlign = "left";
+    let tx = x - w / 2 + fs * 0.55;
+    if (cap) {
+      c.fillStyle = "rgba(235,227,209,0.6)";
+      c.fillText(cap, tx, y + fs * 0.05);
+      tx += w2;
+    }
+    c.font = `600 ${fs}px "Chakra Petch", sans-serif`;
+    c.fillStyle = col;
+    c.fillText(text, tx, y + fs * 0.05);
     c.restore();
   }
 
@@ -1157,29 +1215,10 @@ export class Graph {
     return [a.x, y0, a.x, y0 + dy, b.x, y1 - dy, b.x, y1];
   }
 
-  private hatch: Record<string, CanvasPattern | null> = {};
-  private hatchFor(c: CanvasRenderingContext2D, col: string) {
-    if (this.hatch[col] !== undefined) return this.hatch[col];
-    const t = document.createElement("canvas");
-    t.width = t.height = 16;
-    const x = t.getContext("2d")!;
-    x.strokeStyle = col;
-    x.globalAlpha = 0.5;
-    x.lineWidth = 1;
-    x.beginPath();
-    for (let i = -16; i < 32; i += 8) {
-      x.moveTo(i, 16);
-      x.lineTo(i + 16, 0);
-    }
-    x.stroke();
-    this.hatch[col] = c.createPattern(t, "repeat");
-    return this.hatch[col];
-  }
-
-  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number, idx: number) {
+  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number) {
     const ms = cl.members.map((id) => this.byId.get(id)!).filter((n) => n && n.vis);
     if (ms.length < 3) return;
-    const pad = 28;
+    const pad = 30;
     const pts: [number, number][] = [];
     for (const n of ms) {
       const hw = n.w / 2 + pad;
@@ -1205,58 +1244,62 @@ export class Graph {
       c.quadraticCurveTo(p0[0], p0[1], (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2);
       c.closePath();
     };
+    // territory fill + EU4-style border: thick colour band, thin dark edge, inner glow
     c.save();
     path();
-    // engraving: hatched fill, scaled so the hatch stays fine on screen
-    const pat = this.hatchFor(c, col);
-    if (pat) {
-      const m = new DOMMatrix().scale(1 / k, 1 / k);
-      pat.setTransform(m);
-      c.fillStyle = pat;
-      c.globalAlpha = 0.32;
-      c.fill();
-    }
-    c.globalAlpha = 0.85;
-    c.strokeStyle = col;
-    c.lineWidth = 1.2 / k;
-    c.stroke();
+    c.fillStyle = col;
+    c.globalAlpha = 0.11 + 0.025 * Math.sin(now / 900);
+    c.fill();
+    c.clip();
     c.globalAlpha = 0.5;
-    c.lineWidth = 0.7 / k;
-    c.setLineDash([2 / k, 4 / k]);
-    c.lineDashOffset = -now / 80 / k;
-    c.translate(0, 0);
-    c.restore();
-    // outer dashed line, slowly marching
-    c.save();
     c.strokeStyle = col;
-    c.globalAlpha = 0.6;
-    c.lineWidth = 0.8 / k;
-    c.setLineDash([2 / k, 5 / k]);
-    c.lineDashOffset = -now / 90 / k;
-    const cxm = hull.reduce((s, p) => s + p[0], 0) / hull.length;
-    const cym = hull.reduce((s, p) => s + p[1], 0) / hull.length;
-    c.translate(cxm, cym);
-    c.scale(1.035, 1.05);
-    c.translate(-cxm, -cym);
+    c.lineWidth = 14 / k;
     path();
     c.stroke();
     c.restore();
-    // figure caption under the engraving
-    let maxY = -Infinity;
-    for (const p of hull) maxY = Math.max(maxY, p[1]);
+    c.save();
+    path();
+    c.strokeStyle = col;
+    c.globalAlpha = 0.9;
+    c.lineWidth = 2 / k;
+    c.stroke();
+    c.restore();
+    // territory name across the land, spaced like a country label
     const xs = hull.map((p) => p[0]);
-    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    const fs = 15 / Math.max(k, 0.12);
+    const ys = hull.map((p) => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    const name = cl.label.toUpperCase();
+    const fs = Math.min((x1 - x0) / (name.length * 1.35), (y1 - y0) / 4.5, 120);
     c.save();
     c.textAlign = "center";
-    c.textBaseline = "top";
-    c.font = `500 ${fs * 0.82}px Cinzel, serif`;
+    c.textBaseline = "middle";
+    c.font = `400 ${fs}px Michroma, sans-serif`;
+    c.globalAlpha = 0.26;
     c.fillStyle = col;
-    const fig = `FIG. ${["I", "II", "III", "IV", "V"][idx] ?? idx + 1} · ${STATUS[cl.status].short.toUpperCase()}`;
-    c.fillText(fig, cx, maxY + 14 / k);
-    c.font = `italic 400 ${fs}px "EB Garamond", serif`;
-    c.fillStyle = this.colors.ink;
-    c.fillText(`${cl.label}: ${cl.stat}`, cx, maxY + 14 / k + fs * 1.15);
+    const spaced = name.split("").join(String.fromCharCode(8202));
+    c.fillText(spaced, cx, cy);
+    c.restore();
+    // badge on the border: status + numbers
+    const fs2 = 11 / Math.max(k, 0.14);
+    c.save();
+    c.font = `600 ${fs2}px "Chakra Petch", sans-serif`;
+    const label = `${STATUS[cl.status].short.toUpperCase()}  ·  ${cl.stat.toUpperCase()}`;
+    const w = c.measureText(label).width + fs2 * 1.6;
+    const h = fs2 * 2;
+    const by = y0 - h / 2;
+    c.fillStyle = "rgba(8,12,16,0.94)";
+    c.fillRect(cx - w / 2, by - h / 2, w, h);
+    c.strokeStyle = col;
+    c.lineWidth = 1.2 / k;
+    c.strokeRect(cx - w / 2, by - h / 2, w, h);
+    c.fillStyle = col;
+    c.fillRect(cx - w / 2, by - h / 2, fs2 * 0.45, h);
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillStyle = "#ebe3d1";
+    c.fillText(label, cx + fs2 * 0.2, by + fs2 * 0.05);
     c.restore();
   }
 

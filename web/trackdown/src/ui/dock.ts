@@ -5,7 +5,7 @@ import { icon } from "./icons";
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 // pigments lifted for the black chrome strip
-const ON_BLACK: Record<string, string> = { origin: "#d9b45a", mutation: "#d07a33", relay: "#8c8070", amplifier: "#d0533f", organic: "#55a48f", submitted: "#ecebe6", source: "#7f9ad6" };
+const ON_BLACK: Record<string, string> = { origin: "#e6bb5c", mutation: "#e08a3c", relay: "#8c949b", amplifier: "#d2442f", organic: "#36b39a", submitted: "#f1ead8", source: "#5b8fe6" };
 
 function fitCanvas(c: HTMLCanvasElement) {
   const r = c.getBoundingClientRect();
@@ -36,7 +36,7 @@ export class Dock {
   constructor(el: HTMLElement, g: Graph) {
     this.g = g;
     this.el = el;
-    el.innerHTML = `<div class="dock-left"><button class="play" aria-label="Play">${icon.play}</button><div class="clock"><div class="d">–</div><div class="rel">–</div></div></div>
+    el.innerHTML = `<div class="dock-left"><button class="play" aria-label="Play">${icon.play}</button><div class="clock"><div class="d">–</div><div class="rel">–</div></div><div class="lbl">Ledger<small>spread over time</small></div></div>
       <div class="scrub"><canvas></canvas></div>
       <div class="dock-right"><button class="speed" data-speed>1×</button><button class="speed" data-end title="Show everything">All</button></div>`;
     this.canvas = el.querySelector("canvas")!;
@@ -166,14 +166,14 @@ export class Dock {
     });
     c.globalAlpha = 1;
     // axis
-    c.strokeStyle = "#2a2a2d";
+    c.strokeStyle = "rgba(201,166,94,0.35)";
     c.beginPath();
     c.moveTo(L, base + 0.5);
     c.lineTo(R, base + 0.5);
     c.stroke();
     // break + endpoint labels
-    c.font = '400 9.5px "IBM Plex Mono", monospace';
-    c.fillStyle = "#9b9a94";
+    c.font = '600 9.5px "Chakra Petch", sans-serif';
+    c.fillStyle = "#828a90";
     c.textBaseline = "top";
     const first = g.timeMap[0]?.[0];
     const last = g.timeMap[g.timeMap.length - 1]?.[0];
@@ -189,8 +189,8 @@ export class Dock {
       const x = ux(b.x);
       if (x < L + 80 || x > R - 95 || x - lastB < 80) continue;
       lastB = x;
-      c.fillStyle = "#d9b45a";
-      c.fillText(`// ${fmtDur(b.gap)} //`, x, base + 4);
+      c.fillStyle = "#c9a65e";
+      c.fillText(`⟨ ${fmtDur(b.gap).toUpperCase()} ⟩`, x, base + 4);
     }
     // origin + submitted markers
     const mark = (id: string, col: string) => {
@@ -206,10 +206,13 @@ export class Dock {
       c.fill();
     };
     mark(g.case.originId, ON_BLACK.origin);
-    mark(g.case.submittedId, "#ecebe6");
+    mark(g.case.submittedId, "#f1ead8");
     // playhead
-    c.fillStyle = "#ecebe6";
+    c.fillStyle = "#ecd79c";
+    c.shadowColor = "#ecd79c";
+    c.shadowBlur = 8;
     c.fillRect(playX - 0.5, top - 4, 1, base - top + 8);
+    c.shadowBlur = 0;
     c.beginPath();
     c.moveTo(playX - 5, top - 6);
     c.lineTo(playX + 5, top - 6);
@@ -234,28 +237,26 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   c.clearRect(0, 0, w, h);
   if (g.mode !== "timeline" || !g.case) return;
   const ns = g.nodes.filter((n) => n.vis).sort((a, b) => a.tx - b.tx);
-  c.font = 'italic 400 14px "EB Garamond", serif';
+  c.font = '600 11px "Chakra Petch", sans-serif';
   c.textBaseline = "middle";
   c.textAlign = "left";
-  // engraved baseline
-  c.fillStyle = "rgba(29,24,19,0.55)";
-  c.fillRect(0, h - 1, w, 1);
   let lastX = -1e9;
   let lastT = -1e15;
   let lastLabel = "";
   for (const n of ns) {
     const s = g.toScreen(n.tx, 0);
     if (s.x < -20 || s.x > w + 20) continue;
-    c.fillStyle = "rgba(29,24,19,0.35)";
+    c.fillStyle = "rgba(201,166,94,0.45)";
     c.fillRect(s.x, h - 5, 1, 5);
     if (s.x - lastX < 120) continue;
     if (g.timeBreaks.some((b) => Math.abs(g.toScreen(b.x, 0).x - s.x - 40) < 95)) continue;
     const label = n.d.t - lastT > 86400000 ? fmtDate(n.d.t, false) : fmtClock(n.d.t);
     if (label === lastLabel) continue;
     lastLabel = label;
-    c.fillStyle = "#1d1813";
+    c.fillStyle = "#c9a65e";
     c.fillRect(s.x, h - 12, 1, 12);
-    c.fillText(label, s.x + 5, h / 2 - 1);
+    c.fillStyle = "#ebe3d1";
+    c.fillText(label.toUpperCase(), s.x + 5, h / 2 - 1);
     lastX = s.x;
     lastT = n.d.t;
   }
@@ -266,15 +267,16 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
     lastPill = s.x;
     const label = `${fmtDur(b.gap)} later`;
-    c.font = '500 11px Cinzel, serif';
-    const tw = c.measureText(label).width + 16;
-    c.fillStyle = "#efe7d6";
+    c.font = '600 10px "Chakra Petch", sans-serif';
+    const up = label.toUpperCase();
+    const tw = c.measureText(up).width + 16;
+    c.fillStyle = "#0b1117";
     c.fillRect(s.x - tw / 2, h / 2 - 10, tw, 18);
-    c.strokeStyle = "rgba(168,123,34,0.8)";
+    c.strokeStyle = "#c9a65e";
     c.strokeRect(s.x - tw / 2 + 0.5, h / 2 - 9.5, tw - 1, 17);
-    c.fillStyle = "#8a6418";
-    c.fillText(label, s.x, h / 2);
-    c.font = 'italic 400 14px "EB Garamond", serif';
+    c.fillStyle = "#ecd79c";
+    c.fillText(up, s.x, h / 2);
+    c.font = '600 11px "Chakra Petch", sans-serif';
   }
 }
 
@@ -316,10 +318,10 @@ export class Minimap {
       y0 = Math.min(y0, n.y - n.h / 2);
       y1 = Math.max(y1, n.y + n.h / 2);
     }
-    const pad = 10;
-    const s = Math.min((w - pad * 2) / (x1 - x0), (h - pad * 2) / (y1 - y0));
+    const pad = 14;
+    const s = Math.min((w - pad * 2) / Math.max(x1 - x0, 1600), (h - pad * 2 - 10) / Math.max(y1 - y0, 900));
     const ox = (w - (x1 - x0) * s) / 2;
-    const oy = (h - (y1 - y0) * s) / 2;
+    const oy = (h - (y1 - y0) * s) / 2 + 6;
     this.b = { x0, y0, s, ox, oy };
     for (const n of ns) {
       c.fillStyle = ROLE[n.d.role].color;
@@ -332,9 +334,9 @@ export class Minimap {
     const g = this.g;
     const tl = g.toWorld(0, 0);
     const br = g.toWorld(g.W, g.H);
-    c.strokeStyle = "#1d1813";
+    c.strokeStyle = "#ecd79c";
     c.lineWidth = 1;
-    c.fillStyle = "rgba(29,24,19,0.05)";
+    c.fillStyle = "rgba(236,215,156,0.06)";
     const rx = ox + (tl.x - x0) * s;
     const ry = oy + (tl.y - y0) * s;
     const rw = (br.x - tl.x) * s;
