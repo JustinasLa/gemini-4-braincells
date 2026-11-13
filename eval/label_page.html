@@ -49,7 +49,6 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--line);border-radius:
 #help{display:none}
 .show{display:block!important}
 .warn{border-color:var(--ct)}
-svg text{fill:var(--mut);font-size:10px}
 @media (max-width:600px){th:nth-child(n+6),td:nth-child(n+6){display:none}header{gap:6px}}
 </style>
 </head>
@@ -135,7 +134,7 @@ async function route() {
   if (!m) { history.replaceState(null, "", "#" + cur); }
   await show(cur);
 }
-window.onhashchange = route;
+window.onhashchange = () => { if (me) route(); };
 
 function timeline(tl) {
   const kinds = [["post","--bar"],["like","--bar2"],["repost","--bar3"],["follow","--bar4"]];
@@ -143,7 +142,8 @@ function timeline(tl) {
   const mx = Math.max(1, ...tot), W = 600, H = 90, bw = W / n;
   let bars = "";
   for (let i = 0; i < n; i++) { let y = H; for (const [k, c] of kinds) { const h = tl[k][i] / mx * (H - 4); if (h > 0) { y -= h; bars += `<rect x="${i*bw+1}" y="${y}" width="${bw-2}" height="${h}" style="fill:var(${c})"><title>${k}: ${tl[k][i]}</title></rect>`; } } }
-  return `<svg viewBox="0 0 ${W} ${H+14}" width="100%" preserveAspectRatio="none" role="img" aria-label="activity over the window">${bars}<text x="0" y="${H+12}">0 s</text><text x="${W}" y="${H+12}" text-anchor="end">${Math.round(tl.bucket_s*n)} s</text><text x="${W/2}" y="${H+12}" text-anchor="middle">max ${mx} per ${tl.bucket_s} s</text></svg>
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="90" preserveAspectRatio="none" role="img" aria-label="activity over the window">${bars}</svg>
+  <div class="mut" style="display:flex;justify-content:space-between;font-size:11px"><span>0 s</span><span>tallest bar: ${mx} actions in ${tl.bucket_s} s</span><span>${Math.round(tl.bucket_s*n)} s</span></div>
   <div class="legend">${kinds.map(([k,c]) => `<span><i style="background:var(${c})"></i>${k}s</span>`).join("")}</div>`;
 }
 const fmt = v => v === null || v === undefined ? "?" : v;
