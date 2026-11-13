@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hand labels</title>
+<style>
+:root{--bg:#f7f6f3;--fg:#1c1c1c;--mut:#6a6a6a;--line:#dfddd7;--card:#fff;--co:#c0392b;--org:#2e7d4f;--ct:#8a7a2a;--acc:#2a5db0;--bar:#2a5db0;--bar2:#d08a2a;--bar3:#7a52b3;--bar4:#5a8a8a}
+@media (prefers-color-scheme:dark){:root{--bg:#151515;--fg:#e8e8e8;--mut:#9a9a9a;--line:#2e2e2e;--card:#1e1e1e;--co:#ff6b5b;--org:#5fcf8f;--ct:#d8c35a;--acc:#7aa7ff;--bar:#7aa7ff;--bar2:#f0b060;--bar3:#b08ae0;--bar4:#8fc0c0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,sans-serif;padding-bottom:120px}
+a{color:var(--acc)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header b{font-size:15px}
+.mut{color:var(--mut)}
+main{max-width:1100px;margin:0 auto;padding:12px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:10px 0}
+h2{font-size:14px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.stat{border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.stat .v{font-size:18px;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:500}
+.scroll{overflow-x:auto}
+.post{border-bottom:1px solid var(--line);padding:6px 0}
+.post:last-child{border-bottom:0}
+.post .meta{font-size:12px;color:var(--mut)}
+.post .txt{white-space:pre-wrap;word-break:break-word}
+.tag{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:10px;padding:0 6px;margin-right:4px;color:var(--mut)}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:8px 16px;z-index:6}
+.bar .row{max-width:1100px;margin:0 auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;padding:8px 12px;cursor:pointer;min-height:40px}
+button:focus-visible{outline:2px solid var(--acc)}
+button.co{border-color:var(--co);color:var(--co)}
+button.org{border-color:var(--org);color:var(--org)}
+button.ct{border-color:var(--ct);color:var(--ct)}
+button.sel.co{background:var(--co);color:#fff}button.sel.org{background:var(--org);color:#fff}button.sel.ct{background:var(--ct);color:#fff}
+button.big{flex:1 1 120px;font-weight:600}
+textarea,input{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+#note{flex:1 1 100%;min-height:38px;resize:vertical}
+kbd{font:11px ui-monospace,monospace;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--mut)}
+.dots{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
+.dot{width:14px;height:14px;border-radius:3px;border:1px solid var(--line);font-size:0;cursor:pointer;padding:0;min-height:0}
+.dot.coordinated{background:var(--co)}.dot.organic{background:var(--org)}.dot.cant_tell{background:var(--ct)}
+.dot.cur{outline:2px solid var(--fg)}
+.legend span{display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:12px;color:var(--mut)}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+#help{display:none}
+.show{display:block!important}
+.warn{border-color:var(--ct)}
+@media (max-width:600px){th:nth-child(n+6),td:nth-child(n+6){display:none}header{gap:6px}}
+</style>
+</head>
+<body>
+<header>
+  <b>Hand labels</b>
+  <span id="who" class="mut"></span>
+  <span id="prog" class="mut"></span>
+  <span style="flex:1"></span>
+  <a href="#" id="adjlink">disagreements</a>
+  <a href="#" id="helplink">how to label</a>
+</header>
+<main>
+  <div id="login" class="card" style="display:none">
+    <h2>Who is labelling?</h2>
+    <p>Pick a short name (letters, digits, - _ .). Use the same name every time; each person labels every item on their own.</p>
+    <form id="loginf"><input id="lname" autocomplete="nickname" maxlength="32" placeholder="e.g. justinas" required> <button>Start</button></form>
+  </div>
+  <div id="help" class="card">
+    <h2>How to label</h2>
+    <p>Each item is a group of Bluesky accounts that did something together in one time window. Decide from the evidence whether these accounts are <b>acting together</b> (coordinated) or <b>independently</b> (organic). You don't see what our detector said, and you shouldn't look it up on the dashboard.</p>
+    <ul>
+      <li><b>Coordinated</b>: hard to explain as independent people. Same text or link posted in a tight burst, fresh or empty accounts amplifying each other, clockwork timing, reply floods with one message, handles from one template.</li>
+      <li><b>Organic</b>: plausibly independent people. Many accounts reacting to the same news, viral post, live event or fandom; normal conversation; old accounts with real followings doing ordinary things.</li>
+      <li><b>Can't tell</b>: the evidence doesn't let you decide either way. That's a valid answer; don't guess.</li>
+    </ul>
+    <p>We judge behaviour, not opinions: a group you disagree with can be organic, and a group you agree with can be coordinated. Open the bsky.app links if you need more context. Add a note when it was a close call.</p>
+    <p>Keys: <kbd>1</kbd>/<kbd>c</kbd> coordinated, <kbd>2</kbd>/<kbd>o</kbd> organic, <kbd>3</kbd>/<kbd>t</kbd> can't tell (saves and moves on), <kbd>n</kbd> note, <kbd>Esc</kbd> leave note, <kbd>→</kbd>/<kbd>j</kbd> next unlabelled, <kbd>←</kbd>/<kbd>k</kbd> previous, <kbd>?</kbd> this help.</p>
+  </div>
+  <div id="adj" class="card" style="display:none"></div>
+  <div id="view"></div>
+</main>
+<div class="bar" id="bar" style="display:none">
+  <div class="row">
+    <span id="others" style="flex:1 1 100%;display:none"></span>
+    <button class="big co" data-l="coordinated">Coordinated <kbd>1</kbd></button>
+    <button class="big org" data-l="organic">Organic <kbd>2</kbd></button>
+    <button class="big ct" data-l="cant_tell">Can't tell <kbd>3</kbd></button>
+    <button id="prev" title="previous (←)">←</button>
+    <button id="next" title="next unlabelled (→)">→</button>
+    <textarea id="note" placeholder="optional note (n)" maxlength="2000"></textarea>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : null;
+const link = (u, t) => safeUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(t ?? u)}</a>` : esc(t ?? u ?? "");
+let me = null; try { me = localStorage.getItem("labeller"); } catch (e) {}
+let N = 0, cur = 1, done = {}, mode = "label", t0 = Date.now(), adjItems = [];
+// shown = item whose evidence is on screen (null while loading); labels always go to it
+let shown = null, busy = false, loadSeq = 0;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : {});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+function start() {
+  if (!me) { $("#login").style.display = "block"; $("#lname").focus(); return; }
+  $("#login").style.display = "none";
+  $("#who").innerHTML = `as <b>${esc(me)}</b> (<a href="#" id="chg">change</a>)`;
+  $("#chg").onclick = e => { e.preventDefault(); try { localStorage.removeItem("labeller"); } catch (x) {} me = null; location.hash = ""; location.reload(); };
+  route();
+}
+$("#loginf").onsubmit = e => { e.preventDefault(); me = $("#lname").value.trim().toLowerCase(); try { localStorage.setItem("labeller", me); } catch (x) {} start(); };
+
+async function refresh() {
+  const p = await api(`/api/progress?labeller=${encodeURIComponent(me)}`);
+  if (p.labeller !== me) { me = p.labeller; try { localStorage.setItem("labeller", me); } catch (x) {} $("#who b").textContent = me; }
+  N = p.n_items; done = p.done;
+  const others = Object.entries(p.labellers).filter(([n]) => n !== me).map(([n, k]) => `${esc(n)} ${k}`).join(", ");
+  $("#prog").innerHTML = `${Object.keys(done).length}/${N} done${others ? " · " + others : ""}`;
+  $("#adjlink").textContent = `disagreements (${p.disagreements})`;
+}
+function nextOpen(from) { for (let i = 1; i <= N; i++) { const k = ((from - 1 + i) % N) + 1; if (!done[k]) return k; } return null; }
+
+async function route() {
+  shown = null;
+  const h = location.hash;
+  await refresh();
+  if (h.startsWith("#adj")) return showAdj(h.split("/")[1]);
+  mode = "label"; $("#adj").style.display = "none"; $("#others").style.display = "none";
+  const m = h.match(/^#(\d+)$/);
+  cur = m ? +m[1] : (nextOpen(0) || 1);
+  if (!m) { history.replaceState(null, "", "#" + cur); }
+  await show(cur);
+}
+window.onhashchange = () => { if (me) route(); };
+
+function timeline(tl) {
+  const kinds = [["post","--bar"],["like","--bar2"],["repost","--bar3"],["follow","--bar4"]];
+  const n = tl.buckets, tot = [...Array(n)].map((_, i) => kinds.reduce((s, [k]) => s + tl[k][i], 0));
+  const mx = Math.max(1, ...tot), W = 600, H = 90, bw = W / n;
+  let bars = "";
+  for (let i = 0; i < n; i++) { let y = H; for (const [k, c] of kinds) { const h = tl[k][i] / mx * (H - 4); if (h > 0) { y -= h; bars += `<rect x="${i*bw+1}" y="${y}" width="${bw-2}" height="${h}" style="fill:var(${c})"><title>${k}: ${tl[k][i]}</title></rect>`; } } }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="90" preserveAspectRatio="none" role="img" aria-label="activity over the window">${bars}</svg>
+  <div class="mut" style="display:flex;justify-content:space-between;font-size:11px"><span>0 s</span><span>tallest bar: ${mx} actions in ${tl.bucket_s} s</span><span>${Math.round(tl.bucket_s*n)} s</span></div>
+  <div class="legend">${kinds.map(([k,c]) => `<span><i style="background:var(${c})"></i>${k}s</span>`).join("")}</div>`;
+}
+const fmt = v => v === null || v === undefined ? "?" : v;
+const yes = v => v === true ? "yes" : v === false ? "no" : "?";
+
+function render(d) {
+  const e = d.evidence, s = e.summary, w = e.window;
+  const stats = [["accounts", s.accounts], ["window", `${w.minutes} min`], ["median age", s.median_age_days === null ? "?" : `${s.median_age_days} d`],
+    ["< 30 days old", `${s.younger_than_30d} of ${s.with_age}`], ["median followers", fmt(s.median_followers)], ["no avatar", s.no_avatar],
+    ["posts", s.posts], ["likes", s.likes], ["reposts", s.reposts], ["follows", s.follows]];
+  let h = `<div class="card"><h2>Item ${d.item} of ${d.n_items}</h2><div class="mut">${esc(w.start)} → ${esc(w.end)} UTC</div>
+    <div class="grid" style="margin-top:8px">${stats.map(([k, v]) => `<div class="stat"><div class="mut">${k}</div><div class="v">${esc(v)}</div></div>`).join("")}</div>
+    <div class="dots" id="dots"></div></div>`;
+  h += `<div class="card"><h2>Timeline (all member activity in the window)</h2>${timeline(e.timeline)}</div>`;
+  if (e.shared_targets.length) h += `<div class="card"><h2>Posts several members engaged with</h2><div class="scroll"><table><tr><th>accounts</th><th>what</th><th>spread</th><th>post</th></tr>${
+    e.shared_targets.map(t => `<tr><td>${t.accounts}</td><td>${Object.entries(t.actions).map(([k, v]) => `${v} ${k}`).join(", ")}${t.author_is_member ? ' <span class="tag">by a member</span>' : ""}</td><td>${t.spread_s} s</td><td>${t.text ? esc(t.text) + "<br>" : ""}${link(t.url, "open")}</td></tr>`).join("")}</table></div></div>`;
+  if (e.repeated_texts.length) h += `<div class="card"><h2>Repeated texts</h2><table><tr><th>accounts</th><th>posts</th><th>text</th></tr>${
+    e.repeated_texts.map(t => `<tr><td>${t.accounts}</td><td>${t.posts}</td><td>${esc(t.text)}</td></tr>`).join("")}</table></div>`;
+  if (e.shared_links.length) h += `<div class="card"><h2>Links in their posts</h2><table><tr><th>accounts</th><th>posts</th><th>link</th></tr>${
+    e.shared_links.map(t => `<tr><td>${t.accounts}</td><td>${t.posts}</td><td style="word-break:break-all">${link(t.url)}</td></tr>`).join("")}</table></div>`;
+  if (e.follow_targets.length) h += `<div class="card"><h2>Accounts several members followed</h2>${e.follow_targets.map(t => `${link(t.profile_url, "profile")} (${t.accounts})`).join(" · ")}</div>`;
+  h += `<div class="card"><h2>Accounts (${s.accounts}${e.members_hidden ? `, ${e.members_hidden} not shown` : ""})</h2><div class="scroll"><table><tr><th>handle</th><th>age</th><th>followers</th><th>activity here</th><th>avatar</th><th>bio</th><th>posts</th><th>follows</th><th>status</th></tr>${
+    e.members.map(m => `<tr><td>${link(m.profile_url, m.handle)}${m.display_name ? `<div class="mut">${esc(m.display_name)}</div>` : ""}</td><td>${m.age_days === null ? "?" : m.age_days + " d"}</td><td>${fmt(m.followers)}</td><td>${Object.entries(m.activity).map(([k, v]) => `${v} ${k}`).join(", ") || "-"}</td><td>${yes(m.has_avatar)}</td><td>${yes(m.has_bio)}</td><td>${fmt(m.posts_count)}</td><td>${fmt(m.follows)}</td><td>${esc(m.account_status || "")}</td></tr>`).join("")}</table></div></div>`;
+  h += `<div class="card"><h2>Their posts in the window (${e.posts.length} shown of ${s.posts})</h2>${e.posts.map(p => `<div class="post"><div class="meta">+${fmt(p.t_s)} s · ${esc(p.handle)} ${p.reply ? '<span class="tag">reply</span>' : ""}${p.quote ? '<span class="tag">quote</span>' : ""}${p.media ? `<span class="tag">${p.media} media</span>` : ""} ${link(p.url, "open")}</div><div class="txt">${esc(p.text) || '<span class="mut">(no text)</span>'}</div>${p.links.length ? `<div class="meta" style="word-break:break-all">${p.links.map(u => link(u)).join(" ")}</div>` : ""}</div>`).join("") || '<span class="mut">none (likes/reposts/follows only)</span>'}</div>`;
+  $("#view").innerHTML = h;
+  $("#dots").innerHTML = [...Array(N)].map((_, i) => `<button class="dot ${done[i+1] || ""} ${i+1 === d.item ? "cur" : ""}" data-k="${i+1}" title="item ${i+1}">${i+1}</button>`).join("");
+  $("#dots").onclick = ev => { const k = ev.target.dataset.k; if (k) go(+k); };
+}
+
+function go(k) { location.hash = (mode === "adj" ? "#adj/" : "#") + k; }
+
+async function show(k) {
+  shown = null;
+  const seq = ++loadSeq;
+  const d = await api(`/api/item/${k}?labeller=${encodeURIComponent(me)}`);
+  if (seq !== loadSeq) return;  // a newer navigation won
+  render(d);
+  $("#bar").style.display = "block";
+  $("#note").value = d.mine ? d.mine.note : "";
+  document.querySelectorAll("[data-l]").forEach(b => b.classList.toggle("sel", !!d.mine && d.mine.label === b.dataset.l));
+  t0 = Date.now(); window.scrollTo(0, 0);
+  shown = d.item;
+}
+
+async function choose(label) {
+  if (shown === null || busy) return;  // still loading or saving: ignore the key
+  const item = shown;
+  const body = {item, labeller: me, label, note: $("#note").value, seconds: Math.round((Date.now() - t0) / 1000)};
+  busy = true;
+  try {
+    if (mode === "adj") { await api("/api/adjudicate", body); location.hash = "#adj"; return; }
+    await api("/api/label", body);
+  } catch (e) { alert("not saved: " + e.message); return; }
+  finally { busy = false; }
+  done[item] = label;
+  const n = nextOpen(item);
+  if (n) go(n); else { await refresh(); $("#view").insertAdjacentHTML("afterbegin", `<div class="card"><b>All ${N} items labelled. Thank you.</b> You can still go back and change any label.</div>`); }
+}
+document.querySelectorAll("[data-l]").forEach(b => b.onclick = () => choose(b.dataset.l));
+$("#next").onclick = () => { const n = nextOpen(cur); go(n || (cur % N) + 1); };
+$("#prev").onclick = () => go(cur > 1 ? cur - 1 : N);
+$("#helplink").onclick = e => { e.preventDefault(); $("#help").classList.toggle("show"); };
+$("#adjlink").onclick = e => { e.preventDefault(); location.hash = "#adj"; };
+
+async function showAdj(k) {
+  mode = "adj"; const d = await api("/api/disagreements"); adjItems = d.items;
+  const box = $("#adj"); box.style.display = "block";
+  if (k) {
+    const it = adjItems.find(x => x.item === +k);
+    if (!it) { location.hash = "#adj"; return; }
+    cur = +k; box.innerHTML = `<h2>Adjudicating item ${k}</h2><p class="mut">Both labels are shown below the evidence. Talk it through, then record the final label (it's saved as an adjudication under your name). <a href="#adj">back to list</a></p>`;
+    await show(cur);
+    $("#others").style.display = "block";
+    $("#others").innerHTML = it.labels.map(l => `<b>${esc(l.labeller)}</b>: ${esc(l.label)}${l.note ? ` <span class="mut">"${esc(l.note)}"</span>` : ""}`).join(" · ");
+    $("#note").value = "";
+    document.querySelectorAll("[data-l]").forEach(b => b.classList.remove("sel"));
+    return;
+  }
+  $("#view").innerHTML = ""; $("#bar").style.display = "none";
+  box.innerHTML = `<h2>Disagreements</h2><p class="mut">Items the two labellers labelled differently (${d.adjudicated} already adjudicated). Open one only after you've both finished labelling it: this view shows the other person's label. <a href="#">back to labelling</a></p>` +
+    (adjItems.length ? adjItems.map(x => `<div class="post"><a href="#adj/${x.item}">item ${x.item}</a> · ${x.labels.map(l => `${esc(l.labeller)}: ${esc(l.label)}`).join(" vs ")}</div>`).join("") : "<p>None right now.</p>");
+}
+
+document.addEventListener("keydown", e => {
+  if (!me || $("#bar").style.display === "none") return;
+  const inNote = document.activeElement === $("#note");
+  if (inNote) { if (e.key === "Escape") $("#note").blur(); return; }
+  if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  const m = {"1": "coordinated", "c": "coordinated", "2": "organic", "o": "organic", "3": "cant_tell", "t": "cant_tell"};
+  if (m[k]) { e.preventDefault(); choose(m[k]); }
+  else if (k === "n") { e.preventDefault(); $("#note").focus(); }
+  else if (k === "arrowright" || k === "j") { e.preventDefault(); $("#next").click(); }
+  else if (k === "arrowleft" || k === "k") { e.preventDefault(); $("#prev").click(); }
+  else if (k === "?") { $("#help").classList.toggle("show"); }
+});
+start();
+</script>
+</body>
+</html>

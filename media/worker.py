@@ -198,7 +198,7 @@ class MediaRun:
         return [f.analysis for f in self.findings]
 
     def evidence_rows(self) -> list[dict[str, Any]]:
-        """{summary, detail, source_url, model} per finding, plus the OCR-template row if any."""
+        """Evidence rows for findings, failures, and any cross-image OCR template."""
         rows = [
             {
                 "summary": f.summary(),
@@ -208,6 +208,21 @@ class MediaRun:
             }
             for f in self.findings
         ]
+        rows.extend(
+            {
+                "summary": f"Nemotron media analysis failed for {failure.media_hash}: {failure.error}",
+                "detail": {
+                    "media_hash": failure.media_hash,
+                    "status": "failed",
+                    "error": failure.error,
+                    "did": failure.did,
+                    "profile_url": f"https://bsky.app/profile/{failure.did}",
+                },
+                "source_url": f"https://bsky.app/profile/{failure.did}",
+                "model": None,
+            }
+            for failure in self.failures
+        )
         template = ocr_template(self.findings)
         return rows + ([template] if template else [])
 
@@ -329,3 +344,29 @@ class FailureBackoff:
     def __call__(self, media_hash: str) -> bool:
         state = self._state.get(media_hash)
         return state is not None and self._clock() < state[1]
+
+
+class ClusterProgress:
+    """Which clusters the worker can leave out of the next candidate query.
+
+    Fully read: until signals changes the cluster (new updated_at). Incomplete (failed or
+    deferred media): held back for `retry_s`, so they can't fill every batch and starve others.
+    """
+
+    def __init__(self, retry_s: float = 300, clock=time.monotonic):
+        self.retry_s, self._clock = retry_s, clock
+        self._read: dict[int, Any] = {}
+        self._incomplete: dict[int, tuple[Any, float]] = {}
+
+    def record(self, cluster_id: int, updated_at: Any, run: MediaRun) -> None:
+        if run.failures or run.deferred:
+            self._incomplete[cluster_id] = (updated_at, self._clock() + self.retry_s)
+        else:
+            self._read[cluster_id] = updated_at
+            self._incomplete.pop(cluster_id, None)
+
+    def done(self) -> dict[int, Any]:
+        """{cluster_id: updated_at} to exclude now."""
+        now = self._clock()
+        held = {cid: at for cid, (at, until) in self._incomplete.items() if until > now}
+        return {**self._read, **held}

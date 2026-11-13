@@ -16,7 +16,13 @@ from common.db import connect
 from media import store
 from media.blobs import BlobFetcher
 from media.nemotron import NemotronClient, NotVisionModelError
-from media.worker import FailureBackoff, load_cluster_media, persist_evidence, process_cluster_media
+from media.worker import (
+    ClusterProgress,
+    FailureBackoff,
+    load_cluster_media,
+    persist_evidence,
+    process_cluster_media,
+)
 
 log = logging.getLogger("media")
 
@@ -55,7 +61,7 @@ def read_cluster(
 
 def run_worker(client, settings, *, interval_s: float, batch: int) -> None:
     statuses = [s.strip() for s in settings.media_statuses.split(",") if s.strip()]
-    seen: dict[int, object] = {}  # cluster_id -> updated_at fully read by this process
+    progress = ClusterProgress()
     backoff = FailureBackoff()
     with BlobFetcher() as fetcher:
         while True:
@@ -66,7 +72,7 @@ def run_worker(client, settings, *, interval_s: float, batch: int) -> None:
                         statuses=statuses,
                         min_score=settings.media_min_score,
                         limit=batch,
-                        done=seen,
+                        done=progress.done(),
                     ):
                         run = read_cluster(
                             conn,
@@ -76,8 +82,7 @@ def run_worker(client, settings, *, interval_s: float, batch: int) -> None:
                             max_media=settings.media_max_per_cluster,
                             backoff=backoff,
                         )
-                        if not run.failures and not run.deferred:
-                            seen[c["id"]] = c["updated_at"]
+                        progress.record(c["id"], c["updated_at"], run)
             except NotVisionModelError:
                 raise
             except Exception:
