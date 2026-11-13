@@ -4,7 +4,7 @@ Every number the dashboard shows about our own accuracy comes from here, through
 (`GET /api/metrics` serves the latest row per `dataset` + `split`).
 
 ```bash
-uv run python -m eval copy-slices --split heldout                 # keep recorded hours (see below)
+uv run python -m eval copy-slices                                # keep finished recorded hours
 uv run python -m eval recall --split dev                          # print the table only
 uv run python -m eval recall --split heldout --database-url URL   # ...and write an eval_runs row
 uv run pytest tests/test_eval_recall.py                           # offline; no DB, no network
@@ -21,13 +21,15 @@ uv run pytest tests/test_eval_recall.py                           # offline; no 
 | `synthetic_campaigns` | **recall**: share of injected synthetic campaigns the detector marks `coordinated` | `recall`, `n`, `details` (`precision`, `f1`, `fpr` stay NULL: no negatives here) |
 
 `split` is `dev` (we may look at it while changing the detector or the eval) or `heldout`
-(reported only; never tune thresholds, hit rules or synth settings on it). Splits are whole UTC
-hours of recorded Jetstream (`eval/slices.py`, `SPLITS`):
+(reported only; never tune thresholds, hit rules or synth settings on it). **Split rule** (shared
+by every eval here): a window belongs to the UTC hour it starts in; **odd hours are `heldout`,
+even hours are `dev`** (`eval/slices.py`, `split_of_hour`). Whole hours, so one burst never
+straddles both. `--split` uses every recorded hour of that parity found under `--slice`; the hours
+and windows actually used are stored in `details`.
 
-| split | UTC hours | Notes |
-|---|---|---|
-| `dev` | 2026-11-13 19, 20 | hour 19 starts at 19:41 (recording began), so only 19:50 counts |
-| `heldout` | 2026-11-13 21 | |
+Recorded hours kept so far (2026-11-13, UTC): 19 (`heldout`; recording began 19:41, so only the
+19:50 window is complete), 20 (`dev`), 21 (`heldout`). Disclosure: the 19:50 window was used for
+a one-window smoke test before the split rule was fixed; nothing was tuned on it.
 
 The recorder keeps raw hours for 24 h only, so these hours are copied (same layout) to
 `/srv/junction-espoo/data/eval-slices/jetstream/` on the team server (shared, outside git).

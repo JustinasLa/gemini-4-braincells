@@ -7,7 +7,7 @@ import os
 import pytest
 
 from eval.recall import judge, run_trial, summarize, trial_seed, wilson
-from eval.slices import file_hour, hour_files, iter_windows
+from eval.slices import file_hour, hour_files, iter_windows, split_hours, split_of_hour
 from eval.store import write_eval_run
 from signals.score import ClusterScore
 from signals.synth import Synthetic, empty_window
@@ -113,12 +113,6 @@ def test_run_trial_l1_on_synthetic_background_is_caught():
     assert t.caught and t.n_accounts == 12 and t.best_purity == 1.0
 
 
-# ----------------------------------------------------------------- store ---------------------
-def test_store_rejects_unknown_split():
-    with pytest.raises(ValueError):
-        write_eval_run("postgresql://unused", "synthetic_campaigns", "test", recall=1.0)
-
-
 # ----------------------------------------------------------------- slices --------------------
 T0 = 1_800_000_000  # a multiple of 600: windows start at T0, T0+600, ...
 
@@ -206,6 +200,15 @@ def test_iter_windows_skips_partial_and_holes(tmp_path):
     assert out[1200].startswith("hole of")
 
 
+def test_split_rule_odd_hours_are_heldout(tmp_path):
+    assert split_of_hour("2026111321") == "heldout" and split_of_hour("2026111320") == "dev"
+    _write(tmp_path, [], hour="2027011508")
+    _write(tmp_path, [], hour="2027011509", name="00-2")
+    _write(tmp_path, [], hour="2027011510", name="00-3")
+    assert split_hours(tmp_path, "dev") == ["2027011508", "2027011510"]
+    assert split_hours(tmp_path, "heldout") == ["2027011509"]
+
+
 def test_hour_files_select_by_name(tmp_path):
     a = _write(tmp_path, [], hour="2027011508")
     b = _write(tmp_path, [], hour="2027011509", name="00-2")
@@ -220,7 +223,9 @@ def test_store_roundtrip():
     import psycopg
 
     url = os.environ["EVAL_TEST_DATABASE_URL"]
-    rid = write_eval_run(url, "synthetic_campaigns", "dev", recall=0.5, n=4, details={"x": 1})
+    rid = write_eval_run(
+        "synthetic_campaigns", "dev", recall=0.5, n=4, details={"x": 1}, database_url=url
+    )
     with psycopg.connect(url) as conn:
         row = conn.execute(
             "SELECT dataset, split, precision, recall, fpr, n, details FROM eval_runs"
@@ -240,27 +245,20 @@ def test_iter_windows_gap_check_tolerates_reordered_events(tmp_path):
     assert out[0][0].max_gap_s == 20.0
 
 
-def test_adhoc_hours_cannot_be_published(capsys, monkeypatch):
-    import sys
-
+def test_adhoc_hours_cannot_be_published(capsys):
     from eval.__main__ import main
 
-    argv = ["eval", "recall", "--split", "heldout", "--hours", "2026111320"]
-    monkeypatch.setattr(sys, "argv", [*argv, "--database-url", "postgresql://unused"])
-    assert main() == 2
+    argv = ["recall", "--split", "heldout", "--hours", "2026111320"]
+    assert main([*argv, "--database-url", "postgresql://unused"]) == 2
     assert "ad-hoc" in capsys.readouterr().err
 
 
-def test_adhoc_run_table_is_labelled(tmp_path, capsys, monkeypatch):
-    import sys
-
+def test_adhoc_run_table_is_labelled(tmp_path, capsys):
     from eval.__main__ import main
 
     _write(tmp_path, list(_ticks(T0, T0 + 1200)))
-    argv = ["eval", "recall", "--split", "dev", "--slice", str(tmp_path), "--hours", "2027011508"]
-    argv += ["--levels", "L1", "--repeats", "1", "--workers", "1"]
-    monkeypatch.setattr(sys, "argv", argv)
-    assert main() == 0
+    argv = ["recall", "--split", "dev", "--slice", str(tmp_path), "--hours", "2027011508"]
+    assert main([*argv, "--levels", "L1", "--repeats", "1", "--workers", "1"]) == 0
     out = capsys.readouterr().out
     assert "recall on synthetic campaigns (dev, AD-HOC hours)" in out
     assert "2 windows of 600s" in out

@@ -7,11 +7,13 @@ Postgres: posts in the window, likes/reposts/follows whose subject got 2..max_ke
 distinct accounts in the window, per-second background counts of every event, and the number of
 distinct posting accounts.
 
-Splits are whole UTC hours. Never tune detector settings or eval rules on `heldout` hours.
+Splits are whole UTC hours (odd = heldout, even = dev). Never tune anything on `heldout` hours.
 """
 
+import argparse
 import logging
 import shutil
+import time
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -30,11 +32,15 @@ log = logging.getLogger(__name__)
 RECORD_ROOT = Path("/srv/junction-espoo/data/jetstream")
 SLICE_ROOT = Path("/srv/junction-espoo/data/eval-slices/jetstream")
 
-# UTC hours (YYYYMMDDHH). Hour 19 starts at 19:41 (recording began then); only full windows count.
-SPLITS: dict[str, list[str]] = {
-    "dev": ["2026111319", "2026111320"],
-    "heldout": ["2026111321"],
-}
+# Split rule (shared with eval/organic.py): a window belongs to the UTC hour it starts in; odd
+# hours are `heldout`, even hours are `dev`. Whole hours, so one burst never straddles splits.
+SPLITS = ("dev", "heldout")
+
+
+def split_of_hour(hour: str) -> str:
+    """'2026111321' -> 'heldout' (odd UTC hour), '2026111320' -> 'dev'."""
+    return "heldout" if int(hour[8:10]) % 2 else "dev"
+
 
 MAX_GAP_S = 60.0  # a window with a longer hole in the recording is skipped, not evaluated
 REORDER_S = 120.0  # events can arrive this much out of order (cursor rewind, host failover)
@@ -48,6 +54,15 @@ def file_hour(path: Path) -> str:
 def hour_files(root: Path, hours: Iterable[str]) -> list[Path]:
     wanted = set(hours)
     return [p for p in recorded_files(root) if file_hour(p) in wanted]
+
+
+def recorded_hours(root: Path) -> list[str]:
+    return sorted({file_hour(p) for p in recorded_files(root)})
+
+
+def split_hours(root: Path, split: str) -> list[str]:
+    """Every recorded hour under root that belongs to this split."""
+    return [h for h in recorded_hours(root) if split_of_hour(h) == split]
 
 
 def copy_hours(src: Path, dst: Path, hours: Iterable[str]) -> list[Path]:
@@ -200,3 +215,18 @@ def iter_windows(
         yield finish(k)
     if late:
         log.info("dropped %d events that arrived after their window was closed", late)
+
+
+# ----------------------------------------------------------- CLI: python -m eval copy-slices ---
+def add_arguments(c: argparse.ArgumentParser) -> None:
+    c.add_argument("--src", default=str(RECORD_ROOT))
+    c.add_argument("--dst", default=str(SLICE_ROOT))
+    c.add_argument("--hours", nargs="+", help="UTC hours (YYYYMMDDHH); default: all finished")
+
+
+def main_args(a) -> int:
+    current = time.strftime("%Y%m%d%H", time.gmtime())  # still being written
+    hours = a.hours or [h for h in recorded_hours(Path(a.src)) if h != current]
+    for p in copy_hours(Path(a.src), Path(a.dst), hours):
+        print(f"{p}  ({split_of_hour(file_hour(p))})")
+    return 0
