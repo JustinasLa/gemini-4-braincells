@@ -89,7 +89,8 @@ def draft(status="coordinated", ids=(1, 2), confidence=0.8, counter=("news event
 
 def test_agreeing_verdict_passes_unchanged():
     v = analyze(ctx(), FakeModel(draft()))
-    assert v.status == "coordinated"
+    assert v.status == "coordinated" and v.llm_assessment == "coordinated"
+    assert v.agrees_with_detector is True and v.disagreement_reason == ""
     assert v.adjustments == []
     assert v.model == "fake-gemini" and v.detector_status == "coordinated"
 
@@ -97,7 +98,9 @@ def test_agreeing_verdict_passes_unchanged():
 def test_invented_citations_are_dropped_and_can_force_insufficient():
     v = analyze(ctx(), FakeModel(draft(ids=(1, 99))))
     assert [c.evidence_id for c in v.evidence] == [1]
-    assert v.status == "insufficient"
+    assert v.status == "coordinated"  # the detector's call is never overridden
+    assert v.llm_assessment == "insufficient" and v.agrees_with_detector is False
+    assert "citations" in v.disagreement_reason
     assert any("99" in a for a in v.adjustments)
 
 
@@ -107,23 +110,35 @@ def test_invented_citations_are_dropped_and_can_force_insufficient():
         ("insufficient", "coordinated"),
         ("likely_organic", "coordinated"),
         ("insufficient", "likely_organic"),
+        ("coordinated", "likely_organic"),
     ],
 )
-def test_model_cannot_be_less_cautious_than_detector(detector, model_says):
-    v = analyze(ctx(status=detector), FakeModel(draft(status=model_says)))
-    assert v.status == "insufficient"
-    assert v.detector_status == detector
+def test_disagreement_is_recorded_not_applied(detector, model_says):
+    d = draft(status=model_says).model_copy(update={"disagreement_reason": "because"})
+    v = analyze(ctx(status=detector), FakeModel(d))
+    assert v.status == detector == v.detector_status
+    assert v.llm_assessment == model_says
+    assert v.agrees_with_detector is False and v.disagreement_reason == "because"
+
+
+def test_disagreement_without_reason_is_flagged():
+    v = analyze(ctx(status="likely_organic"), FakeModel(draft(status="coordinated")))
+    assert v.agrees_with_detector is False
+    assert v.disagreement_reason == "The model gave no reason."
+    assert any("without giving a reason" in a for a in v.adjustments)
 
 
 def test_duplicate_citations_count_once():
     v = analyze(ctx(), FakeModel(draft(ids=(1, 1))))
     assert [c.evidence_id for c in v.evidence] == [1]
-    assert v.status == "insufficient"
+    assert v.llm_assessment == "insufficient"
 
 
-def test_model_may_be_more_cautious():
-    v = analyze(ctx(), FakeModel(draft(status="insufficient", ids=())))
-    assert v.status == "insufficient" and v.adjustments == []
+def test_model_may_abstain():
+    d = draft(status="insufficient", ids=()).model_copy(update={"disagreement_reason": "thin"})
+    v = analyze(ctx(), FakeModel(d))
+    assert v.status == "coordinated" and v.llm_assessment == "insufficient"
+    assert v.adjustments == [] and v.disagreement_reason == "thin"
 
 
 def test_confidence_is_clamped_and_missing_counter_evidence_noted():
@@ -136,7 +151,8 @@ def test_no_evidence_skips_the_model():
     model = FakeModel(draft())
     v = analyze(ctx(evidence=False), model)
     assert model.calls == 0
-    assert v.status == "insufficient" and v.model == "none"
+    assert v.status == "coordinated" and v.model == "none"
+    assert v.llm_assessment is None and v.agrees_with_detector is None
 
 
 def test_prompt_lists_citable_ids_polarity_and_claims():
