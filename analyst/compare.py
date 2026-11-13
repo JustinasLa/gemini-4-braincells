@@ -1,6 +1,7 @@
 """Compare Gemini models as the analyst on real clusters. Writes nothing to the database.
 
     python -m analyst.compare --per-status 5 --out analyst/compare_results.json
+    python -m analyst.compare --clusters 900,529 --modes agent --out other.json
     python -m analyst.compare --table analyst/compare_results.json   # print the README table
 
 Picks the same clusters for every model (per detector status: clusters with stored posts,
@@ -228,6 +229,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     p = argparse.ArgumentParser(prog="python -m analyst.compare")
     p.add_argument("--per-status", type=int, default=5)
+    p.add_argument("--clusters", help="comma-separated cluster ids instead of --per-status")
     p.add_argument("--models", default=",".join(MODELS))
     p.add_argument("--modes", default="agent,single")
     p.add_argument("--out", default="analyst/compare_results.json")
@@ -240,8 +242,11 @@ def main() -> None:
 
     from sources.oxylabs import OxylabsClient
 
-    with connect(timeout_s=10) as conn:
-        cluster_ids = pick_clusters(conn, args.per_status)
+    if args.clusters:
+        cluster_ids = [int(x) for x in args.clusters.split(",")]
+    else:
+        with connect(timeout_s=10) as conn:
+            cluster_ids = pick_clusters(conn, args.per_status)
     log.info("clusters: %s", cluster_ids)
     cache = WebCache()
     web = OxylabsClient.from_settings()

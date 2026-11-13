@@ -18,7 +18,7 @@ class SignalBrief(BaseModel):
 
 
 class VerdictBrief(BaseModel):
-    status: Status  # the detector's call (verdicts written before 2026-11-14 may differ)
+    status: Status  # the detector's call (older verdicts may hold a downgraded value)
     confidence: float
     summary: str | None = None
     model: str | None = None

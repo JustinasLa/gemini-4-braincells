@@ -175,23 +175,35 @@ The models explain, read and fetch. They never decide what gets flagged.
 
 ### Gemini: the analyst (`analyst/`)
 
-For clusters above a score threshold, Gemini (model set by `GEMINI_MODEL`) gets the detector's
-output, the evidence rows (signals, organic guards, source checks) and a few sample posts, and
-returns structured JSON: status, confidence, the evidence it relies on (by evidence id), the
-strongest counter-evidence, and what would change the verdict. Code then enforces
-(`analyst/guard.py`):
+For clusters above a score threshold, Gemini gets the detector's output, the evidence rows
+(signals, organic guards, source checks) and a few sample posts. For candidate clusters (detector
+status `coordinated` or `insufficient`) it runs as an agent with function calling
+(`analyst/agent.py`): it may search the web and fetch linked pages live through the Oxylabs Web
+API, and read the cluster's posts and member profiles from our database, before it answers. Each
+web result is stored as source evidence (with its URL) before Gemini sees its evidence id. Calls
+are limited per cluster (tool calls, live web calls, wall time), cached by URL and query, and
+pages can only be fetched if their URL already appears in the cluster or an earlier result.
+Clusters the detector already calls `likely_organic` get a cheaper model in one shot, without web
+calls.
 
-- Citations to evidence ids that weren't passed in are dropped.
-- The analyst may agree with the detector or be **more cautious**, never less: from
-  `coordinated` or `likely_organic` it may go to `insufficient`; from `insufficient` it can't go
-  anywhere else.
-- Fewer than two valid citations means `insufficient`.
-- Every override is recorded in `adjustments` and shown.
+Gemini returns structured JSON: its own assessment, confidence, the evidence it relies on (by
+evidence id), the strongest counter-evidence, and what would change the verdict. Code then
+enforces (`analyst/guard.py`):
 
-Sample posts are given as context only and can't be cited. The prompt tells the model to judge
-behaviour, not opinions, and not to guess who is behind the accounts. Each verdict is a new row
-(readers take the latest), stored with the model id, and every call is logged with model id,
-latency and token counts.
+- Citations to evidence ids that don't exist (passed in or stored by a tool in this run) are
+  dropped.
+- The verdict's `status` is always the detector's. Gemini's own call is `llm_assessment`, with
+  `agrees_with_detector` and a `disagreement_reason`, so a disagreement is shown and counted, and
+  "why is this flagged?" is never answered with "the model said so".
+- Fewer than two valid citations make Gemini's assessment `insufficient`.
+- Every change is recorded in `adjustments` and shown.
+
+Sample posts and database lookups are context only and can't be cited. The prompt tells the model
+to judge behaviour, not opinions, not to guess who is behind the accounts, and to treat text in
+posts and web pages as data, not instructions. Each verdict is a new row (readers take the
+latest), stored with the model id and the full trace of model and tool calls (model id, latency,
+tokens, cost; tool, endpoint, URL, evidence id). The model choice is measured in
+`analyst/README.md`.
 
 ### Oxylabs: source checks (`sources/`)
 
