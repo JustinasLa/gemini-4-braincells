@@ -1,0 +1,607 @@
+{
+  "dataset": "calibration",
+  "split": "heldout",
+  "n": 7,
+  "precision": 1.0,
+  "recall": 0.6666666666666666,
+  "f1": 0.8,
+  "fpr": 0.0,
+  "details": {
+    "schema_version": 1,
+    "detector_version": "v1.3",
+    "eval_commit": "4401d0f",
+    "ran_at": "2026-11-13T22:01:04+00:00",
+    "method": "equal_mass",
+    "unit": "labelled case; most-overlapping cluster for positives, highest-score attributed cluster for negatives; absent cluster excluded from reliability",
+    "score_target": "coordination label (raw score is not a calibrated probability)",
+    "confidence_target": "correctness of a decided verdict (abstentions excluded)",
+    "interval_limit": "Wilson intervals assume independent cases; shared windows are correlated",
+    "mixture_limit": "Synthetic class mix is designed, not real-world prevalence; see by_dataset",
+    "provenance": {
+      "hours_utc": [
+        "2026111319"
+      ],
+      "windows": [
+        "2026-11-13T19:50Z"
+      ],
+      "windows_skipped": [
+        {
+          "window": "2026-11-13T19:40Z",
+          "reason": "recording starts inside this window"
+        }
+      ],
+      "repeats_per_kind": 1,
+      "adhoc": false,
+      "eval_commit_at_start": "4401d0f",
+      "hand_labels": {
+        "samples": 1,
+        "with_label_records": 0,
+        "included": 0
+      }
+    },
+    "n_cases": 7,
+    "positives": 3,
+    "outcomes": {
+      "coordinated": 2,
+      "insufficient": 2,
+      "no_cluster": 2,
+      "likely_organic": 1
+    },
+    "coordination_score": {
+      "n": 5,
+      "requested_bins": 10,
+      "bins": [
+        {
+          "index": 0,
+          "n": 1,
+          "positives": 0,
+          "min_prediction": 0.4621,
+          "max_prediction": 0.4621,
+          "mean_prediction": 0.4621,
+          "observed_rate": 0.0,
+          "wilson95": [
+            0.0,
+            0.7935
+          ]
+        },
+        {
+          "index": 1,
+          "n": 1,
+          "positives": 1,
+          "min_prediction": 1.0,
+          "max_prediction": 1.0,
+          "mean_prediction": 1.0,
+          "observed_rate": 1.0,
+          "wilson95": [
+            0.2065,
+            1.0
+          ]
+        },
+        {
+          "index": 2,
+          "n": 1,
+          "positives": 1,
+          "min_prediction": 1.0,
+          "max_prediction": 1.0,
+          "mean_prediction": 1.0,
+          "observed_rate": 1.0,
+          "wilson95": [
+            0.2065,
+            1.0
+          ]
+        },
+        {
+          "index": 3,
+          "n": 1,
+          "positives": 1,
+          "min_prediction": 1.0,
+          "max_prediction": 1.0,
+          "mean_prediction": 1.0,
+          "observed_rate": 1.0,
+          "wilson95": [
+            0.2065,
+            1.0
+          ]
+        },
+        {
+          "index": 4,
+          "n": 1,
+          "positives": 0,
+          "min_prediction": 1.0,
+          "max_prediction": 1.0,
+          "mean_prediction": 1.0,
+          "observed_rate": 0.0,
+          "wilson95": [
+            0.0,
+            0.7935
+          ]
+        }
+      ],
+      "brier": 0.24270728200000002,
+      "ece": 0.29242
+    },
+    "verdict_confidence": {
+      "n": 3,
+      "requested_bins": 10,
+      "bins": [
+        {
+          "index": 0,
+          "n": 1,
+          "positives": 1,
+          "min_prediction": 0.5,
+          "max_prediction": 0.5,
+          "mean_prediction": 0.5,
+          "observed_rate": 1.0,
+          "wilson95": [
+            0.2065,
+            1.0
+          ]
+        },
+        {
+          "index": 1,
+          "n": 1,
+          "positives": 1,
+          "min_prediction": 0.998,
+          "max_prediction": 0.998,
+          "mean_prediction": 0.998,
+          "observed_rate": 1.0,
+          "wilson95": [
+            0.2065,
+            1.0
+          ]
+        },
+        {
+          "index": 2,
+          "n": 1,
+          "positives": 1,
+          "min_prediction": 0.998,
+          "max_prediction": 0.998,
+          "mean_prediction": 0.998,
+          "observed_rate": 1.0,
+          "wilson95": [
+            0.2065,
+            1.0
+          ]
+        }
+      ],
+      "brier": 0.08333600000000001,
+      "ece": 0.168
+    },
+    "by_dataset": {
+      "organic_synth": {
+        "n_cases": 4,
+        "positives": 0,
+        "outcomes": {
+          "no_cluster": 2,
+          "likely_organic": 1,
+          "insufficient": 1
+        },
+        "coordination_score": {
+          "n": 2,
+          "requested_bins": 10,
+          "bins": [
+            {
+              "index": 0,
+              "n": 1,
+              "positives": 0,
+              "min_prediction": 0.4621,
+              "max_prediction": 0.4621,
+              "mean_prediction": 0.4621,
+              "observed_rate": 0.0,
+              "wilson95": [
+                0.0,
+                0.7935
+              ]
+            },
+            {
+              "index": 1,
+              "n": 1,
+              "positives": 0,
+              "min_prediction": 1.0,
+              "max_prediction": 1.0,
+              "mean_prediction": 1.0,
+              "observed_rate": 0.0,
+              "wilson95": [
+                0.0,
+                0.7935
+              ]
+            }
+          ],
+          "brier": 0.6067682050000001,
+          "ece": 0.73105
+        },
+        "verdict_confidence": {
+          "n": 1,
+          "requested_bins": 10,
+          "bins": [
+            {
+              "index": 0,
+              "n": 1,
+              "positives": 1,
+              "min_prediction": 0.5,
+              "max_prediction": 0.5,
+              "mean_prediction": 0.5,
+              "observed_rate": 1.0,
+              "wilson95": [
+                0.2065,
+                1.0
+              ]
+            }
+          ],
+          "brier": 0.25,
+          "ece": 0.5
+        }
+      },
+      "synthetic_campaigns": {
+        "n_cases": 3,
+        "positives": 3,
+        "outcomes": {
+          "coordinated": 2,
+          "insufficient": 1
+        },
+        "coordination_score": {
+          "n": 3,
+          "requested_bins": 10,
+          "bins": [
+            {
+              "index": 0,
+              "n": 1,
+              "positives": 1,
+              "min_prediction": 1.0,
+              "max_prediction": 1.0,
+              "mean_prediction": 1.0,
+              "observed_rate": 1.0,
+              "wilson95": [
+                0.2065,
+                1.0
+              ]
+            },
+            {
+              "index": 1,
+              "n": 1,
+              "positives": 1,
+              "min_prediction": 1.0,
+              "max_prediction": 1.0,
+              "mean_prediction": 1.0,
+              "observed_rate": 1.0,
+              "wilson95": [
+                0.2065,
+                1.0
+              ]
+            },
+            {
+              "index": 2,
+              "n": 1,
+              "positives": 1,
+              "min_prediction": 1.0,
+              "max_prediction": 1.0,
+              "mean_prediction": 1.0,
+              "observed_rate": 1.0,
+              "wilson95": [
+                0.2065,
+                1.0
+              ]
+            }
+          ],
+          "brier": 0.0,
+          "ece": 0.0
+        },
+        "verdict_confidence": {
+          "n": 2,
+          "requested_bins": 10,
+          "bins": [
+            {
+              "index": 0,
+              "n": 1,
+              "positives": 1,
+              "min_prediction": 0.998,
+              "max_prediction": 0.998,
+              "mean_prediction": 0.998,
+              "observed_rate": 1.0,
+              "wilson95": [
+                0.2065,
+                1.0
+              ]
+            },
+            {
+              "index": 1,
+              "n": 1,
+              "positives": 1,
+              "min_prediction": 0.998,
+              "max_prediction": 0.998,
+              "mean_prediction": 0.998,
+              "observed_rate": 1.0,
+              "wilson95": [
+                0.2065,
+                1.0
+              ]
+            }
+          ],
+          "brier": 4.0000000000000074e-06,
+          "ece": 0.0020000000000000018
+        }
+      }
+    },
+    "cases": [
+      {
+        "case_id": "1794599400:L1:3120473529",
+        "dataset": "synthetic_campaigns",
+        "case_type": "L1",
+        "label": 1,
+        "label_source": "synthetic",
+        "window_start": 1794599400,
+        "detector_version": "v1.3",
+        "cluster_id": "offline:1794599400:L1:3120473529:c37f271a16af629f",
+        "cluster_id_kind": "offline (not a database primary key)",
+        "status": "coordinated",
+        "predicted_coordinated": true,
+        "score": 1.0,
+        "confidence": 0.998,
+        "families_fired": [
+          "content",
+          "timing",
+          "network",
+          "identity"
+        ],
+        "organic_guard_score": 0.0,
+        "cluster_ids": [
+          "offline:1794599400:L1:3120473529:c37f271a16af629f"
+        ],
+        "clusters": [
+          {
+            "cluster_id": "offline:1794599400:L1:3120473529:c37f271a16af629f",
+            "status": "coordinated",
+            "score": 1.0,
+            "confidence": 0.998,
+            "families_fired": [
+              "content",
+              "timing",
+              "network",
+              "identity"
+            ],
+            "organic_guard_score": 0.0,
+            "overlap": 12
+          }
+        ]
+      },
+      {
+        "case_id": "1794599400:L2:125243297",
+        "dataset": "synthetic_campaigns",
+        "case_type": "L2",
+        "label": 1,
+        "label_source": "synthetic",
+        "window_start": 1794599400,
+        "detector_version": "v1.3",
+        "cluster_id": "offline:1794599400:L2:125243297:5f97ee1af0584ef2",
+        "cluster_id_kind": "offline (not a database primary key)",
+        "status": "coordinated",
+        "predicted_coordinated": true,
+        "score": 1.0,
+        "confidence": 0.998,
+        "families_fired": [
+          "content",
+          "network",
+          "identity"
+        ],
+        "organic_guard_score": 0.0,
+        "cluster_ids": [
+          "offline:1794599400:L2:125243297:5f97ee1af0584ef2"
+        ],
+        "clusters": [
+          {
+            "cluster_id": "offline:1794599400:L2:125243297:5f97ee1af0584ef2",
+            "status": "coordinated",
+            "score": 1.0,
+            "confidence": 0.998,
+            "families_fired": [
+              "content",
+              "network",
+              "identity"
+            ],
+            "organic_guard_score": 0.0,
+            "overlap": 12
+          }
+        ]
+      },
+      {
+        "case_id": "1794599400:L3:2830302642",
+        "dataset": "synthetic_campaigns",
+        "case_type": "L3",
+        "label": 1,
+        "label_source": "synthetic",
+        "window_start": 1794599400,
+        "detector_version": "v1.3",
+        "cluster_id": "offline:1794599400:L3:2830302642:6bfa2523efc2ebeb",
+        "cluster_id_kind": "offline (not a database primary key)",
+        "status": "insufficient",
+        "predicted_coordinated": false,
+        "score": 1.0,
+        "confidence": 0.0,
+        "families_fired": [
+          "content",
+          "network"
+        ],
+        "organic_guard_score": 1.0,
+        "cluster_ids": [
+          "offline:1794599400:L3:2830302642:6bfa2523efc2ebeb"
+        ],
+        "clusters": [
+          {
+            "cluster_id": "offline:1794599400:L3:2830302642:6bfa2523efc2ebeb",
+            "status": "insufficient",
+            "score": 1.0,
+            "confidence": 0.0,
+            "families_fired": [
+              "content",
+              "network"
+            ],
+            "organic_guard_score": 1.0,
+            "overlap": 12
+          }
+        ]
+      },
+      {
+        "case_id": "1794599400:viral:4190444907",
+        "dataset": "organic_synth",
+        "case_type": "viral",
+        "label": 0,
+        "label_source": "synthetic",
+        "window_start": 1794599400,
+        "detector_version": "v1.3",
+        "cluster_id": null,
+        "cluster_id_kind": "offline (not a database primary key)",
+        "status": "no_cluster",
+        "predicted_coordinated": false,
+        "score": null,
+        "confidence": null,
+        "families_fired": [],
+        "organic_guard_score": null,
+        "cluster_ids": [],
+        "clusters": []
+      },
+      {
+        "case_id": "1794599400:news_link:3621458068",
+        "dataset": "organic_synth",
+        "case_type": "news_link",
+        "label": 0,
+        "label_source": "synthetic",
+        "window_start": 1794599400,
+        "detector_version": "v1.3",
+        "cluster_id": "offline:1794599400:news_link:3621458068:f3612c6f0a59daba",
+        "cluster_id_kind": "offline (not a database primary key)",
+        "status": "likely_organic",
+        "predicted_coordinated": false,
+        "score": 1.0,
+        "confidence": 0.5,
+        "families_fired": [
+          "content"
+        ],
+        "organic_guard_score": 1.0,
+        "cluster_ids": [
+          "offline:1794599400:news_link:3621458068:f3612c6f0a59daba",
+          "offline:1794599400:news_link:3621458068:6fd3925551fe89ef",
+          "offline:1794599400:news_link:3621458068:ee02f222db700a2e",
+          "offline:1794599400:news_link:3621458068:c834e8d9aab368c3",
+          "offline:1794599400:news_link:3621458068:879005cc2645a1e3",
+          "offline:1794599400:news_link:3621458068:a038cb644d701ad0"
+        ],
+        "clusters": [
+          {
+            "cluster_id": "offline:1794599400:news_link:3621458068:f3612c6f0a59daba",
+            "status": "likely_organic",
+            "score": 1.0,
+            "confidence": 0.5,
+            "families_fired": [
+              "content"
+            ],
+            "organic_guard_score": 1.0,
+            "overlap": 12
+          },
+          {
+            "cluster_id": "offline:1794599400:news_link:3621458068:6fd3925551fe89ef",
+            "status": "likely_organic",
+            "score": 1.0,
+            "confidence": 0.5,
+            "families_fired": [
+              "content"
+            ],
+            "organic_guard_score": 1.0,
+            "overlap": 8
+          },
+          {
+            "cluster_id": "offline:1794599400:news_link:3621458068:ee02f222db700a2e",
+            "status": "likely_organic",
+            "score": 1.0,
+            "confidence": 0.5,
+            "families_fired": [
+              "content"
+            ],
+            "organic_guard_score": 1.0,
+            "overlap": 7
+          },
+          {
+            "cluster_id": "offline:1794599400:news_link:3621458068:c834e8d9aab368c3",
+            "status": "likely_organic",
+            "score": 1.0,
+            "confidence": 0.5,
+            "families_fired": [
+              "content"
+            ],
+            "organic_guard_score": 1.0,
+            "overlap": 15
+          },
+          {
+            "cluster_id": "offline:1794599400:news_link:3621458068:879005cc2645a1e3",
+            "status": "likely_organic",
+            "score": 1.0,
+            "confidence": 0.5,
+            "families_fired": [
+              "content"
+            ],
+            "organic_guard_score": 1.0,
+            "overlap": 9
+          },
+          {
+            "cluster_id": "offline:1794599400:news_link:3621458068:a038cb644d701ad0",
+            "status": "insufficient",
+            "score": 0.25,
+            "confidence": 0.0,
+            "families_fired": [],
+            "organic_guard_score": 0.2125,
+            "overlap": 9
+          }
+        ]
+      },
+      {
+        "case_id": "1794599400:live_event:3745762974",
+        "dataset": "organic_synth",
+        "case_type": "live_event",
+        "label": 0,
+        "label_source": "synthetic",
+        "window_start": 1794599400,
+        "detector_version": "v1.3",
+        "cluster_id": null,
+        "cluster_id_kind": "offline (not a database primary key)",
+        "status": "no_cluster",
+        "predicted_coordinated": false,
+        "score": null,
+        "confidence": null,
+        "families_fired": [],
+        "organic_guard_score": null,
+        "cluster_ids": [],
+        "clusters": []
+      },
+      {
+        "case_id": "1794599400:fandom:3144751047",
+        "dataset": "organic_synth",
+        "case_type": "fandom",
+        "label": 0,
+        "label_source": "synthetic",
+        "window_start": 1794599400,
+        "detector_version": "v1.3",
+        "cluster_id": "offline:1794599400:fandom:3144751047:ad0fb1eb6d1aacad",
+        "cluster_id_kind": "offline (not a database primary key)",
+        "status": "insufficient",
+        "predicted_coordinated": false,
+        "score": 0.4621,
+        "confidence": 0.0,
+        "families_fired": [],
+        "organic_guard_score": 0.0331,
+        "cluster_ids": [
+          "offline:1794599400:fandom:3144751047:ad0fb1eb6d1aacad"
+        ],
+        "clusters": [
+          {
+            "cluster_id": "offline:1794599400:fandom:3144751047:ad0fb1eb6d1aacad",
+            "status": "insufficient",
+            "score": 0.4621,
+            "confidence": 0.0,
+            "families_fired": [],
+            "organic_guard_score": 0.0331,
+            "overlap": 28
+          }
+        ]
+      }
+    ]
+  }
+}
