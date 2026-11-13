@@ -184,9 +184,11 @@ export class Dock {
       c.fillText(fmtShort(last), R, base + 4);
     }
     c.textAlign = "center";
+    let lastB = -1e9;
     for (const b of g.timeBreaks) {
       const x = ux(b.x);
-      if (x < L + 50 || x > R - 50) continue;
+      if (x < L + 60 || x > R - 60 || x - lastB < 70) continue;
+      lastB = x;
       c.fillStyle = "rgba(255,193,77,0.75)";
       c.fillText(`⋯ ${fmtDur(b.gap)} ⋯`, x, base + 4);
     }
@@ -253,9 +255,11 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     lastT = n.d.t;
   }
   c.textAlign = "center";
+  let lastPill = -1e9;
   for (const b of g.timeBreaks) {
     const s = g.toScreen(b.x, 0);
-    if (s.x < 0 || s.x > w) continue;
+    if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
+    lastPill = s.x;
     c.fillStyle = "rgba(10,11,15,0.9)";
     const label = `${fmtDur(b.gap)} later`;
     const tw = c.measureText(label).width + 14;

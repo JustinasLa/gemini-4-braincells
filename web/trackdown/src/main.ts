@@ -47,6 +47,7 @@ document.querySelector("#app")!.innerHTML = `
 const app = $(".app");
 const stage = $("#stage");
 const g = new Graph(stage);
+(window as unknown as { __g: Graph }).__g = g;
 const panel = new Panel($("#panel"), g);
 const dock = new Dock($("#dock"), g);
 const mini = new Minimap($("#minimap"), g);

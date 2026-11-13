@@ -229,12 +229,12 @@ export class Graph {
     const COLW = 236;
     for (const g of groups) {
       const gap = g[0].d.t - prevT;
-      const dx = gap <= 0 ? 0 : Math.min(46 * Math.log2(1 + gap / 60000), 360 + 26 * Math.log2(1 + gap / 86400000));
+      const dx = gap <= 0 ? 0 : Math.min(40 * Math.log2(1 + gap / 60000), 280 + 18 * Math.log2(1 + gap / 86400000));
       if (gap > 3 * 86400000) this.timeBreaks.push({ x: x + dx / 2, gap });
       x += dx;
       const chips = g.filter((n) => n.compact).length;
       if (g.length > 6 && chips >= g.length / 2) {
-        const cols = Math.ceil(g.length / 7);
+        const cols = Math.ceil(g.length / 8);
         const rows = Math.ceil(g.length / cols);
         const id = g[0].d.id;
         g.forEach((n, i) => {
@@ -805,7 +805,7 @@ export class Graph {
     const ox = this.W / 2 - this.cx * k;
     const oy = this.H / 2 - this.cy * k;
     // semantic zoom: cards fade out under ~0.42, dots fade in
-    const op = clamp((k - 0.2) / 0.1, 0, 1);
+    const op = clamp((k - 0.15) / 0.08, 0, 1);
     if (Math.abs(op - this.cardOpacity) > 0.001) {
       this.cardOpacity = op;
       this.world.style.setProperty("--card-op", op.toFixed(3));
@@ -940,7 +940,7 @@ export class Graph {
         const big = n.d.role === "origin" || n.d.role === "submitted";
         const rad = (big ? 9 : n.compact ? 4.5 : 6.5) / k;
         const dim = hl && !hl.has(n.d.id);
-        c.globalAlpha = (1 - op) * (dim ? 0.2 : 1);
+        c.globalAlpha = clamp(1 - op * 1.7, 0, 1) * (dim ? 0.2 : 1);
         this.glow(c, n.x, n.y, rad * 2.4, col, 0.35);
         c.fillStyle = col;
         c.beginPath();

@@ -81,9 +81,9 @@ export class Panel {
       <div class="verdict" style="--vc:${v.css}">
         <div class="vcoin" style="background-image:url(${coinImg(c.status)})"></div>
         <div class="vk">Verdict ${c.live ? '<span class="pill live"><span class="blip"></span>live</span>' : ""}</div>
-        <div class="vw"><i>${v.word}.</i></div>
+        <div class="vw${v.word.length > 8 ? " long" : ""}"><i>${v.word}.</i></div>
         <div class="vs">${esc(c.summary)}</div>
-        <div class="conf"><div class="row"><span>${c.status === "insufficient" ? "Abstained" : "Confidence"}</span><b>${c.status === "insufficient" ? "–" : Math.round(c.confidence * 100) + "%"}</b></div><div class="bar"><i></i></div></div>
+        <div class="conf${c.status === "insufficient" ? " abstain" : ""}"><div class="row"><span>${c.status === "insufficient" ? "Abstained" : "Confidence"}</span><b>${c.status === "insufficient" ? "–" : Math.round(c.confidence * 100) + "%"}</b></div><div class="bar"><i></i></div></div>
         ${c.synthetic ? `<div class="sim-note"><span>◆</span><span><b>Simulated case.</b> Fictional accounts and sites, made to show how a trackdown works. Not a verdict on any real post.</span></div>` : ""}
       </div>
       <div class="stats">
