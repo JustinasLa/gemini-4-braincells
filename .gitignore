@@ -26,3 +26,6 @@ data/
 # entire / claude local state
 .claude/settings.local.json
 .entire/worktrees/
+web/trackdown/node_modules/
+web/trackdown/dist/
+!web/trackdown/src/data/
