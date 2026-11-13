@@ -17,7 +17,7 @@ import time
 from analyst import store
 from analyst.gemini import VerdictModel
 from analyst.prompt import SYSTEM, build_prompt
-from analyst.ratecap import HourlyCap, calls_in
+from analyst.ratecap import HourlyCap
 from analyst.runner import Analyst
 from analyst.service import analyze
 from common.config import get_settings
@@ -65,7 +65,14 @@ def run_worker(
     cap: HourlyCap | None = None,
     failure_backoff_s: float = 600,
 ) -> None:
+    """Keep verdicts fresh. With a `cap`, Gemini requests are counted at the client and a
+    verdict starts only if its worst case (`model.max_requests`) still fits in the hour."""
     cap = cap or HourlyCap(0)
+    if cap.limit > 0 and isinstance(model, Analyst):
+        model.count_requests(cap)
+        reserve = model.max_requests
+    else:
+        reserve = 1
     seeded = cap.limit <= 0
     failed: dict[int, float] = {}  # cluster_id -> monotonic time it may be retried
     capped_logged = False
@@ -78,34 +85,32 @@ def run_worker(
                     used = cap.seed_from_db(conn)
                     seeded = True
                     log.info("Gemini cap: %d/%d requests used in the last hour", used, cap.limit)
-                if not cap.allows():
-                    if not capped_logged:
-                        log.warning(
-                            "Gemini cap reached (%d requests/hour); next verdict in ~%.0f s",
-                            cap.limit,
-                            cap.seconds_until_free(),
-                        )
-                        capped_logged = True
-                else:
+                for cluster_id in store.clusters_needing_verdict(
+                    conn,
+                    min_score=min_score,
+                    settle_s=settle_s,
+                    refresh_s=refresh_s,
+                    limit=batch,
+                    exclude=failed.keys(),
+                ):
+                    if not cap.allows(reserve):
+                        if not capped_logged:
+                            log.warning(
+                                "Gemini cap reached (%d/%d requests this hour); next verdict "
+                                "in ~%.0f s",
+                                cap.used(),
+                                cap.limit,
+                                cap.seconds_until_free(reserve),
+                            )
+                            capped_logged = True
+                        break
                     capped_logged = False
-                    for cluster_id in store.clusters_needing_verdict(
-                        conn,
-                        min_score=min_score,
-                        settle_s=settle_s,
-                        refresh_s=refresh_s,
-                        limit=batch,
-                        exclude=failed.keys(),
-                    ):
-                        if not cap.allows():
-                            break
-                        verdict = None
-                        try:
-                            verdict = run_cluster(conn, model, cluster_id)
-                        except Exception:
-                            conn.rollback()
-                            failed[cluster_id] = time.monotonic() + failure_backoff_s
-                            log.exception("verdict for cluster %s failed; retry later", cluster_id)
-                        cap.record(calls_in(verdict))
+                    try:
+                        run_cluster(conn, model, cluster_id)
+                    except Exception:
+                        conn.rollback()
+                        failed[cluster_id] = time.monotonic() + failure_backoff_s
+                        log.exception("verdict for cluster %s failed; retry later", cluster_id)
         except Exception:
             log.exception("analyst worker pass failed; retrying next interval")
         time.sleep(interval_s)
