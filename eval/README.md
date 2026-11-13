@@ -151,7 +151,6 @@ the same split rule as above.
   window is no longer complete on disk are listed in `details.missing_cases` instead of being
   scored.
 
-
 | dataset | cases | labels |
 |---|---|---|
 | `organic_synth` | `signals.synth.hard_negative` kinds `viral`, `news_link`, `live_event`, `fandom`, injected one at a time into every held-out window, seeds 1000+ (Kirill's tests use seed 0; `dev` uses 0+) | synthetic, true by construction |

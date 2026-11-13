@@ -355,3 +355,11 @@ def test_run_reports_fixture_cases_it_could_not_score(tmp_path):
     live = next(r for r in json.loads(out.read_text()) if r["dataset"] == "organic_live")
     assert live["n"] == 0
     assert live["details"]["missing_cases"] == ["link_share:gone"]
+
+
+def test_partial_run_is_never_written(tmp_path):
+    from eval.__main__ import main
+
+    argv = ["organic", "run", "--offline", "--max-windows", "1", "--write"]
+    argv += ["--slices", str(tmp_path), "--fixture", str(tmp_path / "f.json")]
+    assert main(argv) == 2

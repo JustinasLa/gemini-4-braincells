@@ -816,6 +816,10 @@ def main_args(a: argparse.Namespace) -> int:
         print(f"{len(cases)} live cases -> {a.fixture}  {dict(Counter(c['type'] for c in cases))}")
         return 0
 
+    if a.write and a.max_windows is not None:
+        # a partial run is not the split's result: never publish it as one (same rule as recall)
+        print("--max-windows is for ad-hoc runs; it can't be used with --write", file=sys.stderr)
+        return 2
     if not a.fixture.exists():
         print(f"no live-case fixture at {a.fixture}: run `python -m eval organic select` first")
         return 1
