@@ -10,6 +10,15 @@ uv run python -m eval recall --split heldout --database-url URL   # ...and write
 uv run pytest tests/test_eval_recall.py                           # offline; no DB, no network
 ```
 
+Organic false positives (`organic.py`, below):
+
+```bash
+uv run python -m eval organic select   # pick live organic cases -> eval/fixtures/organic_live.json
+uv run python -m eval organic run      # run the detector, print the report, write nothing
+uv run python -m eval organic run --write --database-url URL   # ...and write eval_runs rows
+uv run pytest tests/test_eval_organic.py                          # offline; no DB, no network
+```
+
 `--database-url` is opt-in: without it nothing is written anywhere. Other flags: `--repeats N`
 (campaigns per level per window, default 5), `--levels L1 L2`, `--workers 4`, `--json-out FILE`,
 `--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). Ad-hoc or partial runs (`--hours`,
@@ -22,6 +31,8 @@ uv run pytest tests/test_eval_recall.py                           # offline; no 
 |---|---|---|
 | `synthetic_campaigns` | **recall**: share of injected synthetic campaigns the detector marks `coordinated` | `recall`, `n`, `details` (`precision`, `f1`, `fpr` stay NULL: no negatives here) |
 | `live_hand_labels` | **precision** of `coordinated` and **FPR** on live clusters, against two humans' blind labels (below) | `precision`, `fpr`, `n` (definite human labels in that split), `details` (kappa, CIs, per-item labels) |
+| `organic_synth` | **FPR**: share of injected synthetic organic bursts (viral, news link, live event, fandom) the detector marks `coordinated` | `fpr`, `n`, `details` |
+| `organic_live` | **FPR** on real organic bursts in recorded windows, picked by a fixed rule that never reads detector output | `fpr`, `n`, `details` |
 
 `split` is `dev` (we may look at it while changing the detector or the eval) or `heldout`
 (reported only; never tune thresholds, hit rules or synth settings on it). **Split rule** (shared
@@ -116,6 +127,62 @@ groups we surfaced that humans call organic, how many we flagged", not a rate ov
 activity, and missed campaigns that never formed a cluster aren't measured here. Coordinated
 clusters are rare, so the precision interval is wide; it says so in `n` and `ci95`. Humans can be
 wrong too: kappa is how much to trust the labels.
+
+## Organic false positives (`organic.py`, datasets `organic_synth`, `organic_live`)
+
+Hostinger's judges weigh how we handle false positives above everything else. This measures how
+often the detector calls organic activity `coordinated` (🚩 Shill), on the same recorded hours and
+the same split rule as above.
+
+- **Windows**: the same clock-aligned 10-minute windows, built in memory with the ingest
+  normaliser and the same selection as `signals.window.load_window`, then scored with
+  `signals.detect.detect`. `organic.py` keeps its own reader because the live-case rule needs the
+  raw hour (hashtags, every post and action), not only the detector window. Its completeness rule
+  differs from `slices.py`: a window is used if at least 98% of its seconds have events. Windows
+  used are listed in `details`.
+- **Account info**: public AppView profiles and PLC logs via `signals.enrich`'s read-only
+  fetchers, cached in `eval-slices/accounts/profiles.json` so re-runs see the same numbers. Each
+  window is one enrichment pass: only the first 400 accounts of the detector's priority list get
+  info (`--budget`). Production fetches the same 400 per pass but also reads info it stored for
+  other accounts in earlier passes, so the eval's guards and identity signals can see fewer
+  accounts than live ones. The established-accounts guard is a share of the accounts with known
+  age, so this can move the FPR either way.
+- **Partial runs** (`--max-windows`) are refused with `--write`, like `recall`. Live cases whose
+  window is no longer complete on disk are listed in `details.missing_cases` instead of being
+  scored.
+
+
+| dataset | cases | labels |
+|---|---|---|
+| `organic_synth` | `signals.synth.hard_negative` kinds `viral`, `news_link`, `live_event`, `fandom`, injected one at a time into every held-out window, seeds 1000+ (Kirill's tests use seed 0; `dev` uses 0+) | synthetic, true by construction |
+| `organic_live` | real bursts in the held-out recordings, picked by the rule below, listed in `eval/fixtures/organic_live.json` | **heuristic, not ground truth** until a human checks a sample |
+
+**Live-case rule (`live-rule-v1`, never reads detector output).** In each complete window:
+(a) a normalised link posted by >= 5 distinct accounts, or (b) a hashtag used by >= 8 distinct
+accounts, where no account posts it more than 3 times and <= 20% of the posts reuse another
+account's normalised text; or (c) one of the 10 posts liked/reposted by the most (>= 50) distinct
+accounts. Then a deterministic sample of up to 40 of its accounts is looked up: >= 80% must
+resolve, and >= 80% of those must be >= 365 days old with >= 30 followers and >= 30 posts.
+Thresholds live in `LIVE_RULE` and are copied into the fixture.
+
+Caveat: "established accounts" is also an input to the detector's `established_accounts` guard
+(> 365 days, >= 100 followers), so the live set leans towards cases that guard can see. The
+synthetic set and the per-type breakdown are there to show the rest.
+
+**Outcome per case**: the worst status among clusters where the case's accounts are >= 2 members
+and >= 50% of the cluster: `coordinated` (a false positive) > `likely_organic` (😎 Chill) >
+`insufficient` (🤷 abstained) > `no_cluster` (never grouped, so never shown).
+
+**Row**: `fpr` = coordinated / n, `n` = cases; precision/recall/F1 are empty (no positives).
+`details` has `counts` per outcome, `fpr_ci95` (Wilson), `clustered` and `fpr_given_clustered`
+(the harder number: no_cluster cases are easy wins), `by_type`, `false_positives` (case id, the
+clusters and which signal families fired: the error analysis), `detector_version`, `eval_code`
+(git sha), windows, slice files, seeds or fixture.
+
+Caveat on `fpr_ci95`: Wilson treats every case as an independent trial, but synthetic cases share
+background windows (and seeds across windows) and live cases can share posts and accounts. So
+the real uncertainty is wider than this interval; read it as a lower bound, next to the window
+count in `details`.
 
 ## Results
 
