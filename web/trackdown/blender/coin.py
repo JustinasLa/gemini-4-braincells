@@ -18,7 +18,7 @@ RES = int(sys.argv[2]) if len(sys.argv) > 2 else 400
 SAMPLES = int(sys.argv[3]) if len(sys.argv) > 3 else 48
 FRAMES = int(sys.argv[4]) if len(sys.argv) > 4 else 48
 HERE = os.path.dirname(os.path.abspath(__file__))
-FONT = os.path.join(HERE, "fonts", "ArchivoBlack.ttf")  # OFL; download from google/fonts (ofl/archivoblack)
+FONT = os.path.join(HERE, "fonts", "Cinzel.ttf")  # OFL, Roman inscriptional capitals; download from google/fonts (ofl/cinzel)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
@@ -77,10 +77,59 @@ def mat_emit(name, strength=8.0, color=(1, 1, 1)):
     return m
 
 
-GOLD = mat_metal("brass", (1.0, 0.70, 0.32), 0.18)
-GOLD_DARK = mat_metal("brass_dark", (0.75, 0.48, 0.20), 0.32)
-RED = mat_enamel("enamel_red", (0.85, 0.06, 0.10))
-MINT = mat_enamel("enamel_mint", (0.05, 0.62, 0.48))
+def mat_aged(name, color, rough=0.32):
+    """Struck metal: darker in the crevices (AO), scuffed roughness."""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    b = nt.nodes["Principled BSDF"]
+    b.inputs["Metallic"].default_value = 1.0
+    ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
+    ao.inputs["Distance"].default_value = 0.06
+    mix = nt.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.inputs[6].default_value = (color[0] * 0.28, color[1] * 0.22, color[2] * 0.16, 1)
+    mix.inputs[7].default_value = (*color, 1)
+    nt.links.new(ao.outputs["AO"], mix.inputs[0])
+    nt.links.new(mix.outputs[2], b.inputs["Base Color"])
+    noise = nt.nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = 60.0
+    ramp = nt.nodes.new("ShaderNodeMapRange")
+    ramp.inputs["To Min"].default_value = rough - 0.1
+    ramp.inputs["To Max"].default_value = rough + 0.15
+    nt.links.new(noise.outputs["Fac"], ramp.inputs["Value"])
+    nt.links.new(ramp.outputs["Result"], b.inputs["Roughness"])
+    return m
+
+
+def mat_lacquer(name, color, rough=0.5, var=0.25):
+    """Hand-applied pigment in the field: cinnabar or verdigris, mottled."""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    b = nt.nodes["Principled BSDF"]
+    b.inputs["Metallic"].default_value = 0.0
+    b.inputs["Roughness"].default_value = rough
+    noise = nt.nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = 7.0
+    noise.inputs["Detail"].default_value = 8.0
+    mix = nt.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.inputs[6].default_value = (color[0] * (1 - var), color[1] * (1 - var), color[2] * (1 - var), 1)
+    mix.inputs[7].default_value = (min(1, color[0] * (1 + var)), min(1, color[1] * (1 + var)), min(1, color[2] * (1 + var)), 1)
+    nt.links.new(noise.outputs["Fac"], mix.inputs[0])
+    nt.links.new(mix.outputs[2], b.inputs["Base Color"])
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.04
+    nt.links.new(noise.outputs["Fac"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], b.inputs["Normal"])
+    return m
+
+
+GOLD = mat_aged("gold", (0.95, 0.70, 0.36), 0.3)
+GOLD_DARK = mat_aged("gold_dark", (0.72, 0.5, 0.24), 0.4)
+RED = mat_lacquer("cinnabar", (0.62, 0.08, 0.04), 0.42, 0.3)
+MINT = mat_lacquer("verdigris", (0.16, 0.45, 0.36), 0.62, 0.35)
 INK = mat_enamel("enamel_ink", (0.02, 0.02, 0.03), 0.2)
 
 root = bpy.data.objects.new("coin_root", None)
@@ -144,16 +193,43 @@ for side in (-1, 1):
 front_field = cyl("field_front", R * 0.86, 0.02, -D / 2 - 0.002, RED, bevel=0.006)
 back_field = cyl("field_back", R * 0.86, 0.02, D / 2 + 0.002, MINT, bevel=0.006)
 
-# dotted inner ring (little studs) on each face
-for side, field_y in ((-1, -D / 2 - 0.012), (1, D / 2 + 0.012)):
-    for i in range(48):
-        a = 2 * math.pi * i / 48
-        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.017, segments=10, ring_count=6, location=(math.cos(a) * R * 0.78, field_y, math.sin(a) * R * 0.78))
-        s = bpy.context.active_object
-        s.scale = (1, 0.5, 1)
-        s.data.materials.append(GOLD)
-        bpy.ops.object.shade_smooth()
-        s.parent = root
+# inscription around the rim on each face, Roman capitals bent along a circle
+def ring_text(body_text, y, flip):
+    bpy.ops.curve.primitive_bezier_circle_add(radius=0.735, location=(0, 0, 0))
+    circ = bpy.context.active_object
+    bpy.ops.object.text_add(location=(0, 0, 0))
+    t = bpy.context.active_object
+    t.data.body = body_text
+    if os.path.exists(FONT):
+        t.data.font = bpy.data.fonts.load(FONT)
+    t.data.size = 0.13
+    t.data.space_character = 1.05
+    t.data.bevel_depth = 0.003
+    t.data.align_x = "CENTER"
+    t.data.extrude = 0.008
+    t.data.materials.append(GOLD)
+    t.data.follow_curve = circ
+    bpy.context.view_layer.update()
+    bpy.ops.object.select_all(action="DESELECT")
+    t.select_set(True)
+    bpy.context.view_layer.objects.active = t
+    bpy.ops.object.convert(target="MESH")
+    t = bpy.context.active_object
+    circ.hide_render = True
+    # text follows the circle in XY; stand it up onto the coin face (XZ plane)
+    t.rotation_euler = (math.pi / 2, 0, 0)
+    t.location = (0, y, 0)
+    holder = bpy.data.objects.new("ring_holder", None)
+    scene.collection.objects.link(holder)
+    t.parent = holder
+    if flip:
+        holder.rotation_euler = (math.pi, 0, 0)
+    holder.parent = root
+    return holder
+
+
+ring_text("SHILL OR CHILL · FACTA NON VERBA · MMXXVI ·", -D / 2 - 0.006, False)
+ring_text("SHILL OR CHILL · FACTA NON VERBA · MMXXVI ·", -D / 2 - 0.006, True)
 
 
 def text_obj(body_text, size, z, y, mat, extrude=0.018):
@@ -166,7 +242,7 @@ def text_obj(body_text, size, z, y, mat, extrude=0.018):
     t.data.align_x = "CENTER"
     t.data.align_y = "CENTER"
     t.data.extrude = extrude
-    t.data.bevel_depth = 0.004
+    t.data.bevel_depth = 0.009
     t.data.bevel_resolution = 2
     t.data.materials.append(mat)
     bpy.ops.object.convert(target="MESH")
@@ -238,14 +314,14 @@ def make_shades(y):
 
 
 # FRONT: flag + SHILL
-front_parts = make_flag(FACE_Y) + [text_obj("SHILL", 0.36, -0.3, FACE_Y, GOLD, 0.03)]
+front_parts = make_flag(FACE_Y) + [text_obj("SHILL", 0.34, -0.3, FACE_Y, GOLD, 0.04)]
 for o in front_parts:
     o.parent = root
 
 # BACK: shades + CHILL, built as if on the front, then flipped 180deg about X onto the back
 back_group = bpy.data.objects.new("back_group", None)
 scene.collection.objects.link(back_group)
-back_parts = make_shades(FACE_Y) + [text_obj("CHILL", 0.36, -0.3, FACE_Y, GOLD, 0.03)]
+back_parts = make_shades(FACE_Y) + [text_obj("CHILL", 0.34, -0.3, FACE_Y, GOLD, 0.04)]
 for o in back_parts:
     o.parent = back_group
 back_group.rotation_euler = (math.pi, 0, 0)

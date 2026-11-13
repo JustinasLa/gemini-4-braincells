@@ -54,7 +54,7 @@ export class Panel {
   }
 
   private pendingHtml() {
-    return `<div class="verdict" style="--vc:var(--ink-3)"><div class="entry-label">Attribution pending</div>
+    return `<div class="verdict pending" style="--vc:var(--ink-3)"><div class="entry-label">Attribution pending</div>
       <div class="vw" style="font-size:52px;color:var(--ink-2)">Examining the receipts…</div>
       <p class="vs" style="color:var(--ink-2)">We walk back one copy at a time to the earliest version we can find, then look at how it spread.</p></div>`;
   }

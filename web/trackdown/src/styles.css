@@ -372,6 +372,7 @@ a { color: inherit; }
 .verdict .vtag { font: 500 15px/1 var(--caps); letter-spacing: 0.14em; color: var(--ink); }
 .verdict .vs { margin: 14px 0 0; font: 400 17px/1.45 var(--serif); color: var(--ink); }
 .verdict .vs::first-letter { font: 400 46px/0.8 var(--caps); float: left; color: var(--vc); margin: 6px 8px 0 0; }
+.verdict.pending .vs::first-letter { font: inherit; float: none; margin: 0; color: inherit; }
 .verdict .vcoin { position: absolute; right: -8px; top: 4px; width: 132px; height: 132px; background-size: cover; filter: drop-shadow(0 12px 14px rgba(60, 40, 10, 0.35)); }
 .scale { margin-top: 18px; }
 .scale .row { display: flex; justify-content: space-between; align-items: baseline; font: 400 11px/1 var(--mono); color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8px; }
