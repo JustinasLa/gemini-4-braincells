@@ -31,7 +31,7 @@ SLICE_ROOT = Path("/srv/junction-espoo/data/eval-slices/jetstream")
 # UTC hours (YYYYMMDDHH). Hour 19 starts at 19:41 (recording began then); only full windows count.
 SPLITS: dict[str, list[str]] = {
     "dev": ["2026111319", "2026111320"],
-    "heldout": ["2026111321", "2026111322"],
+    "heldout": ["2026111321"],
 }
 
 MAX_GAP_S = 60.0  # a window with a longer hole in the recording is skipped, not evaluated

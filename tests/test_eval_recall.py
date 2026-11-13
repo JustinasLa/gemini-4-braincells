@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import os
 
 import pytest
 
@@ -210,3 +211,20 @@ def test_hour_files_select_by_name(tmp_path):
     b = _write(tmp_path, [], hour="2027011509", name="00-2")
     assert file_hour(a) == "2027011508"
     assert hour_files(tmp_path, ["2027011509"]) == [b]
+
+
+@pytest.mark.skipif(
+    not os.environ.get("EVAL_TEST_DATABASE_URL"), reason="set EVAL_TEST_DATABASE_URL (scratch DB)"
+)
+def test_store_roundtrip():
+    import psycopg
+
+    url = os.environ["EVAL_TEST_DATABASE_URL"]
+    rid = write_eval_run(url, "synthetic_campaigns", "dev", recall=0.5, n=4, details={"x": 1})
+    with psycopg.connect(url) as conn:
+        row = conn.execute(
+            "SELECT dataset, split, precision, recall, fpr, n, details FROM eval_runs"
+            " WHERE id = %s",
+            (rid,),
+        ).fetchone()
+    assert row == ("synthetic_campaigns", "dev", None, 0.5, None, 4, {"x": 1})

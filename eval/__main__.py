@@ -161,7 +161,7 @@ def main() -> int:
     r.add_argument("--split", required=True, choices=list(SPLITS))
     r.add_argument("--hours", nargs="+", help="override the split's UTC hours (YYYYMMDDHH)")
     r.add_argument("--levels", nargs="+", default=list(R.LEVELS), choices=list(R.LEVELS))
-    r.add_argument("--repeats", type=int, default=3, help="campaigns per level per window")
+    r.add_argument("--repeats", type=int, default=5, help="campaigns per level per window")
     r.add_argument("--window-s", type=float, default=600.0)
     r.add_argument("--max-windows", type=int, default=0)
     r.add_argument("--workers", type=int, default=4)
