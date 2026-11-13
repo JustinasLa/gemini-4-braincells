@@ -21,12 +21,13 @@ import math
 import os
 import random
 import statistics
-import subprocess
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from eval.recall import _git_sha, wilson  # shared helpers (Wilson CI, eval_commit)
 
 log = logging.getLogger("eval.labels")
 
@@ -518,19 +519,6 @@ def fetch_cluster(conn, cluster_id: int) -> tuple[dict, dict]:
     return det, ev
 
 
-def _git_sha() -> str | None:
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(Path(__file__).parent), "describe", "--always", "--dirty"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return out.stdout.strip() or None
-    except Exception:
-        return None
-
-
 def build_sample(conn, name: str, n: int, seed: int, settled_min: float, source: str) -> dict:
     cands = fetch_candidates(conn, settled_min)
     reps = one_per_campaign(cands, random.Random(seed))
@@ -616,17 +604,6 @@ def clean_name(name: str) -> str:
 
 
 # ---------------------------------------------------------------- scoring
-
-
-def wilson(k: float, n: float, z: float = 1.96) -> tuple[float, float] | None:
-    """95% Wilson score interval; k and n may be fractional (effective counts)."""
-    if n <= 0:
-        return None
-    p = k / n
-    d = 1 + z * z / n
-    c = (p + z * z / (2 * n)) / d
-    h = z * math.sqrt(max(p * (1 - p) / n + z * z / (4 * n * n), 0.0)) / d
-    return round(max(0.0, c - h), 4), round(min(1.0, c + h), 4)
 
 
 def weighted_rate(hits: list[tuple[bool, float]]) -> dict:
