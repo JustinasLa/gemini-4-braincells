@@ -31,9 +31,10 @@ a group, so every verdict is about a group, and every piece of evidence is a num
 the posts behind it.
 
 - **Statistics decide, models explain.** The status of a cluster comes from fixed rules over four
-  independent signal families and a permutation test against a null model. Gemini writes the
-  explanation, but code makes sure it cites only real evidence and can only be more cautious than
-  the detector, never less.
+  independent signal families and a permutation test against a null model. Gemini investigates
+  (live Oxylabs searches and page fetches through function calling) and writes the explanation;
+  code makes sure it cites only real evidence. If Gemini disagrees with the detector, that is
+  shown and counted, never applied.
 - **False positives are the main risk.** Breaking news and viral posts look like coordination.
   Popular items are dropped before clustering, organic guards produce counter-evidence, and
   conflicting evidence leads to "can't tell" instead of a flag.
@@ -249,8 +250,12 @@ evidence `kind` is `signal | media | source | analyst`.
  "counter_evidence": ["..."], "would_change_verdict": ["..."], "model": "gemini-..."}
 ```
 Also written: `summary` (1-2 sentences), `detector_status` (clusters.status at the time),
-`adjustments` (what `analyst/guard.py` overrode: invented citation ids are dropped, and the
-analyst may only agree with the detector or be more cautious), `cluster_updated_at`.
+`adjustments` (what `analyst/guard.py` changed: invented citation ids are dropped, fewer than two
+valid citations make the model's assessment `insufficient`), `cluster_updated_at`.
+Since 2026-11-13 (late) `status` is always the detector's status; the model's own call is
+`llm_assessment`, with `agrees_with_detector` and `disagreement_reason`. `tool_calls` and
+`model_calls` trace Gemini's function calls (tool, endpoint, URL, evidence id, latency) and model
+calls (model id, latency, tokens, cost). Details in `analyst/README.md`.
 Each run appends a new row; readers take the latest.
 
 **Source evidence** (`evidence.kind=source`, written by `sources/`, upserted by `detail.key`):

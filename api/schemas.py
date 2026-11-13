@@ -18,11 +18,15 @@ class SignalBrief(BaseModel):
 
 
 class VerdictBrief(BaseModel):
-    status: Status
+    status: Status  # the detector's call (older verdicts may hold a downgraded value)
     confidence: float
     summary: str | None = None
     model: str | None = None
     created_at: datetime
+    llm_assessment: Status | None = None  # the analyst model's own call
+    agrees_with_detector: bool | None = None
+    disagreement_reason: str | None = None
+    tool_calls: int = 0  # live tool calls Gemini made for this verdict (details in `analyst`)
 
 
 class ClusterSummary(BaseModel):
