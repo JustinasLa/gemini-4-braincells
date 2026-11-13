@@ -83,6 +83,8 @@ def validate_cases(cases: list[dict], version: str, split: str) -> None:
             raise ValueError("invalid status or label")
         if case["label"] not in (0, 1):
             raise ValueError("ground truth label must be 0 or 1")
+        if "predicted_coordinated" in case and type(case["predicted_coordinated"]) is not bool:
+            raise ValueError("predicted_coordinated must be a boolean")
         if (
             split_of_hour(datetime.fromtimestamp(case["window_start"], UTC).strftime("%Y%m%d%H"))
             != split
@@ -204,6 +206,19 @@ def snapshot(synthetic, clusters: list, window_start: float, seed: int, cfg=DEFA
         if representative
         else None
     )
+    cluster_snapshots = [
+        {
+            "cluster_id": f"offline:{case_id}:"
+            + hashlib.sha256("\n".join(sorted(cluster.members)).encode()).hexdigest()[:16],
+            "status": cluster.status,
+            "score": cluster.score,
+            "confidence": cluster.confidence,
+            "families_fired": list(cluster.families_fired),
+            "organic_guard_score": cluster.guard_score,
+            "overlap": len(set(cluster.members) & synthetic.dids),
+        }
+        for cluster in qualifying
+    ]
     return {
         "case_id": case_id,
         "dataset": "synthetic_campaigns" if positives else "organic_synth",
@@ -220,11 +235,8 @@ def snapshot(synthetic, clusters: list, window_start: float, seed: int, cfg=DEFA
         "confidence": representative.confidence if representative else None,
         "families_fired": representative.families_fired if representative else [],
         "organic_guard_score": representative.guard_score if representative else None,
-        "cluster_ids": [
-            f"offline:{case_id}:"
-            + hashlib.sha256("\n".join(sorted(cluster.members)).encode()).hexdigest()[:16]
-            for cluster in qualifying
-        ],
+        "cluster_ids": [cluster["cluster_id"] for cluster in cluster_snapshots],
+        "clusters": cluster_snapshots,
     }
 
 
@@ -313,7 +325,11 @@ def main_args(args) -> int:
             raise ValueError("--labels requires human ground truth, not heuristic labels")
         cases = [*cases, *labels]
     run = build_run(cases, version=version, split=args.split, bins=args.bins, provenance=provenance)
-    if not args.input:
+    if args.input:
+        run["details"]["recomputed_at_commit"] = run["details"]["eval_commit"]
+        run["details"]["eval_commit"] = details["eval_commit"]
+        run["details"]["provenance"]["source_provenance"] = details["provenance"]
+    else:
         run["details"]["eval_commit"] = provenance["eval_commit_at_start"]
     if publishing:
         run["id"] = write_eval_run(**run, database_url=args.database_url)

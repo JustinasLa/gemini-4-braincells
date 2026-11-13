@@ -146,6 +146,7 @@ Case = {
   detector_version: string, cluster_id: string|int|null, cluster_ids?: [string|int],
   cluster_id_kind?: string, status: "coordinated"|"likely_organic"|"insufficient"|"no_cluster",
   predicted_coordinated?: boolean,
+  clusters?: [{cluster_id, status, score, confidence, families_fired, organic_guard_score, overlap}],
   score: number|null, confidence: number|null, families_fired: [string],
   organic_guard_score: number|null
 }

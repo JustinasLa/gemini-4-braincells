@@ -65,7 +65,8 @@ def load_hand_labels(root: Path, split: str, version: str) -> tuple[list[dict], 
                     "organic_guard_score": signals.get("organic_guard_score"),
                     "signals_available": bool(signals),
                     "sample_weight": item["weight"],
-                    "sampling_limit": "unweighted reliability of labelled stratified sample, not population",
+                    "sampling_limit": "unweighted reliability of labelled stratified sample; "
+                    "not population",
                 }
             )
     return cases, {**metadata, "included": len(cases), "excluded": dict(excluded)}

@@ -42,7 +42,7 @@ def markdown_report(run: dict) -> str:
     details = run["details"]
     counts = Counter(case["error"] for case in errors)
     lines = [
-        "# Held-out error analysis",
+        "# Held-out error analysis" if run["split"] == "heldout" else "# Dev error analysis",
         "",
         f"Dataset: `{run['dataset']}`; split: `{run['split']}`; run: `{run.get('id', 'local')}`.",
         f"Detector: `{details['detector_version']}`; eval commit: `{details['eval_commit']}`.",
@@ -64,23 +64,24 @@ def markdown_report(run: dict) -> str:
         return str(value).replace("|", "\\|").replace("\n", " ").replace("`", "'")
 
     for case in errors:
-        guard = case["organic_guard_score"]
-        row = [
-            case["error"],
-            f"{case['case_id']} / {case['dataset']}",
-            ", ".join(
-                str(value)
-                for value in case.get("cluster_ids", [])
-                or ([case["cluster_id"]] if case["cluster_id"] is not None else [])
-            )
-            or "none (not grouped)",
-            (", ".join(case["families_fired"]) or "none")
-            if case.get("signals_available", True)
-            else "not snapshotted",
-            f"{guard:.4f}" if guard is not None else "not scored",
-            case["reason"],
-        ]
-        lines.append("| " + " | ".join(cell(value) for value in row) + " |")
+        clusters = case.get("clusters") or [case]
+        if case["error"] == "FP":
+            clusters = [cluster for cluster in clusters if cluster["status"] == "coordinated"]
+        for cluster in clusters:
+            guard = cluster["organic_guard_score"]
+            row = [
+                case["error"],
+                f"{case['case_id']} / {case['dataset']}",
+                cluster["cluster_id"]
+                if cluster["cluster_id"] is not None
+                else "none (not grouped)",
+                (", ".join(cluster["families_fired"]) or "none")
+                if case.get("signals_available", True)
+                else "not snapshotted",
+                f"{guard:.4f}" if guard is not None else "not scored",
+                case["reason"],
+            ]
+            lines.append("| " + " | ".join(cell(value) for value in row) + " |")
     if not errors:
         lines.extend(["", "No FP/FN in this run; this is not evidence of zero population error."])
     lines.extend(

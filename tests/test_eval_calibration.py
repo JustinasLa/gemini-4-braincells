@@ -8,6 +8,7 @@ import pytest
 
 from eval.__main__ import main
 from eval.calibration import build_run, reliability, snapshot, validate_cases
+from eval.calibration_labels import load_hand_labels
 from eval.errors import extract_errors, latest_run, markdown_report
 from eval.provenance import audit_versions
 from eval.store import write_eval_run
@@ -181,6 +182,8 @@ def test_positive_union_hit_rule_and_offline_cluster_ids():
     value = snapshot(synthetic, clusters, START, 1)
     assert value["predicted_coordinated"]
     assert len(value["cluster_ids"]) == 2
+    assert len(value["clusters"]) == 2
+    assert all(cluster["families_fired"] == ["content", "timing"] for cluster in value["clusters"])
     assert value["cluster_id"].startswith("offline:")
     assert snapshot(synthetic, list(reversed(clusters)), START, 1)["cluster_ids"]
     assert run([value])["recall"] == 1
@@ -297,3 +300,65 @@ def test_latest_run_is_filtered_ordered_and_version_audit_is_readonly():
         "eval_runs_missing_version": 0,
     }
     assert all(sql.startswith("SELECT") for sql, _ in queries)
+
+
+def test_no_human_labels_are_fabricated(tmp_path):
+    cases, provenance = load_hand_labels(tmp_path, "heldout", DEFAULT.version)
+    assert cases == []
+    assert provenance == {"samples": 0, "with_label_records": 0, "included": 0}
+
+
+def test_frozen_hand_labels_reuse_owner_resolution(tmp_path, monkeypatch):
+    import sys
+
+    def item(identifier, split="heldout", version=DEFAULT.version):
+        return {
+            "item": identifier,
+            "split": split,
+            "weight": 1.5,
+            "detector": {
+                "detector_version": version,
+                "cluster_id": identifier,
+                "status": "likely_organic",
+                "score": 0.2,
+                "confidence": 0.9,
+                "window_start": datetime.fromtimestamp(START, UTC).isoformat(),
+                "families_fired": 1,
+            },
+        }
+
+    directory = tmp_path / "samples"
+    directory.mkdir()
+    (directory / "review.json").write_text(
+        json.dumps(
+            {
+                "name": "review",
+                "items": [
+                    item(1),
+                    item(2, split="dev"),
+                    item(3, version="old"),
+                    item(4),
+                ],
+            }
+        )
+    )
+    (tmp_path / "review.labels.jsonl").touch()
+    owner = SimpleNamespace(
+        load_records=lambda path: ({}, {}),
+        final_labels=lambda ids, records, adjudications: {
+            identifier: {"label": "organic" if identifier != 4 else None} for identifier in ids
+        },
+    )
+    monkeypatch.setitem(sys.modules, "eval.labels", owner)
+    cases, provenance = load_hand_labels(tmp_path, "heldout", DEFAULT.version)
+    assert len(cases) == 1 and cases[0]["cluster_id"] == 1
+    assert cases[0]["label"] == 0
+    assert cases[0]["organic_guard_score"] is None
+    assert not cases[0]["signals_available"]
+    assert provenance["excluded"] == {
+        "other_split": 1,
+        "other_version": 1,
+        "unresolved_or_cant_tell": 1,
+    }
+    assert run(cases)["details"]["verdict_confidence"]["brier"] == pytest.approx(0.01)
+    assert "not snapshotted" in markdown_report(run([{**cases[0], "label": 1}]))
