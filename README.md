@@ -7,7 +7,7 @@ explains each flagged cluster with evidence, and reports its own measured error 
 
 | Dir | What it does |
 |---|---|
-| `ingest/` | Bluesky Jetstream consumer → Postgres (`accounts`, `posts`, `reposts`, `follows`) |
+| `ingest/` | Bluesky Jetstream consumer → Postgres (`posts`, `reposts`, `likes`, `follows`, `account_events`); record/replay |
 | `signals/` | Coordination detector: windows, signals, clusters, score + confidence, abstention |
 | `media/` | Nemotron Super VL: reads images/video frames, near-duplicate media |
 | `sources/` | Oxylabs `/scrape` + `/search` on cluster links (source URLs kept with every fact) |
@@ -69,7 +69,11 @@ keys or `.env` contents into a prompt. Committed Entire files: `.entire/settings
 Change these only with a note here, so the other components can follow.
 
 **Database:** `db/schema.sql` (accounts, posts, reposts, follows, clusters, cluster_members,
-cluster_posts, evidence, eval_runs). Cluster `status` is `coordinated | likely_organic | insufficient`;
+cluster_posts, evidence, eval_runs) plus `db/migrations/` (applied by `python -m common.migrate`).
+Migration 002 adds `likes`, `account_events`, `ingest_state`, `campaigns`,
+`cluster_posts_snapshot`, enrichment columns on `accounts` and detector columns on `clusters`
+(`campaign_id, p_value, families_fired, detector_version, window_kind, size, synthetic`), and makes
+the raw tables hour-partitioned by `seen_at` (Jetstream server time). Details: `ingest/README.md`. Cluster `status` is `coordinated | likely_organic | insufficient`;
 evidence `kind` is `signal | media | source | analyst`.
 
 **API** (JSON):
