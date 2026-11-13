@@ -45,6 +45,24 @@ curl https://$PUBLIC_DOMAIN/api/health
 All backend services share one image (`Dockerfile`); add a service in compose with its own
 `command` (e.g. `python -m ingest`).
 
+## Entire (agent sessions, Graph, Brain)
+
+The repo is set up for [Entire](https://docs.entire.com): Claude Code and Codex sessions are linked to
+commits as checkpoints (stored under `refs/entire/checkpoints/` and pushed with your normal `git push`),
+and `.entire/agent-guide.md` tells agents to use `entire graph` for code lookups.
+The hooks do nothing until `entire` is on your PATH, so nothing breaks without it. To take part:
+
+```bash
+curl -fsSL https://entire.com/install.sh | bash   # installs entire into ~/.local/bin
+entire login                                      # GitHub sign-in (use --device on a server)
+entire plugin install graph && entire plugin install brain --yes
+```
+
+Then start a new agent session in your worktree. Checkpoints contain agent transcripts: never paste
+keys or `.env` contents into a prompt. Committed Entire files: `.entire/settings.json`,
+`.entire/.gitignore`, `.entire/agent-guide.md`, `.claude/settings.json`, `.codex/hooks.json`,
+`AGENTS.md`, `CLAUDE.md` (Entire manages the marked blocks; add your own text outside them).
+
 ## Shared interfaces
 
 Change these only with a note here, so the other components can follow.
