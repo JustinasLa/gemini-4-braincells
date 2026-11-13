@@ -249,3 +249,18 @@ def test_adhoc_hours_cannot_be_published(capsys, monkeypatch):
     monkeypatch.setattr(sys, "argv", [*argv, "--database-url", "postgresql://unused"])
     assert main() == 2
     assert "ad-hoc" in capsys.readouterr().err
+
+
+def test_adhoc_run_table_is_labelled(tmp_path, capsys, monkeypatch):
+    import sys
+
+    from eval.__main__ import main
+
+    _write(tmp_path, list(_ticks(T0, T0 + 1200)))
+    argv = ["eval", "recall", "--split", "dev", "--slice", str(tmp_path), "--hours", "2027011508"]
+    argv += ["--levels", "L1", "--repeats", "1", "--workers", "1"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert main() == 0
+    out = capsys.readouterr().out
+    assert "recall on synthetic campaigns (dev, AD-HOC hours)" in out
+    assert "2 windows of 600s" in out

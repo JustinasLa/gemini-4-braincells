@@ -57,7 +57,7 @@ def cmd_recall(args) -> int:
         )
         return 2
     hours = args.hours or SPLITS[args.split]
-    label = f"{args.split}, AD-HOC hours" if args.hours else args.split
+    run_label = f"{args.split}, AD-HOC hours" if args.hours else args.split
     files = hour_files(Path(args.slice), hours)
     if not files:
         print(f"no recorded files for hours {hours} under {args.slice}", file=sys.stderr)
@@ -86,9 +86,9 @@ def cmd_recall(args) -> int:
     ]
     trials, baseline = [], {}
     with mp.get_context("fork").Pool(args.workers) as pool:
-        for n_done, (kind, label, out) in enumerate(pool.imap_unordered(_work, tasks), 1):
+        for n_done, (kind, window, out) in enumerate(pool.imap_unordered(_work, tasks), 1):
             if kind == "base":
-                baseline[label] = out
+                baseline[window] = out
             else:
                 trials.append(out)
             if n_done % 10 == 0 or n_done == len(tasks):
@@ -117,7 +117,7 @@ def cmd_recall(args) -> int:
         "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "runtime_s": round(time.monotonic() - t0),
     }
-    print(R.format_table(summary, label))
+    print(R.format_table(summary, run_label))
     print(
         f"\n{len(_WINDOWS)} windows of {args.window_s:.0f}s from hours {', '.join(hours)} UTC; "
         f"skipped {len(skipped)}; detector {DEFAULT.version}; {details['runtime_s']}s"
