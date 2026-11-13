@@ -24,7 +24,9 @@ python -m media.compare ...            # prompt/schema comparison (below)
    thumbnail from `video.bsky.app`, both by (did, CID); the author's PDS is an image fallback.
 4. **Read** (`nemotron.NemotronClient`): one chat call per file, image sent as a data URL.
 5. **Store** (`worker.persist_evidence`): one row per (cluster, media hash), upserted so ids stay
-   stable for analyst citations; unchanged rows aren't touched (no verdict churn). `model` is
+   stable for analyst citations; unchanged rows aren't touched (no verdict churn). Fetch/model
+   failures are stored as retryable `detail.status=failed` rows (they are not used as cache hits),
+   so the dashboard can distinguish failed media from media still pending. `model` is
    the model id the **response** returned. `source_url` is the first post on bsky.app;
    `detail` has `post_urls`, `profile_urls`, `dids`, `n_posts`, `n_accounts`, `media_url`,
    `media_kind`, `description`, `extracted_text`, `reuse_cues`, `manipulation_cues`,
