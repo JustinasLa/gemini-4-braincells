@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from signals.baseline import BaseRates
 from signals.config import DEFAULT, DetectorConfig
 from signals.graph import build_graph, communities
 from signals.keys import MinHashCache, build_keys
@@ -52,6 +53,7 @@ def detect(
     cfg: DetectorConfig = DEFAULT,
     mh_cache: MinHashCache | None = None,
     embed: EmbedFn | None = None,
+    base_rates: BaseRates | None = None,
 ) -> DetectResult:
     t0 = time.monotonic()
     keys = build_keys(wd, cfg, mh_cache)
@@ -92,7 +94,7 @@ def detect(
             if sem is None or sem.score < cfg.family_fire:
                 continue
         if embed is not None or any(d in info for d in clusters[i].members):
-            clusters[i] = score_cluster(groups[i], keys, wd, info, cfg, embed)
+            clusters[i] = score_cluster(groups[i], keys, wd, info, cfg, embed, base_rates)
     t4 = time.monotonic()
     by_status: dict[str, int] = {}
     for c in clusters:
@@ -106,6 +108,7 @@ def detect(
         "clusters": len(clusters),
         "by_status": by_status,
         "accounts_with_info": len(info),
+        "base_rates": base_rates.as_dict() if base_rates else None,
         "rescored": len(rescore),
         "seconds": {
             "keys": round(t1 - t0, 2),

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from signals.baseline import BaseRates
 from signals.config import DetectorConfig
 from signals.keys import CONTENT_KINDS, Key
 from signals.semantic import EmbedFn, semantic_core
@@ -72,6 +73,11 @@ class ClusterScore:
 
 def _r(x: float) -> float:
     return round(float(x), 4)
+
+
+def _sig(p: float) -> float:
+    """p-values keep 3 significant digits (1.2e-09, not 0.0)."""
+    return float(f"{float(p):.3g}")
 
 
 def _seed(cfg: DetectorConfig, members: list[str], wd: WindowData) -> int:
@@ -762,6 +768,68 @@ def member_graph(members: list[str], sk: list[Key]) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- identity tests --------------
+def identity_tests(
+    members: list[str], info: dict[str, AccountInfo], rates: BaseRates | None, cfg: DetectorConfig
+) -> list[dict]:
+    """Binomial tests: are fresh accounts / empty profiles over-represented in this cluster
+    compared with a random sample of active accounts? One-sided, base rate smoothed (k+1)/(n+2)
+    so a small sample never claims a zero base rate."""
+    from scipy.stats import binom
+
+    if rates is None:
+        return []
+    known = [info[d] for d in members if d in info]
+    out = []
+    aged = [a for a in known if a.age_days is not None]
+    if len(aged) >= cfg.min_cluster_size and rates.n_age >= cfg.baseline_min_sample:
+        k = sum(1 for a in aged if a.age_days < cfg.fresh_account_days)
+        p0 = (rates.fresh * rates.n_age + 1) / (rates.n_age + 2)
+        out.append(
+            {
+                "test": "fresh_accounts",
+                "k": k,
+                "n": len(aged),
+                "base_rate": _r(p0),
+                "baseline_sample": rates.n_age,
+                "p_value": float(binom.sf(k - 1, len(aged), p0)) if k else 1.0,
+            }
+        )
+    prof = [a for a in known if a.has_avatar is not None]
+    if len(prof) >= cfg.min_cluster_size and rates.n_profile >= cfg.baseline_min_sample:
+        k = sum(
+            1 for a in prof if not a.has_avatar and not a.description_len and (a.followers or 0) < 5
+        )
+        p0 = (rates.empty * rates.n_profile + 1) / (rates.n_profile + 2)
+        out.append(
+            {
+                "test": "empty_profiles",
+                "k": k,
+                "n": len(prof),
+                "base_rate": _r(p0),
+                "baseline_sample": rates.n_profile,
+                "p_value": float(binom.sf(k - 1, len(prof), p0)) if k else 1.0,
+            }
+        )
+    return out
+
+
+def combine_p(p_timing: float | None, tests: list[dict]) -> tuple[float | None, dict]:
+    """Bonferroni over the available tests: p = min(1, m * min p_i)."""
+    ps = {"timing": p_timing} if p_timing is not None else {}
+    ps.update({t["test"]: t["p_value"] for t in tests})
+    if not ps:
+        return None, {}
+    best = min(ps, key=lambda k: (ps[k], k))
+    p = min(1.0, len(ps) * ps[best])
+    return p, {
+        "method": "Bonferroni over the available tests",
+        "tests": {k: _sig(v) for k, v in sorted(ps.items())},
+        "decisive_test": best,
+        "p_value": _sig(p),
+    }
+
+
 # ---------------------------------------------------------------- combine ---------------------
 def score_cluster(
     members: list[str],
@@ -770,6 +838,7 @@ def score_cluster(
     info: dict[str, AccountInfo],
     cfg: DetectorConfig,
     embed: EmbedFn | None = None,
+    rates: BaseRates | None = None,
 ) -> ClusterScore:
     rng = np.random.default_rng(_seed(cfg, members, wd))
     sk = shared_keys(members, keys)
@@ -779,8 +848,16 @@ def score_cluster(
         sem = semantic_signal(members, wd, embed, cfg)
         if sem is not None:
             sigs.append(sem)
-    t_sigs, p_value, p_detail = timing_signals(members, sk, wd, cfg, rng)
+    t_sigs, p_timing, p_detail = timing_signals(members, sk, wd, cfg, rng)
     sigs += t_sigs
+    id_tests = identity_tests(members, info, rates, cfg)
+    p_value, p_combined = combine_p(p_timing, id_tests)
+    if p_combined:
+        p_detail = {
+            **p_detail,
+            "combined": p_combined,
+            "identity_tests": [{**t, "p_value": _sig(t["p_value"])} for t in id_tests],
+        }
     sigs += network_signals(members, sk, wd, cfg)
     sigs += identity_signals(members, info, cfg)
     guards = organic_guards(members, sk, info, wd, cfg)
@@ -821,7 +898,7 @@ def score_cluster(
         family_scores={f: _r(v) for f, v in fam.items()},
         families_fired=fired,
         score=_r(score),
-        p_value=_r(p_value) if p_value is not None else None,
+        p_value=_sig(p_value) if p_value is not None else None,
         p_detail=p_detail,
         guard_score=_r(guard),
         status=status,

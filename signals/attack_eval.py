@@ -18,6 +18,7 @@ import psycopg
 
 from common.config import get_settings
 from signals.attack import load
+from signals.baseline import load_rates
 from signals.config import DEFAULT
 from signals.detect import detect
 from signals.semantic import GeminiEmbedder
@@ -45,7 +46,7 @@ def _outcome(res, s) -> dict:
     }
 
 
-def run(fixtures: str, base, embedder) -> dict:
+def run(fixtures: str, base, embedder, rates=None) -> dict:
     data = load(fixtures)
     rows = []
     for t_i, theme in enumerate(data["sets"]):
@@ -101,8 +102,8 @@ def run(fixtures: str, base, embedder) -> dict:
             def info(dids, s=s):
                 return {d: s.accounts[d] for d in dids if d in s.accounts}
 
-            without = _outcome(detect(wd, info, DEFAULT), s)
-            with_emb = _outcome(detect(wd, info, DEFAULT, embed=embedder), s)
+            without = _outcome(detect(wd, info, DEFAULT, base_rates=rates), s)
+            with_emb = _outcome(detect(wd, info, DEFAULT, embed=embedder, base_rates=rates), s)
             rows.append(
                 {
                     "theme": theme["theme"],
@@ -125,6 +126,7 @@ def run(fixtures: str, base, embedder) -> dict:
     return {
         "fixtures_model": data["model"],
         "detector_version": DEFAULT.version,
+        "base_rates": rates.as_dict() if rates else None,
         "rows": rows,
         "summary": summarize(rows),
     }
@@ -156,6 +158,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     for noisy in ("httpx", "httpx2", "google_genai", "signals.semantic"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    rates = None
     if args.offline:
         base = empty_window(seed=0)
     else:
@@ -166,10 +169,12 @@ def main() -> None:
         )
         with psycopg.connect(get_settings().database_url) as conn:
             base = load_window(conn, end - timedelta(minutes=args.minutes), end, DEFAULT)
+            rates = load_rates(conn, datetime.now(UTC), DEFAULT)
+        log.info("base rates: %s", rates.as_dict() if rates else None)
         log.info("background: live window ending %s (%d posts)", end.isoformat(), len(base.posts))
     emb = GeminiEmbedder()
     t = time.monotonic()
-    result = run(args.fixtures, base, emb)
+    result = run(args.fixtures, base, emb, rates)
     result["embedding_calls"] = emb.calls
     result["posts_embedded"] = emb.embedded
     result["seconds"] = round(time.monotonic() - t, 1)

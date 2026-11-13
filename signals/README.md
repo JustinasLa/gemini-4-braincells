@@ -35,11 +35,17 @@ uv run pytest tests/test_signals.py
    Organic guards produce counter-evidence (`polarity: "against"`): `established_accounts`,
    `part_of_wider_crowd`, `language_diversity`, `transparent_automation` (accounts openly share one
    custom handle domain), `clock_aligned_posting` (top-of-the-hour schedulers).
-5. **Null model**: each member's whole activity is shifted by its own random offset (circular in
-   the window), which keeps every account's own rhythm and breaks cross-account alignment. p-value =
-   share of 500 shifts that look at least as synchronized (seeded: same input, same p).
+5. **Null models** (combined with Bonferroni: p = min(1, m x smallest p) over the m tests run):
+   - Timing: each member's whole activity is shifted by its own random offset (circular in the
+     window), which keeps every account's own rhythm and breaks cross-account alignment. p = share
+     of up to 1,000 shifts that look at least as synchronized (seeded: same input, same p).
+   - Identity (since v1.5): one-sided binomial tests of fresh accounts (< 30 days) and empty
+     profiles in the cluster against base rates measured on a random sample of active accounts
+     (`baseline.py`, 40 per pass, last 24 h, needs >= 100 sampled; base rate smoothed (k+1)/(n+2)).
+     A wave of genuinely new users raises the base rate and the test gets weaker by itself.
+   `clusters.signals.null_model.combined` lists every test's p and the decisive one.
 6. **Status** (deterministic, thresholds in `config.py`, version in `clusters.detector_version`):
-   - `coordinated`: >= 2 families score >= 0.5, p <= 0.01, score >= 0.6, organic guard < 0.6
+   - `coordinated`: >= 2 families score >= 0.5, combined p <= 0.01, score >= 0.6, organic guard < 0.6
    - `likely_organic`: organic guard >= 0.6 and at most one family fired
    - `insufficient`: everything else (we abstain)
 
@@ -153,9 +159,10 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
 - Slow-drip campaigns spread over hours (L3), with aged or bought accounts and fully paraphrased
   text, mostly evade this: no burst, no duplicate text, no fresh accounts. They come out
   `insufficient`. Hijacked old accounts posting spam can even look organic.
-- The p-value only tests timing. Gemini-paraphrased campaigns spread over the window are
-  recognised as "same message" but stay `insufficient`; an identity base-rate test is planned.
-- The p-value only tests timing. A campaign with duplicate content and fresh accounts but no
+- Campaigns on aged or bought accounts, spread over time, still have no significant test (timing
+  and identity both look normal): they stay `insufficient` even when Gemini embeddings show the
+  same message.
+- Before v1.5 the p-value only tested timing. A campaign with duplicate content and fresh accounts but no
   burst is `insufficient`, not `coordinated` (identity base rates are planned).
 - Independent scheduled bots (clock, weather, news feeds) look synchronized; guards catch the
   ones that post on the hour or share a declared domain, not all.

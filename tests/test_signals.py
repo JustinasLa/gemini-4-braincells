@@ -190,7 +190,7 @@ def test_visual_data_for_the_dashboard():
     assert len(nd["bin_edges"]) == len(nd["counts"]) + 1
     assert nd["observed"] == c.p_detail["observed"]
     # p-value is consistent with the histogram's tail
-    assert c.p_value == round((1 + nd["worlds_at_least_observed"]) / (1 + nd["worlds"]), 4)
+    assert c.p_value == float(f"{(1 + nd['worlds_at_least_observed']) / (1 + nd['worlds']):.3g}")
     ts = [e["t"] for e in c.timeline]
     assert ts == sorted(ts) and c.timeline
     nodes = c.member_graph["nodes"]
@@ -251,3 +251,71 @@ def from_texts_helper(texts, base):
     from signals.synth import from_texts
 
     return from_texts(texts, base, coordinated=True, timing="spread", accounts="fresh", seed=1)
+
+
+# ------------------------------------------------------------------ identity base-rate test ---
+def _rates(fresh=0.0125, empty=0.0, n=400):
+    from signals.baseline import BaseRates
+
+    return BaseRates(n_age=n, fresh=fresh, n_profile=n, empty=empty)
+
+
+def test_identity_test_flags_overrepresented_fresh_accounts():
+    from signals.score import AccountInfo, identity_tests
+
+    members = [f"did:plc:m{i}" for i in range(8)]
+    fresh = {
+        d: AccountInfo(did=d, age_days=3.0, has_avatar=True, description_len=10, followers=50)
+        for d in members
+    }
+    old = {
+        d: AccountInfo(did=d, age_days=900.0, has_avatar=True, description_len=10, followers=50)
+        for d in members
+    }
+    t_fresh = {t["test"]: t for t in identity_tests(members, fresh, _rates(), DEFAULT)}
+    t_old = {t["test"]: t for t in identity_tests(members, old, _rates(), DEFAULT)}
+    assert t_fresh["fresh_accounts"]["p_value"] < 1e-9
+    assert t_old["fresh_accounts"]["p_value"] == 1.0
+    # no base rates, or too small a sample -> no test at all
+    assert identity_tests(members, fresh, None, DEFAULT) == []
+    assert identity_tests(members, fresh, _rates(n=10), DEFAULT) == []
+    # a high base rate (e.g. an onboarding wave) makes the same cluster unremarkable
+    assert {t["test"]: t for t in identity_tests(members, fresh, _rates(fresh=0.9), DEFAULT)}[
+        "fresh_accounts"
+    ]["p_value"] > 0.1
+
+
+def test_paraphrase_campaign_without_burst_needs_the_identity_test():
+    """Spread-out campaign of fresh accounts sharing a link: no timing evidence, so without base
+    rates we abstain; with measured base rates the identity test makes it coordinated."""
+    from signals.synth import from_texts
+
+    base = empty_window(seed=11)
+    texts = [
+        f"honest review number {i}: this fictional gadget changed my whole week, worth it"
+        for i in range(10)
+    ]
+    s = from_texts(texts, base, coordinated=True, timing="spread", accounts="fresh", seed=11)
+    wd = inject(base, s)
+
+    def info(dids):
+        return {d: s.accounts[d] for d in dids if d in s.accounts}
+
+    without = best_cluster(detect(wd, info, DEFAULT), s.dids)
+    with_rates = best_cluster(detect(wd, info, DEFAULT, base_rates=_rates()), s.dids)
+    assert without.status != "coordinated"
+    assert with_rates.status == "coordinated"
+    assert with_rates.p_detail["combined"]["decisive_test"] in ("fresh_accounts", "empty_profiles")
+
+
+def test_identity_test_does_not_flag_aged_look_alikes():
+    for kind in ("news_link", "fandom"):
+        base = empty_window(seed=12)
+        s = hard_negative(kind, base)
+        res = detect(
+            inject(base, s),
+            lambda d, s=s: {x: s.accounts[x] for x in d if x in s.accounts},
+            DEFAULT,
+            base_rates=_rates(),
+        )
+        assert not [c for c in res.clusters if c.status == "coordinated"]
