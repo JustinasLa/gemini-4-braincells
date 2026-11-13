@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "5a76f1c519ee",
+  "strategy": "manual-commit",
+  "checkpoints_count": 5,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/5a/76f1c519ee/0/metadata.json",
+      "transcript": "/5a/76f1c519ee/0/full.jsonl",
+      "compact_transcript": "/5a/76f1c519ee/0/transcript.jsonl",
+      "content_hash": "/5a/76f1c519ee/0/content_hash.txt",
+      "prompt": "/5a/76f1c519ee/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 86,
+    "cache_creation_tokens": 64837,
+    "cache_read_tokens": 2495234,
+    "output_tokens": 25387,
+    "api_call_count": 37
+  },
+  "redaction": {
+    "replacements": 20,
+    "layers": {
+      "betterleaks": 9,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 4,
+      "credentialed_uri": 7,
+      "entropy": 4,
+      "key_context": 5,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "linked_commits": [
+    {
+      "sha": "61901fb91c3c0db7d3f525da74d70ba6a8e656ea",
+      "repo": "gh/JustinasLa/gemini-4-braincells"
+    }
+  ]
+}
