@@ -179,7 +179,7 @@ and >= 50% of the cluster: `coordinated` (a false positive) > `likely_organic` (
 **Row**: `fpr` = coordinated / n, `n` = cases; precision/recall/F1 are empty (no positives).
 `details` has `counts` per outcome, `fpr_ci95` (Wilson), `clustered` and `fpr_given_clustered`
 (the harder number: no_cluster cases are easy wins), `by_type`, `false_positives` (case id, the
-clusters and which signal families fired: the error analysis), `detector_version`, `eval_code`
+clusters and which signal families fired: the error analysis), `detector_version`, `eval_commit`
 (git sha), windows, slice files, seeds or fixture.
 
 Caveat on `fpr_ci95`: Wilson treats every case as an independent trial, but synthetic cases share

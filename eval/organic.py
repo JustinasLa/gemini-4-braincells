@@ -27,7 +27,6 @@ import hashlib
 import json
 import logging
 import os
-import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
@@ -38,6 +37,7 @@ from pathlib import Path
 
 import numpy as np
 
+from eval.recall import _git_sha  # shared: `git describe --always --dirty`
 from ingest.normalize import Action, Delete, Post, normalize
 from ingest.recorder import read_events, recorded_files
 from signals.config import DEFAULT, DetectorConfig
@@ -697,19 +697,6 @@ def run_eval(
     return results, stats, files
 
 
-def _git_sha() -> str | None:
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return out.stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return None
-
-
 def build_details(dataset: str, summary: dict, stats: list[dict], files: list[str], extra: dict):
     labels = {
         "organic_synth": "synthetic hard negatives from signals.synth (labels true by "
@@ -721,7 +708,6 @@ def build_details(dataset: str, summary: dict, stats: list[dict], files: list[st
         "metric": "fpr = share of organic cases the detector marked coordinated (Shill)",
         "label_source": labels[dataset],
         "detector_version": DEFAULT.version,
-        "eval_code": _git_sha(),
         **summary,
         "outcome_rule": "worst status among clusters where the case's accounts are >= 2 and "
         ">= 50% of the members; "
@@ -826,6 +812,7 @@ def main_args(a: argparse.Namespace) -> int:
         print(f"no live-case fixture at {a.fixture}: run `python -m eval organic select` first")
         return 1
     fixture = json.loads(a.fixture.read_text())
+    commit = _git_sha()  # at start: the tree may change while a long run goes
     live = [c for c in fixture["cases"] if c["split"] == a.split]
     seeds = list(range(1000, 1000 + a.seeds)) if a.split == "heldout" else list(range(a.seeds))
     results, stats, files = run_eval(
@@ -862,7 +849,7 @@ def main_args(a: argparse.Namespace) -> int:
         rs = [r for r in results if r.dataset == dataset]
         summary = summarize(rs)
         details = build_details(dataset, summary, stats, files, extra)
-        details["enrich_budget"] = a.budget
+        details.update(eval_commit=commit, enrich_budget=a.budget)
         rows.append(
             {
                 "dataset": dataset,
