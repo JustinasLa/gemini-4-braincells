@@ -169,7 +169,7 @@ def _evidence():
         for i in range(3)
     ]  # fmt: skip
     return L.build_evidence(ws, we, "10m", members, posts, actions,
-                            {target: {"did": "did:plc:other", "text": "promo"}}, [])  # fmt: skip
+                            {target: {"did": "did:plc:other", "text": "promo"}})  # fmt: skip
 
 
 def test_build_evidence_aggregates():
@@ -198,7 +198,8 @@ def _keys(x):
 def test_evidence_has_no_detector_fields():
     keys = set(_keys(_evidence()))
     banned = {"status", "score", "p_value", "confidence", "families_fired", "cluster_id",
-              "campaign_id", "signals", "verdict", "analyst", "detector_version"}  # fmt: skip
+              "campaign_id", "signals", "verdict", "analyst", "detector_version", "role",
+              "media_and_sources"}  # fmt: skip
     assert not keys & banned
 
 
@@ -363,3 +364,43 @@ def test_store_readers_never_see_half_a_record(tmp_path):
     for x in readers:
         x.join()
     assert errors.value == 0
+
+
+def test_kappa_uses_first_label_and_pair_only():
+    s = _sample([("coordinated", 1.0, "dev")] * 4)
+    recs = [_lab(k, "coordinated", "ann") for k in (1, 2, 3, 4)]
+    recs += [_lab(1, "organic", "bob"), _lab(2, "coordinated", "bob")]
+    recs += [_lab(3, "coordinated", "bob"), _lab(4, "coordinated", "bob")]
+    recs += [_lab(1, "coordinated", "bob")]  # bob changes item 1 after seeing ann's label
+    recs += [_lab(2, "organic", "zz-typo")]  # a stray third name
+    labs = {}
+    for r in recs:
+        prev = labs.setdefault(r["labeller"], {}).get(r["item"])
+        labs[r["labeller"]][r["item"]] = {
+            **r,
+            "first_label": prev["first_label"] if prev else r["label"],
+        }
+    r = L.score(s, labs, {})
+    assert r["agreement"]["labellers"] == ["ann", "bob"]
+    assert r["agreement"]["raw_agreement"]["k"] == 3  # item 1 counted as a disagreement
+    assert r["resolution"] == {"agreed": 4}  # the stray name doesn't block item 2
+
+
+def test_store_keeps_first_label(tmp_path):
+    p = tmp_path / "f.labels.jsonl"
+    L.append_record(p, _lab(1, "organic"))
+    L.append_record(p, _lab(1, "coordinated"))
+    rec = L.load_records(p)[0]["a"][1]
+    assert rec["label"] == "coordinated" and rec["first_label"] == "organic"
+
+
+def test_server_adjudicates_only_open_disagreements(client):
+    c, _ = client
+
+    def post(path, item, who, label):
+        return c.post(path, json={"item": item, "labeller": who, "label": label})
+
+    assert post("/api/adjudicate", 2, "ann", "organic").status_code == 409  # nobody labelled it
+    post("/api/label", 2, "ann", "organic")
+    post("/api/label", 2, "bob", "organic")
+    assert post("/api/adjudicate", 2, "ann", "coordinated").status_code == 409  # they agree

@@ -50,6 +50,13 @@ def create_app(name: str | None = None, root: Path | None = None) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
 
+    def _blind(ev: dict) -> dict:
+        """Strip fields older samples carried that come from the detector or analyst."""
+        ev = {k: v for k, v in ev.items() if k != "media_and_sources"}
+        ms = [{k: v for k, v in m.items() if k != "role"} for m in ev.get("members", [])]
+        ms.sort(key=lambda m: (-sum(m.get("activity", {}).values()), m.get("handle") or ""))
+        return {**ev, "members": ms}
+
     def _item(k: int) -> dict:
         if k not in items:
             raise HTTPException(404, "no such item")
@@ -85,7 +92,7 @@ def create_app(name: str | None = None, root: Path | None = None) -> FastAPI:
         return {
             "item": k,
             "n_items": len(items),
-            "evidence": it["evidence"],  # never it["detector"]
+            "evidence": _blind(it["evidence"]),  # never it["detector"]
             "mine": {"label": mine["label"], "note": mine.get("note", "")} if mine else None,
         }
 
@@ -140,6 +147,8 @@ def create_app(name: str | None = None, root: Path | None = None) -> FastAPI:
     def adjudicate(body: AdjudicateIn) -> dict:
         who = _name(body.labeller)
         _item(body.item)
+        if body.item not in _disagreements(*L.load_records(lpath)):
+            raise HTTPException(409, "only open disagreements between the two labellers")
         if body.label not in L.LABELS:
             raise HTTPException(400, f"label must be one of {L.LABELS}")
         L.append_record(

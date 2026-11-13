@@ -119,6 +119,7 @@ $("#loginf").onsubmit = e => { e.preventDefault(); me = $("#lname").value.trim()
 
 async function refresh() {
   const p = await api(`/api/progress?labeller=${encodeURIComponent(me)}`);
+  if (p.labeller !== me) { me = p.labeller; try { localStorage.setItem("labeller", me); } catch (x) {} $("#who b").textContent = me; }
   N = p.n_items; done = p.done;
   const others = Object.entries(p.labellers).filter(([n]) => n !== me).map(([n, k]) => `${esc(n)} ${k}`).join(", ");
   $("#prog").innerHTML = `${Object.keys(done).length}/${N} done${others ? " · " + others : ""}`;
@@ -168,7 +169,6 @@ function render(d) {
   if (e.shared_links.length) h += `<div class="card"><h2>Links in their posts</h2><table><tr><th>accounts</th><th>posts</th><th>link</th></tr>${
     e.shared_links.map(t => `<tr><td>${t.accounts}</td><td>${t.posts}</td><td style="word-break:break-all">${link(t.url)}</td></tr>`).join("")}</table></div>`;
   if (e.follow_targets.length) h += `<div class="card"><h2>Accounts several members followed</h2>${e.follow_targets.map(t => `${link(t.profile_url, "profile")} (${t.accounts})`).join(" · ")}</div>`;
-  if (e.media_and_sources.length) h += `<div class="card"><h2>Media and source checks</h2>${e.media_and_sources.map(m => `<div class="post"><span class="tag">${esc(m.kind)}</span>${esc(m.summary)} ${m.source_url ? link(m.source_url, "source") : ""}</div>`).join("")}</div>`;
   h += `<div class="card"><h2>Accounts (${s.accounts}${e.members_hidden ? `, ${e.members_hidden} not shown` : ""})</h2><div class="scroll"><table><tr><th>handle</th><th>age</th><th>followers</th><th>activity here</th><th>avatar</th><th>bio</th><th>posts</th><th>follows</th><th>status</th></tr>${
     e.members.map(m => `<tr><td>${link(m.profile_url, m.handle)}${m.display_name ? `<div class="mut">${esc(m.display_name)}</div>` : ""}</td><td>${m.age_days === null ? "?" : m.age_days + " d"}</td><td>${fmt(m.followers)}</td><td>${Object.entries(m.activity).map(([k, v]) => `${v} ${k}`).join(", ") || "-"}</td><td>${yes(m.has_avatar)}</td><td>${yes(m.has_bio)}</td><td>${fmt(m.posts_count)}</td><td>${fmt(m.follows)}</td><td>${esc(m.account_status || "")}</td></tr>`).join("")}</table></div></div>`;
   h += `<div class="card"><h2>Their posts in the window (${e.posts.length} shown of ${s.posts})</h2>${e.posts.map(p => `<div class="post"><div class="meta">+${fmt(p.t_s)} s · ${esc(p.handle)} ${p.reply ? '<span class="tag">reply</span>' : ""}${p.quote ? '<span class="tag">quote</span>' : ""}${p.media ? `<span class="tag">${p.media} media</span>` : ""} ${link(p.url, "open")}</div><div class="txt">${esc(p.text) || '<span class="mut">(no text)</span>'}</div>${p.links.length ? `<div class="meta" style="word-break:break-all">${p.links.map(u => link(u)).join(" ")}</div>` : ""}</div>`).join("") || '<span class="mut">none (likes/reposts/follows only)</span>'}</div>`;

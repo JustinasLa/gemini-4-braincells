@@ -82,7 +82,7 @@ with, repeated texts, links, follows, account ages, followers, avatars, their po
 bsky.app links). Press **1** coordinated (acting together; hard to explain as independent
 people), **2** organic (plausibly independent: news, viral posts, fandoms, conversation) or **3**
 can't tell; it saves and moves on. **n** adds a note, arrows move. You never see the detector's
-status, score, signals or analyst verdict, and you shouldn't look the group up on the dashboard.
+status, score, signals, member roles or analyst/source checks, and you shouldn't look the group up on the dashboard.
 Two people label every item separately; when both are done, the *disagreements* view shows both
 labels and you record one adjudicated label together.
 
@@ -98,7 +98,8 @@ wins. `score` takes a final label per item (both agree, or the adjudicated label
 and single labels don't count until resolved; "can't tell" is reported but left out of the
 rates), then computes:
 - **Agreement**: Cohen's kappa between the two labellers on all three answers and on items both
-  answered definitely, with an approximate 95% CI, plus raw agreement.
+  answered definitely, with an approximate 95% CI, plus raw agreement. It uses each person's
+  **first** label per item, so changing a label after seeing the other's can't raise it.
 - **Precision** = share of detector-`coordinated` items that humans call coordinated.
 - **FPR** = share of human-organic items the detector flagged `coordinated`. Statuses are sampled
   at different rates, so every item carries weight = stratum population / stratum sample size;

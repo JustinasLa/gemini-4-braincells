@@ -174,21 +174,21 @@ def build_evidence(
     posts: list[dict],
     actions: list[dict],
     subject_texts: dict[str, dict],
-    extra: list[dict],
     *,
     n_buckets: int = 30,
     max_posts: int = 30,
     max_members: int = 80,
 ) -> dict:
     """What a labeller sees: raw behaviour of the cluster's accounts in its window. Nothing here
-    comes from the detector's output (no status, score, p-value, signal or analyst text).
+    comes from the detector's output (no status, score, p-value, signal, core/peripheral role or
+    analyst text). Media/source evidence is left out too: the analyst only runs its tools for
+    some statuses, so its presence alone would reveal the status.
 
     members: {did, role, handle, display_name, created_at, did_created_at, followers, follows,
               posts_count, has_avatar, description_len, status}
     posts:   {uri, did, text, created_at, seen_at, reply_to, quote_uri, embed_urls, media_hashes,
               text_hash}
     actions: {kind like|repost|follow, did, subject_uri, subject_did, seen_at}
-    extra:   media/source evidence rows {kind, summary, source_url}
     """
     handle = {m["did"]: m.get("handle") or m["did"] for m in members}
     member_dids = set(handle)
@@ -307,7 +307,6 @@ def build_evidence(
                 "handle": m.get("handle") or m["did"],
                 "display_name": m.get("display_name"),
                 "profile_url": f"https://bsky.app/profile/{m['did']}",
-                "role": m.get("role"),
                 "age_days": _age_days(created, window_start),
                 "followers": m.get("followers"),
                 "follows": m.get("follows"),
@@ -320,7 +319,7 @@ def build_evidence(
                 "activity": dict(c),
             }
         )
-    member_rows.sort(key=lambda r: (r["role"] != "core", -sum(r["activity"].values()), r["handle"]))
+    member_rows.sort(key=lambda r: (-sum(r["activity"].values()), r["handle"]))
     ages = [r["age_days"] for r in member_rows if r["age_days"] is not None]
     fols = [r["followers"] for r in member_rows if r["followers"] is not None]
 
@@ -354,10 +353,6 @@ def build_evidence(
         ],
         "shared_links": shared_links[:15],
         "repeated_texts": repeated[:10],
-        "media_and_sources": [
-            {"kind": e["kind"], "summary": e.get("summary"), "source_url": e.get("source_url")}
-            for e in extra
-        ],
     }
 
 
@@ -500,18 +495,8 @@ def fetch_cluster(conn, cluster_id: int) -> tuple[dict, dict]:
             (top, top),
         ).fetchall():
             subject_texts.setdefault(r[0], {"did": r[1], "text": r[2]})
-    extra = [
-        {"kind": r[0], "summary": r[1], "source_url": r[2]}
-        for r in conn.execute(
-            """
-            SELECT kind, summary, source_url FROM evidence
-            WHERE cluster_id = %s AND kind IN ('media', 'source') ORDER BY kind, id
-            """,
-            (cluster_id,),
-        ).fetchall()
-    ]
     ev = build_evidence(
-        ws, we, det["window_kind"], members, list(posts.values()), actions, subject_texts, extra
+        ws, we, det["window_kind"], members, list(posts.values()), actions, subject_texts
     )
     det = {
         **det,
@@ -604,6 +589,8 @@ def load_records(path: Path) -> tuple[dict[str, dict[int, dict]], dict[int, dict
         if r.get("type") == "adjudication":
             adj[int(r["item"])] = r
         else:
+            prev = labels[r["labeller"]].get(int(r["item"]))
+            r["first_label"] = prev["first_label"] if prev else r["label"]
             labels[r["labeller"]][int(r["item"])] = r
     return dict(labels), adj
 
@@ -730,15 +717,22 @@ def _metrics(items: list[dict], final: dict[int, dict]) -> dict:
 
 
 def score(sample: dict, labels: dict[str, dict[int, dict]], adj: dict[int, dict]) -> dict:
+    """Final labels and kappa use the labelling pair only (the server's disagreement view uses
+    the same pair), so a stray name can't leave items unresolvable. Kappa uses each person's
+    FIRST label per item: a change made after seeing the other's label must not raise it."""
     items = sample["items"]
     ids = [i["item"] for i in items]
-    final = final_labels(ids, labels, adj)
     pair = pick_pair(labels)
+    final = final_labels(ids, {n: labels[n] for n in pair} if pair else {}, adj)
     agreement = None
     if pair:
         a, b = pair
         common = sorted(labels[a].keys() & labels[b].keys() & set(ids))
-        three = [(labels[a][i]["label"], labels[b][i]["label"]) for i in common]
+
+        def first(r: dict) -> str:
+            return r.get("first_label", r["label"])
+
+        three = [(first(labels[a][i]), first(labels[b][i])) for i in common]
         two = [(x, y) for x, y in three if x in DEFINITE and y in DEFINITE]
         agreement = {
             "labellers": [a, b],

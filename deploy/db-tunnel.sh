@@ -23,7 +23,7 @@ case ${1:-} in
     install -d -m 700 "$sock_dir" "$(dirname "$env_file")"
     if ssh -S "$ctl" -O check "$user@$host" 2>/dev/null; then echo "tunnel already up"; exit 0; fi
     ip=$(ssh "${ssh_opts[@]}" "$user@$host" \
-      "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' noise-radar-db-1")
+      "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{println}}{{end}}' noise-radar-db-1" | head -1)
     creds=$(ssh "${ssh_opts[@]}" "$user@$host" "grep -E '^POSTGRES_(USER|PASSWORD|DB)=' '$dir/.env'")
     pg_user=$(sed -n 's/^POSTGRES_USER=//p' <<<"$creds")
     pg_pass=$(sed -n 's/^POSTGRES_PASSWORD=//p' <<<"$creds")
