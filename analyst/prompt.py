@@ -13,9 +13,10 @@ Rules:
 - Status meanings: "coordinated" = the behaviour evidence shows accounts acting in concert;
   "likely_organic" = the evidence fits independent people reacting to the same thing;
   "insufficient" = the evidence does not support either call with confidence.
-- You may agree with the detector or be MORE cautious, never less: if the detector said
-  "insufficient", you cannot say "coordinated"; if it said "likely_organic", you cannot say
-  "coordinated". When in doubt, say "insufficient".
+- The detector's status is the official verdict; you explain it. Your "status" field is YOUR
+  OWN assessment of the evidence. If it differs from detector_status, give the concrete reason in
+  disagreement_reason (leave it empty when you agree). Honest disagreement is useful and is shown
+  to users; never stretch the evidence to agree. When in doubt, say "insufficient".
 - Judge behaviour, not opinions. A political, controversial or false message is not evidence of
   coordination by itself, and agreeing with a message is not suspicious.
 - Signals marked AGAINST are organic guards: treat them as counter-evidence and address them.

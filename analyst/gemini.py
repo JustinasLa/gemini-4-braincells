@@ -7,6 +7,7 @@ from typing import Protocol
 from google import genai
 from google.genai import types
 
+from analyst.pricing import cost_usd
 from analyst.verdict import VerdictDraft
 from common.config import get_settings
 
@@ -26,6 +27,7 @@ class GeminiVerdictModel:
         self._client = genai.Client(api_key=api_key)
         self.name = model
         self._temperature = temperature
+        self.last_call: dict = {}
 
     @classmethod
     def from_settings(cls) -> "GeminiVerdictModel":
@@ -45,12 +47,24 @@ class GeminiVerdictModel:
             ),
         )
         usage = res.usage_metadata
+        prompt_tokens = getattr(usage, "prompt_token_count", None)
+        thoughts = getattr(usage, "thoughts_token_count", None)
+        output = (getattr(usage, "candidates_token_count", None) or 0) + (thoughts or 0)
+        self.last_call = {  # read by analyst/compare.py
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output,  # candidates + thinking, both billed as output
+            "cost_usd": cost_usd(self.name, prompt_tokens, output),
+        }
         log.info(
-            "gemini call model=%s latency_ms=%d prompt_tokens=%s output_tokens=%s",
+            "gemini call model=%s latency_ms=%d prompt_tokens=%s output_tokens=%s "
+            "thoughts_tokens=%s cost_usd=%s",
             self.name,
-            (time.monotonic() - started) * 1000,
-            getattr(usage, "prompt_token_count", None),
-            getattr(usage, "candidates_token_count", None),
+            self.last_call["latency_ms"],
+            prompt_tokens,
+            output,
+            thoughts,
+            self.last_call["cost_usd"],
         )
         if isinstance(res.parsed, VerdictDraft):
             return res.parsed
