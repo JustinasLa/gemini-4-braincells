@@ -96,9 +96,11 @@ for a trustworthy error report and are not silently reinterpreted.
 - Each injection is one labelled **case**, not one independent real campaign. Positive hit rules
   reuse recall's union of coordinated accounts >=50% of injected accounts; negative attribution
   requires >=2 case accounts and >=50% of the cluster, as in organic evaluation.
-- A representative cluster (highest raw score; deterministic member-list tie-break) supplies the
+- A representative cluster supplies the
   score/confidence/guard. Positives consider all clusters overlapping the injected accounts;
-  negatives consider only attributed clusters. `predicted_coordinated` stores the case hit rule,
+  choose greatest overlap first, then coordinated status, then raw score (as recall.judge does).
+  Negatives consider only attributed clusters and choose highest raw score. Member-list tie-breaks
+  are deterministic. `predicted_coordinated` stores the case hit rule,
   separately from the representative cluster's `status` (a partial hit can still be a case FN).
 - `coordination_score` compares the representative raw score to the coordination label. A noisy-OR
   signal score is **not promised to be a probability**; this diagram tests that interpretation.
@@ -117,6 +119,8 @@ for a trustworthy error report and are not silently reinterpreted.
   uncertainty. Shared windows/repeated templates are correlated; intervals do not correct for it.
 - `--max-windows` produces an explicitly ad-hoc run. It and saved `--input` recomputations cannot
   publish over a split's database row. No detector threshold is changed by these commands.
+  Replay is deliberately sequential to bound memory use on large recorded windows. Hand-label
+  resolution/validation happens before expensive replay, so malformed labels fail fast.
 
 ### `eval_runs.details` JSON contract (schema_version 1)
 

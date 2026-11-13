@@ -46,6 +46,9 @@ def load_hand_labels(root: Path, split: str, version: str) -> tuple[list[dict], 
             families = signals.get("families_fired", detector.get("families_fired", []))
             if not isinstance(families, list):
                 families = []
+            window_start = datetime.fromisoformat(detector["window_start"])
+            if window_start.tzinfo is None:
+                raise ValueError("hand-label window_start must include timezone")
             cases.append(
                 {
                     "case_id": f"{sample['name']}:{item['item']}",
@@ -54,7 +57,7 @@ def load_hand_labels(root: Path, split: str, version: str) -> tuple[list[dict], 
                     "label": int(label == "coordinated"),
                     "label_source": "human",
                     "detector_version": version,
-                    "window_start": datetime.fromisoformat(detector["window_start"]).timestamp(),
+                    "window_start": window_start.timestamp(),
                     "cluster_id": cluster_id,
                     "cluster_ids": [cluster_id],
                     "cluster_id_kind": "database primary key",

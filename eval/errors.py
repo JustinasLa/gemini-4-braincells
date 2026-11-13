@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from eval.calibration import DATASET, predicted, validate_cases
+from eval.recall import MIN_COVERAGE
 
 
 def reason(case: dict) -> str:
@@ -17,6 +18,8 @@ def reason(case: dict) -> str:
             "live_event": "live event",
             "viral": "viral engagement burst",
         }.get(kind, "bot-like but organic")
+    if case["status"] == "coordinated":
+        return f"campaign only partly flagged (<{MIN_COVERAGE:.0%} of accounts)"
     if kind == "L3":
         return "slow campaign missed"
     if case["status"] == "no_cluster":
@@ -66,7 +69,9 @@ def markdown_report(run: dict) -> str:
     for case in errors:
         clusters = case.get("clusters") or [case]
         if case["error"] == "FP":
-            clusters = [cluster for cluster in clusters if cluster["status"] == "coordinated"]
+            clusters = [cluster for cluster in clusters if cluster["status"] == "coordinated"] or [
+                case
+            ]
         for cluster in clusters:
             guard = cluster["organic_guard_score"]
             row = [

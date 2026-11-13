@@ -196,6 +196,37 @@ def test_partial_positive_cluster_is_still_a_false_negative():
     value = snapshot(synthetic, [cluster(["0", "1"])], START, 1)
     assert value["status"] == "coordinated" and not value["predicted_coordinated"]
     assert extract_errors(run([value]))[0]["error"] == "FN"
+    assert "only partly flagged" in extract_errors(run([value]))[0]["reason"]
+
+
+def test_positive_representative_prioritizes_overlap_not_background_score():
+    synthetic = Synthetic(
+        "campaign_L2_s1", True, accounts={str(index): None for index in range(10)}
+    )
+    background = cluster(["0", "background"], score=1.0)
+    campaign_cluster = cluster([str(index) for index in range(8)], "insufficient", 0.6)
+    value = snapshot(synthetic, [background, campaign_cluster], START, 1)
+    assert value["score"] == 0.6 and value["status"] == "insufficient"
+
+
+def test_empty_campaign_is_not_caught():
+    synthetic = Synthetic("campaign_L2_s1", True)
+    value = snapshot(synthetic, [], START, 1)
+    assert not value["predicted_coordinated"]
+
+
+def test_bad_hand_labels_fail_before_replay(tmp_path):
+    source = tmp_path / "labels.json"
+    source.write_text(json.dumps([case(label_source="human", window_start=START + 3600)]))
+    with pytest.raises(ValueError, match="wrong split"):
+        main(["calibration", "--labels", str(source), "--slice", str(tmp_path / "absent")])
+
+
+def test_fp_report_never_drops_predicted_case_without_flagged_representative():
+    measured = run([case("fp", 0, "likely_organic", predicted_coordinated=True)])
+    report = markdown_report(measured)
+    assert "false positives: 1" in report
+    assert "| FP | fp / organic_synth" in report
 
 
 def test_organic_case_requires_majority_of_cluster():

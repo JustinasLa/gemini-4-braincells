@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from eval.calibration_labels import load_hand_labels
-from eval.recall import LEVELS, _git_sha, trial_seed, wilson
+from eval.recall import LEVELS, _git_sha, _synthetic_info, judge, trial_seed, wilson
 from eval.slices import SLICE_ROOT, hour_files, iter_windows, split_hours, split_of_hour
 from eval.store import write_eval_run
 from signals.config import DEFAULT
@@ -142,7 +142,8 @@ def build_run(
         "eval_commit": _git_sha(),
         "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "method": "equal_mass",
-        "unit": "labelled case; highest-score attributed cluster; "
+        "unit": "labelled case; most-overlapping cluster for positives, "
+        "highest-score attributed cluster for negatives; "
         "absent cluster excluded from reliability",
         "score_target": "coordination label (raw score is not a calibrated probability)",
         "confidence_target": "correctness of a decided verdict (abstentions excluded)",
@@ -185,19 +186,20 @@ def snapshot(synthetic, clusters: list, window_start: float, seed: int, cfg=DEFA
         )
         if eligible:
             qualifying.append(cluster)
-    flagged = set().union(
-        *(
-            set(cluster.members) & synthetic.dids
-            for cluster in clusters
-            if cluster.status == "coordinated"
-        )
-    )
     caught = (
-        len(flagged) >= math.ceil(len(synthetic.dids) * 0.5)
+        judge(synthetic, clusters, cfg).caught
         if positives
         else any(cluster.status == "coordinated" for cluster in qualifying)
     )
-    qualifying.sort(key=lambda cluster: (cluster.score, sorted(cluster.members)), reverse=True)
+    qualifying.sort(
+        key=lambda cluster: (
+            len(set(cluster.members) & synthetic.dids) if positives else 0,
+            cluster.status == "coordinated" if positives else False,
+            cluster.score,
+            sorted(cluster.members),
+        ),
+        reverse=True,
+    )
     representative = next(iter(qualifying), None)
     kind = synthetic.name.split("_s")[0].removeprefix("campaign_").removeprefix("negative_")
     case_id = f"{int(window_start)}:{kind}:{seed}"
@@ -271,10 +273,17 @@ def main_args(args) -> int:
             raise ValueError("saved run is in the wrong split")
         details = previous["details"]
         cases, version = details["cases"], details["detector_version"]
+        validate_cases(cases, version, args.split)
         provenance = {"imported_from": str(args.input), "adhoc": True}
     else:
         version = DEFAULT.version
         commit = _git_sha()
+        human_cases, human_metadata = load_hand_labels(args.labels_dir, args.split, version)
+        additional = json.loads(args.labels.read_text()) if args.labels else []
+        if any(case["label_source"] != "human" for case in additional):
+            raise ValueError("--labels requires human ground truth, not heuristic labels")
+        human_cases.extend(additional)
+        validate_cases(human_cases, version, args.split)
         hours = split_hours(args.slice, args.split)
         files = hour_files(args.slice, hours)
         if not files:
@@ -296,9 +305,7 @@ def main_args(args) -> int:
                     )
                     result = detect(
                         inject(window, synthetic),
-                        lambda dids, accounts=synthetic.accounts: {
-                            did: accounts[did] for did in dids if did in accounts
-                        },
+                        _synthetic_info(synthetic),
                         DEFAULT,
                         cache,
                     )
@@ -316,10 +323,9 @@ def main_args(args) -> int:
             "eval_commit_at_start": commit,
         }
     if not args.input:
-        human_cases, human_metadata = load_hand_labels(args.labels_dir, args.split, version)
         cases.extend(human_cases)
         provenance["hand_labels"] = human_metadata
-    if args.labels:
+    elif args.labels:
         labels = json.loads(args.labels.read_text())
         if any(case["label_source"] != "human" for case in labels):
             raise ValueError("--labels requires human ground truth, not heuristic labels")
