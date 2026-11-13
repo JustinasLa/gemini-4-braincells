@@ -14,9 +14,6 @@
           "skills": [
             "/review"
           ]
-        },
-        "codex": {
-          "prompt": "Review the change according to the profile task."
         }
       },
       "judge": {
