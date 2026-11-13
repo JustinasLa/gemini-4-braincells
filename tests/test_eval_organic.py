@@ -252,33 +252,53 @@ def test_summary_counts_fpr_and_lists_false_positives():
 
 
 # ------------------------------------------------------------------ detector glue ------------
-def test_account_info_budget_and_synthetic_accounts(monkeypatch):
-    p = _profiles(5)  # u0..u4 already enriched (profile + PLC lookup done)
-    fetched = []
-    monkeypatch.setattr(p, "ensure", lambda dids, plc=True: fetched.extend(dids))
+def test_account_info_is_one_fixed_enrichment_pass(monkeypatch):
+    p = _profiles(5)  # u0..u4 cached
+    asked = []
+    monkeypatch.setattr(p, "ensure", lambda dids, plc=True: asked.append(list(dids)))
     s = hard_negative("news_link", empty_window(), seed=1)
     synth = sorted(s.dids)[:2]
-    fn = account_info_fn(p, AT, s, budget=2)
-    new = [f"did:plc:new{i}" for i in range(4)]
-    out = fn(synth + [f"did:plc:u{i}" for i in range(5)] + new)
-    # the budget limits enrichment only; every enriched account is returned, as in production
-    assert fetched == new[:2]
-    assert set(out) == set(synth) | {f"did:plc:u{i}" for i in range(5)}
+    fn = account_info_fn(p, AT, s, budget=3)
+    out = fn(synth + [f"did:plc:u{i}" for i in range(5)])
+    # only the first `budget` real accounts get info, even though u3, u4 are cached: every pass
+    # sees the same view whatever ran before it
+    assert asked == [["did:plc:u0", "did:plc:u1", "did:plc:u2"]]
+    assert set(out) == set(synth) | {"did:plc:u0", "did:plc:u1", "did:plc:u2"}
     assert out["did:plc:u0"].age_days == pytest.approx(800 + WINDOW_S / 86400)  # at window end
 
 
-def test_profile_merge_keeps_successful_lookups():
+def test_failed_lookups_are_not_cached(monkeypatch, tmp_path):
+    import signals.enrich as enrich
+
+    monkeypatch.setattr(enrich, "fetch_profiles", lambda client, dids: {})  # e.g. a 429
+    monkeypatch.setattr(enrich, "fetch_plc", lambda client, did: None)
+    path = tmp_path / "profiles.json"
+    p = Profiles(path)
+    p.ensure(["did:plc:gone"])
+    assert p.data == {} and "did:plc:gone" in p.attempted
+    # tried and failed: empty-field info, as load_account_info returns for an enriched-but-unknown
+    info = p.info("did:plc:gone", AT)
+    assert info is not None and info.age_days is None
+    assert p.info("did:plc:never", AT) is None
+    p.save()
+    assert Profiles(path).data == {}  # a later run tries again
+    path.write_text(json.dumps({"did:plc:old": {"missing": True, "plc": None}}))
+    assert Profiles(path).data == {}  # failures cached by older versions are dropped
+
+
+def test_profile_merge_combines_worker_lookups():
     p = _profiles(1)
-    p.data["did:plc:u0"]["plc"] = {"created": OLD, "handle_changes": 0, "pds_host": "pds.example"}
-    good = dict(p.data["did:plc:u0"])
-    p.merge({"did:plc:u0": {"missing": True, "plc": None}})  # another worker's failed lookup
-    assert p.data["did:plc:u0"] == good
-    p.merge({"did:plc:u0": {**good, "followers": 999, "plc": None}})
-    assert p.data["did:plc:u0"]["followers"] == 999
-    assert p.data["did:plc:u0"]["plc"]["pds_host"] == "pds.example"
-    p.merge({"did:plc:x": {"missing": True}})
-    assert p.data["did:plc:x"] == {"missing": True}
-    assert p.needs("did:plc:x") and not p.needs("did:plc:u0") and p.needs("did:plc:nobody")
+    p.merge({"did:plc:u0": {"plc": {"created": OLD, "handle_changes": 0, "pds_host": "x"}}})
+    assert p.data["did:plc:u0"]["followers"] == 200
+    assert p.data["did:plc:u0"]["plc"]["pds_host"] == "x"
+
+
+def test_posts_without_text_do_not_count_as_copies():
+    posts = [_post(i, W + i, f"my own take number {i} here", [LINK]) for i in range(5)]
+    posts += [_post(i, W + 50 + i, "", [LINK]) for i in range(5, 9)]  # bare link cards
+    assert [c["type"] for c in candidate_keys(_hour(posts), W)] == ["link_burst"]
+    bare = [_post(i, W + i, "", [LINK]) for i in range(8)]
+    assert candidate_keys(_hour(bare), W) == []  # nothing to show the texts are independent
 
 
 def test_synthetic_hard_negatives_on_a_synthetic_background_are_not_coordinated():

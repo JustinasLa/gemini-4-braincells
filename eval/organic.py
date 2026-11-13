@@ -175,16 +175,24 @@ def hour_split(hour: str) -> str:
 # ------------------------------------------------------------------ account profiles ---------
 class Profiles:
     """Public profile + PLC data per DID, fetched with `signals.enrich`'s read-only fetchers and
-    cached in a JSON file next to the slices, so a re-run sees the same numbers."""
+    cached in a JSON file next to the slices, so a re-run sees the same numbers. Only successful
+    lookups are cached; a failed or empty lookup is remembered for this run only (`attempted`),
+    so a transient error never turns into a permanently "missing" account."""
 
     def __init__(self, path: Path | None, fetch: bool = True) -> None:
         self.path = path
         self.fetch = fetch
         self.data: dict[str, dict] = {}
         if path and path.exists():
-            self.data = json.loads(path.read_text())
+            for d, e in json.loads(path.read_text()).items():
+                e = {
+                    k: v for k, v in e.items() if k != "missing" and not (k == "plc" and v is None)
+                }
+                if e:
+                    self.data[d] = e
         self.fetched = 0
         self.dirty: set[str] = set()  # DIDs added or changed since the last reset
+        self.attempted: set[str] = set()  # looked up in this run (whether or not it worked)
 
     def save(self) -> None:
         if self.path and self.fetched:
@@ -193,36 +201,24 @@ class Profiles:
             tmp.write_text(json.dumps(self.data, separators=(",", ":"), sort_keys=True))
             tmp.replace(self.path)
 
-    def needs(self, did: str) -> bool:
-        """Not enriched yet: no profile lookup, or (did:plc) no PLC lookup."""
-        e = self.data.get(did)
-        return e is None or (did.startswith("did:plc:") and "plc" not in e)
-
     def merge(self, new: dict[str, dict]) -> None:
-        """Merge entries fetched by worker processes. Two workers may fetch the same account; a
-        failed lookup (`missing`, `plc: None`) never replaces a successful one."""
+        """Merge successful lookups made by worker processes."""
         for d, e in new.items():
-            old = self.data.get(d)
-            if old is None:
-                self.data[d] = e
-                continue
-            merged = dict(old) if e.get("missing") and not old.get("missing") else dict(e)
-            plcs = [x.get("plc") for x in (e, old) if "plc" in x]
-            if plcs:
-                merged["plc"] = next((q for q in plcs if q), plcs[0])
-            self.data[d] = merged
+            self.data[d] = {**self.data.get(d, {}), **e}
 
     def ensure(self, dids: list[str], plc: bool = True) -> None:
-        """Fetch profiles (and PLC logs) that aren't cached yet. Missing accounts are cached as
-        `{"missing": true}` so they aren't asked for again."""
-        real = [d for d in dict.fromkeys(dids) if not d.startswith(SYNTH_PREFIX)]
-        need_profile = [d for d in real if d not in self.data]
+        """Look up profiles (and PLC logs) that aren't cached or tried yet in this run."""
+        real = [
+            d
+            for d in dict.fromkeys(dids)
+            if not d.startswith(SYNTH_PREFIX) and d not in self.attempted
+        ]
+        need_profile = [d for d in real if "fetched_at" not in self.data.get(d, {})]
         need_plc = [
             d
             for d in real
-            if plc and d.startswith("did:plc:") and "plc" not in self.data.get(d, {"plc": 0})
+            if plc and d.startswith("did:plc:") and "plc" not in self.data.get(d, {})
         ]
-        need_plc += [d for d in need_profile if plc and d.startswith("did:plc:")]
         if not self.fetch or not (need_profile or need_plc):
             return
         import httpx
@@ -233,48 +229,43 @@ class Profiles:
         with httpx.Client(headers=UA, follow_redirects=True) as client:
             profiles = fetch_profiles(client, need_profile) if need_profile else {}
             for d in need_profile:
-                p = profiles.get(d)
-                self.data[d] = (
-                    {
-                        "handle": p.get("handle"),
-                        "display_name": (p.get("displayName") or "")[:200],
-                        "created": p.get("createdAt"),
-                        "followers": p.get("followersCount"),
-                        "follows": p.get("followsCount"),
-                        "posts": p.get("postsCount"),
-                        "desc": len(p.get("description") or ""),
-                        "avatar": bool(p.get("avatar")),
-                        "fetched_at": now,
-                    }
-                    if p
-                    else {"missing": True, "fetched_at": now}
-                )
-            todo = list(dict.fromkeys(need_plc))
-            if todo:
+                if p := profiles.get(d):
+                    self.data.setdefault(d, {}).update(
+                        handle=p.get("handle"),
+                        display_name=(p.get("displayName") or "")[:200],
+                        created=p.get("createdAt"),
+                        followers=p.get("followersCount"),
+                        follows=p.get("followsCount"),
+                        posts=p.get("postsCount"),
+                        desc=len(p.get("description") or ""),
+                        avatar=bool(p.get("avatar")),
+                        fetched_at=now,
+                    )
+                    self.dirty.add(d)
+            if need_plc:
                 from concurrent.futures import ThreadPoolExecutor
 
                 with ThreadPoolExecutor(max_workers=8) as pool:
-                    for d, q in zip(
-                        todo, pool.map(lambda d: fetch_plc(client, d), todo), strict=True
-                    ):
-                        self.data[d]["plc"] = (
-                            {
+                    got = pool.map(lambda d: fetch_plc(client, d), need_plc)
+                    for d, q in zip(need_plc, got, strict=True):
+                        if q:
+                            self.data.setdefault(d, {})["plc"] = {
                                 "created": q["created"].isoformat() if q["created"] else None,
                                 "handle_changes": q["handle_changes"],
                                 "pds_host": q["pds_host"],
                             }
-                            if q
-                            else None
-                        )
-        self.fetched += len(need_profile) + len(todo)
-        self.dirty.update(need_profile, todo)
+                            self.dirty.add(d)
+        if plc:  # a profile-only lookup doesn't count as a full attempt
+            self.attempted.update(real)
+        self.fetched += len(need_profile) + len(need_plc)
 
     def info(self, did: str, at: float) -> AccountInfo | None:
         """AccountInfo as `signals.accounts.load_account_info` builds it, with the age measured
-        at `at` (the window end) instead of now."""
+        at `at` (the window end) instead of now. Like production, an account whose lookup was
+        tried but failed gets an AccountInfo with empty fields; one never tried gets None."""
         e = self.data.get(did)
-        if not e or e.get("missing") and not e.get("plc"):
-            return None
+        if not e:
+            return AccountInfo(did=did) if did in self.attempted else None
         plc = e.get("plc") or {}
         borns = [_ts(x) for x in (plc.get("created"), e.get("created"))]
         borns = [b for b in borns if b is not None]
@@ -307,17 +298,19 @@ def _ts(s: str | None) -> float | None:
 def account_info_fn(
     profiles: Profiles, at: float, synth: Synthetic | None = None, budget: int = ENRICH_BUDGET
 ) -> Callable[[list[str]], dict[str, AccountInfo]]:
-    """The detector's `account_info` callback, like `signals.__main__`'s: enrich at most `budget`
-    not-yet-enriched accounts (in the detector's priority order, strongest suspicious cluster
-    first), then return info for every requested account that is enriched. Synthetic accounts
+    """The detector's `account_info` callback: one production enrichment pass. The first
+    `budget` real accounts of the detector's priority list (strongest suspicious cluster first)
+    are looked up, and only they get info, whatever else the cache holds, so every pass sees a
+    fixed view and results don't depend on job order, worker count or a warm cache. Production
+    re-runs a window every minute and can accumulate more; this is one pass. Synthetic accounts
     always come with their generated info."""
 
     def fn(dids: list[str]) -> dict[str, AccountInfo]:
         out: dict[str, AccountInfo] = {}
         if synth:
             out.update({d: synth.accounts[d] for d in dids if d in synth.accounts})
-        real = [d for d in dids if not d.startswith(SYNTH_PREFIX)]
-        profiles.ensure([d for d in real if profiles.needs(d)][:budget])
+        real = [d for d in dids if not d.startswith(SYNTH_PREFIX)][:budget]
+        profiles.ensure(real)
         for d in real:
             if (a := profiles.info(d, at)) is not None:
                 out[d] = a
@@ -408,11 +401,14 @@ def candidate_keys(data: HourData, w: int, rule: dict = LIVE_RULE) -> list[dict]
             per_acc = Counter(p.did for p in ps)
             if len(per_acc) < min_acc or max(per_acc.values()) > rule["max_posts_per_account"]:
                 continue
-            norm = [normalize_text(p.text or "") for p in ps]
+            # posts with no text (bare link cards) say nothing about diversity: left out
+            texts = [(p.did, t) for p in ps if (t := normalize_text(p.text or ""))]
+            if len({d for d, _t in texts}) < min_acc:
+                continue
             accs_by_text: dict[str, set[str]] = defaultdict(set)
-            for p, t in zip(ps, norm, strict=True):
-                accs_by_text[t].add(p.did)
-            dup = sum(1 for t in norm if len(accs_by_text[t]) > 1) / len(ps)
+            for d, t in texts:
+                accs_by_text[t].add(d)
+            dup = sum(1 for _d, t in texts if len(accs_by_text[t]) > 1) / len(texts)
             if dup > rule["max_duplicate_text_share"]:
                 continue
             out.append(
@@ -602,9 +598,9 @@ def _wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
 _G: dict = {}
 
 
-def _job(w: int, kind: str | None, seed: int | None, live: list[dict]) -> tuple[list, dict, dict]:
+def _job(w: int, kind: str | None, seed: int | None, live: list[dict]) -> tuple:
     """One detector pass on window w: the plain window (live cases) or with one synthetic hard
-    negative injected. Returns (CaseResults, detector stats, newly fetched profiles)."""
+    negative injected. Returns (CaseResults, detector stats, new lookups, DIDs tried)."""
     data: HourData = _G["data"]
     profiles: Profiles = _G["profiles"]
     cfg: DetectorConfig = _G["cfg"]
@@ -633,9 +629,10 @@ def _job(w: int, kind: str | None, seed: int | None, live: list[dict]) -> tuple[
             )
         )
     new = {d: profiles.data[d] for d in profiles.dirty}
+    attempted = set(profiles.attempted)
     stats = {"window_start": w, "job": kind or "live", "seed": seed, **res.stats}
     stats.pop("seconds", None)
-    return results, stats, new
+    return results, stats, new, attempted
 
 
 def run_eval(
@@ -672,23 +669,26 @@ def run_eval(
             continue
         files += [str(p) for p in paths]
         log.info("hour %s: %d windows (read in %.0fs)", hour, len(windows), time.monotonic() - t0)
-        _G.update(data=data, profiles=profiles, cfg=cfg, budget=budget)
-        jobs = []
+        live_jobs, synth_jobs = [], []
         for w in windows:
             ws = datetime.fromtimestamp(w, UTC).isoformat()
-            live = [c for c in live_cases if c["window_start"] == ws]
-            jobs.append((w, None, None, live))
-            jobs += [(w, k, s, []) for k in kinds for s in seeds]
-        if workers > 1:
-            with ProcessPoolExecutor(workers, mp_context=get_context("fork")) as pool:
-                outs = list(pool.map(_job, *zip(*jobs, strict=True)))
-        else:
-            outs = [_job(*j) for j in jobs]
-        for rs, st, new in outs:
-            results += rs
-            stats.append(st)
-            profiles.merge(new)
-            profiles.fetched += len(new)
+            live_jobs.append((w, None, None, [c for c in live_cases if c["window_start"] == ws]))
+            synth_jobs += [(w, k, s, []) for k in kinds for s in seeds]
+        # Live passes first, then the synthetic ones, so the forked workers of the second stage
+        # start with the accounts the first stage looked up instead of all fetching them again.
+        for jobs in (live_jobs, synth_jobs):
+            _G.update(data=data, profiles=profiles, cfg=cfg, budget=budget)
+            if workers > 1:
+                with ProcessPoolExecutor(workers, mp_context=get_context("fork")) as pool:
+                    outs = list(pool.map(_job, *zip(*jobs, strict=True)))
+            else:
+                outs = [_job(*j) for j in jobs]
+            for rs, st, new, attempted in outs:
+                results += rs
+                stats.append(st)
+                profiles.merge(new)
+                profiles.attempted |= attempted
+                profiles.fetched += len(new)
         profiles.save()
         _G.clear()
     return results, stats, files
@@ -780,12 +780,16 @@ def main_args(a: argparse.Namespace) -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     profiles = Profiles(a.profiles, fetch=not a.offline)
     if a.action == "select":
-        cases, files = [], []
+        cases, files, n_windows = [], [], 0
         for hour, paths in slice_hours(a.slices).items():
             if hour_split(hour) != a.split:
                 continue
+            left = None if a.max_windows is None else a.max_windows - n_windows
+            if left is not None and left <= 0:
+                break
             data = read_rows(paths)
-            windows = data.complete_windows()[: a.max_windows]
+            windows = data.complete_windows()[:left]
+            n_windows += len(windows)
             files += [p.name for p in paths] if windows else []
             for w in windows:
                 cases += select_live_cases(data, w, profiles)
@@ -802,12 +806,18 @@ def main_args(a: argparse.Namespace) -> int:
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
             "cases": cases,
         }
+        if not cases:
+            print(f"no live cases found in {a.slices} [{a.split}]; {a.fixture} left as it was")
+            return 1
         a.fixture.parent.mkdir(parents=True, exist_ok=True)
         a.fixture.write_text(json.dumps(fixture, indent=1, ensure_ascii=False) + "\n")
         print(f"{len(cases)} live cases -> {a.fixture}  {dict(Counter(c['type'] for c in cases))}")
         return 0
 
-    fixture = json.loads(a.fixture.read_text()) if a.fixture.exists() else {"cases": []}
+    if not a.fixture.exists():
+        print(f"no live-case fixture at {a.fixture}: run `python -m eval organic select` first")
+        return 1
+    fixture = json.loads(a.fixture.read_text())
     live = [c for c in fixture["cases"] if c["split"] == a.split]
     seeds = list(range(1000, 1000 + a.seeds)) if a.split == "heldout" else list(range(a.seeds))
     results, stats, files = run_eval(
@@ -865,7 +875,8 @@ def main_args(a: argparse.Namespace) -> int:
 LIVE_RULE_TEXT = (
     "In each complete 10-minute window of the split: (a) a normalised link posted by >= 5 "
     "distinct accounts, or (b) a hashtag used by >= 8 distinct accounts, where no account posts "
-    "it more than 3 times and <= 20% of the posts reuse another account's normalised text; or "
+    "it more than 3 times, at least that many accounts wrote some text, and <= 20% of the posts "
+    "with text reuse another account's normalised text; or "
     "(c) one of the 10 posts liked/reposted by the most (>= 50) distinct accounts. Then a "
     "deterministic sample of up to 40 of its accounts is looked up (public AppView profile, PLC "
     "log when the profile has no createdAt): >= 80% must resolve and >= 80% of those must be "
