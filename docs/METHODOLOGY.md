@@ -7,8 +7,8 @@ This page describes the code in this repository. Where a value is a setting, the
 it is named; that file is authoritative if it changes. Measured accuracy is not written here: it
 is computed by `eval/` and served live by `GET /api/metrics`.
 
-Status: ingest, the detector, Oxylabs source checks, Gemini verdicts and the API are on `main` and
-running live. The evaluation harness (open PRs #9 and #10) and the Nemotron media worker are being
+Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
+API are on `main` and running live. The evaluation harness (open PRs #9 and #10) is being
 integrated; the sections about them describe that code as it stands in review.
 
 ## What we detect
@@ -223,11 +223,14 @@ not an input to the status rule.
 Identical uploaded files are already caught without any model (`duplicate_media`, same blob CID).
 Nemotron Super VL handles what a hash can't: for media in candidate clusters it describes the
 image or video frame, extracts visible text (OCR of memes and screenshots), notes reuse and
-near-duplicate cues, and lists cautious manipulated-context cues. Results are cached by media
-hash, fetched read-only from the author's server (`com.atproto.sync.getBlob`), and stored as
-`evidence` rows with `kind='media'` and the model name. The model is told to describe only what is
-visible and not to infer intent. Status: the media worker is being integrated; check `media/` on
-`main` for what is wired in.
+near-duplicate cues, and lists cautious manipulated-context cues. Different images whose
+in-image text is mostly the same (one template, a city or name swapped) across accounts get one
+extra finding, which no file hash can produce. Media is fetched read-only from Bluesky's public
+CDN, results are cached by media hash, and each is stored as an `evidence` row with
+`kind='media'` and the model id the response returned; the worker refuses to store anything if
+that id is not a VL model. The model is told to describe only what is visible, not to infer
+intent, and not to describe sexual images (a code guard enforces that too). Prompt iterations and
+their measured effect: `media/README.md`.
 
 ## Ad-hoc checks: `POST /api/analyze`
 
