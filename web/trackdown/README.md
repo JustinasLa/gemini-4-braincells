@@ -16,26 +16,21 @@ URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case,
 
 ## Look
 
-Base: Junction 2026's own banner, a Renaissance painting read by machine vision (green detection
-boxes, match scores, dashed match lines). On top: a grand-strategy war room in the spirit of
-Victoria 3 / EU4, with a sci-fi HUD layer.
+One visual language, taken from Junction 2026's banner: a Renaissance painting read by machine vision.
 
-- Machine vision: the splash, the trace-a-post window and the verdict window animate real ORB
-  keypoints and descriptor-match scores computed with OpenCV on Botticelli's *Birth of Venus*
-  (`blender/venus_cv.py` -> `src/assets/venus-cv.json`). On cards, the green box shows a score only
-  when the link that brought the post in has a measured similarity; otherwise it just says OBJ/TEXT.
-- War room: a contour-map table with graticule; coordinated clusters are drawn as territories
-  (border band + map label + stat badge); the top bar is a resource bar with tooltips; the replay is
-  a date with play/pause and five speed pips; the right side is a tabbed window (Verdict, Provenance,
-  Receipts, Folio); the verdict arrives as an event window with options.
-- Heraldry: every account gets a procedural coat of arms (rule of tincture respected). Accounts
-  under 30 days old get a blank "?" shield; templated handles (glow_fan_0412...) share one coat of arms,
-  which makes a sock-puppet wave visible at a glance.
-- HUD: corner brackets, lock-on reticles when the tracer confirms a post, red struck boxes for rejected
-  candidates, a tracking terminal.
-- Type: Michroma (display, wide like Junction's wordmark), Chakra Petch (HUD labels and numbers),
-  Barlow (reading), IBM Plex Mono (handles, terminal). Palette: slate + gilt, verdict pigments
-  (red = Shill, teal = Chill, slate-blue = Can't tell), CV green for machine detections.
+- The canvas sits on Botticelli's *Birth of Venus*, darkened, with its real ORB detections baked in
+  (green boxes, match scores, dashed match lines), drifting slightly as you pan.
+- Real computer vision, not decoration: the keypoints and descriptor-match scores come from OpenCV
+  (`blender/venus_cv.py` -> `src/assets/venus-cv.json`). They animate in the splash, the trace window,
+  the verdict banner and the verdict reveal. On cards, a green box shows a score only when the link
+  that brought the post in has a measured similarity; otherwise it says TEXT or OBJ.
+- Avatars are detected patches of the painting. Days-old accounts get an empty hatched box; templated
+  handles (glow_fan_0412…) share one patch, so a wave of look-alikes looks alike.
+- A cluster is one large detection box with a class/score tab (`SHILL · 31 ACCOUNTS · 94 S`).
+- The verdict arrives as the banner itself: painting, detection boxes, the bronze coin, and the verdict
+  as a wide wordmark.
+- Type: Michroma (wide wordmark, like JUNCTION), Inter Tight (text), JetBrains Mono (`//` labels, data,
+  terminal). Black, white, CV green, and the painting's own colours for the verdicts.
 
 ## What's on screen
 
@@ -48,7 +43,7 @@ Victoria 3 / EU4, with a sci-fi HUD layer.
   - Drag a card: it follows the cursor elastically, tilts with its velocity, keeps its fling, and
     snaps back to its moment in time. Pan with inertia, wheel/pinch zoom around the cursor, double
     click to focus, double click the background to fit.
-  - Semantic zoom: below ~0.2× cards fade into map markers (diamonds) with labels.
+  - Semantic zoom: below ~0.2× cards fade into small detection boxes with labels.
   - Hover or select a card: its lineage (ancestors and descendants) lights up and particles flow
     along its edges. Clusters get a breathing hull labelled with the detector's numbers.
 - **Trackdown run** (`runTrace` in `src/main.ts`): the submitted card is scanned, then each step
@@ -88,7 +83,7 @@ Keys: `N` trace a post · `Space` play/pause · `F` fit · `T` timeline/web · `
 All public domain, from Wikimedia Commons: Albrecht Dürer, *Rhinocerus* (woodcut, 1515); Sandro
 Botticelli, *The Birth of Venus* (c. 1485; top band cropped, darkened, with ORB keypoints). The
 "copy" plates in the Rhinoceros case are the same woodcut, coarsened, and are captioned as stand-ins.
-The contour map texture is generated (`blender/` notes); coats of arms are generated SVG.
+
 
 ## Verdict coin
 
