@@ -1,0 +1,12 @@
+# PUBLIC_DOMAIN=example.com gets automatic HTTPS. Unset, it serves plain HTTP on :80.
+{$PUBLIC_DOMAIN} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}

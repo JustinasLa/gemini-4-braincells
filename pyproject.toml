@@ -1,0 +1,42 @@
+[project]
+name = "noise-radar"
+version = "0.1.0"
+description = "Detects coordinated amplification on Bluesky and reports its own error rates."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.4",
+    "psycopg[binary,pool]>=3.2",
+    "httpx>=0.27",
+    "websockets>=13",
+    "numpy>=2.0",
+    "scikit-learn>=1.5",
+    "datasketch>=1.6",
+    "google-genai>=1.0",
+    "openai>=1.40",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["common", "ingest", "signals", "media", "sources", "analyst", "eval", "api"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

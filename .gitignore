@@ -1,0 +1,24 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# node / web
+node_modules/
+web/dist/
+
+# data
+data/
+*.parquet
+*.sqlite
+.DS_Store
