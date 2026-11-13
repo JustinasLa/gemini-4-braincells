@@ -41,8 +41,14 @@ def _jaccard(a: set, b: set) -> float:
     return len(a & b) / len(a | b) if a or b else 0.0
 
 
-def _signals_json(c: ClusterScore, cfg: DetectorConfig, evidence_ids: dict[str, int]) -> dict:
+def _signals_json(
+    c: ClusterScore, cfg: DetectorConfig, evidence_ids: dict[str, int], window: dict | None = None
+) -> dict:
     return {
+        "window": window or {},
+        "null_distribution": c.p_detail.get("null_distribution"),
+        "timeline": c.timeline,
+        "member_graph": c.member_graph,
         "detector_version": cfg.version,
         "score": c.score,
         "family_scores": c.family_scores,
@@ -248,7 +254,17 @@ def _store_one(
 
     conn.execute(
         "UPDATE clusters SET signals = %s WHERE id = %s",
-        (json.dumps(_signals_json(c, cfg, evidence_ids)), cluster_id),
+        (
+            json.dumps(
+                _signals_json(
+                    c,
+                    cfg,
+                    evidence_ids,
+                    {"kind": window_kind, "start": start.isoformat(), "end": end.isoformat()},
+                )
+            ),
+            cluster_id,
+        ),
     )
     conn.execute(
         """

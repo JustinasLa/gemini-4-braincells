@@ -26,6 +26,12 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
       db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, sys, urllib.request; sys.exit(0 if json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5))['ok'] else 1)"]
+      interval: 60s
+      start_period: 30s
+      retries: 3
 
   # Applies db/schema.sql + db/migrations/*.sql (idempotent), then exits.
   migrate:
@@ -91,6 +97,29 @@ services:
       - ../web/public:/srv/web:ro
       - caddy_data:/data
     depends_on: [api]
+
+  # Source checks (Oxylabs Web API) and analyst verdicts (Gemini) for scored clusters.
+  sources:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    command: ["python", "-m", "sources", "worker"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  analyst:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    command: ["python", "-m", "analyst", "worker"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
 volumes:
   pgdata:
