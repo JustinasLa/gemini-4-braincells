@@ -92,12 +92,15 @@ posts (blob CIDs; fetch via `com.atproto.sync.getBlob?did=<did>&cid=<cid>` on th
 ## Eval hooks (for `eval/`)
 
 ```python
-from signals.detect import detect                 # pure: WindowData -> clusters, deterministic
-from signals.window import load_window            # WindowData from any DB (e.g. a replay DB)
+from signals.detect import detect  # pure: WindowData -> clusters, deterministic
+from signals.window import load_window  # WindowData from any DB (e.g. a replay DB)
 from signals.synth import campaign, hard_negative, inject, empty_window
-wd = load_window(conn, start, end, DEFAULT)       # a recorded slice replayed into a separate DB
-s = campaign("L2", wd, seed=7)                    # in-memory synthetic campaign, did:plc:synth...
-res = detect(inject(wd, s), account_info=lambda dids: {d: s.accounts[d] for d in dids if d in s.accounts})
+
+wd = load_window(conn, start, end, DEFAULT)  # a recorded slice replayed into a separate DB
+s = campaign("L2", wd, seed=7)  # in-memory synthetic campaign, did:plc:synth...
+res = detect(
+    inject(wd, s), account_info=lambda dids: {d: s.accounts[d] for d in dids if d in s.accounts}
+)
 ```
 Tune on one set of seeds, report on others. `account_info` can also wrap
 `signals.accounts.load_account_info` for real accounts.

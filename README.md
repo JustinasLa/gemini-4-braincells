@@ -89,10 +89,10 @@ evidence `kind` is `signal | media | source | analyst`.
 
 **API** (JSON):
 - `GET /api/health` → `{ok, ingest_lag_s, last_event_at}` *(implemented)*
-- `GET /api/clusters?status=&min_score=&limit=` → cluster summaries
-- `GET /api/clusters/{id}` → cluster + members + post sample + evidence + analyst verdict
-- `GET /api/metrics` → latest `eval_runs` per dataset
-- `POST /api/analyze` `{text?, url?, handle?}` → ad-hoc check
+- `GET /api/clusters?status=&min_score=&limit=&include_synthetic=` → cluster summaries, newest first, each with `top_signals` and the latest analyst `verdict` *(implemented)*
+- `GET /api/clusters/{id}` → summary + `signals` + `members` + `posts` (25, with bsky.app links) + `evidence` (signal/media/source) + `analyst` (full latest verdict) *(implemented)*
+- `GET /api/metrics` → latest `eval_runs` per (dataset, split) *(implemented)*
+- `POST /api/analyze` `{text?, url?, handle?}` → `{status: matched|insufficient, clusters, web_findings, notes}`. `matched` = the input is in a monitored cluster (its verdicts apply); otherwise live Oxylabs findings only, never a verdict *(implemented)*
 
 **Analyst verdict** (stored in `evidence.detail` with `kind='analyst'`):
 ```json
@@ -100,8 +100,22 @@ evidence `kind` is `signal | media | source | analyst`.
  "evidence": [{"evidence_id": 1, "why": "..."}],
  "counter_evidence": ["..."], "would_change_verdict": ["..."], "model": "gemini-..."}
 ```
+Also written: `summary` (1-2 sentences), `detector_status` (clusters.status at the time),
+`adjustments` (what `analyst/guard.py` overrode: invented citation ids are dropped, and the
+analyst may only agree with the detector or be more cautious), `cluster_updated_at`.
+Each run appends a new row; readers take the latest.
 
-**Env vars:** see `.env.example`.
+**Source evidence** (`evidence.kind=source`, written by `sources/`, upserted by `detail.key`):
+`detail.type` is `linked_page` (Oxylabs `/scrape` AI extraction: `publisher, author, published_at,
+headline, claims, shared_by_accounts, http_status`) or `web_search` (Oxylabs `/search` for the
+headline or the cluster text: `query, hits[{url, title, snippet, published_hint}], earliest_dated`).
+`source_url` is always the page the fact came from. `published_hint` is the date the search engine
+shows, a hint and not proof of origin.
+
+**Workers:** `python -m sources worker` and `python -m analyst worker` poll for clusters with
+`score >= 0.5`. One-off runs: `python -m sources cluster <id>`, `python -m analyst prompt <id>`.
+
+**Env vars:** see `.env.example`. Oxylabs uses `OXYLABS_WEB_API_KEY` (Bearer key for the Web API; it replaced `OXYLABS_USERNAME`/`OXYLABS_PASSWORD`). `GEMINI_MODEL` picks the analyst model.
 
 ## Rules
 
