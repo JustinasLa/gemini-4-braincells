@@ -67,8 +67,8 @@ def detect(
         "seconds": {
             "keys": round(t1 - t0, 2),
             "graph": round(t2 - t1, 2),
-            "account_info": round(t3 - t2, 2),
-            "score": round(t4 - t3, 2),
+            "score_and_enrich": round(t3 - t2, 2),
+            "rescore": round(t4 - t3, 2),
         },
     }
     return DetectResult(clusters, stats)

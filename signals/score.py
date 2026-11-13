@@ -593,6 +593,24 @@ def organic_guards(
                     polarity="against",
                 )
             )
+    # Scheduled posting: independent bots that post "at the top of the hour" look synchronized.
+    times = [u.t for k in sk if k.family == "content" for u in k.uses]
+    if len(times) >= cfg.min_cluster_size:
+        aligned = sum(1 for t in times if (t % 1800) < 90 or (t % 1800) > 1800 - 15)
+        share = aligned / len(times)
+        if share >= 0.5:
+            out.append(
+                Signal(
+                    "guard",
+                    "clock_aligned_posting",
+                    _r(0.7 * share),
+                    f"{aligned} of {len(times)} shared posts went out within 90 s after "
+                    "a full or half hour (5% expected by chance): "
+                    "scheduled bots can look synchronized without being coordinated",
+                    {"aligned": aligned, "posts": len(times), "expected_share": 0.05},
+                    polarity="against",
+                )
+            )
     langs: dict[str, int] = {}
     mset = set(members)
     for p in wd.posts:
