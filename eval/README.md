@@ -86,7 +86,8 @@ status, score, signals or analyst verdict, and you shouldn't look the group up o
 Two people label every item separately; when both are done, the *disagreements* view shows both
 labels and you record one adjudicated label together.
 
-**How the number is made.** `sample` reads clusters from the live database that haven't been
+**How the number is made.** `sample` reads clusters from the live database that started in the
+last 10 h (raw likes are kept 12 h, so their evidence is complete) and haven't been
 updated for 15 minutes (synthetic excluded), keeps one random episode per campaign (episodes of
 one campaign are near copies), and draws a stratified sample: detector status (40% coordinated,
 30% likely_organic, 30% insufficient as targets, capped at what exists) x 4 equal-count score
