@@ -100,18 +100,26 @@ def _store_one(
     # 1. Same episode? (same window kind, overlapping window, mostly the same accounts)
     recent = conn.execute(
         """
-        SELECT c.id, c.campaign_id, array_agg(m.did) FROM clusters c
+        SELECT c.id, c.campaign_id, array_agg(m.did), c.window_kind, c.score FROM clusters c
         JOIN cluster_members m ON m.cluster_id = c.id
-        WHERE c.window_kind = %s AND c.detector_version = %s AND c.synthetic = %s
-          AND c.window_end >= %s
-        GROUP BY c.id ORDER BY c.id
+        WHERE c.detector_version = %s AND c.synthetic = %s AND c.window_end >= %s
+        GROUP BY c.id, c.campaign_id, c.window_kind, c.score ORDER BY c.id
         """,
-        (window_kind, cfg.version, synthetic, start - window_len),
+        (cfg.version, synthetic, start - window_len),
     ).fetchall()
     best = max(recent, key=lambda r: _jaccard(members, set(r[2])), default=None)
     cluster_id = campaign_id = None
     if best and _jaccard(members, set(best[2])) >= SAME_EPISODE_JACCARD:
         cluster_id, campaign_id = best[0], best[1]
+        if best[3] != window_kind and c.score < best[4]:
+            # Another window kind already holds a stronger view of this episode: keep it, just
+            # extend the time range so the feed shows the episode is still active.
+            conn.execute(
+                "UPDATE clusters SET window_end = greatest(window_end, %s), updated_at = now() "
+                "WHERE id = %s",
+                (end, cluster_id),
+            )
+            return cluster_id
     # 2. Otherwise, same campaign as an earlier cluster (any window kind)?
     if campaign_id is None:
         older = conn.execute(
@@ -158,12 +166,13 @@ def _store_one(
     else:
         conn.execute(
             """
-            UPDATE clusters SET window_end = %s, score = %s, confidence = %s, status = %s,
+            UPDATE clusters SET window_start = least(window_start, %s), window_end = %s,
+                score = %s, confidence = %s, status = %s,
                 p_value = %s, families_fired = %s, detector_version = %s, window_kind = %s,
                 size = %s, campaign_id = %s, updated_at = now()
             WHERE id = %s
             """,
-            (*row, cluster_id),
+            (start, *row, cluster_id),
         )
 
     core = set(c.core)

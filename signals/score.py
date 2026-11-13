@@ -385,6 +385,18 @@ def network_signals(
 
 
 # ---------------------------------------------------------------- identity --------------------
+# Handle domains handed out to everyone: sharing one says nothing about the operator.
+_SHARED_HANDLE_DOMAINS = {
+    "bsky.social",
+    "bsky.app",
+    "brid.gy",
+    "ap.brid.gy",
+    "blacksky.app",
+    "eurosky.social",
+    "skyfeed.me",
+    "bsky.team",
+}
+
 _SHAPE_RE = [(re.compile(r"[a-z]+"), "a"), (re.compile(r"[0-9]+"), "9")]
 
 
@@ -551,6 +563,36 @@ def organic_guards(
                 polarity="against",
             )
         )
+    handles = [
+        (a.did, a.handle.lower(), a.age_days)
+        for a in known
+        if a.handle and a.handle != "handle.invalid"
+    ]
+    if len(handles) >= cfg.min_cluster_size:
+        domains: dict[str, list] = {}
+        for d, h, age in handles:
+            parts = h.split(".")
+            if len(parts) >= 3:  # sub.domain.tld: the operator's own domain
+                domains.setdefault(".".join(parts[-2:]), []).append((d, age))
+        common = {dom: v for dom, v in domains.items() if dom not in _SHARED_HANDLE_DOMAINS}
+        if common:
+            dom = max(sorted(common), key=lambda k: len(common[k]))
+            group = common[dom]
+            old = [d for d, age in group if age is not None and age >= 180]
+            share = len(group) / len(handles)
+            out.append(
+                Signal(
+                    "guard",
+                    "transparent_automation",
+                    _r(share * (len(old) / len(group)) if len(group) >= 2 else 0),
+                    f"{len(group)} of {len(handles)} accounts openly share the handle domain {dom} "
+                    f"({len(old)} over 6 months old): one declared operator, e.g. an automated "
+                    "feed, rather than a covert campaign",
+                    {"domain": dom, "accounts": len(group), "older_than_180d": len(old)},
+                    dids=sorted(d for d, _ in group),
+                    polarity="against",
+                )
+            )
     langs: dict[str, int] = {}
     mset = set(members)
     for p in wd.posts:

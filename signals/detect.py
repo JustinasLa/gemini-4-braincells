@@ -38,11 +38,19 @@ def detect(
     graph = build_graph(keys, cfg)
     groups = communities(graph, cfg)
     t2 = time.monotonic()
-    # Small clusters first: they're the likely campaigns, and the enrichment budget is limited.
-    ordered = list(dict.fromkeys(d for g in sorted(groups, key=len) for d in g))
-    info = account_info(ordered) if account_info and groups else {}
+    # Pass 1 without account info. Then fetch account info only for clusters where something
+    # looked suspicious (strongest first: the enrichment budget is limited) and rescore those.
+    clusters = [score_cluster(g, keys, wd, {}, cfg) for g in groups]
+    suspicious = sorted(
+        (i for i, c in enumerate(clusters) if max(c.family_scores.values()) >= cfg.family_fire),
+        key=lambda i: (-clusters[i].score, len(clusters[i].members), clusters[i].members[0]),
+    )
+    ordered = list(dict.fromkeys(d for i in suspicious for d in clusters[i].members))
+    info = account_info(ordered) if account_info and ordered else {}
     t3 = time.monotonic()
-    clusters = [score_cluster(g, keys, wd, info, cfg) for g in groups]
+    for i in suspicious:
+        if any(d in info for d in clusters[i].members):
+            clusters[i] = score_cluster(groups[i], keys, wd, info, cfg)
     t4 = time.monotonic()
     by_status: dict[str, int] = {}
     for c in clusters:
