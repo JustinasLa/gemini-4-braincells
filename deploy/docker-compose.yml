@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
       db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
   # Applies db/schema.sql + db/migrations/*.sql (idempotent), then exits.
   migrate:
@@ -100,7 +101,9 @@ services:
     env_file: ../.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-    depends_on: { db: { condition: service_healthy } }
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
   analyst:
     build: { context: .., dockerfile: Dockerfile }
@@ -109,7 +112,9 @@ services:
     env_file: ../.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-    depends_on: { db: { condition: service_healthy } }
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
 volumes:
   pgdata:
