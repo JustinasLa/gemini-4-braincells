@@ -6,6 +6,7 @@ logged with endpoint, HTTP status, latency and the Oxylabs request id.
 
 import logging
 import re
+import threading
 import time
 from datetime import date, datetime
 from typing import Any
@@ -85,6 +86,12 @@ class OxylabsClient:
         )
         self._max_retries = max_retries
         self._backoff_s = backoff_s
+        self._local = threading.local()
+
+    @property
+    def last_call(self) -> dict:
+        """{endpoint, status, latency_ms, request_id} of this thread's latest call (receipts)."""
+        return getattr(self._local, "last_call", {})
 
     @classmethod
     def from_settings(cls) -> "OxylabsClient":
@@ -140,6 +147,14 @@ class OxylabsClient:
             claims=[c for c in (_text(x) for x in claims) if c][:5],
         )
 
+    def scrape_markdown(self, url: str) -> tuple[str, dict]:
+        """The page as markdown (no AI extraction) plus the result metadata (final url, status)."""
+        data = self._post("/scrape", {"url": url, "output": ["markdown"]})
+        results = data.get("results") or []
+        if not results or not isinstance(results[0].get("markdown"), str):
+            raise OxylabsError(f"/scrape returned no markdown for {url}")
+        return results[0]["markdown"], results[0].get("metadata") or {}
+
     def _post(self, path: str, body: dict) -> dict:
         attempt = 0
         while True:
@@ -156,6 +171,12 @@ class OxylabsClient:
             except httpx.TransportError as exc:
                 log.warning("oxylabs %s transport error: %s", path, type(exc).__name__)
             request_id = (payload.get("metadata") or {}).get("request_id")
+            self._local.last_call = {
+                "endpoint": path,
+                "status": status,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "request_id": request_id,
+            }
             log.info(
                 "oxylabs call endpoint=%s status=%s latency_ms=%d request_id=%s attempt=%d",
                 path,
