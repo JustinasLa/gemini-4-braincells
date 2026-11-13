@@ -484,7 +484,8 @@ a { color: inherit; }
   .app { grid-template-columns: 1fr; grid-template-rows: 50px 1fr; }
   .brand { padding: 0 10px; gap: 8px; border-right: 0; }
   .wordmark { font-size: 11px; letter-spacing: 0.2em; }
-  .wordmark small, .resources, .case-title, .seg, .btn .lbl, .btn .kbd, .hint, .legend, .minimap, .pips, .clockbox .date small { display: none !important; }
+  .wordmark small, .resources, .case-title, .seg, .btn .lbl, .btn .kbd, .hint, .legend, .minimap, .pips, .clockbox .date { display: none !important; }
+  .emblem { width: 30px; height: 30px; }
   .clockbox { padding: 0 8px; gap: 6px; margin-left: auto; }
   .clockbox .date { min-width: 0; font-size: 11px; }
   .top-actions { padding: 0 8px; }
