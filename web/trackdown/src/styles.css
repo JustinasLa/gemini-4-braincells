@@ -425,9 +425,6 @@ a { color: inherit; }
 @media (max-width: 860px) {
   .app, .app.rail-open, .app.panel-open, .app.rail-open.panel-open { grid-template-columns: 1fr; grid-template-rows: 52px 1fr; }
   .app .panel { border-left-color: transparent; }
-  .home-form { flex-direction: column; }
-  .home-form input { flex: none; width: 100%; }
-  .home-wm { font-size: 6.4vw; letter-spacing: 0.2em; text-indent: 0.2em; }
   .status { bottom: 12px; font-size: 12px; }
   .topbar { gap: 8px; padding: 0 10px; }
   .wordmark { font-size: 12px; letter-spacing: 0.22em; flex: 1; }
@@ -480,3 +477,9 @@ a { color: inherit; }
 .home-ex button::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 8px 1px 0; background: var(--vc); }
 .home-ex button:hover { color: #fff; border-bottom-color: var(--cv); }
 .home .credit { position: absolute; right: 12px; bottom: 10px; font: 400 9.5px/1 var(--mono); color: rgba(255, 255, 255, 0.45); z-index: 2; }
+
+@media (max-width: 860px) {
+  .home-form { flex-direction: column; }
+  .home-form input { flex: none; width: 100%; height: 50px; }
+  .home-wm { font-size: 6.2vw; letter-spacing: 0.2em; text-indent: 0.2em; }
+}
