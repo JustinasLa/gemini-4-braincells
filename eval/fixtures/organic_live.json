@@ -1,0 +1,4195 @@
+{
+ "rule_version": "live-rule-v1",
+ "rule": {
+  "link_min_accounts": 5,
+  "tag_min_accounts": 8,
+  "post_min_engagers": 50,
+  "post_max_cases_per_window": 10,
+  "max_posts_per_account": 3,
+  "max_duplicate_text_share": 0.2,
+  "established_min_age_days": 365,
+  "established_min_followers": 30,
+  "established_min_posts": 30,
+  "min_established_share": 0.8,
+  "min_resolved_share": 0.8,
+  "profile_sample": 40
+ },
+ "rule_text": "In each complete 10-minute window of the split: (a) a normalised link posted by >= 5 distinct accounts, or (b) a hashtag used by >= 8 distinct accounts, where no account posts it more than 3 times, at least that many accounts wrote some text, and <= 20% of the posts with text reuse another account's normalised text; or (c) one of the 10 posts liked/reposted by the most (>= 50) distinct accounts. Then a deterministic sample of up to 40 of its accounts is looked up (public AppView profile, PLC log when the profile has no createdAt): >= 80% must resolve and >= 80% of those must be >= 365 days old with >= 30 followers and >= 30 posts. Detector output is never used.",
+ "labels": "HEURISTIC organic labels, not ground truth, until a human checks a sample",
+ "split": "heldout",
+ "window_seconds": 600,
+ "slice_files": [
+  "19-1794598897.jsonl.gz",
+  "19-1794599074.jsonl.gz",
+  "21-1794599074.jsonl.gz"
+ ],
+ "generated_at": "2026-11-13T22:02:27+00:00",
+ "cases": [
+  {
+   "id": "hashtag_burst:20261113T1950:96a00c93",
+   "type": "hashtag_burst",
+   "key": "photography",
+   "accounts": 25,
+   "posts": 29,
+   "duplicate_text_share": 0.069,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 25,
+   "resolved_share": 1.0,
+   "established_share": 0.84,
+   "why": "25 accounts used the same hashtag within 10 minutes, 7% of posts reuse another account's text; 84% of 25 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3xgjkgqjg7ykonaiu2shzvtl/post/3n27r7mqxok2f",
+    "https://bsky.app/profile/did:plc:4jemx5oks6zwo64ki3kejfii/post/3n27rbb2ywbv2",
+    "https://bsky.app/profile/did:plc:7byfjxgaooqpbuu5tnglynpu/post/3n27r5mruts2d",
+    "https://bsky.app/profile/did:plc:7mylt6hvvyi3sipbcnnmc6dq/post/3n27rhh54e22f",
+    "https://bsky.app/profile/did:plc:fea4ibvgynxlr7b72c4b3azq/post/3n27rgrhovk2r"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:d7076ef6",
+   "type": "hashtag_burst",
+   "key": "srbger",
+   "accounts": 18,
+   "posts": 19,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 18,
+   "resolved_share": 1.0,
+   "established_share": 0.889,
+   "why": "18 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 18 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4qcc2jb57kft3lqldrjmz2fs/post/3n27r25ss3c26",
+    "https://bsky.app/profile/did:plc:5tldl4255uo75yi4hxhuv3w5/post/3n27r4d2kes2t",
+    "https://bsky.app/profile/did:plc:65czkbz45vf4al5y2qkddi2a/post/3n27riw6dds2x",
+    "https://bsky.app/profile/did:plc:ewlizu3yggtzzq2erlqtypld/post/3n27rh5ocvk2b",
+    "https://bsky.app/profile/did:plc:hzygvmp43z2bbcpczpst6cqa/post/3n27rdbwtrk23"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:429436b6",
+   "type": "hashtag_burst",
+   "key": "twitch",
+   "accounts": 17,
+   "posts": 17,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 17,
+   "resolved_share": 1.0,
+   "established_share": 0.824,
+   "why": "17 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 82% of 17 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5fgd7wu4bpfaf2qcgsvzjdoc/post/3n27r5cyfls23",
+    "https://bsky.app/profile/did:plc:6qmhwhrejm6xnznzlzhrzhsu/post/3n27rc3lh5i2e",
+    "https://bsky.app/profile/did:plc:ay7vdngwzqyuixwrfwarxxln/post/3n27rbl3wkc2m",
+    "https://bsky.app/profile/did:plc:azwrmdwrzo643wqejczuz2z2/post/3n27r3vtef22h",
+    "https://bsky.app/profile/did:plc:b65wjthwaealenjec6trjfwd/post/3n27r4m5exp2i"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:1bef26c3",
+   "type": "hashtag_burst",
+   "key": "ai",
+   "accounts": 15,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 15,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "15 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 15 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:bqttndhlegbnfhwkcpvostqo/post/3n27ra6dues2n",
+    "https://bsky.app/profile/did:plc:hhdcfkfruhtwzcqc5shh2kb7/post/3n27r23z2gc2b",
+    "https://bsky.app/profile/did:plc:od4agmbsnaelt7lczcpfivm2/post/3n27raqaxak24",
+    "https://bsky.app/profile/did:plc:oizhyje3mw3nsiv66vqxfuj6/post/3n27r5vik4d2f",
+    "https://bsky.app/profile/did:plc:oqfydlpmtbesw5esbbruzdij/post/3n27rhvs73s2b"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:278ac79f",
+   "type": "hashtag_burst",
+   "key": "vtuber",
+   "accounts": 15,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 15,
+   "resolved_share": 1.0,
+   "established_share": 0.933,
+   "why": "15 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 93% of 15 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5fgd7wu4bpfaf2qcgsvzjdoc/post/3n27r5cyfls23",
+    "https://bsky.app/profile/did:plc:64s2jkhye32hoy7lvaetkhwg/post/3n27r3laxbs2c",
+    "https://bsky.app/profile/did:plc:6ym2g25skvkztmyw4dks2g5m/post/3n27r5rquqc23",
+    "https://bsky.app/profile/did:plc:ay7vdngwzqyuixwrfwarxxln/post/3n27rbl3wkc2m",
+    "https://bsky.app/profile/did:plc:cl6ntux2mp4buewybp2x5efx/post/3n27rdzu33c2x"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:90856d78",
+   "type": "hashtag_burst",
+   "key": "musicsky",
+   "accounts": 13,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 13,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "13 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 13 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:afzvlfdykltfynplfwjoljq5/post/3n27rbehug22b",
+    "https://bsky.app/profile/did:plc:c2yenkkbna666y6vfkqjuih6/post/3n27qysvkps2z",
+    "https://bsky.app/profile/did:plc:cflucas6pvfrccrpqrnagniz/post/3n27qytz7ds2t",
+    "https://bsky.app/profile/did:plc:eezdrz6hcqgae5vygxqxqnxc/post/3n27qzqjcts2v",
+    "https://bsky.app/profile/did:plc:fxwfecu6ucyvhex7eaqydi4b/post/3n27r4rjkrs2x"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:b9f6893c",
+   "type": "hashtag_burst",
+   "key": "gaming",
+   "accounts": 12,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.833,
+   "why": "12 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 83% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3faabllyzas2guev4mdb6li2/post/3n27resp5hk2l",
+    "https://bsky.app/profile/did:plc:3faabllyzas2guev4mdb6li2/post/3n27rhjw6ws2l",
+    "https://bsky.app/profile/did:plc:bptbcgtl3maxjgmkd2eq4vfp/post/3n27r76lblt2e",
+    "https://bsky.app/profile/did:plc:bptbcgtl3maxjgmkd2eq4vfp/post/3n27rcy5wez2g",
+    "https://bsky.app/profile/did:plc:c25o6yw67binffuugzibci75/post/3n27r6mt4hk2n"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:5b6be8c0",
+   "type": "hashtag_burst",
+   "key": "music",
+   "accounts": 10,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 90% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ovtd7c6rex2z7airyuznjxj/post/3n27rj5d6lk2u",
+    "https://bsky.app/profile/did:plc:4spm2xgav2uimkag7tytece7/post/3n27qza74v22o",
+    "https://bsky.app/profile/did:plc:5kpp2cesd242ejzztwwdvqym/post/3n27qy5mhfz2x",
+    "https://bsky.app/profile/did:plc:5kpp2cesd242ejzztwwdvqym/post/3n27r6hrk3j2o",
+    "https://bsky.app/profile/did:plc:5kpp2cesd242ejzztwwdvqym/post/3n27rermlny2d"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:2f5aa231",
+   "type": "hashtag_burst",
+   "key": "lastfourwatched",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7z6ju5eqlmpdalbsfnpnlpdc/post/3n27qzcgru22z",
+    "https://bsky.app/profile/did:plc:b7rk6pi6knzr2lyeshrevsul/post/3n27rcblmt22y",
+    "https://bsky.app/profile/did:plc:dte3tpmqbtxzip25ff6j3son/post/3n27r7ghw3k2m",
+    "https://bsky.app/profile/did:plc:dwnxms3uzjeafoq6zsognagd/post/3n27r6nzrrc2v",
+    "https://bsky.app/profile/did:plc:hvpji6diuxi3ixjvo6g3fknp/post/3n27rd62o5c2d"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T1950:63f14698",
+   "type": "hashtag_burst",
+   "key": "musicchallenge",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3okdf7tswh7xsi7cnxla6c6x/post/3n27qzvwvjs25",
+    "https://bsky.app/profile/did:plc:7khm6ahoqy634ohxkyoa5sv7/post/3n27regwjpc2k",
+    "https://bsky.app/profile/did:plc:cflucas6pvfrccrpqrnagniz/post/3n27qytz7ds2t",
+    "https://bsky.app/profile/did:plc:m7lcs42fl4fklc3jn4cotlu4/post/3n27r3gtdzs2n",
+    "https://bsky.app/profile/did:plc:m7mlyaw65c6rxvqkwdex7kcz/post/3n27r4vmhb22p"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T1950:6b615de9",
+   "type": "link_burst",
+   "key": "https://theguardian.com/us-news/2026/nov/13/trump-nvidia-stock-jensen-huang-us-china",
+   "accounts": 7,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 7,
+   "resolved_share": 1.0,
+   "established_share": 0.857,
+   "why": "7 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 86% of 7 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7sd44yptb72sxbtgwe2sptlr/post/3n27r443mlk2f",
+    "https://bsky.app/profile/did:plc:f6vzq5ful3a3x2mq4hc5qkvi/post/3n27refkrcs2o",
+    "https://bsky.app/profile/did:plc:j3wzbxe2zlmb7ydx6owhp5m6/post/3n27ra5c2ds2b",
+    "https://bsky.app/profile/did:plc:j3wzbxe2zlmb7ydx6owhp5m6/post/3n27rfzacfk26",
+    "https://bsky.app/profile/did:plc:pq3ovbgkxt5tzy4xpvum6jn5/post/3n27rchgjam2p"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:54c16d07",
+   "type": "popular_post",
+   "key": "at://did:plc:4llrhdclvdlmmynkwsmg5tdc/app.bsky.feed.post/3n27ofreers2h",
+   "accounts": 643,
+   "posts": 643,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "643 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4llrhdclvdlmmynkwsmg5tdc/post/3n27ofreers2h"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:b4f868a4",
+   "type": "popular_post",
+   "key": "at://did:plc:ejihld4sywvvqwe67cdkn4jq/app.bsky.feed.post/3n27my7kekk2u",
+   "accounts": 564,
+   "posts": 564,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "564 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:ejihld4sywvvqwe67cdkn4jq/post/3n27my7kekk2u"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:ef9f24d7",
+   "type": "popular_post",
+   "key": "at://did:plc:2zmlpiynrrzsqsq2m3b4waxe/app.bsky.feed.post/3n27l6j7k622d",
+   "accounts": 416,
+   "posts": 416,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "416 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2zmlpiynrrzsqsq2m3b4waxe/post/3n27l6j7k622d"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:ecf4c601",
+   "type": "popular_post",
+   "key": "at://did:plc:x4g4laxkmsrczwvnvbbgsm7g/app.bsky.feed.post/3n27prpdyrs2t",
+   "accounts": 378,
+   "posts": 378,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "378 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:x4g4laxkmsrczwvnvbbgsm7g/post/3n27prpdyrs2t"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:80a409fc",
+   "type": "popular_post",
+   "key": "at://did:plc:3i4ezbrmg4mxm5l4eaijajq2/app.bsky.feed.post/3n27h2rjvms2c",
+   "accounts": 338,
+   "posts": 338,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "338 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3i4ezbrmg4mxm5l4eaijajq2/post/3n27h2rjvms2c"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:5dcbcad4",
+   "type": "popular_post",
+   "key": "at://did:plc:uayevtgtbwot25zhocjzb6lv/app.bsky.feed.post/3n27o72ii2227",
+   "accounts": 326,
+   "posts": 326,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "326 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:uayevtgtbwot25zhocjzb6lv/post/3n27o72ii2227"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:79779637",
+   "type": "popular_post",
+   "key": "at://did:plc:sk6jryjhuavqchpa53jlcsyu/app.bsky.feed.post/3n27qikfdp22c",
+   "accounts": 319,
+   "posts": 319,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.925,
+   "why": "319 accounts liked or reposted the same post within 10 minutes; 92% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:sk6jryjhuavqchpa53jlcsyu/post/3n27qikfdp22c"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T1950:a8692dfe",
+   "type": "popular_post",
+   "key": "at://did:plc:5o6k7jvowuyaquloafzn3cfw/app.bsky.feed.post/3n27nxvsrzk2e",
+   "accounts": 307,
+   "posts": 307,
+   "window_start": "2026-11-13T19:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "307 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5o6k7jvowuyaquloafzn3cfw/post/3n27nxvsrzk2e"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:e96af6e2",
+   "type": "hashtag_burst",
+   "key": "furry",
+   "accounts": 28,
+   "posts": 30,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 28,
+   "resolved_share": 1.0,
+   "established_share": 0.821,
+   "why": "28 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 82% of 28 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:264gkdt4pbhwsut2byo642eu/post/3n27vfd4ip22p",
+    "https://bsky.app/profile/did:plc:3ovyrvwvaikhcxdbg3aq3ev7/post/3n27uzrecss2k",
+    "https://bsky.app/profile/did:plc:47d5ein7vr62qyyfucue7cfh/post/3n27v4azpuk2y",
+    "https://bsky.app/profile/did:plc:6s2ghegrc7qz3zc3276e6qcg/post/3n27vck3pks27",
+    "https://bsky.app/profile/did:plc:6ux456e4w34e6ykmqoywep5k/post/3n27vbr7wps2a"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:278ac79f",
+   "type": "hashtag_burst",
+   "key": "vtuber",
+   "accounts": 28,
+   "posts": 28,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 28,
+   "resolved_share": 1.0,
+   "established_share": 0.857,
+   "why": "28 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 86% of 28 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:434tl2fsuffsnwtmazavofxy/post/3n27uv47jn52z",
+    "https://bsky.app/profile/did:plc:63tne35duaubrrdxhvhtby34/post/3n27v2a5ghk2b",
+    "https://bsky.app/profile/did:plc:7g7mcbtiwloiuczhvp7ti2az/post/3n27vb4lzjs2f",
+    "https://bsky.app/profile/did:plc:affra5nwzcge33vazgfdgmrj/post/3n27uwa3jnk2v",
+    "https://bsky.app/profile/did:plc:aokrpivz77k5spmn3rhwgf6l/post/3n27uw3kaal2c"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:7c7acb27",
+   "type": "hashtag_burst",
+   "key": "fravrsa",
+   "accounts": 20,
+   "posts": 24,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 20,
+   "resolved_share": 1.0,
+   "established_share": 0.95,
+   "why": "20 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 95% of 20 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6ccdkcltnwovlshjvpmofvbp/post/3n27ve2erx22g",
+    "https://bsky.app/profile/did:plc:6zmy5ly2gmdiu2hs2nh3fcut/post/3n27uzpl2rs22",
+    "https://bsky.app/profile/did:plc:b5l6gt42tfwohqm7da7eugrj/post/3n27uvryg422r",
+    "https://bsky.app/profile/did:plc:caxdf56t7rczh6jewkxh34r7/post/3n27v2nmr722h",
+    "https://bsky.app/profile/did:plc:caxdf56t7rczh6jewkxh34r7/post/3n27vci744c2h"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:96a00c93",
+   "type": "hashtag_burst",
+   "key": "photography",
+   "accounts": 20,
+   "posts": 23,
+   "duplicate_text_share": 0.13,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 20,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "20 accounts used the same hashtag within 10 minutes, 13% of posts reuse another account's text; 85% of 20 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3ibscefletpjae6cgomeg2q3/post/3n27uy46vis2c",
+    "https://bsky.app/profile/did:plc:434tl2fsuffsnwtmazavofxy/post/3n27uv47jn52z",
+    "https://bsky.app/profile/did:plc:45etljjzylj5fjlenwcllmqy/post/3n27uvbczy62i",
+    "https://bsky.app/profile/did:plc:77s6phfvjszfuvgmrmvswyv4/post/3n27vdkuttc2t",
+    "https://bsky.app/profile/did:plc:aazdube6zsi7pf4tama5zz4n/post/3n27uxwzpek27"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:5b6be8c0",
+   "type": "hashtag_burst",
+   "key": "music",
+   "accounts": 17,
+   "posts": 22,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 17,
+   "resolved_share": 1.0,
+   "established_share": 0.941,
+   "why": "17 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 94% of 17 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2j4hhv35h3t4apj5ya7wziex/post/3n27v2vwsya25",
+    "https://bsky.app/profile/did:plc:5kpp2cesd242ejzztwwdvqym/post/3n27uxcmizo2x",
+    "https://bsky.app/profile/did:plc:5kpp2cesd242ejzztwwdvqym/post/3n27v4etxy32g",
+    "https://bsky.app/profile/did:plc:5kpp2cesd242ejzztwwdvqym/post/3n27vdb7kfv2g",
+    "https://bsky.app/profile/did:plc:caxdbwoj2hatvxpa6l66sdnb/post/3n27vadqu7s2f"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:e0ee55f0",
+   "type": "hashtag_burst",
+   "key": "lostandsound",
+   "accounts": 16,
+   "posts": 16,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 16,
+   "resolved_share": 1.0,
+   "established_share": 0.938,
+   "why": "16 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 94% of 16 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4pueqfx3yx4jzcccc6tyr7j2/post/3n27uxzvulk2e",
+    "https://bsky.app/profile/did:plc:54umlevix7s2f3lj4xf74txn/post/3n27vc6dcnc2j",
+    "https://bsky.app/profile/did:plc:5h4oxakd7hgfv56usa7rldjb/post/3n27ux5qks22l",
+    "https://bsky.app/profile/did:plc:7nhj4knavgrdvq3mjykw5fnt/post/3n27uyhrzi22d",
+    "https://bsky.app/profile/did:plc:7tirwznlixpblk3manvw7v3j/post/3n27uwxbrm226"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:1e9df4c8",
+   "type": "hashtag_burst",
+   "key": "ismuasmonthofmusic",
+   "accounts": 13,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 13,
+   "resolved_share": 1.0,
+   "established_share": 0.846,
+   "why": "13 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 85% of 13 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4pueqfx3yx4jzcccc6tyr7j2/post/3n27uv4b53c2e",
+    "https://bsky.app/profile/did:plc:4qpn4nwl37iohuzrbgsqhnj6/post/3n27uv4wbtk23",
+    "https://bsky.app/profile/did:plc:ajkgi4xnrumeqebtv7w7bnpz/post/3n27vaw4vm22z",
+    "https://bsky.app/profile/did:plc:b7ygiji2jenkmzdfvpqveoso/post/3n27uy4il322t",
+    "https://bsky.app/profile/did:plc:bu3vqeepgs33oh7hcy4b7o62/post/3n27uv4fpks2o"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:c44c697f",
+   "type": "hashtag_burst",
+   "key": "fanart",
+   "accounts": 12,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.917,
+   "why": "12 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 92% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:25my2prhdnorinbklgnnjkga/post/3n27v5akj4k23",
+    "https://bsky.app/profile/did:plc:cnggcusdtagadvxiw3okqynh/post/3n27vge6zqk2p",
+    "https://bsky.app/profile/did:plc:daw5tuwqqsmg3cfkz25tmqqf/post/3n27v7paq4s2h",
+    "https://bsky.app/profile/did:plc:dha46253rgfuidqckk7ow5hk/post/3n27vbekl222v",
+    "https://bsky.app/profile/did:plc:gcfmxq3jpku65apsvekxfita/post/3n27v43g3t22y"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:93d78aca",
+   "type": "hashtag_burst",
+   "key": "fridaythe13th",
+   "accounts": 12,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.833,
+   "why": "12 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 83% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2qgjuy2r6dfmu3dfjnruka6b/post/3n27vb2mges2f",
+    "https://bsky.app/profile/did:plc:4zl36tfow2byr7saqzwgihi7/post/3n27v4i3mf22n",
+    "https://bsky.app/profile/did:plc:6qj4jtdcdlysmrbin6gz7zal/post/3n27veb3xos24",
+    "https://bsky.app/profile/did:plc:bos5t4lhzc4l3dfcvpfk4cmj/post/3n27ve7gbw22v",
+    "https://bsky.app/profile/did:plc:cn3lysrrblfwq7xpo7hljj6u/post/3n27vdem22c2b"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:fc71e2c0",
+   "type": "hashtag_burst",
+   "key": "nedgre",
+   "accounts": 12,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.917,
+   "why": "12 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 92% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4kd5n5tbfoai7cemc2mgtmyk/post/3n27vd7szks2g",
+    "https://bsky.app/profile/did:plc:h3akkrn6p2eg4wllhuq7s32r/post/3n27v44bxgc2g",
+    "https://bsky.app/profile/did:plc:h3akkrn6p2eg4wllhuq7s32r/post/3n27vb3rso22g",
+    "https://bsky.app/profile/did:plc:mowcwdum5hehhdopvt455fz6/post/3n27v6z4i2s2p",
+    "https://bsky.app/profile/did:plc:mowcwdum5hehhdopvt455fz6/post/3n27vfa5jn22p"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:429436b6",
+   "type": "hashtag_burst",
+   "key": "twitch",
+   "accounts": 12,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.833,
+   "why": "12 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 83% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7lmmvkmxewonp5ipufw6at6b/post/3n27v2wfmis2r",
+    "https://bsky.app/profile/did:plc:aokrpivz77k5spmn3rhwgf6l/post/3n27uw3kaal2c",
+    "https://bsky.app/profile/did:plc:csmb3s4myw7e5oskze5jewot/post/3n27uz6gkzk2v",
+    "https://bsky.app/profile/did:plc:fr65w7fpc2j54hghbkd27c27/post/3n27vdgahrs2d",
+    "https://bsky.app/profile/did:plc:holz32vuiqt57xdr4jbbikmv/post/3n27v5xzq6k2r"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:ccc55ca3",
+   "type": "hashtag_burst",
+   "key": "fatcockfriday",
+   "accounts": 11,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.909,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 91% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:26rw3nessh23qwad6qg3xivk/post/3n27v352g3227",
+    "https://bsky.app/profile/did:plc:2gajc43itmwhngl7h2wchse4/post/3n27uvxihvc2t",
+    "https://bsky.app/profile/did:plc:2ymblqktgcq3vwa7xfch7r2c/post/3n27uwp5v722o",
+    "https://bsky.app/profile/did:plc:3zbz5ycbuwuxvclpzvxk3j27/post/3n27v3wfzqs2k",
+    "https://bsky.app/profile/did:plc:db57uuoeffudmhyudnvn3b2z/post/3n27v3pywbk2g"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:9dd16ff5",
+   "type": "hashtag_burst",
+   "key": "fursuitfriday",
+   "accounts": 11,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.909,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 91% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2pt66k6wlxnbbstqpf3klgnv/post/3n27uzrtcyx2t",
+    "https://bsky.app/profile/did:plc:6ksvugfazs4ovhokwm5hbpi2/post/3n27uwedytk23",
+    "https://bsky.app/profile/did:plc:6ux456e4w34e6ykmqoywep5k/post/3n27vbr7wps2a",
+    "https://bsky.app/profile/did:plc:7dnrpog4mgrrhtdsttacwsl3/post/3n27v3uyvg22y",
+    "https://bsky.app/profile/did:plc:aclw7lee3a7dm2tmis3ehzox/post/3n27vdypa3c2d"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:d0ce3c9d",
+   "type": "hashtag_burst",
+   "key": "writingcommunity",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 90% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:c4de4i45mz53ts574u7irtgl/post/3n27uxtpvh52w",
+    "https://bsky.app/profile/did:plc:cihu4kaiav4snvlypetz7lov/post/3n27veqxqpk2x",
+    "https://bsky.app/profile/did:plc:cyumkfrvastqpn4wrpja5evh/post/3n27uwuxbss2n",
+    "https://bsky.app/profile/did:plc:e3spvzyqbn56z3kvemfse5ca/post/3n27v27knus2p",
+    "https://bsky.app/profile/did:plc:gm4evs7f53muwucow5lghdvr/post/3n27v54lxcs2d"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:bd236d1d",
+   "type": "hashtag_burst",
+   "key": "commission",
+   "accounts": 9,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:e7vpwzcfk5hbwboujwcx7jw6/post/3n27vfm2xos2w",
+    "https://bsky.app/profile/did:plc:hmxzld4koh3x2udneommzmvz/post/3n27uvaavym2w",
+    "https://bsky.app/profile/did:plc:i6rsgaq4xbadnrfk7ax6gu3f/post/3n27v7esqms24",
+    "https://bsky.app/profile/did:plc:idyzajqjdr5rjxeuwo4ykzg7/post/3n27uxgkfds2d",
+    "https://bsky.app/profile/did:plc:idyzajqjdr5rjxeuwo4ykzg7/post/3n27uygolos2d"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:7e24aadf",
+   "type": "hashtag_burst",
+   "key": "cumulusmx",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 0.889,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2wz6dsvevnu7jbymzx5ue47f/post/3n27uvaty2k23",
+    "https://bsky.app/profile/did:plc:5offp3xcgblct7m2ovykk3d2/post/3n27uwcnm7i2l",
+    "https://bsky.app/profile/did:plc:bh5ncheyyf75vbbemcmolcnp/post/3n27uv54zc42z",
+    "https://bsky.app/profile/did:plc:htrapz2xwmq7saxvo5r557by/post/3n27uv4orsu2p",
+    "https://bsky.app/profile/did:plc:i5q4gysyjkopkbvhvl43jzq7/post/3n27uvb7ca224"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:9bcaaa67",
+   "type": "hashtag_burst",
+   "key": "envtuber",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 0.889,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7ydwtaog5gs4swrvz4ic3cny/post/3n27vdqt2qv2k",
+    "https://bsky.app/profile/did:plc:affra5nwzcge33vazgfdgmrj/post/3n27uwa3jnk2v",
+    "https://bsky.app/profile/did:plc:ff7tmdekxp2kbuu7cdhfr5cq/post/3n27v5svgek2f",
+    "https://bsky.app/profile/did:plc:gcmn2lxyxofjntolboy46ek2/post/3n27uwmdask2y",
+    "https://bsky.app/profile/did:plc:hsd4n2rtxo76flzcohsye6kp/post/3n27v3cl6d22p"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2100:0be89d39",
+   "type": "hashtag_burst",
+   "key": "lasextadebate",
+   "accounts": 8,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5tbhmxymshvouy5evcfibf6e/post/3n27vc3qwvk2f",
+    "https://bsky.app/profile/did:plc:dmvuxyar3f6v3t6rsauv4q4d/post/3n27uwuj5o22l",
+    "https://bsky.app/profile/did:plc:he2fndxuvkl2tojjas4yb2ps/post/3n27v3tnmnk2f",
+    "https://bsky.app/profile/did:plc:k2wibetbhivaucvwwc6xa67e/post/3n27v6abfok2s",
+    "https://bsky.app/profile/did:plc:lnnmtwjwd5lc6mantnyac3ti/post/3n27vdmx3x22l"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2100:984fb9d0",
+   "type": "link_burst",
+   "key": "https://nasstatus.faa.gov",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3bqvbzpwgi5mqeqs6qlym26j/post/3n27vf6rs7s2q",
+    "https://bsky.app/profile/did:plc:4dextl2r5komf3gaq4x7dyk3/post/3n27vcwftuk27",
+    "https://bsky.app/profile/did:plc:4jjekvbxopsdtmezsmycpveb/post/3n27vdmqouk2b",
+    "https://bsky.app/profile/did:plc:4qhxcckomvl6hvhvcl6axcoo/post/3n27v3t6yus2o",
+    "https://bsky.app/profile/did:plc:7migibs2fyj2psyy6lmkul3h/post/3n27uwds5kc2q"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:c529d701",
+   "type": "popular_post",
+   "key": "at://did:plc:3i4ezbrmg4mxm5l4eaijajq2/app.bsky.feed.post/3n27u4rig6s2e",
+   "accounts": 431,
+   "posts": 431,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "431 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3i4ezbrmg4mxm5l4eaijajq2/post/3n27u4rig6s2e"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:f7970840",
+   "type": "popular_post",
+   "key": "at://did:plc:gtvctdk42imc65vk7un7iccc/app.bsky.feed.post/3n27u2oh3sc2l",
+   "accounts": 428,
+   "posts": 428,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "428 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:gtvctdk42imc65vk7un7iccc/post/3n27u2oh3sc2l"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:c65e8288",
+   "type": "popular_post",
+   "key": "at://did:plc:3i4ezbrmg4mxm5l4eaijajq2/app.bsky.feed.post/3n27uj2iftc2e",
+   "accounts": 384,
+   "posts": 384,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "384 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3i4ezbrmg4mxm5l4eaijajq2/post/3n27uj2iftc2e"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:f93df6e5",
+   "type": "popular_post",
+   "key": "at://did:plc:rrrz7ybcoecyzw6clbrheekb/app.bsky.feed.post/3n27rqz34ms2r",
+   "accounts": 380,
+   "posts": 380,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "380 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:rrrz7ybcoecyzw6clbrheekb/post/3n27rqz34ms2r"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:3ad2896c",
+   "type": "popular_post",
+   "key": "at://did:plc:2zmlpiynrrzsqsq2m3b4waxe/app.bsky.feed.post/3n27ungjv2k2j",
+   "accounts": 377,
+   "posts": 377,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "377 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2zmlpiynrrzsqsq2m3b4waxe/post/3n27ungjv2k2j"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:b8430263",
+   "type": "popular_post",
+   "key": "at://did:plc:mx6rytey7k2tvqby4kawji6e/app.bsky.feed.post/3n27uirgw5s2e",
+   "accounts": 318,
+   "posts": 318,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "318 accounts liked or reposted the same post within 10 minutes; 90% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:mx6rytey7k2tvqby4kawji6e/post/3n27uirgw5s2e"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:918c7444",
+   "type": "popular_post",
+   "key": "at://did:plc:a4pqq234yw7fqbddawjo7y35/app.bsky.feed.post/3n27uvnv7xf2w",
+   "accounts": 302,
+   "posts": 302,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "302 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:a4pqq234yw7fqbddawjo7y35/post/3n27uvnv7xf2w"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2100:16841ee7",
+   "type": "popular_post",
+   "key": "at://did:plc:56dsko76t7nehwfz63fnl72c/app.bsky.feed.post/3n27pnu5nj22n",
+   "accounts": 282,
+   "posts": 282,
+   "window_start": "2026-11-13T21:00:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "282 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:56dsko76t7nehwfz63fnl72c/post/3n27pnu5nj22n"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:96a00c93",
+   "type": "hashtag_burst",
+   "key": "photography",
+   "accounts": 26,
+   "posts": 28,
+   "duplicate_text_share": 0.107,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 26,
+   "resolved_share": 1.0,
+   "established_share": 0.808,
+   "why": "26 accounts used the same hashtag within 10 minutes, 11% of posts reuse another account's text; 81% of 26 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:42e6uzppuv7duucjokjhvyss/post/3n27vi3uqfc2g",
+    "https://bsky.app/profile/did:plc:4nsdrdxu5kblfz6jwxqzggb2/post/3n27vqg25z22m",
+    "https://bsky.app/profile/did:plc:7wx5d4yuwwflu6dfdmbbalym/post/3n27vrb6amuka",
+    "https://bsky.app/profile/did:plc:7wx5d4yuwwflu6dfdmbbalym/post/3n27vvolsos2o",
+    "https://bsky.app/profile/did:plc:7wx5d4yuwwflu6dfdmbbalym/post/3n27vwbctn22o"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:63f14698",
+   "type": "hashtag_burst",
+   "key": "musicchallenge",
+   "accounts": 25,
+   "posts": 33,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 25,
+   "resolved_share": 1.0,
+   "established_share": 0.96,
+   "why": "25 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 96% of 25 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3pgxabdljjkaza2w43l6gy4e/post/3n27vmhrk7c23",
+    "https://bsky.app/profile/did:plc:3pgxabdljjkaza2w43l6gy4e/post/3n27vrk6uns23",
+    "https://bsky.app/profile/did:plc:3pgxabdljjkaza2w43l6gy4e/post/3n27vw44hg223",
+    "https://bsky.app/profile/did:plc:4e2kgineslgeouhwos3rq7d7/post/3n27vpb66ak2w",
+    "https://bsky.app/profile/did:plc:4e2kgineslgeouhwos3rq7d7/post/3n27vqgcph22w"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:fecd2939",
+   "type": "hashtag_burst",
+   "key": "oc",
+   "accounts": 20,
+   "posts": 20,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 20,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "20 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 20 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2n6jdtgz2l3ama6v46p3ftw3/post/3n27vwac7os2h",
+    "https://bsky.app/profile/did:plc:3cww7a44ab5ivdx3ba6baqe6/post/3n27vqs7d522i",
+    "https://bsky.app/profile/did:plc:65l2o5b34wdgdg7ole24e3mh/post/3n27vh3nhg22l",
+    "https://bsky.app/profile/did:plc:67q6pejkr4isbq4nh36tfeqq/post/3n27vjt2gds2o",
+    "https://bsky.app/profile/did:plc:7gbbzuutnudg27xvbax45esx/post/3n27vxqrgec2t"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:d3a06c3b",
+   "type": "hashtag_burst",
+   "key": "faa",
+   "accounts": 19,
+   "posts": 19,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 19,
+   "resolved_share": 1.0,
+   "established_share": 0.895,
+   "why": "19 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 19 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:223yxsx3ifr4vghg36hi3w4a/post/3n27vxhkpp22q",
+    "https://bsky.app/profile/did:plc:2q2l4cds3hydbwoksppuy3hr/post/3n27vuz6ouc2u",
+    "https://bsky.app/profile/did:plc:2sf5yhuzz2ex7fxectvlhkrj/post/3n27vr646hk2e",
+    "https://bsky.app/profile/did:plc:5txucn2gpizzr3ulrh3bxt26/post/3n27vmdn4vk2e",
+    "https://bsky.app/profile/did:plc:63fd5ibc26qgzn6d5kl2wgqr/post/3n27vt7qwbc2g"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:90856d78",
+   "type": "hashtag_burst",
+   "key": "musicsky",
+   "accounts": 16,
+   "posts": 19,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 16,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "16 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 16 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4e2kgineslgeouhwos3rq7d7/post/3n27vpb66ak2w",
+    "https://bsky.app/profile/did:plc:4e2kgineslgeouhwos3rq7d7/post/3n27vqgcph22w",
+    "https://bsky.app/profile/did:plc:4e2kgineslgeouhwos3rq7d7/post/3n27vrod25k2w",
+    "https://bsky.app/profile/did:plc:6lr25odszxsj4wqctyrrvebb/post/3n27vub2b3k2i",
+    "https://bsky.app/profile/did:plc:ap4cxesskp2vder55hufjawf/post/3n27vjs42o225"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:9dd16ff5",
+   "type": "hashtag_burst",
+   "key": "fursuitfriday",
+   "accounts": 13,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 13,
+   "resolved_share": 1.0,
+   "established_share": 0.846,
+   "why": "13 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 85% of 13 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2oeiitcbjvfhuigxeztyixaz/post/3n27vojx2x22h",
+    "https://bsky.app/profile/did:plc:3fb4lv74bmwmry63bh26v2kj/post/3n27vtn7cq226",
+    "https://bsky.app/profile/did:plc:3uhm2oitznwsm34hvmcfchf7/post/3n27vtuymbc2e",
+    "https://bsky.app/profile/did:plc:4rt3od4lqxjdthvapbmtfrel/post/3n27vujwskk2i",
+    "https://bsky.app/profile/did:plc:5pqiqlhgdb4wfoyoe5vv24ed/post/3n27vlmykes2v"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:93d78aca",
+   "type": "hashtag_burst",
+   "key": "fridaythe13th",
+   "accounts": 11,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6iisc5trnlj3b34xh4l7b464/post/3n27vpif2w24w",
+    "https://bsky.app/profile/did:plc:7kkeijdopuldlmpclqgljip4/post/3n27vngf7ss2t",
+    "https://bsky.app/profile/did:plc:anufg5a66pdna4ojahjgfixs/post/3n27vy4z6ik2g",
+    "https://bsky.app/profile/did:plc:asfsgf64csmzb4z5ewz2oqjq/post/3n27vx376hs23",
+    "https://bsky.app/profile/did:plc:b7teq53t5mp7ldymij2h7ejs/post/3n27vjkv5yk2i"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:2e06fdcb",
+   "type": "hashtag_burst",
+   "key": "furryart",
+   "accounts": 10,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3bzjcokyjeowhft6baiu52m6/post/3n27vs3pnxs27",
+    "https://bsky.app/profile/did:plc:53qmvhqm4fbdtnrhfwq3ssem/post/3n27vjk5vu22e",
+    "https://bsky.app/profile/did:plc:6z3xpjy7ifjwi6hswz2a4ztj/post/3n27vhbans22r",
+    "https://bsky.app/profile/did:plc:h2go4atbpgzfv6e3ua5carux/post/3n27vs3h3kk2o",
+    "https://bsky.app/profile/did:plc:k6a35s56ijvrb4zjkq4ojll5/post/3n27vrokwgy2y"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:e0ee55f0",
+   "type": "hashtag_burst",
+   "key": "lostandsound",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 90% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3pgxabdljjkaza2w43l6gy4e/post/3n27vmhrk7c23",
+    "https://bsky.app/profile/did:plc:4e2kgineslgeouhwos3rq7d7/post/3n27vpb66ak2w",
+    "https://bsky.app/profile/did:plc:63n7yw5crqengderhhoujvbf/post/3n27vgyrlv222",
+    "https://bsky.app/profile/did:plc:eouujdhynaf4biip3w2ktbhm/post/3n27vylmgnc2u",
+    "https://bsky.app/profile/did:plc:ikvuhx7pcyhabyx63q2zueez/post/3n27vgz6sm22x"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:f640c9fc",
+   "type": "hashtag_burst",
+   "key": "nvidia",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 90% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:cvnlf46y2enxfkgky5ckouk3/post/3n27vqnwq222q",
+    "https://bsky.app/profile/did:plc:dihvdmlzkxrdylmmfad463xp/post/3n27vkdefhs2a",
+    "https://bsky.app/profile/did:plc:hcmmc64a76g3wyh4wiarlm63/post/3n27vocink42j",
+    "https://bsky.app/profile/did:plc:rgbrnutub7k5cwphwybm5h7g/post/3n27vyq4tqc2u",
+    "https://bsky.app/profile/did:plc:sfdftqy7jnznx3xqpsqccxlc/post/3n27vje4t362m"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:3389e5fb",
+   "type": "hashtag_burst",
+   "key": "originalcharacter",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:37bftcf6lq6cx7e3rxsxa3k4/post/3n27vr3fn4226",
+    "https://bsky.app/profile/did:plc:6j6lhpkxaucupwbtlkkmmbvz/post/3n27vxu22yk2p",
+    "https://bsky.app/profile/did:plc:7crbl3viov45hqyjxjlf7xgr/post/3n27vx7ntvk2z",
+    "https://bsky.app/profile/did:plc:7kkecvrt5wup7vs27h6rxyrd/post/3n27vpshjbk22",
+    "https://bsky.app/profile/did:plc:ajqldbtfx5avt5rv3lapykbk/post/3n27vs4nznk2x"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:7c7acb27",
+   "type": "hashtag_burst",
+   "key": "fravrsa",
+   "accounts": 9,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7japob2jkqmdyzhyg3wm7hl6/post/3n27vot5byc27",
+    "https://bsky.app/profile/did:plc:b5l6gt42tfwohqm7da7eugrj/post/3n27vjuqhtk2r",
+    "https://bsky.app/profile/did:plc:hfcxwf3ekxgkp4iy47xk66ox/post/3n27vv5cqh22m",
+    "https://bsky.app/profile/did:plc:jglo5gxqlgvmqxvpupa4scyv/post/3n27vnaccj22p",
+    "https://bsky.app/profile/did:plc:jxmfqdzjtmbuwvhgeagtqbst/post/3n27vhvz4ic2t"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2110:687ce3e5",
+   "type": "hashtag_burst",
+   "key": "filmsky",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:ez22b2zew4qmalruoakz3ofz/post/3n27vkeu3i423",
+    "https://bsky.app/profile/did:plc:i3ojw3ktzo5xf5fh6mwohggk/post/3n27vn67zg22t",
+    "https://bsky.app/profile/did:plc:miq2xe2ewatytugsrtdxkneu/post/3n27vjcxhtc2e",
+    "https://bsky.app/profile/did:plc:otcsjmt2vlamox74h7ghe7bs/post/3n27vnihgxc2b",
+    "https://bsky.app/profile/did:plc:rgjs2usiikv7ladx2lthc4cy/post/3n27vwupqbz2y"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:714a2bae",
+   "type": "link_burst",
+   "key": "https://nbcnews.com/news/us-news/faa-orders-nationwide-ground-stop-departing-flights-reasons-safety-rcna609247",
+   "accounts": 36,
+   "posts": 37,
+   "duplicate_text_share": 0.125,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 36,
+   "resolved_share": 1.0,
+   "established_share": 0.944,
+   "why": "36 accounts posted the same link within 10 minutes, 12% of posts reuse another account's text; 94% of 36 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2chpg3o4dlses2cg44otjnwd/post/3n27vyr23bs2t",
+    "https://bsky.app/profile/did:plc:3bwai2js6kopezy6mantdvkl/post/3n27vxwczxc2b",
+    "https://bsky.app/profile/did:plc:3rizd6kdxg7jsluit7kqgx7h/post/3n27vwdmc7s27",
+    "https://bsky.app/profile/did:plc:a3ls5giu467zlydjiewkdew4/post/3n27vwoy3t22w",
+    "https://bsky.app/profile/did:plc:asrtqkfas4np6jem42rpam2h/post/3n27vwy6olc2j"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:dfca236a",
+   "type": "link_burst",
+   "key": "https://cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+   "accounts": 30,
+   "posts": 31,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 30,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "30 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 30 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2cf5d2nbyhzs5eymarhxmmmf/post/3n27vl52zos2x",
+    "https://bsky.app/profile/did:plc:3nmua3cuou4asrp77ugchmsc/post/3n27vu2ap6c27",
+    "https://bsky.app/profile/did:plc:4fza43pc4brtxoauaf52hpit/post/3n27voa4ofk27",
+    "https://bsky.app/profile/did:plc:aiwdikara4nttlpz3k43gsuq/post/3n27vkl3joc2r",
+    "https://bsky.app/profile/did:plc:cyflytcyyyhawlrnnwiv25nd/post/3n27vpv6bncd6"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:8ff784b8",
+   "type": "link_burst",
+   "key": "https://cnbc.com/2026/11/13/faa-ground-stop.html",
+   "accounts": 26,
+   "posts": 29,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 26,
+   "resolved_share": 1.0,
+   "established_share": 0.962,
+   "why": "26 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 96% of 26 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3kcxxjx3znez2ccgut3yz64v/post/3n27vhfbop22a",
+    "https://bsky.app/profile/did:plc:3kfkgpigx63cal4kl3j7wlef/post/3n27vpajk3k2g",
+    "https://bsky.app/profile/did:plc:6ohkrji5f4drck2jy7es47qm/post/3n27vreifs22t",
+    "https://bsky.app/profile/did:plc:6w4v3jvwe5zpiyq3vhonlvfs/post/3n27vva6jx22h",
+    "https://bsky.app/profile/did:plc:6w4v3jvwe5zpiyq3vhonlvfs/post/3n27vx4ydl22h"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:3d9cc60c",
+   "type": "link_burst",
+   "key": "https://axios.com/2026/11/13/faa-nationwide-ground-stop",
+   "accounts": 24,
+   "posts": 24,
+   "duplicate_text_share": 0.143,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 24,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "24 accounts posted the same link within 10 minutes, 14% of posts reuse another account's text; 100% of 24 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5e2zd6bjnov7fphl4vy7y56c/post/3n27vs5lpts2b",
+    "https://bsky.app/profile/did:plc:6s677fteyg7dcopi4kq7jl3j/post/3n27vo53h3226",
+    "https://bsky.app/profile/did:plc:bx3puorwsinxwtzbevf64zlx/post/3n27vxqlc322s",
+    "https://bsky.app/profile/did:plc:ehkittg3llskaym4ii4ps6k6/post/3n27vsz22c22u",
+    "https://bsky.app/profile/did:plc:gnchr534k7635oltt6sm3s5f/post/3n27vk6yxkk2m"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:18572568",
+   "type": "link_burst",
+   "key": "https://abcnews.com/US/nationwide-ground-stop-ordered-airports-faa/story?id=138121848",
+   "accounts": 15,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 15,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "15 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 15 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2wcqfmr2ozhjfdmw7iksle2z/post/3n27vt5ko7s23",
+    "https://bsky.app/profile/did:plc:3bwai2js6kopezy6mantdvkl/post/3n27vv76cp22h",
+    "https://bsky.app/profile/did:plc:3msz4u75oukqhlw52filz6kp/post/3n27vxhyh5k2f",
+    "https://bsky.app/profile/did:plc:7fuxfwzthsbfpg2kes5yhntw/post/3n27vmmmvv22u",
+    "https://bsky.app/profile/did:plc:7zw63manhrckd6la3oyc33hf/post/3n27vo535ck24"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:3a597971",
+   "type": "link_burst",
+   "key": "https://arstechnica.com/ai/2026/11/faa-expands-ai-advice-to-manage-air-traffic-congestion-across-entire-us-airspace",
+   "accounts": 11,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "11 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6ef3aqehy5yatvmythdnk45v/post/3n27vqsy34s2f",
+    "https://bsky.app/profile/did:plc:7in2sffxrft4gxhwczwetosy/post/3n27vs7ogmc2o",
+    "https://bsky.app/profile/did:plc:afslee3qsj5ipgpospajftbi/post/3n27vkfnuzs2z",
+    "https://bsky.app/profile/did:plc:d6dbpryvpfljih7la67t3gqd/post/3n27vuckwpc2n",
+    "https://bsky.app/profile/did:plc:dk5w6bh54wm6rtxdnodx6pmv/post/3n27vtofq7s2e"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:6b09d417",
+   "type": "link_burst",
+   "key": "https://bsky.app/profile/flightradar24.com/post/3n27uz5p42c2d",
+   "accounts": 10,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "10 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2nlfru67tg6hkzz3tczccz7p/post/3n27vs53bi227",
+    "https://bsky.app/profile/did:plc:3fuvmnge3ev35m2cs7uzaqn4/post/3n27vpksv5k2r",
+    "https://bsky.app/profile/did:plc:547d56vgmbfutirr32nbwgcz/post/3n27vvfkczc2d",
+    "https://bsky.app/profile/did:plc:biuxa5pi4c3x7fschwlfp7js/post/3n27voujky22x",
+    "https://bsky.app/profile/did:plc:bxifsm4xz6ynacq5p5ypwrna/post/3n27vhj5jlk2w"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:984fb9d0",
+   "type": "link_burst",
+   "key": "https://nasstatus.faa.gov",
+   "accounts": 7,
+   "posts": 7,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 7,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "7 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 7 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2xllzcyvpmrwdb64byaskq55/post/3n27vkvh7wk24",
+    "https://bsky.app/profile/did:plc:426pqtanxfym3td2xbqk4ioo/post/3n27vh4hy2c2s",
+    "https://bsky.app/profile/did:plc:6rldflbujw5d7mofcrr6fzo6/post/3n27vjkg7i22l",
+    "https://bsky.app/profile/did:plc:bx3puorwsinxwtzbevf64zlx/post/3n27vku2n6c2s",
+    "https://bsky.app/profile/did:plc:i4n3vgfhjaipj3o6jshcb5xi/post/3n27vmjrcak2y"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:2714d2a3",
+   "type": "link_burst",
+   "key": "https://wpc.ncep.noaa.gov/qpf/excessive_rainfall_outlook_ero.php",
+   "accounts": 7,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 7,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "7 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 7 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:ca323zlmmd4mdmdp5hrhwua6/post/3n27vs3voci2y",
+    "https://bsky.app/profile/did:plc:cjmxrbf4c7ekfydjr5raiwq6/post/3n27vrx2pxy2e",
+    "https://bsky.app/profile/did:plc:iievcbjdtayvn67km3uhetyg/post/3n27vs2t2mn2d",
+    "https://bsky.app/profile/did:plc:o7qwuwkne5pecoeowl2cwmbg/post/3n27vs4mmoi2y",
+    "https://bsky.app/profile/did:plc:o7qwuwkne5pecoeowl2cwmbg/post/3n27vs6mvx22k"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2110:1dd54e24",
+   "type": "link_burst",
+   "key": "https://nytimes.com/2026/11/13/us/politics/russia-demand-nato-ukraine.html",
+   "accounts": 5,
+   "posts": 5,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 5,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "5 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 5 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:ede7vytzyl7vums23i4oiz2a/post/3n27viqiric2e",
+    "https://bsky.app/profile/did:plc:fqyp4mcwxylqsmkdtydyqpb3/post/3n27vlgbx6s2h",
+    "https://bsky.app/profile/did:plc:i7k22mrne7tdnlmfmp3mq44k/post/3n27vni55u222",
+    "https://bsky.app/profile/did:plc:mv3g3m2vt4an2ljtkmznizpa/post/3n27vsgztss2k",
+    "https://bsky.app/profile/did:plc:yzzmjq5vp6ayt2sk2noazyaa/post/3n27vvufj322m"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:74ef0471",
+   "type": "popular_post",
+   "key": "at://did:plc:tn5jy73h5d24b6wjakw2zrsq/app.bsky.feed.post/3n27uz5p42c2d",
+   "accounts": 910,
+   "posts": 910,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "910 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:tn5jy73h5d24b6wjakw2zrsq/post/3n27uz5p42c2d"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:0bdc91b8",
+   "type": "popular_post",
+   "key": "at://did:plc:jxfqu53b6jtrqqntce6pseqh/app.bsky.feed.post/3n27v2y5gn22l",
+   "accounts": 804,
+   "posts": 804,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.925,
+   "why": "804 accounts liked or reposted the same post within 10 minutes; 92% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:jxfqu53b6jtrqqntce6pseqh/post/3n27v2y5gn22l"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:8dc61493",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27ufkokmk2p",
+   "accounts": 714,
+   "posts": 714,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "714 accounts liked or reposted the same post within 10 minutes; 90% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27ufkokmk2p"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:29c42e39",
+   "type": "popular_post",
+   "key": "at://did:plc:of56nmyuqzvjta7qlf7gwht6/app.bsky.feed.post/3n27vfnxddc2r",
+   "accounts": 606,
+   "posts": 606,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.95,
+   "why": "606 accounts liked or reposted the same post within 10 minutes; 95% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:of56nmyuqzvjta7qlf7gwht6/post/3n27vfnxddc2r"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:f93feced",
+   "type": "popular_post",
+   "key": "at://did:plc:4vd5wndiwpedc7fofjp2quxq/app.bsky.feed.post/3n27vbvf4gs27",
+   "accounts": 491,
+   "posts": 491,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "491 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4vd5wndiwpedc7fofjp2quxq/post/3n27vbvf4gs27"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:c65e8288",
+   "type": "popular_post",
+   "key": "at://did:plc:3i4ezbrmg4mxm5l4eaijajq2/app.bsky.feed.post/3n27uj2iftc2e",
+   "accounts": 447,
+   "posts": 447,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "447 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3i4ezbrmg4mxm5l4eaijajq2/post/3n27uj2iftc2e"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:c529d701",
+   "type": "popular_post",
+   "key": "at://did:plc:3i4ezbrmg4mxm5l4eaijajq2/app.bsky.feed.post/3n27u4rig6s2e",
+   "accounts": 433,
+   "posts": 433,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "433 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3i4ezbrmg4mxm5l4eaijajq2/post/3n27u4rig6s2e"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:f93df6e5",
+   "type": "popular_post",
+   "key": "at://did:plc:rrrz7ybcoecyzw6clbrheekb/app.bsky.feed.post/3n27rqz34ms2r",
+   "accounts": 390,
+   "posts": 390,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "390 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:rrrz7ybcoecyzw6clbrheekb/post/3n27rqz34ms2r"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2110:ab41a9f9",
+   "type": "popular_post",
+   "key": "at://did:plc:4llrhdclvdlmmynkwsmg5tdc/app.bsky.feed.post/3n27vcwl3gk2h",
+   "accounts": 365,
+   "posts": 365,
+   "window_start": "2026-11-13T21:10:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "365 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4llrhdclvdlmmynkwsmg5tdc/post/3n27vcwl3gk2h"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:d3a06c3b",
+   "type": "hashtag_burst",
+   "key": "faa",
+   "accounts": 31,
+   "posts": 38,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 31,
+   "resolved_share": 1.0,
+   "established_share": 0.839,
+   "why": "31 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 84% of 31 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2fnn7lserf72bzwnkolokbea/post/3n27vzuytis2i",
+    "https://bsky.app/profile/did:plc:2j4eyednzv7y3djc2jrlllye/post/3n27wh4der227",
+    "https://bsky.app/profile/did:plc:455zs6kigjmj5sjyctuohige/post/3n27wjtlqa22p",
+    "https://bsky.app/profile/did:plc:4bdd43hwfondriem6t4cz4mn/post/3n27we64qyc22",
+    "https://bsky.app/profile/did:plc:5julqeiunt4ix6ettx26rxrr/post/3n27wkmt3gc2x"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:ab88c601",
+   "type": "hashtag_burst",
+   "key": "nowplaying",
+   "accounts": 24,
+   "posts": 48,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 24,
+   "resolved_share": 1.0,
+   "established_share": 0.833,
+   "why": "24 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 83% of 24 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:34w6p2nygxpqkiqbkrnq56ip/post/3n27vzc3r7t2s",
+    "https://bsky.app/profile/did:plc:34w6p2nygxpqkiqbkrnq56ip/post/3n27w6oe5py22",
+    "https://bsky.app/profile/did:plc:34w6p2nygxpqkiqbkrnq56ip/post/3n27wdzkr6c2m",
+    "https://bsky.app/profile/did:plc:3judfjtr342mlrhlkc57dehk/post/3n27w5rva3b2w",
+    "https://bsky.app/profile/did:plc:4e2vd5fngcvxu3tj4yjyc5jl/post/3n27vyxf6kh2w"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:e96af6e2",
+   "type": "hashtag_burst",
+   "key": "furry",
+   "accounts": 19,
+   "posts": 20,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 19,
+   "resolved_share": 1.0,
+   "established_share": 0.842,
+   "why": "19 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 84% of 19 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5wdx7gnmxpfvwqp2citul5vc/post/3n27w5rkuac2l",
+    "https://bsky.app/profile/did:plc:aze7wdjs4dgt3dct3cbbtui6/post/3n27w665f3s2d",
+    "https://bsky.app/profile/did:plc:cbujv47cn5dm3ez7bplucr4b/post/3n27vywhlzc23",
+    "https://bsky.app/profile/did:plc:cvwg4dzagks5azrxrslo2ros/post/3n27walwras2q",
+    "https://bsky.app/profile/did:plc:dkxxtlwpkicue3k3764qzmq6/post/3n27w6n7po22f"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:93d78aca",
+   "type": "hashtag_burst",
+   "key": "fridaythe13th",
+   "accounts": 13,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 13,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "13 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 13 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:due764fs3onxetsxab2jdnrw/post/3n27w6f32ts2a",
+    "https://bsky.app/profile/did:plc:efc32xtlfhsedp7mfkge4h2g/post/3n27whhmejc2n",
+    "https://bsky.app/profile/did:plc:eq5rpi2p4vqu3qfsw3tlvbov/post/3n27wg4gvic2n",
+    "https://bsky.app/profile/did:plc:ewqyvvdqych3dxk56cymmlyn/post/3n27wd2b7ck2v",
+    "https://bsky.app/profile/did:plc:j4xjrhhm2vcedecd5dugjebw/post/3n27wcnns4s2j"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:c44c697f",
+   "type": "hashtag_burst",
+   "key": "fanart",
+   "accounts": 12,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.917,
+   "why": "12 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 92% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:22hh5cstsd3fvxtxldgbk4ci/post/3n27w7slvyc2e",
+    "https://bsky.app/profile/did:plc:4ib3m67rl65pjzunvdfhffx2/post/3n27whurzok2n",
+    "https://bsky.app/profile/did:plc:cglamv2fqif34xdnvjb4podp/post/3n27wk4f35s25",
+    "https://bsky.app/profile/did:plc:eenyvds6h3jdjdm2ypeyedyy/post/3n27w6byx722v",
+    "https://bsky.app/profile/did:plc:h7xyxfv6yvdf7i3s6pkp3w2g/post/3n27wg4wij22c"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:2e06fdcb",
+   "type": "hashtag_burst",
+   "key": "furryart",
+   "accounts": 11,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.909,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 91% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5xdxuzoz2z6ra37vatf2ufiq/post/3n27wjfdcr22m",
+    "https://bsky.app/profile/did:plc:7ynfkl6fm3tdexrwyv6axjcx/post/3n27wivpnis2a",
+    "https://bsky.app/profile/did:plc:b3gccpgvatx66e763aownbuu/post/3n27wib3aos26",
+    "https://bsky.app/profile/did:plc:cbujv47cn5dm3ez7bplucr4b/post/3n27vywhlzc23",
+    "https://bsky.app/profile/did:plc:gygzf2ihgxotd73jbya2k2jp/post/3n27w6u7rlk26"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:9dd16ff5",
+   "type": "hashtag_burst",
+   "key": "fursuitfriday",
+   "accounts": 11,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.818,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 82% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3jzstprnkp5lbckuolbkan7w/post/3n27wajqbcb2v",
+    "https://bsky.app/profile/did:plc:bwiqm5juef5lryu4nnyjx7c2/post/3n27wh4lco22j",
+    "https://bsky.app/profile/did:plc:cvy4xfrsj3by52nrqrr2ligv/post/3n27wh3xius2j",
+    "https://bsky.app/profile/did:plc:fgfx32n7qe3ncxvkor57beo3/post/3n27w7bf3z22g",
+    "https://bsky.app/profile/did:plc:fvdpzutziq7r4dozrql5dawj/post/3n27vybnark2p"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:3e2894a9",
+   "type": "hashtag_burst",
+   "key": "groundstop",
+   "accounts": 11,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.818,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 82% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2fnn7lserf72bzwnkolokbea/post/3n27vzuytis2i",
+    "https://bsky.app/profile/did:plc:765lruqs7clllnalkvh37lhs/post/3n27we22izc2n",
+    "https://bsky.app/profile/did:plc:7tanxeintwvkabrkbujur5k5/post/3n27w2d7mac2c",
+    "https://bsky.app/profile/did:plc:bfhq5ypis5jnzilpkapxvdu5/post/3n27w26ux6g2h",
+    "https://bsky.app/profile/did:plc:kfvqwkstbuelqxaayr4k6kul/post/3n27w34ih2c2m"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:a6af6998",
+   "type": "hashtag_burst",
+   "key": "aiイラスト",
+   "accounts": 10,
+   "posts": 17,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2a7teapvit6i36b5yz54ou3q/post/3n27wc6gkdc2o",
+    "https://bsky.app/profile/did:plc:3ovkyouqbdqq7oud5qc5djat/post/3n27w4h3j7k2u",
+    "https://bsky.app/profile/did:plc:763cbfktgizjksktmridyc2s/post/3n27w5zey5c2a",
+    "https://bsky.app/profile/did:plc:763cbfktgizjksktmridyc2s/post/3n27wbjzrns2a",
+    "https://bsky.app/profile/did:plc:763cbfktgizjksktmridyc2s/post/3n27wiakngs2a"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:68a473d9",
+   "type": "hashtag_burst",
+   "key": "breaking",
+   "accounts": 10,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 90% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5tw6fpra2gmgnk7oenohflo2/post/3n27wbsw2g52m",
+    "https://bsky.app/profile/did:plc:atnxcspr4rnzeznrjvazlyv2/post/3n27w7hopo32o",
+    "https://bsky.app/profile/did:plc:dcdkwzsffdzjrl6r4kw4ddai/post/3n27wi76x5p2n",
+    "https://bsky.app/profile/did:plc:k35pxbd3emkwtlui3qkl55ut/post/3n27w7agsbs2p",
+    "https://bsky.app/profile/did:plc:nvb7bhbjmwoh4duxhmyuwzdl/post/3n27wfwtfxx2s"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:429436b6",
+   "type": "hashtag_burst",
+   "key": "twitch",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4invt5ea7grz2rc3rsy2npiw/post/3n27w7q3qkk2g",
+    "https://bsky.app/profile/did:plc:bafb5ryupbllov3fkvnizudp/post/3n27wbaodms23",
+    "https://bsky.app/profile/did:plc:e7atjshglzzopqcmboss3nml/post/3n27w5ofxpsen",
+    "https://bsky.app/profile/did:plc:eeqz5v2rig7tdytjgcrv7u3n/post/3n27wcmx3ks2r",
+    "https://bsky.app/profile/did:plc:envxgmclgm2mjxeou6u7mix5/post/3n27vzq2h5c2x"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:7c7acb27",
+   "type": "hashtag_burst",
+   "key": "fravrsa",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6zmy5ly2gmdiu2hs2nh3fcut/post/3n27wjckhyc2n",
+    "https://bsky.app/profile/did:plc:caxdf56t7rczh6jewkxh34r7/post/3n27wh3qq3c2h",
+    "https://bsky.app/profile/did:plc:jxmfqdzjtmbuwvhgeagtqbst/post/3n27wkcczbs2t",
+    "https://bsky.app/profile/did:plc:khzhatochnxp3yaslgjmdvne/post/3n27wi6xqjs2r",
+    "https://bsky.app/profile/did:plc:nstutduavv4f7473kgqs4t7t/post/3n27wgfzzmc25"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:0be89d39",
+   "type": "hashtag_burst",
+   "key": "lasextadebate",
+   "accounts": 9,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5tbhmxymshvouy5evcfibf6e/post/3n27wcznzzk2f",
+    "https://bsky.app/profile/did:plc:chiskqzvha2qm5amgfjkgftx/post/3n27wdg4nv22w",
+    "https://bsky.app/profile/did:plc:hnt7wxghk7etcrrqckiwgtkw/post/3n27wexrues2l",
+    "https://bsky.app/profile/did:plc:iyzfhtwnxpclcapaeibdqlvv/post/3n27w6h4ars7r",
+    "https://bsky.app/profile/did:plc:jsok6awa5vcdjeymup27njf5/post/3n27w7mbqb32o"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:44dd005d",
+   "type": "hashtag_burst",
+   "key": "ukraine",
+   "accounts": 9,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 0.889,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3tsudanrfit7xcqzqz6ri3me/post/3n27wbse7zk2x",
+    "https://bsky.app/profile/did:plc:bx2one6aaewknjwqo4d56tpe/post/3n27wfdnnp22d",
+    "https://bsky.app/profile/did:plc:o7i2lq6vgo6fxcqtezwnkisa/post/3n27wfyontc2d",
+    "https://bsky.app/profile/did:plc:pc75ldm2gmsgbf7iloibfoxm/post/3n27wa4iufu22",
+    "https://bsky.app/profile/did:plc:pzaleljvuxe3r3a22hjvfzwh/post/3n27w2xzrmk2e"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:be4288fa",
+   "type": "hashtag_burst",
+   "key": "nature",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 88% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5vvpyksl32n4usbw6p4koxo2/post/3n27wgaw6h22n",
+    "https://bsky.app/profile/did:plc:go3zski2dqtchp7fwqaoh46u/post/3n27vyvtj7gb6",
+    "https://bsky.app/profile/did:plc:ipwvp6slntuyhs7unhfdyrya/post/3n27wdu34yk23",
+    "https://bsky.app/profile/did:plc:jedw5mupqdsuwj3n3nlmio4d/post/3n27w2zwmv22k",
+    "https://bsky.app/profile/did:plc:lc6hdhnjkgccd6ysi7e23pll/post/3n27waod6lw2i"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2120:96a00c93",
+   "type": "hashtag_burst",
+   "key": "photography",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6kzlg4obmpyqtikux4luxiiv/post/3n27wdu6y222s",
+    "https://bsky.app/profile/did:plc:dmiwxerzhk2tmvr2z3zg7lpn/post/3n27whkp7m22q",
+    "https://bsky.app/profile/did:plc:fbakiele22dtl4772bngagpb/post/3n27w66ez6ay2",
+    "https://bsky.app/profile/did:plc:gmrzcsbx7bnycw56tsmrk4b6/post/3n27wdulpbc2s",
+    "https://bsky.app/profile/did:plc:go3zski2dqtchp7fwqaoh46u/post/3n27vyvtj7gb6"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:714a2bae",
+   "type": "link_burst",
+   "key": "https://nbcnews.com/news/us-news/faa-orders-nationwide-ground-stop-departing-flights-reasons-safety-rcna609247",
+   "accounts": 56,
+   "posts": 60,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "56 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2lzahebnas6od6j6jfydwst7/post/3n27wby75hs2i",
+    "https://bsky.app/profile/did:plc:2pchbolosbg5qmgb4ftoibcr/post/3n27wcbncg22j",
+    "https://bsky.app/profile/did:plc:3gxfdbyr4ihn2ef6omtsfsn3/post/3n27wdq2cwc2s",
+    "https://bsky.app/profile/did:plc:3mp6ixkufgb4igojgbe3axt5/post/3n27wbst2n22g",
+    "https://bsky.app/profile/did:plc:4lofvnsxip52umrzqp535xj6/post/3n27wiimqa22y"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:dfca236a",
+   "type": "link_burst",
+   "key": "https://cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+   "accounts": 55,
+   "posts": 61,
+   "duplicate_text_share": 0.067,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.975,
+   "why": "55 accounts posted the same link within 10 minutes, 7% of posts reuse another account's text; 98% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:25tzdivo4gl5c4bapkpvvtap/post/3n27webhzm22z",
+    "https://bsky.app/profile/did:plc:2aph2py23xme2itms2pyh746/post/3n27wc66nfk2n",
+    "https://bsky.app/profile/did:plc:2aph2py23xme2itms2pyh746/post/3n27we5kwoc2n",
+    "https://bsky.app/profile/did:plc:2jcjjspua5vnwwmbq6gule5a/post/3n27vzcn2vs2p",
+    "https://bsky.app/profile/did:plc:2jj72z22uxorpgwuf6uc7hih/post/3n27wdjilyc2e"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:3a597971",
+   "type": "link_burst",
+   "key": "https://arstechnica.com/ai/2026/11/faa-expands-ai-advice-to-manage-air-traffic-congestion-across-entire-us-airspace",
+   "accounts": 23,
+   "posts": 25,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 23,
+   "resolved_share": 1.0,
+   "established_share": 0.957,
+   "why": "23 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 96% of 23 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2j4eyednzv7y3djc2jrlllye/post/3n27wh4der227",
+    "https://bsky.app/profile/did:plc:2vmkdhw6jj24w54xs34lrvvb/post/3n27wdgtgfk2p",
+    "https://bsky.app/profile/did:plc:3iwcjxt4lfrjqpeu2wvit4ag/post/3n27w3qfay22w",
+    "https://bsky.app/profile/did:plc:426pqtanxfym3td2xbqk4ioo/post/3n27wgalybk2s",
+    "https://bsky.app/profile/did:plc:4bw3gjgkmh4miq4dh3hcoj7v/post/3n27w67daz22f"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:8ff784b8",
+   "type": "link_burst",
+   "key": "https://cnbc.com/2026/11/13/faa-ground-stop.html",
+   "accounts": 17,
+   "posts": 19,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 17,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "17 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 17 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3ioiggzcggc3rjactd2rrdes/post/3n27vynoeyk2i",
+    "https://bsky.app/profile/did:plc:537bsf4flfakwbwtgqziloc4/post/3n27wdlasss25",
+    "https://bsky.app/profile/did:plc:d6cawnwofrjjkrw7qux4pyvm/post/3n27w2pm5os2o",
+    "https://bsky.app/profile/did:plc:huoxkqget5vmer3qjuldmu32/post/3n27wcwbq7c2h",
+    "https://bsky.app/profile/did:plc:jmuhjrotgvcquoaqtpcuxjii/post/3n27wg7y6gu2m"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:6b09d417",
+   "type": "link_burst",
+   "key": "https://bsky.app/profile/flightradar24.com/post/3n27uz5p42c2d",
+   "accounts": 12,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.917,
+   "why": "12 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 92% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6a4w24h3xgiyah36wwaxu3mq/post/3n27wjpgz5s2s",
+    "https://bsky.app/profile/did:plc:7id3rqvfyxfmshvlledhyjcx/post/3n27wi2tlzd23",
+    "https://bsky.app/profile/did:plc:7rswox7cejx2njnwr5w7ptoc/post/3n27w7afwws2o",
+    "https://bsky.app/profile/did:plc:fzczh5skw2ivqbpitgceokfq/post/3n27w2gfqs223",
+    "https://bsky.app/profile/did:plc:fzczh5skw2ivqbpitgceokfq/post/3n27w2zadyk23"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:24132b31",
+   "type": "link_burst",
+   "key": "https://ctvnews.ca/world/article/us-faa-issues-nationwide-ground-stop-for-all-flights-due-to-extraordinary-circumstances-and-safety",
+   "accounts": 11,
+   "posts": 11,
+   "duplicate_text_share": 0.2,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "11 accounts posted the same link within 10 minutes, 20% of posts reuse another account's text; 100% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3l6h5tayy6vycige2igmorv4/post/3n27w6ejt3k2n",
+    "https://bsky.app/profile/did:plc:3zujij5p2hl2ebibhomwshfo/post/3n27wf5k3v22w",
+    "https://bsky.app/profile/did:plc:a2rtlv46ts55kxkicc3bjf4b/post/3n27walbpgc2g",
+    "https://bsky.app/profile/did:plc:dbx7v5xzs6todo5pcihorprg/post/3n27w7jyv7c2d",
+    "https://bsky.app/profile/did:plc:dlg5o5vv2wqjusbzazntx6qu/post/3n27wam6vyk2a"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:0512cd55",
+   "type": "link_burst",
+   "key": "https://en.wikipedia.org/wiki/2023_FAA_system_outage",
+   "accounts": 11,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "11 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2jngumh3gmdlnumwlwukgzl6/post/3n27wb63des23",
+    "https://bsky.app/profile/did:plc:2jngumh3gmdlnumwlwukgzl6/post/3n27wdjt3wc23",
+    "https://bsky.app/profile/did:plc:3n4axhitevtxw6e5v2ujanwo/post/3n27wdbb4ds2r",
+    "https://bsky.app/profile/did:plc:3nmua3cuou4asrp77ugchmsc/post/3n27wfd2md227",
+    "https://bsky.app/profile/did:plc:3x2dlc3s4ryk2m577ow7j3fz/post/3n27w3633622i"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:c2f087b3",
+   "type": "link_burst",
+   "key": "https://edition.cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:aaoj4hnnh3ubdhalifqewsno/post/3n27weeym5c27",
+    "https://bsky.app/profile/did:plc:csu7ksha7knkkdrvd2hlhkgy/post/3n27vzrk6ic2v",
+    "https://bsky.app/profile/did:plc:d5tttbyzkrungf3jfj6yps24/post/3n27wewfz2k2m",
+    "https://bsky.app/profile/did:plc:jxfu5lqshqnvg6vshmzug7ge/post/3n27wddkxms25",
+    "https://bsky.app/profile/did:plc:jye22xkea3jqsabskhfec347/post/3n27wfaucd222"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:711e4e04",
+   "type": "link_burst",
+   "key": "https://fly.faa.gov/adv/adv_otherdis?adv_date=11132026&advn=111",
+   "accounts": 7,
+   "posts": 7,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 7,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "7 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 7 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2xhoxkrylk42da3haoqioosx/post/3n27vz7ywjk2q",
+    "https://bsky.app/profile/did:plc:5zxqun2vjgxf3igppzh63jdu/post/3n27w4r2fcs2k",
+    "https://bsky.app/profile/did:plc:egoop22szzob7mszd3pfgdww/post/3n27wkaduh225",
+    "https://bsky.app/profile/did:plc:is2jdsvhpkqhfjzrqmvzd7gu/post/3n27w3izmws2w",
+    "https://bsky.app/profile/did:plc:jmuhjrotgvcquoaqtpcuxjii/post/3n27w4lyc5l2y"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2120:78e9a97e",
+   "type": "link_burst",
+   "key": "https://static.klipy.com/ii/39f2394ae36df6e199be9eb7c9fa1012/3d/1a/G6NEB6c4.gif?hh=373&mp4=6RQDCbkfm9X8&webm=1owiobWuiPgzE&ww=498",
+   "accounts": 5,
+   "posts": 5,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 5,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "5 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 5 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5cd2ew4htemsjj665h65lhsh/post/3n27w5foo7s2d",
+    "https://bsky.app/profile/did:plc:6uzompp3mtcydzb2shap37db/post/3n27w5b7ebs2m",
+    "https://bsky.app/profile/did:plc:k7pyvprfuak4dapiojcys2nh/post/3n27wahyrys2e",
+    "https://bsky.app/profile/did:plc:lnvn5g26hkf3tjrwkcycmpus/post/3n27whkikpk26",
+    "https://bsky.app/profile/did:plc:ydmrjxrow23hrgzsvy4tvnuo/post/3n27vz7l63s2e"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2120:8dc61493",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27ufkokmk2p",
+   "accounts": 1585,
+   "posts": 1585,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "1585 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27ufkokmk2p"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2120:74ef0471",
+   "type": "popular_post",
+   "key": "at://did:plc:tn5jy73h5d24b6wjakw2zrsq/app.bsky.feed.post/3n27uz5p42c2d",
+   "accounts": 1152,
+   "posts": 1152,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "1152 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:tn5jy73h5d24b6wjakw2zrsq/post/3n27uz5p42c2d"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2120:29c42e39",
+   "type": "popular_post",
+   "key": "at://did:plc:of56nmyuqzvjta7qlf7gwht6/app.bsky.feed.post/3n27vfnxddc2r",
+   "accounts": 1052,
+   "posts": 1052,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "1052 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:of56nmyuqzvjta7qlf7gwht6/post/3n27vfnxddc2r"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2120:18c7ed78",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q",
+   "accounts": 856,
+   "posts": 856,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.95,
+   "why": "856 accounts liked or reposted the same post within 10 minutes; 95% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27wfx4jdk2q"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2120:ab9508fe",
+   "type": "popular_post",
+   "key": "at://did:plc:gtvctdk42imc65vk7un7iccc/app.bsky.feed.post/3n27vwlemj22n",
+   "accounts": 636,
+   "posts": 636,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "636 accounts liked or reposted the same post within 10 minutes; 90% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:gtvctdk42imc65vk7un7iccc/post/3n27vwlemj22n"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2120:f93feced",
+   "type": "popular_post",
+   "key": "at://did:plc:4vd5wndiwpedc7fofjp2quxq/app.bsky.feed.post/3n27vbvf4gs27",
+   "accounts": 483,
+   "posts": 483,
+   "window_start": "2026-11-13T21:20:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "483 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4vd5wndiwpedc7fofjp2quxq/post/3n27vbvf4gs27"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:d3a06c3b",
+   "type": "hashtag_burst",
+   "key": "faa",
+   "accounts": 44,
+   "posts": 49,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "44 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2dsilvmarmvcymvkxycjr36m/post/3n27wu7yqyk2w",
+    "https://bsky.app/profile/did:plc:35pvfergeuop4r6l4uzllfbr/post/3n27wtrg2gc2z",
+    "https://bsky.app/profile/did:plc:3qm5fqtrbvbo2ihox252txqq/post/3n27x4cncm22f",
+    "https://bsky.app/profile/did:plc:43boguthfzeucc6lbl4grwpi/post/3n27wqumtrk2n",
+    "https://bsky.app/profile/did:plc:4cjbga76jhkg6uhfikn5elce/post/3n27wnehh6a26"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:e8cf626b",
+   "type": "hashtag_burst",
+   "key": "totp",
+   "accounts": 29,
+   "posts": 35,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 29,
+   "resolved_share": 1.0,
+   "established_share": 0.897,
+   "why": "29 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 90% of 29 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:34wqmyqux3wux2onqgfv4aq6/post/3n27wqqy3h22o",
+    "https://bsky.app/profile/did:plc:576sg3hti7cqa4vutujyw6ol/post/3n27wmgqhjyk2",
+    "https://bsky.app/profile/did:plc:5lkg63kgl74a4nb4kpwap2vf/post/3n27wmqgerk2f",
+    "https://bsky.app/profile/did:plc:6ahejmzfu6bf6ie756vpy7dt/post/3n27wn7rcqc2s",
+    "https://bsky.app/profile/did:plc:6gv2iaml7qvjcjx5nei6m75e/post/3n27wxuwfg226"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:278ac79f",
+   "type": "hashtag_burst",
+   "key": "vtuber",
+   "accounts": 20,
+   "posts": 20,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 20,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "20 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 90% of 20 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3kqms2nqzrnpjo2ot2jnpyii/post/3n27wuu5vjk2z",
+    "https://bsky.app/profile/did:plc:3q45mks4x3xc6q2xdu5rf7o5/post/3n27x342iwk2c",
+    "https://bsky.app/profile/did:plc:434tl2fsuffsnwtmazavofxy/post/3n27wkqljyv2z",
+    "https://bsky.app/profile/did:plc:7rdohkkwzy5h4esbdzuf3qoz/post/3n27wxgy64k2g",
+    "https://bsky.app/profile/did:plc:d5vccwunfopvuatoe4xt5nqd/post/3n27wrjee72m6"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:82edfa39",
+   "type": "hashtag_burst",
+   "key": "nottotp",
+   "accounts": 18,
+   "posts": 26,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 18,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "18 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 18 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:35fhjfl2q3tmip5kwlb2spym/post/3n27wyrxa322x",
+    "https://bsky.app/profile/did:plc:5hklrr3pcsvj3dcctrnyr4xv/post/3n27wtzvxls2k",
+    "https://bsky.app/profile/did:plc:5hklrr3pcsvj3dcctrnyr4xv/post/3n27wz2sfls2k",
+    "https://bsky.app/profile/did:plc:7msbg5vqgw3cyhsjdlzalxfk/post/3n27wxdswuc2q",
+    "https://bsky.app/profile/did:plc:byd4gdtstvrbkmkczygndnrn/post/3n27wklmjyyu2"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:a6af6998",
+   "type": "hashtag_burst",
+   "key": "aiイラスト",
+   "accounts": 15,
+   "posts": 20,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 15,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "15 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 15 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:33d4swqquurl4cfdxiz7a6nd/post/3n27wvqkkoc2q",
+    "https://bsky.app/profile/did:plc:33d4swqquurl4cfdxiz7a6nd/post/3n27wxcxjvs2q",
+    "https://bsky.app/profile/did:plc:33d4swqquurl4cfdxiz7a6nd/post/3n27wyid4p22q",
+    "https://bsky.app/profile/did:plc:434tl2fsuffsnwtmazavofxy/post/3n27wkqeihg2z",
+    "https://bsky.app/profile/did:plc:763cbfktgizjksktmridyc2s/post/3n27wla4qss2a"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:90856d78",
+   "type": "hashtag_burst",
+   "key": "musicsky",
+   "accounts": 11,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3dmllrt6t7auhmim7hd5zupj/post/3n27x2jytlc2p",
+    "https://bsky.app/profile/did:plc:brb5gjjblutsa2wklhmqplpe/post/3n27wlmgith2t",
+    "https://bsky.app/profile/did:plc:fhryuzcqep3o2na7fioszhay/post/3n27x2hobtk27",
+    "https://bsky.app/profile/did:plc:kprpqwfdnk75o5cp44y4otuw/post/3n27wqvvdcb23",
+    "https://bsky.app/profile/did:plc:noqaydlcbia5upq6va2p2znw/post/3n27wouf2mk2o"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:429436b6",
+   "type": "hashtag_burst",
+   "key": "twitch",
+   "accounts": 11,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.818,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 82% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5y56nyxc7a2y365ya5v3igkb/post/3n27wqswuac2v",
+    "https://bsky.app/profile/did:plc:7yppomcu4z6qlkzpuievpygl/post/3n27wlkm3bs2l",
+    "https://bsky.app/profile/did:plc:cnzka5mwnpvgj3ehnahnrpyz/post/3n27wxiyvfs2o",
+    "https://bsky.app/profile/did:plc:gtirgduuuib6ockwobrkfal3/post/3n27wnxq7qs27",
+    "https://bsky.app/profile/did:plc:hoz66r36xjzf2bnhco7x62xz/post/3n27wnarqt222"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:7c7acb27",
+   "type": "hashtag_burst",
+   "key": "fravrsa",
+   "accounts": 9,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2a2ucpadl5c62xv3ln3wpevt/post/3n27wxy2pes2o",
+    "https://bsky.app/profile/did:plc:bythyfhver4h3ni5m7a2pmnh/post/3n27wmhxbxs2d",
+    "https://bsky.app/profile/did:plc:caxdf56t7rczh6jewkxh34r7/post/3n27wovnogc2h",
+    "https://bsky.app/profile/did:plc:caxdf56t7rczh6jewkxh34r7/post/3n27wysxcgs2h",
+    "https://bsky.app/profile/did:plc:hfcxwf3ekxgkp4iy47xk66ox/post/3n27wzyoo6k2m"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:93d78aca",
+   "type": "hashtag_burst",
+   "key": "fridaythe13th",
+   "accounts": 9,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 0.889,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:26xemkwefvhihfuxwrz7drbb/post/3n27ws4vi422a",
+    "https://bsky.app/profile/did:plc:2kd6nkwluy2odjgken3kowze/post/3n27x3i27as2f",
+    "https://bsky.app/profile/did:plc:i44yts7mpqu6ft3ta4ryjzjb/post/3n27wl3rbhp2r",
+    "https://bsky.app/profile/did:plc:jhuc4c4y5ogq2aulj52g5byn/post/3n27wm7lat22h",
+    "https://bsky.app/profile/did:plc:jhuc4c4y5ogq2aulj52g5byn/post/3n27wu67f2k2h"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:9dd16ff5",
+   "type": "hashtag_burst",
+   "key": "fursuitfriday",
+   "accounts": 9,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6ozwnwp6sbeddrizygcftzq2/post/3n27wstks2s2n",
+    "https://bsky.app/profile/did:plc:7dglgk7hgobqmf5ehbewuc3y/post/3n27wpzqjis2m",
+    "https://bsky.app/profile/did:plc:ebuil62zsmpdr7zy47qdi34b/post/3n27wv52gyk2w",
+    "https://bsky.app/profile/did:plc:ip2le4sj7z2ougwmzb7ulxbo/post/3n27x36kcnc22",
+    "https://bsky.app/profile/did:plc:tz2mtkbayveqa3vbl4fbcrem/post/3n27wvaflpc2w"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:2f5aa231",
+   "type": "hashtag_burst",
+   "key": "lastfourwatched",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5nqnbhrltqsh55o7xpx4x4yh/post/3n27x4armh22r",
+    "https://bsky.app/profile/did:plc:aphsxxdp2hxqwj364quatylm/post/3n27wzyza322x",
+    "https://bsky.app/profile/did:plc:eivcdwzujmmd2o6kqetbznau/post/3n27wtg3ls22i",
+    "https://bsky.app/profile/did:plc:f64fhvcvcrsa5vc2o7k5rylu/post/3n27wsprhas2a",
+    "https://bsky.app/profile/did:plc:glip4yoetmh3fj7l5emwr373/post/3n27wqkziss2w"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2130:a7c54ad9",
+   "type": "hashtag_burst",
+   "key": "letterboxdfriday",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5nqnbhrltqsh55o7xpx4x4yh/post/3n27x4armh22r",
+    "https://bsky.app/profile/did:plc:aphsxxdp2hxqwj364quatylm/post/3n27wzyza322x",
+    "https://bsky.app/profile/did:plc:eivcdwzujmmd2o6kqetbznau/post/3n27wtg3ls22i",
+    "https://bsky.app/profile/did:plc:f64fhvcvcrsa5vc2o7k5rylu/post/3n27wsprhas2a",
+    "https://bsky.app/profile/did:plc:glip4yoetmh3fj7l5emwr373/post/3n27wqkziss2w"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:3a597971",
+   "type": "link_burst",
+   "key": "https://arstechnica.com/ai/2026/11/faa-expands-ai-advice-to-manage-air-traffic-congestion-across-entire-us-airspace",
+   "accounts": 52,
+   "posts": 57,
+   "duplicate_text_share": 0.083,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.95,
+   "why": "52 accounts posted the same link within 10 minutes, 8% of posts reuse another account's text; 95% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2pp4isxyosxa53iym2srnlcm/post/3n27wnbinak2f",
+    "https://bsky.app/profile/did:plc:2vmkdhw6jj24w54xs34lrvvb/post/3n27wopa6as2p",
+    "https://bsky.app/profile/did:plc:35w3f3hsu75vvgvxwiq4uyax/post/3n27x2iczvkrt",
+    "https://bsky.app/profile/did:plc:3dmzj2n6tvaqjmw7euxefakm/post/3n27wqbb3qk2h",
+    "https://bsky.app/profile/did:plc:4i77tdu3riswwmtw6j67ufrj/post/3n27wqz36hk2u"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:714a2bae",
+   "type": "link_burst",
+   "key": "https://nbcnews.com/news/us-news/faa-orders-nationwide-ground-stop-departing-flights-reasons-safety-rcna609247",
+   "accounts": 46,
+   "posts": 47,
+   "duplicate_text_share": 0.053,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.95,
+   "why": "46 accounts posted the same link within 10 minutes, 5% of posts reuse another account's text; 95% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3le7dvxqc2rhvyswiida2cgf/post/3n27wy2qu7k2c",
+    "https://bsky.app/profile/did:plc:4f7qdmxuzsvaevvkskt4giyw/post/3n27wvwhil22k",
+    "https://bsky.app/profile/did:plc:5sxzikajvrkv22k7wfumsbpk/post/3n27wqvoqqc2l",
+    "https://bsky.app/profile/did:plc:6bjvho52neu6j2vf5prgfbal/post/3n27wuvhvbk2z",
+    "https://bsky.app/profile/did:plc:7h4ue45q7jcriskmo57qj5y4/post/3n27wm4egrs2v"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:dfca236a",
+   "type": "link_burst",
+   "key": "https://cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+   "accounts": 29,
+   "posts": 29,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 29,
+   "resolved_share": 1.0,
+   "established_share": 0.897,
+   "why": "29 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 90% of 29 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3vhmrn4zlxpq2d7dddmbqi5x/post/3n27x25swzc2o",
+    "https://bsky.app/profile/did:plc:44zeg3473geq5iogs77kx6gv/post/3n27wzhdjjs2u",
+    "https://bsky.app/profile/did:plc:4elqckzfqepc32f6z44koxlr/post/3n27x2f574c2b",
+    "https://bsky.app/profile/did:plc:5at5gikrfzvktcpmzmvzil2q/post/3n27wvzie6k2l",
+    "https://bsky.app/profile/did:plc:6ocksfanrlsjgqcmwsdabeu6/post/3n27wryw7tk23"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:d1cbefe6",
+   "type": "link_burst",
+   "key": "https://nytimes.com/2026/11/13/world/americas/nationwide-ground-stop-flights-faa.html",
+   "accounts": 21,
+   "posts": 21,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 21,
+   "resolved_share": 1.0,
+   "established_share": 0.952,
+   "why": "21 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 95% of 21 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:aa725cxbufl2zoi6qjsl76yd/post/3n27wnaag522o",
+    "https://bsky.app/profile/did:plc:amgpmo7quvdl4rzvmmjibtx6/post/3n27wngni5kb2",
+    "https://bsky.app/profile/did:plc:aoxlqswwg5jrxw4jlkuc47y7/post/3n27wop2jlk2h",
+    "https://bsky.app/profile/did:plc:fq7m2ddhvjjntclttcgxd6of/post/3n27wovpi222k",
+    "https://bsky.app/profile/did:plc:hxdyf2v3dj3ypzrjg6avlwoz/post/3n27wno64tc25"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:8ff784b8",
+   "type": "link_burst",
+   "key": "https://cnbc.com/2026/11/13/faa-ground-stop.html",
+   "accounts": 17,
+   "posts": 18,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 17,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "17 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 17 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2rvlmxwkaznzwwmadvpmhou2/post/3n27wwfud3c2x",
+    "https://bsky.app/profile/did:plc:33r5rlgkchicka6kyhn5nybw/post/3n27wlimbc22j",
+    "https://bsky.app/profile/did:plc:5obxgs22kqueza3tzhpvve2n/post/3n27wu4vn4k24",
+    "https://bsky.app/profile/did:plc:d7frejluo3ls2mvju5qnddws/post/3n27wzukjo223",
+    "https://bsky.app/profile/did:plc:dkpdyvlmiz4cjru7d3twya4u/post/3n27x3jcics2q"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:7036ddec",
+   "type": "link_burst",
+   "key": "https://cnn.com/2026/11/13/us/live-news/flights-ground-stop-faa",
+   "accounts": 15,
+   "posts": 17,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 15,
+   "resolved_share": 1.0,
+   "established_share": 0.933,
+   "why": "15 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 93% of 15 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4eodwzsxpfadivv3mh5ruxm6/post/3n27wn2odvc2s",
+    "https://bsky.app/profile/did:plc:6agqw5elnc6wrsd3y4feqpik/post/3n27wzjds6c2k",
+    "https://bsky.app/profile/did:plc:6onfb5lcfdtqt7rsem2pyncu/post/3n27x4a4sgk2h",
+    "https://bsky.app/profile/did:plc:6xxwzivcrloo2thb673pqg6o/post/3n27wrfmsys2d",
+    "https://bsky.app/profile/did:plc:bqip2g5n6t3yjbfdejsdalhx/post/3n27wwrvahk2l"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:66fa1739",
+   "type": "link_burst",
+   "key": "https://bbc.com/news/live/c6z9dwn12037t",
+   "accounts": 12,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "12 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6psxok4ndmpvubbj55bawavp/post/3n27x3om23s27",
+    "https://bsky.app/profile/did:plc:bjifciq6u3htspjjhn5rcwlf/post/3n27x3odfq227",
+    "https://bsky.app/profile/did:plc:cua3fdsnfqb7d3odbtzzo4dl/post/3n27wkorlmab2",
+    "https://bsky.app/profile/did:plc:d2niu5neqflnec74lwbpcja4/post/3n27wpxo6hc2o",
+    "https://bsky.app/profile/did:plc:fvw6qmxxwls5ne3b6at2blga/post/3n27wn7saz27k"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:6b09d417",
+   "type": "link_burst",
+   "key": "https://bsky.app/profile/flightradar24.com/post/3n27uz5p42c2d",
+   "accounts": 12,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "12 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2eexdpaaaz2ai3ymyigtceoj/post/3n27wwi37n22k",
+    "https://bsky.app/profile/did:plc:2eexdpaaaz2ai3ymyigtceoj/post/3n27wz7cnsk2k",
+    "https://bsky.app/profile/did:plc:32qz6z6laieyi5gyhyu46y7z/post/3n27wschkds22",
+    "https://bsky.app/profile/did:plc:5sgdc5fsagfgubz7rgfbcyno/post/3n27wni3q4s25",
+    "https://bsky.app/profile/did:plc:7stwnmckdd3fytr7ep6xzyoz/post/3n27wu6tasc2g"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:c2f087b3",
+   "type": "link_burst",
+   "key": "https://edition.cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "10 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7i636vjkpgzswqvbyeoadbnd/post/3n27ws75whk2z",
+    "https://bsky.app/profile/did:plc:afidxscbyg66ofclqgk4u7kx/post/3n27wxmuqcc2b",
+    "https://bsky.app/profile/did:plc:bo3doqfdxapdna7boactg3pn/post/3n27wv4kxus2v",
+    "https://bsky.app/profile/did:plc:cmanu5v3jrayb366f5dsksc2/post/3n27wl5zfk22v",
+    "https://bsky.app/profile/did:plc:huf6yfn5hiu6tu3shkvaj72r/post/3n27worr25cxv"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:89435730",
+   "type": "link_burst",
+   "key": "https://apple.news/AoglroatDTUCm9D4VY7jc-w",
+   "accounts": 8,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2zq77iwtnfr34obi6ktx65a4/post/3n27wokzxdc2b",
+    "https://bsky.app/profile/did:plc:34cjrphhn42ufc4gqpasvzsr/post/3n27wwjxajs23",
+    "https://bsky.app/profile/did:plc:7wgy6hurp4k5jy4ogqnmnvgv/post/3n27wvzif5s24",
+    "https://bsky.app/profile/did:plc:7wgy6hurp4k5jy4ogqnmnvgv/post/3n27wx3lcdk24",
+    "https://bsky.app/profile/did:plc:dwlqjyohyucev647gidnobfz/post/3n27wltkchk24"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:3d9cc60c",
+   "type": "link_burst",
+   "key": "https://axios.com/2026/11/13/faa-nationwide-ground-stop",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2eevtmw6z4ytwfoxdn44bg7r/post/3n27wvphcqk2o",
+    "https://bsky.app/profile/did:plc:4z7dtqp6ccjghk4e2nc7sfqb/post/3n27wttir6s2k",
+    "https://bsky.app/profile/did:plc:74szfqqnebq2kgdzgi5hwuq4/post/3n27wu5kxqc2g",
+    "https://bsky.app/profile/did:plc:7yteh7hr6za5qpkdnafcnw4w/post/3n27wuic2as23",
+    "https://bsky.app/profile/did:plc:kt4ldnvqz6yl6ptu7cvi355x/post/3n27wnoydp224"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:3c49849a",
+   "type": "link_burst",
+   "key": "https://reuters.com/world/us/faa-issues-national-ground-stop-due-extraordinary-circumstance-reasons-safety-2026-11-13",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2wyqv44lm72vasmddeqjgy72/post/3n27wwd7wv22b",
+    "https://bsky.app/profile/did:plc:bl5ya4ygdxyxmzurxs6tcpt5/post/3n27wnzefocgr",
+    "https://bsky.app/profile/did:plc:chip5yuikdmmghpzpxluyo6k/post/3n27wx6zfrk2h",
+    "https://bsky.app/profile/did:plc:esnckjj7gvqdgacrfdyck7iu/post/3n27wqfurdc2a",
+    "https://bsky.app/profile/did:plc:hnrrzk7mli6fq4oxanetrimz/post/3n27wqsxmnk2c"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:78e9a97e",
+   "type": "link_burst",
+   "key": "https://static.klipy.com/ii/39f2394ae36df6e199be9eb7c9fa1012/3d/1a/G6NEB6c4.gif?hh=373&mp4=6RQDCbkfm9X8&webm=1owiobWuiPgzE&ww=498",
+   "accounts": 7,
+   "posts": 7,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 7,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "7 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 7 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7pd3um453euiodh3wan4zvo7/post/3n27wwuqyyc2r",
+    "https://bsky.app/profile/did:plc:brc6xpufk5nehbsy37elk7jb/post/3n27wwrhpts2v",
+    "https://bsky.app/profile/did:plc:hu6tdnbl7o7wvlltgrjqliub/post/3n27wuhizhs2i",
+    "https://bsky.app/profile/did:plc:ilsocio3nza4nkxkh5glyxo6/post/3n27wyto5v22t",
+    "https://bsky.app/profile/did:plc:lr6av3ztqfou56fs24ocze4p/post/3n27wyjmlts22"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:4f6f5e36",
+   "type": "link_burst",
+   "key": "https://bsky.app/profile/flavorflav.bsky.social/post/3n27ufkokmk2p",
+   "accounts": 6,
+   "posts": 6,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 6,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "6 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 6 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:bruozsprbvv2r4mc2sfc3eax/post/3n27x4jujzc2v",
+    "https://bsky.app/profile/did:plc:flg64eze4ob3qwkupfxfbwcj/post/3n27wnh4yq223",
+    "https://bsky.app/profile/did:plc:k4qbtepqtdmk7nhbfokqzyrw/post/3n27wwa3c6k2z",
+    "https://bsky.app/profile/did:plc:lyhnliz2ikmyj55fokydtjyo/post/3n27wyka2vc2d",
+    "https://bsky.app/profile/did:plc:m53qinhw54fff3y2daqjt5wf/post/3n27wyg2rbc24"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:b5568f13",
+   "type": "link_burst",
+   "key": "https://tagesschau.de/eilmeldung/eilmeldung-9618.html",
+   "accounts": 6,
+   "posts": 6,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 6,
+   "resolved_share": 1.0,
+   "established_share": 0.833,
+   "why": "6 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 83% of 6 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:34cqo5eg6cvs7cjomm6vnqio/post/3n27wqqy3n6b2",
+    "https://bsky.app/profile/did:plc:5zl73g2p6xpa3flqzc4toujr/post/3n27wnkiswc2g",
+    "https://bsky.app/profile/did:plc:7kobibrsedgzilcg5mghcg5k/post/3n27wtojflc2z",
+    "https://bsky.app/profile/did:plc:mk7aaczgjecj5epd24ts4uwl/post/3n27wx6si4vk2",
+    "https://bsky.app/profile/did:plc:p73wd6djhsfyg7vr4cmzo5hr/post/3n27wmfczok2e"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:18572568",
+   "type": "link_burst",
+   "key": "https://abcnews.com/US/nationwide-ground-stop-ordered-airports-faa/story?id=138121848",
+   "accounts": 5,
+   "posts": 5,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 5,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "5 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 5 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2naitorveenqtkmktlq6lsjq/post/3n27wrcjvxk2h",
+    "https://bsky.app/profile/did:plc:62n6cbwjw4yetx3745tqpeme/post/3n27wvjpqps24",
+    "https://bsky.app/profile/did:plc:kmmsfuvwwnognb6p7aoc27me/post/3n27wpgzsd22i",
+    "https://bsky.app/profile/did:plc:pq3ovbgkxt5tzy4xpvum6jn5/post/3n27wqo3sfs2y",
+    "https://bsky.app/profile/did:plc:u2mtcxqp7uzcg5xikrwexoc6/post/3n27wq36dd22l"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2130:0512cd55",
+   "type": "link_burst",
+   "key": "https://en.wikipedia.org/wiki/2023_FAA_system_outage",
+   "accounts": 5,
+   "posts": 5,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 5,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "5 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 5 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5qnk7dbb2izi4nzezcxio3qw/post/3n27x45u76s2g",
+    "https://bsky.app/profile/did:plc:6mhrubftzadnr74tasd3xopd/post/3n27wy5dyek2b",
+    "https://bsky.app/profile/did:plc:efmyqzo36j6ksps24cp6u2df/post/3n27wzh5xsc25",
+    "https://bsky.app/profile/did:plc:f64w7bp24575hrkh3ijmmdww/post/3n27wvqvbh22l",
+    "https://bsky.app/profile/did:plc:ra2m2ydyw2z7dzcjzkvcvjgf/post/3n27x3ksock2u"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2130:18c7ed78",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q",
+   "accounts": 4478,
+   "posts": 4478,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.925,
+   "why": "4478 accounts liked or reposted the same post within 10 minutes; 92% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27wfx4jdk2q"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2130:8dc61493",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27ufkokmk2p",
+   "accounts": 1543,
+   "posts": 1543,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "1543 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27ufkokmk2p"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2130:0bdc91b8",
+   "type": "popular_post",
+   "key": "at://did:plc:jxfqu53b6jtrqqntce6pseqh/app.bsky.feed.post/3n27v2y5gn22l",
+   "accounts": 1014,
+   "posts": 1014,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "1014 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:jxfqu53b6jtrqqntce6pseqh/post/3n27v2y5gn22l"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2130:7e1ce7f8",
+   "type": "popular_post",
+   "key": "at://did:plc:zxxn7qzktg7j67xlaonhi344/app.bsky.feed.post/3n27vtjf6jk2n",
+   "accounts": 760,
+   "posts": 760,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "760 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:zxxn7qzktg7j67xlaonhi344/post/3n27vtjf6jk2n"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2130:74ef0471",
+   "type": "popular_post",
+   "key": "at://did:plc:tn5jy73h5d24b6wjakw2zrsq/app.bsky.feed.post/3n27uz5p42c2d",
+   "accounts": 653,
+   "posts": 653,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "653 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:tn5jy73h5d24b6wjakw2zrsq/post/3n27uz5p42c2d"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2130:d36e2b22",
+   "type": "popular_post",
+   "key": "at://did:plc:uo2fna47c4v6zcnklxfhcvjb/app.bsky.feed.post/3n27w2gfym22p",
+   "accounts": 507,
+   "posts": 507,
+   "window_start": "2026-11-13T21:30:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "507 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:uo2fna47c4v6zcnklxfhcvjb/post/3n27w2gfym22p"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:d3a06c3b",
+   "type": "hashtag_burst",
+   "key": "faa",
+   "accounts": 48,
+   "posts": 51,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "48 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:22ubrkgis7mnjx2bhdlkgwf2/post/3n27xd3n6pc2m",
+    "https://bsky.app/profile/did:plc:3qgld4rxrt6d5vl4mc56tii7/post/3n27xa6e2c22t",
+    "https://bsky.app/profile/did:plc:4zxtvkl74wfiaikv5zyqbamd/post/3n27xc7rqdk2i",
+    "https://bsky.app/profile/did:plc:4zxtvkl74wfiaikv5zyqbamd/post/3n27xfgn5js2i",
+    "https://bsky.app/profile/did:plc:54kzgecewnprhbf3gzzamtwz/post/3n27xdqgioln2"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:e96af6e2",
+   "type": "hashtag_burst",
+   "key": "furry",
+   "accounts": 27,
+   "posts": 30,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 27,
+   "resolved_share": 1.0,
+   "established_share": 0.852,
+   "why": "27 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 85% of 27 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3z7f3dwgodzv6cbo3d2luc2h/post/3n27xcv6jgc24",
+    "https://bsky.app/profile/did:plc:3z7f3dwgodzv6cbo3d2luc2h/post/3n27xepatak2e",
+    "https://bsky.app/profile/did:plc:4capirzd6bsoxhdpmkbcb7qp/post/3n27x4wq4w22l",
+    "https://bsky.app/profile/did:plc:4lk446wd52ryt2ffmcu62jqe/post/3n27xjx6s222x",
+    "https://bsky.app/profile/did:plc:4zzsy3eyhfjh5kj4spjufk2s/post/3n27xiqrcc227"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:3e2894a9",
+   "type": "hashtag_burst",
+   "key": "groundstop",
+   "accounts": 23,
+   "posts": 27,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 23,
+   "resolved_share": 1.0,
+   "established_share": 0.87,
+   "why": "23 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 87% of 23 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3sf2ltu5lyaxtsuqm5sycbwr/post/3n27x4ylwy22j",
+    "https://bsky.app/profile/did:plc:6jldqorrhqyoikfefhebl7yr/post/3n27xgttnmk2n",
+    "https://bsky.app/profile/did:plc:axaxlwrik4qxpmv7ejkjjfel/post/3n27xnhc6w22e",
+    "https://bsky.app/profile/did:plc:bl7ryn2azlgrwm2miljhbdoi/post/3n27xhwprgs2y",
+    "https://bsky.app/profile/did:plc:c76p6r3fcxweifw77uqwr5r6/post/3n27x6exkpoc2"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:90856d78",
+   "type": "hashtag_burst",
+   "key": "musicsky",
+   "accounts": 14,
+   "posts": 17,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 14,
+   "resolved_share": 1.0,
+   "established_share": 0.857,
+   "why": "14 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 86% of 14 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3pgxabdljjkaza2w43l6gy4e/post/3n27x7fu6ck23",
+    "https://bsky.app/profile/did:plc:3pgxabdljjkaza2w43l6gy4e/post/3n27xbz77z223",
+    "https://bsky.app/profile/did:plc:by5sfsw7jk7h4mumcgb36bhv/post/3n27x6cf7x225",
+    "https://bsky.app/profile/did:plc:ch5tq3gtt2rms3qvjuswoaxc/post/3n27xethslc27",
+    "https://bsky.app/profile/did:plc:e3bn277r7nkdnfktik6x6k3a/post/3n27xo3fqo225"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:fecd2939",
+   "type": "hashtag_burst",
+   "key": "oc",
+   "accounts": 14,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 14,
+   "resolved_share": 1.0,
+   "established_share": 0.857,
+   "why": "14 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 86% of 14 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:aoubqgwmxnojsmkq23h5z4xw/post/3n27x4qlmtc2w",
+    "https://bsky.app/profile/did:plc:bjrkrjuzpptckxxbaape27nb/post/3n27x7nfmuk2u",
+    "https://bsky.app/profile/did:plc:c57bnl2pnvbd54ybuyebwi3z/post/3n27xlsvxbc2r",
+    "https://bsky.app/profile/did:plc:coanmsodb4l7mg77kp457o5u/post/3n27xnrkmok25",
+    "https://bsky.app/profile/did:plc:g7pbi4ccad6fx5hbwyp2a3a3/post/3n27xbcmvqs2o"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:2e06fdcb",
+   "type": "hashtag_burst",
+   "key": "furryart",
+   "accounts": 13,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 13,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "13 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 13 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5xficd5y5o757pl4cvknmued/post/3n27x7nhclc2r",
+    "https://bsky.app/profile/did:plc:6c3gqjnj4u3akn2nvfogrnmq/post/3n27x657q2c25",
+    "https://bsky.app/profile/did:plc:7pf6fxb5zsmrzhwrybyutmz2/post/3n27x5b7wz22m",
+    "https://bsky.app/profile/did:plc:c57bnl2pnvbd54ybuyebwi3z/post/3n27xlsvxbc2r",
+    "https://bsky.app/profile/did:plc:cyf23cgvf6qso4aoqtlgunsv/post/3n27xne5m622f"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:f640c9fc",
+   "type": "hashtag_burst",
+   "key": "nvidia",
+   "accounts": 12,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.917,
+   "why": "12 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 92% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4xmihwiyqeqjrjw25o4fjxgl/post/3n27xmvxfmi2e",
+    "https://bsky.app/profile/did:plc:7eronz4f4qdm3sg7ller4k4g/post/3n27xf62qbs22",
+    "https://bsky.app/profile/did:plc:acy4bywuzyjw2lro2veqmnfi/post/3n27xm3folc2r",
+    "https://bsky.app/profile/did:plc:av6ckupehrnp2bkcqybahxbz/post/3n27x6cxkuc24",
+    "https://bsky.app/profile/did:plc:di3b42ne33mnce2s3vdeviru/post/3n27xm5hjys2n"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:e8cf626b",
+   "type": "hashtag_burst",
+   "key": "totp",
+   "accounts": 11,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.909,
+   "why": "11 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 91% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2eaxutorld6n7rwtwt662svk/post/3n27x7yh3rkn2",
+    "https://bsky.app/profile/did:plc:7n7hdf33dnxr3eiyz66de2oj/post/3n27x7b52ek2a",
+    "https://bsky.app/profile/did:plc:apsatqfb7gh6py3wjhanhihk/post/3n27x4x5ink2g",
+    "https://bsky.app/profile/did:plc:cdzowcq3a4c5tixxm5wp6fsa/post/3n27x5nxhzk2g",
+    "https://bsky.app/profile/did:plc:ch77ca7ylnttxmibaheavb5c/post/3n27x5xwwok2h"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:d84cc4a1",
+   "type": "hashtag_burst",
+   "key": "gamedev",
+   "accounts": 10,
+   "posts": 11,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:bmvqo5bbm3wuvrmfvqum76oz/post/3n27xij6nnc2p",
+    "https://bsky.app/profile/did:plc:dgwkd3tfsfcgz32ibcnotmcl/post/3n27x54hjz22z",
+    "https://bsky.app/profile/did:plc:dgwkd3tfsfcgz32ibcnotmcl/post/3n27xm2layp27",
+    "https://bsky.app/profile/did:plc:hqitbsrq6ynz6hdwznls5z3g/post/3n27xb5am3c26",
+    "https://bsky.app/profile/did:plc:jzltav2e45oybyavifxdgcdn/post/3n27xg42cbr24"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:a6193465",
+   "type": "hashtag_burst",
+   "key": "auspol",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 0.889,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2grwtpd7nsppkszzdb3sjrcp/post/3n27xb6xvha22",
+    "https://bsky.app/profile/did:plc:6zsy7glv2a7mw2ollrfr2bi2/post/3n27xjbspg226",
+    "https://bsky.app/profile/did:plc:cgpszcttnavbrcn4itxwymff/post/3n27xcc52ik2w",
+    "https://bsky.app/profile/did:plc:czp42ujyxrijrg6jqaiaakfw/post/3n27xmtf65k2f",
+    "https://bsky.app/profile/did:plc:imxx426euscnrfdlcsenuqcm/post/3n27xiakaw22m"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:c27f7d79",
+   "type": "hashtag_burst",
+   "key": "aviation",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:ep5l4ixikvwk6mqacxohricu/post/3n27xmcrel22w",
+    "https://bsky.app/profile/did:plc:gsrr6jfvhdwcde7wceaejy67/post/3n27xmknsp22y",
+    "https://bsky.app/profile/did:plc:mbzuytpv62cljbnmbinavzvv/post/3n27xevn2fk2h",
+    "https://bsky.app/profile/did:plc:mhqnbglrgmwiuz3kgexbi7uf/post/3n27xdooq4z2s",
+    "https://bsky.app/profile/did:plc:q2pe2753p53fdhrnt2ylsnhr/post/3n27xnmwdks2m"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:687ce3e5",
+   "type": "hashtag_burst",
+   "key": "filmsky",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 88% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:57wj4nw67olvgd4nozaeiu6s/post/3n27xean4h22q",
+    "https://bsky.app/profile/did:plc:7mpjekezbs63cdzabzawosnd/post/3n27xgs5hak2c",
+    "https://bsky.app/profile/did:plc:cflucas6pvfrccrpqrnagniz/post/3n27xbzz26k2w",
+    "https://bsky.app/profile/did:plc:ethp2wyvlgebspfzqsk5bls4/post/3n27x4okcue23",
+    "https://bsky.app/profile/did:plc:gfirtahdaitoyipweewoy2sq/post/3n27xhjhic225"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:9dd16ff5",
+   "type": "hashtag_burst",
+   "key": "fursuitfriday",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 88% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3xqjws2hgk4qyxyrezjng6g2/post/3n27xhgmqxs2p",
+    "https://bsky.app/profile/did:plc:4capirzd6bsoxhdpmkbcb7qp/post/3n27x4wq4w22l",
+    "https://bsky.app/profile/did:plc:4lk446wd52ryt2ffmcu62jqe/post/3n27xjx6s222x",
+    "https://bsky.app/profile/did:plc:bd4ronufiyff3ocmkunmr4gj/post/3n27xe5xbes2h",
+    "https://bsky.app/profile/did:plc:eyruaj5inz4oxsy4bodv5e3b/post/3n27x7tygxk2c"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2140:278ac79f",
+   "type": "hashtag_burst",
+   "key": "vtuber",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 88% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:c5l4uugxwkth4acgrwrdtau6/post/3n27xmwfo222u",
+    "https://bsky.app/profile/did:plc:fqbxi7ma2aoo5vt6pnmxzhzv/post/3n27x7gdtbs2q",
+    "https://bsky.app/profile/did:plc:ftveuwjjqpvmhaewj6rtoufi/post/3n27xc5zfm22i",
+    "https://bsky.app/profile/did:plc:hbojwdxeva2qaqs4qvirumax/post/3n27xektonc2t",
+    "https://bsky.app/profile/did:plc:ktzmbwjniya2nzoam6qaetoo/post/3n27xdsmtps2r"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:3a597971",
+   "type": "link_burst",
+   "key": "https://arstechnica.com/ai/2026/11/faa-expands-ai-advice-to-manage-air-traffic-congestion-across-entire-us-airspace",
+   "accounts": 47,
+   "posts": 56,
+   "duplicate_text_share": 0.043,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "47 accounts posted the same link within 10 minutes, 4% of posts reuse another account's text; 100% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2hltimymy65zl5ba7ifsq3qr/post/3n27x67y64s2j",
+    "https://bsky.app/profile/did:plc:2kpe74s7z4tjnugwwc5cuura/post/3n27xfb5jg222",
+    "https://bsky.app/profile/did:plc:2yo6up4wmnypzfho7afpwaf4/post/3n27xbpwumc2j",
+    "https://bsky.app/profile/did:plc:3l5ssebke74fgyx5ncyzvp4h/post/3n27x7ecfjs2v",
+    "https://bsky.app/profile/did:plc:4ca67ktgstdff4eqxqslai6m/post/3n27x7qlcrk2i"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:714a2bae",
+   "type": "link_burst",
+   "key": "https://nbcnews.com/news/us-news/faa-orders-nationwide-ground-stop-departing-flights-reasons-safety-rcna609247",
+   "accounts": 26,
+   "posts": 27,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 26,
+   "resolved_share": 1.0,
+   "established_share": 0.962,
+   "why": "26 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 96% of 26 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4h7qompr2ekunvqtnamnmzjq/post/3n27xhvw54s2u",
+    "https://bsky.app/profile/did:plc:5b6donjexmo6xoztfbkhhupj/post/3n27xf7by5c2d",
+    "https://bsky.app/profile/did:plc:5kyaakn2agpoc4mqverfiepp/post/3n27xirmmcs2b",
+    "https://bsky.app/profile/did:plc:5rb3lktivpbkvdimgd42gkev/post/3n27xce2ff22p",
+    "https://bsky.app/profile/did:plc:67t2snyuyxifbibjxb6qttwc/post/3n27x6bfu222o"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:7036ddec",
+   "type": "link_burst",
+   "key": "https://cnn.com/2026/11/13/us/live-news/flights-ground-stop-faa",
+   "accounts": 17,
+   "posts": 17,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 17,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "17 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 17 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2fccce5hpxxytkqbtmsmzt6z/post/3n27xmkasok2z",
+    "https://bsky.app/profile/did:plc:354kzsgz37iavwpfs7y2xk5q/post/3n27xoetfyc26",
+    "https://bsky.app/profile/did:plc:3ox4balhalrhl6aumors4ehk/post/3n27xlayct22e",
+    "https://bsky.app/profile/did:plc:5udkwzrnkckiyjvgw22c33lh/post/3n27xbbff422j",
+    "https://bsky.app/profile/did:plc:cko2yvn7daeslboyzdey2yka/post/3n27xadbaks2t"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:18572568",
+   "type": "link_burst",
+   "key": "https://abcnews.com/US/nationwide-ground-stop-ordered-airports-faa/story?id=138121848",
+   "accounts": 14,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 14,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "14 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 14 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:42b7wryje7ttveucbry7bks6/post/3n27xm6fsqs2b",
+    "https://bsky.app/profile/did:plc:4kbs7c7s4l2cstioc35v6ust/post/3n27xeb5gvs2v",
+    "https://bsky.app/profile/did:plc:6vrzrtu4gprur45gwurt4pk3/post/3n27xfu6grc2d",
+    "https://bsky.app/profile/did:plc:7umo3cbjz7fhcost4yqj6jbo/post/3n27x6mbvqc2l",
+    "https://bsky.app/profile/did:plc:c77h7jvm5ngowap7c4makoqf/post/3n27xbysvi22u"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:66fa1739",
+   "type": "link_burst",
+   "key": "https://bbc.com/news/live/c6z9dwn12037t",
+   "accounts": 14,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 14,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "14 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 14 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6bbpkoom2rf74hjh42lrrbpt/post/3n27xioltn22a",
+    "https://bsky.app/profile/did:plc:6ugy2gxjyutwbmeuzxkx2qww/post/3n27xkmecpc22",
+    "https://bsky.app/profile/did:plc:b26ihupagaade3zaet4uvf3k/post/3n27x5qwaas2w",
+    "https://bsky.app/profile/did:plc:hfa2z7pgeaed2luwgsaglqu7/post/3n27xbzr5as2p",
+    "https://bsky.app/profile/did:plc:hj26w5c6sptyzdruimysvezo/post/3n27xlruuoc2h"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:8ff784b8",
+   "type": "link_burst",
+   "key": "https://cnbc.com/2026/11/13/faa-ground-stop.html",
+   "accounts": 12,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.917,
+   "why": "12 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 92% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:6knhr3fm2ij3d55irvedx4p7/post/3n27xgkptq22i",
+    "https://bsky.app/profile/did:plc:cjlbvea5pws5gxmhprbkrimn/post/3n27xkpy5qc2q",
+    "https://bsky.app/profile/did:plc:ep5l4ixikvwk6mqacxohricu/post/3n27xmbubvs2w",
+    "https://bsky.app/profile/did:plc:ep5l4ixikvwk6mqacxohricu/post/3n27xmcrel22w",
+    "https://bsky.app/profile/did:plc:h2egfes6cc3qbssprq3ogkzg/post/3n27x6im47c2e"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:3d9cc60c",
+   "type": "link_burst",
+   "key": "https://axios.com/2026/11/13/faa-nationwide-ground-stop",
+   "accounts": 11,
+   "posts": 11,
+   "duplicate_text_share": 0.2,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "11 accounts posted the same link within 10 minutes, 20% of posts reuse another account's text; 100% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2gha5dtx54d2q5sknbggp3vi/post/3n27xcd7kyc2d",
+    "https://bsky.app/profile/did:plc:4j3paxcnzwgtdqyxp5xjq5w3/post/3n27x5zf5722g",
+    "https://bsky.app/profile/did:plc:4zuwwftyd2fl3c6tjgvc3tyi/post/3n27xnl7auk2b",
+    "https://bsky.app/profile/did:plc:di3b42ne33mnce2s3vdeviru/post/3n27xm5hjys2n",
+    "https://bsky.app/profile/did:plc:eikawaoreto7oexdfza6k2lb/post/3n27xjapqbk2l"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:dfca236a",
+   "type": "link_burst",
+   "key": "https://cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "10 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3wphlueao2konftmf3wzo75n/post/3n27xihcnps2p",
+    "https://bsky.app/profile/did:plc:6kpwdgm6vl3wbuawiushzq37/post/3n27xepvypi2s",
+    "https://bsky.app/profile/did:plc:6o3knoazyzvufsy2v74kuqxi/post/3n27xgujrms2a",
+    "https://bsky.app/profile/did:plc:baaeb2uyxddyprgl6sxjik7p/post/3n27xbdapk22u",
+    "https://bsky.app/profile/did:plc:e5wrcrpjk6skqu5zoi6cuc63/post/3n27x62kpds2o"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:ec7f2d7b",
+   "type": "link_burst",
+   "key": "https://bbc.co.uk/news/live/c6z9dwn12037t",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:43cccm3hyhnkq4myqmfjpydz/post/3n27xe7mv722b",
+    "https://bsky.app/profile/did:plc:7m5gcs7vyu4wnxv6ks34ye6v/post/3n27xfbtqe22o",
+    "https://bsky.app/profile/did:plc:fij6scvgmkjyimmekbxfcxby/post/3n27xfrqtek2f",
+    "https://bsky.app/profile/did:plc:ggw4ijawfks52bdyv3jaiz4g/post/3n27xobv7dk2v",
+    "https://bsky.app/profile/did:plc:j53ltu7xhgrxbw345j2mqaxd/post/3n27x7c43js24"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:14ef5967",
+   "type": "link_burst",
+   "key": "https://yahoo.com/news/us/article/faa-issues-nationwide-ground-stop-on-all-departing-flights-citing-communication-issue-213136811.html",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2j37uft57b27abdo7xjfuzuh/post/3n27xd6qams2w",
+    "https://bsky.app/profile/did:plc:6vhmcy3ejlpajq2zgsovrbzc/post/3n27xodvsps2x",
+    "https://bsky.app/profile/did:plc:km4q7dgsq65h2lnll6qgcswa/post/3n27xklcwds27",
+    "https://bsky.app/profile/did:plc:nxac4ifdy42xkz4xj7mdg6va/post/3n27xf2yfsc2b",
+    "https://bsky.app/profile/did:plc:q5qj4xz7jdx5o74hxi4f5pbx/post/3n27xmvgg222f"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:4f6f5e36",
+   "type": "link_burst",
+   "key": "https://bsky.app/profile/flavorflav.bsky.social/post/3n27ufkokmk2p",
+   "accounts": 6,
+   "posts": 6,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 6,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "6 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 6 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:bxfau54tg4ylt7yinqlykn2a/post/3n27x6mujgs2b",
+    "https://bsky.app/profile/did:plc:la7uvaqxltrkyrz3c5f2fufx/post/3n27xee52i22t",
+    "https://bsky.app/profile/did:plc:md2autee5o3ozcpp43oh6lej/post/3n27xhwdgvs2u",
+    "https://bsky.app/profile/did:plc:tpy3e2ydwikuov4zzsck3xr3/post/3n27xkgdskc2v",
+    "https://bsky.app/profile/did:plc:ugijvbqm5bv7x6ng4j5cdr7o/post/3n27xlga6vc2m"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:984fb9d0",
+   "type": "link_burst",
+   "key": "https://nasstatus.faa.gov",
+   "accounts": 6,
+   "posts": 7,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 6,
+   "resolved_share": 1.0,
+   "established_share": 0.833,
+   "why": "6 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 83% of 6 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:54qalncaho5yo6qfjs2xuw7u/post/3n27xbizzmkc2",
+    "https://bsky.app/profile/did:plc:bl53cwph26xvoebyntvgs5jg/post/3n27x6jsugs2v",
+    "https://bsky.app/profile/did:plc:f4pyt4htk5q7hikh3v27obcm/post/3n27xdqi3jk22",
+    "https://bsky.app/profile/did:plc:lkvzyvf2vqlvpr2qivivyzuf/post/3n27x6a6ahk2g",
+    "https://bsky.app/profile/did:plc:lkvzyvf2vqlvpr2qivivyzuf/post/3n27xca4k222g"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2140:db5f9d22",
+   "type": "link_burst",
+   "key": "https://washingtonpost.com/transportation/2026/11/13/faa-grounds-flights-all-us-airports-citing-communications-issue",
+   "accounts": 5,
+   "posts": 5,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 5,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "5 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 80% of 5 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3r4tlcv62hpq3uumf7jdfr5u/post/3n27xb2obct2q",
+    "https://bsky.app/profile/did:plc:hyjajzh4ysdvdtob63pl56oa/post/3n27x7ttir22x",
+    "https://bsky.app/profile/did:plc:o5343eg7tuxayhgdaelsswfx/post/3n27x4yimjs2z",
+    "https://bsky.app/profile/did:plc:qzivd77aswgcjodpvniidezp/post/3n27xhc37qk2o",
+    "https://bsky.app/profile/did:plc:y6spq4dfkbzc63etvjug7i7z/post/3n27xm25tv262"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2140:22e047ae",
+   "type": "popular_post",
+   "key": "at://did:plc:a4pqq234yw7fqbddawjo7y35/app.bsky.feed.post/3n27x4pztb623",
+   "accounts": 1402,
+   "posts": 1402,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "1402 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:a4pqq234yw7fqbddawjo7y35/post/3n27x4pztb623"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2140:0bdc91b8",
+   "type": "popular_post",
+   "key": "at://did:plc:jxfqu53b6jtrqqntce6pseqh/app.bsky.feed.post/3n27v2y5gn22l",
+   "accounts": 1265,
+   "posts": 1265,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "1265 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:jxfqu53b6jtrqqntce6pseqh/post/3n27v2y5gn22l"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2140:6088e0e6",
+   "type": "popular_post",
+   "key": "at://did:plc:x4qyokjtdzgl7gmqhsw4ajqj/app.bsky.feed.post/3n27wyyrx3s23",
+   "accounts": 769,
+   "posts": 769,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "769 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:x4qyokjtdzgl7gmqhsw4ajqj/post/3n27wyyrx3s23"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2140:ab9508fe",
+   "type": "popular_post",
+   "key": "at://did:plc:gtvctdk42imc65vk7un7iccc/app.bsky.feed.post/3n27vwlemj22n",
+   "accounts": 749,
+   "posts": 749,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "749 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:gtvctdk42imc65vk7un7iccc/post/3n27vwlemj22n"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2140:3ce87f43",
+   "type": "popular_post",
+   "key": "at://did:plc:spz7xtxwn7tareapqzouydsh/app.bsky.feed.post/3n27wlrvpts2h",
+   "accounts": 697,
+   "posts": 697,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "697 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:spz7xtxwn7tareapqzouydsh/post/3n27wlrvpts2h"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2140:35e79232",
+   "type": "popular_post",
+   "key": "at://did:plc:j4ot6uzegham4ntzr5d4rws4/app.bsky.feed.post/3n27wqbjkas2h",
+   "accounts": 564,
+   "posts": 564,
+   "window_start": "2026-11-13T21:40:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "564 accounts liked or reposted the same post within 10 minutes; 88% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:j4ot6uzegham4ntzr5d4rws4/post/3n27wqbjkas2h"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:d3a06c3b",
+   "type": "hashtag_burst",
+   "key": "faa",
+   "accounts": 41,
+   "posts": 47,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "41 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3dtetytp4ove4rd5axeux4ns/post/3n27y7z7jej2g",
+    "https://bsky.app/profile/did:plc:3hak4mmqunnzalt4ku3p7j3f/post/3n27xunqbmk23",
+    "https://bsky.app/profile/did:plc:3hak4mmqunnzalt4ku3p7j3f/post/3n27ya46exs2c",
+    "https://bsky.app/profile/did:plc:3hlzsxcqu72iqf2hc54zhnys/post/3n27xtggrf22q",
+    "https://bsky.app/profile/did:plc:62n34ct5q4xleq42n272yiwq/post/3n27xrxcjpk25"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:3e2894a9",
+   "type": "hashtag_burst",
+   "key": "groundstop",
+   "accounts": 15,
+   "posts": 17,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 15,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "15 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 15 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3dtetytp4ove4rd5axeux4ns/post/3n27y7z7jej2g",
+    "https://bsky.app/profile/did:plc:3hak4mmqunnzalt4ku3p7j3f/post/3n27xunqbmk23",
+    "https://bsky.app/profile/did:plc:5canu4wntm63xx2m2r3d7ckb/post/3n27xzaox6dm2",
+    "https://bsky.app/profile/did:plc:6i5jnmlo4vghp5qqmfpc4gz7/post/3n27xs2tqr22c",
+    "https://bsky.app/profile/did:plc:axaxlwrik4qxpmv7ejkjjfel/post/3n27xuvltgc2e"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:82edfa39",
+   "type": "hashtag_burst",
+   "key": "nottotp",
+   "accounts": 14,
+   "posts": 18,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 14,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "14 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 14 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5swgdcnxtjwi6znnw4mjrx5l/post/3n27y36nq6s2u",
+    "https://bsky.app/profile/did:plc:ch77ca7ylnttxmibaheavb5c/post/3n27xtagj222h",
+    "https://bsky.app/profile/did:plc:dvjx2ewcfckdvlugh2ljhc7t/post/3n27xskjzys2j",
+    "https://bsky.app/profile/did:plc:gftjlte76s6pnssqhuvue262/post/3n27xvpxfks2n",
+    "https://bsky.app/profile/did:plc:gpwkem6gxpvunjrci44by3gd/post/3n27xx2apa22f"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:278ac79f",
+   "type": "hashtag_burst",
+   "key": "vtuber",
+   "accounts": 14,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 14,
+   "resolved_share": 1.0,
+   "established_share": 0.929,
+   "why": "14 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 93% of 14 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:3qawzuutrwqzrjrpuxrqbxeu/post/3n27xxkinvk2w",
+    "https://bsky.app/profile/did:plc:e3t23ilyz2mwlr4w466hcj4m/post/3n27xpkyi7c2w",
+    "https://bsky.app/profile/did:plc:k7x4irxqsjdzzyy2m7ncavpl/post/3n27xqrs5m22u",
+    "https://bsky.app/profile/did:plc:ly4vseogvz5cpaxwbi7x3ffx/post/3n27xvcauec2s",
+    "https://bsky.app/profile/did:plc:n7j5f2ohvpixbvbljlnlnejj/post/3n27y4i3rrs2f"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:429436b6",
+   "type": "hashtag_burst",
+   "key": "twitch",
+   "accounts": 10,
+   "posts": 10,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 10,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "10 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 80% of 10 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:327cr6lixid7e3orlsi2np6n/post/3n27xuntxrs26",
+    "https://bsky.app/profile/did:plc:7kmmw7r3es4ftgq7jttzg22t/post/3n27xtiojbs2r",
+    "https://bsky.app/profile/did:plc:ednewfoyg2c72p6sza726tio/post/3n27y4qupzc2d",
+    "https://bsky.app/profile/did:plc:fzkaisnfpkbu5x675auey77p/post/3n27xsx4qur2p",
+    "https://bsky.app/profile/did:plc:ng23jtj5e6evdmtr6k54ndvg/post/3n27y6pefyq2h"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:7c7acb27",
+   "type": "hashtag_burst",
+   "key": "fravrsa",
+   "accounts": 9,
+   "posts": 12,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:626ctew42nwodszrsnfaxgib/post/3n27y3sjork2n",
+    "https://bsky.app/profile/did:plc:awnf6xmgsqmgdja7bulpkzgr/post/3n27xrg23y22i",
+    "https://bsky.app/profile/did:plc:caxdf56t7rczh6jewkxh34r7/post/3n27xoq4ojs2h",
+    "https://bsky.app/profile/did:plc:caxdf56t7rczh6jewkxh34r7/post/3n27xyhq4hs2h",
+    "https://bsky.app/profile/did:plc:gwaz2kjgvumgz37bwv26n4eg/post/3n27xq4umscks"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:e8cf626b",
+   "type": "hashtag_burst",
+   "key": "totp",
+   "accounts": 9,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:ankjatm36acfna5nu7qcgcn7/post/3n27y3lvmur2x",
+    "https://bsky.app/profile/did:plc:ankjatm36acfna5nu7qcgcn7/post/3n27yaa67rt2u",
+    "https://bsky.app/profile/did:plc:dhklur6yart55jkookmhlyt5/post/3n27y7wxg722a",
+    "https://bsky.app/profile/did:plc:hvbj55sa4snvjn33764f62u6/post/3n27xynl6sc2g",
+    "https://bsky.app/profile/did:plc:i3z7x2xhitsbmv6q2lnjfnt6/post/3n27xr2rtns27"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:ae359303",
+   "type": "hashtag_burst",
+   "key": "trump",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 0.889,
+   "why": "9 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 89% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:62n34ct5q4xleq42n272yiwq/post/3n27xrxcjpk25",
+    "https://bsky.app/profile/did:plc:a2eoble7fqpgsz4o2uaqiijs/post/3n27xx66lkc2b",
+    "https://bsky.app/profile/did:plc:czb4pqzqb6e3235hgaj4xvry/post/3n27xqf32b22v",
+    "https://bsky.app/profile/did:plc:l3cpjedkirdkpvedyxsj2afv/post/3n27y7p47522q",
+    "https://bsky.app/profile/did:plc:mhqnbglrgmwiuz3kgexbi7uf/post/3n27xr46mcv2q"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:9bcaaa67",
+   "type": "hashtag_burst",
+   "key": "envtuber",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5pjhxkyxtmgnk3diiwx5flam/post/3n27xyoffo22h",
+    "https://bsky.app/profile/did:plc:ly4vseogvz5cpaxwbi7x3ffx/post/3n27xvcauec2s",
+    "https://bsky.app/profile/did:plc:nguxwehtqhvkfkwfwf7ixugn/post/3n27y5hsbnk2l",
+    "https://bsky.app/profile/did:plc:qvvzqrr6pyqxgkeag2vntzpp/post/3n27xxtnsr22w",
+    "https://bsky.app/profile/did:plc:r7hc5iwlg372bqh5j5yjxjox/post/3n27xz2buhs2d"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:e392c8df",
+   "type": "hashtag_burst",
+   "key": "gayporn",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 0.875,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 88% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:27w64la7b6aq3ixxqucq2kdj/post/3n27ya7e7r22z",
+    "https://bsky.app/profile/did:plc:2fopterjpcgcxfozbra63w4g/post/3n27y4isv222o",
+    "https://bsky.app/profile/did:plc:3s43jnfuqnfy3ghocqugrgzl/post/3n27y4onjko2e",
+    "https://bsky.app/profile/did:plc:c3lcq6pl4vht5lv7j5htebc5/post/3n27xzmm3b22z",
+    "https://bsky.app/profile/did:plc:fitr7dzgkwrtrdhgfrxdzkza/post/3n27xwuvvfs2t"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:2f5aa231",
+   "type": "hashtag_burst",
+   "key": "lastfourwatched",
+   "accounts": 8,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2flx3fnop6qopv2sbss5g4ze/post/3n27y5iyzv22r",
+    "https://bsky.app/profile/did:plc:cegp3cvfd2fgmalzppj2kul2/post/3n27xtaqehs2w",
+    "https://bsky.app/profile/did:plc:eic67noc3zt2k54l27zeccz5/post/3n27xp37h3227",
+    "https://bsky.app/profile/did:plc:iqh4wfpqsqhvbm6dvvsxgztd/post/3n27xv26lpk24",
+    "https://bsky.app/profile/did:plc:nzmx7y2oy4iibzja2gadobmv/post/3n27xx3pzus27"
+   ]
+  },
+  {
+   "id": "hashtag_burst:20261113T2150:97edf900",
+   "type": "hashtag_burst",
+   "key": "mwxs",
+   "accounts": 8,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 8,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "8 accounts used the same hashtag within 10 minutes, 0% of posts reuse another account's text; 100% of 8 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4qonyxg42ijj67r7qgpykg4s/post/3n27xrqu3bc2q",
+    "https://bsky.app/profile/did:plc:4qonyxg42ijj67r7qgpykg4s/post/3n27xzz5kw22k",
+    "https://bsky.app/profile/did:plc:4qonyxg42ijj67r7qgpykg4s/post/3n27y5cqtn22d",
+    "https://bsky.app/profile/did:plc:7mznvu4w3m6jxltnnlb6wvxk/post/3n27xwu6bkc2a",
+    "https://bsky.app/profile/did:plc:7mznvu4w3m6jxltnnlb6wvxk/post/3n27xxlyccs2a"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:7036ddec",
+   "type": "link_burst",
+   "key": "https://cnn.com/2026/11/13/us/live-news/flights-ground-stop-faa",
+   "accounts": 20,
+   "posts": 21,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 20,
+   "resolved_share": 1.0,
+   "established_share": 0.95,
+   "why": "20 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 95% of 20 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2jeu5htskk6nyobre6rnfaz2/post/3n27y3zopus2p",
+    "https://bsky.app/profile/did:plc:2r36uklgudwdkdac5maeqpxu/post/3n27xpkm4p22c",
+    "https://bsky.app/profile/did:plc:2tbpijpnrbjjjyug5bphjxvb/post/3n27xwasofk2x",
+    "https://bsky.app/profile/did:plc:5g7kbactpfag3z4h3bzbf4sk/post/3n27y77prd22c",
+    "https://bsky.app/profile/did:plc:7pkbtilk5lk4ocxszrr5ssxa/post/3n27y25mpxs2c"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:89d2d786",
+   "type": "link_burst",
+   "key": "https://nytimes.com/live/2026/11/13/us/ground-stop-nationwide-flights-faa",
+   "accounts": 17,
+   "posts": 17,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 17,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "17 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 17 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2rrp7amblhg3xoly5n5huiqv/post/3n27xutbw6s2p",
+    "https://bsky.app/profile/did:plc:3mbmbryolr2cu4umeba7nepg/post/3n27xp6uo2c2r",
+    "https://bsky.app/profile/did:plc:boqmxockyb6dhoundjayjenf/post/3n27xranvac2a",
+    "https://bsky.app/profile/did:plc:dbiky6fr5fvskovq6xrkgtx7/post/3n27xs3j3es2p",
+    "https://bsky.app/profile/did:plc:detwm2xf5vup2tzfa5obfhnf/post/3n27xwo5hms2w"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:38cd203f",
+   "type": "link_burst",
+   "key": "https://apnews.com/article/flights-halted-airports-faa-f81b0904331dafad6133f291e5f531a8",
+   "accounts": 15,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 15,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "15 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 15 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2nweo3ttq6qrf2ai24vz6exl/post/3n27xtz4u2k23",
+    "https://bsky.app/profile/did:plc:2yvt7wyvvt4y2s27izavwyip/post/3n27xyfurzs2e",
+    "https://bsky.app/profile/did:plc:46wjqnozxj4vdw25frcza5xt/post/3n27xwjy7xc2y",
+    "https://bsky.app/profile/did:plc:5mnnz24rpemhe6i7q6gdw7ht/post/3n27xpzmyfc2e",
+    "https://bsky.app/profile/did:plc:asji3ni44hqiaoitrfn3jik6/post/3n27xybufn22q"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:714a2bae",
+   "type": "link_burst",
+   "key": "https://nbcnews.com/news/us-news/faa-orders-nationwide-ground-stop-departing-flights-reasons-safety-rcna609247",
+   "accounts": 14,
+   "posts": 14,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 14,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "14 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 14 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2i54cg6ihxnh5r7ezrmcjksj/post/3n27xrjf7pk2c",
+    "https://bsky.app/profile/did:plc:4isl7um6obx563uiijxrdsbh/post/3n27y22zey22b",
+    "https://bsky.app/profile/did:plc:5edzkhoqh6fceuy2ad5dhm54/post/3n27y4x6nwk2d",
+    "https://bsky.app/profile/did:plc:7ozkmilnjtco3wmup72tzgac/post/3n27xwc4l7s23",
+    "https://bsky.app/profile/did:plc:aldtv4b7i5fshsdrf4c7kohi/post/3n27y6dgtcs2p"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:ac629eb4",
+   "type": "link_burst",
+   "key": "https://radar.weather.gov",
+   "accounts": 12,
+   "posts": 15,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 12,
+   "resolved_share": 1.0,
+   "established_share": 0.917,
+   "why": "12 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 92% of 12 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5jsivedaksbcc4n2epiegflk/post/3n27y7apa5s2z",
+    "https://bsky.app/profile/did:plc:akb2i3f7ajqvso4m2neqns3j/post/3n27y5vuro226",
+    "https://bsky.app/profile/did:plc:grmskz7drkgu3nwdtgynymeu/post/3n27xxlcd6s2s",
+    "https://bsky.app/profile/did:plc:grmskz7drkgu3nwdtgynymeu/post/3n27y644gdk2s",
+    "https://bsky.app/profile/did:plc:h6vvb2niz27wkatwalclym2j/post/3n27y4326is22"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:fdd47ab0",
+   "type": "link_burst",
+   "key": "https://weather.gov/afc/radaroutage",
+   "accounts": 11,
+   "posts": 13,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 11,
+   "resolved_share": 1.0,
+   "established_share": 0.909,
+   "why": "11 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 91% of 11 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:55owi36jiks2tiv6ntixnsap/post/3n27xzshchs2b",
+    "https://bsky.app/profile/did:plc:7ivngxcnpmytiywth5zlr2v3/post/3n27xtozdjc24",
+    "https://bsky.app/profile/did:plc:7ivngxcnpmytiywth5zlr2v3/post/3n27xwmhstc24",
+    "https://bsky.app/profile/did:plc:7ivngxcnpmytiywth5zlr2v3/post/3n27y464a7224",
+    "https://bsky.app/profile/did:plc:ajqvs2ut6nw57qgm6hf534ju/post/3n27y3hxnfc2p"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:773bb34b",
+   "type": "link_burst",
+   "key": "https://static.klipy.com/ii/d7aec6f6f171607374b2065c836f92f4/de/3c/XUrfr75Y.gif?hh=210&mp4=UYsAIt2FJPrMtk3u50&webm=LcB1GHDz40gzH2KN1&ww=400",
+   "accounts": 9,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 9,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "9 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 9 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2gusuymdz7mt7shszpbkw53l/post/3n27xvlb4xs2b",
+    "https://bsky.app/profile/did:plc:5oqyoe4irmg2225357yacaix/post/3n27xq7pc6225",
+    "https://bsky.app/profile/did:plc:a7cd7z7hn4t5p4carb3b6exp/post/3n27y6yeg322d",
+    "https://bsky.app/profile/did:plc:apv3iszhv6dvmjogrpgqkt3o/post/3n27xrmslpk23",
+    "https://bsky.app/profile/did:plc:bpieurqrdrutusfue5l7phc5/post/3n27xpkf2522x"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:66fa1739",
+   "type": "link_burst",
+   "key": "https://bbc.com/news/live/c6z9dwn12037t",
+   "accounts": 7,
+   "posts": 8,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 7,
+   "resolved_share": 1.0,
+   "established_share": 0.857,
+   "why": "7 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 86% of 7 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:32wrpyizdcsksq2mcgpqty3m/post/3n27y2id5y22j",
+    "https://bsky.app/profile/did:plc:3vbrxetphbjma5h4zcmsrlia/post/3n27xxlmp7s2a",
+    "https://bsky.app/profile/did:plc:e2pq4zblj4qxrckt7dsj3lvj/post/3n27y4tv3ys2y",
+    "https://bsky.app/profile/did:plc:ggeqqg7y7j2mewelsxvo3pkk/post/3n27xuf5sg2j7",
+    "https://bsky.app/profile/did:plc:nbahefv6pqf5s2mh543zfd3w/post/3n27xtmhx3lb2"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:65e86a78",
+   "type": "link_burst",
+   "key": "https://edition.cnn.com/2026/11/13/us/live-news/flights-ground-stop-faa",
+   "accounts": 7,
+   "posts": 9,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 7,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "7 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 7 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:2utojzt5o7uuqurfzmjl5zr4/post/3n27xtt6yuc2w",
+    "https://bsky.app/profile/did:plc:2utojzt5o7uuqurfzmjl5zr4/post/3n27xwdvlgs2w",
+    "https://bsky.app/profile/did:plc:744c3bov5g5xxeq6wtmnr6d5/post/3n27y66k2pk2i",
+    "https://bsky.app/profile/did:plc:744c3bov5g5xxeq6wtmnr6d5/post/3n27y7apntc2i",
+    "https://bsky.app/profile/did:plc:emry77pbmuvolxxrkgpqazzf/post/3n27xxnb45i2w"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:ec7f2d7b",
+   "type": "link_burst",
+   "key": "https://bbc.co.uk/news/live/c6z9dwn12037t",
+   "accounts": 6,
+   "posts": 6,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 6,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "6 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 6 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4cq7yl777ldtuyjgbxi44h5c/post/3n27xpozpx22y",
+    "https://bsky.app/profile/did:plc:apv3iszhv6dvmjogrpgqkt3o/post/3n27xrmslpk23",
+    "https://bsky.app/profile/did:plc:gmijo2b4pmywnhmralvqtqsn/post/3n27xwrkyj22k",
+    "https://bsky.app/profile/did:plc:mifxlqv4up2opkkyqyrnlsz6/post/3n27y3i3ejs2z",
+    "https://bsky.app/profile/did:plc:ufbs4ryun2vsaokuiog352md/post/3n27y6hiet22g"
+   ]
+  },
+  {
+   "id": "link_burst:20261113T2150:a2b78d9a",
+   "type": "link_burst",
+   "key": "https://theguardian.com/us-news/live/2026/nov/13/us-politics-latest-news-updates-democrats-republicans-donald-trump-van-hollen-chuck-schumer",
+   "accounts": 5,
+   "posts": 6,
+   "duplicate_text_share": 0.0,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 5,
+   "resolved_share": 1.0,
+   "established_share": 1.0,
+   "why": "5 accounts posted the same link within 10 minutes, 0% of posts reuse another account's text; 100% of 5 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:7qxlnsz2gveb7ke2ixocoete/post/3n27xwv6qmc2k",
+    "https://bsky.app/profile/did:plc:cdzowcq3a4c5tixxm5wp6fsa/post/3n27y4yon3k2g",
+    "https://bsky.app/profile/did:plc:ix7rptqkpc6i2ntgxq32e6ug/post/3n27ya7xvnc23",
+    "https://bsky.app/profile/did:plc:j6o32q7brgvt2kj7apwnyy3f/post/3n27xyz53pk2y",
+    "https://bsky.app/profile/did:plc:j6o32q7brgvt2kj7apwnyy3f/post/3n27xzv6rcc2y"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:18c7ed78",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q",
+   "accounts": 2212,
+   "posts": 2212,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.8,
+   "why": "2212 accounts liked or reposted the same post within 10 minutes; 80% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27wfx4jdk2q"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:22e047ae",
+   "type": "popular_post",
+   "key": "at://did:plc:a4pqq234yw7fqbddawjo7y35/app.bsky.feed.post/3n27x4pztb623",
+   "accounts": 1324,
+   "posts": 1324,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "1324 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:a4pqq234yw7fqbddawjo7y35/post/3n27x4pztb623"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:0bdc91b8",
+   "type": "popular_post",
+   "key": "at://did:plc:jxfqu53b6jtrqqntce6pseqh/app.bsky.feed.post/3n27v2y5gn22l",
+   "accounts": 1178,
+   "posts": 1178,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "1178 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:jxfqu53b6jtrqqntce6pseqh/post/3n27v2y5gn22l"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:bd61cdcc",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27xhpn2kk2q",
+   "accounts": 1088,
+   "posts": 1088,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "1088 accounts liked or reposted the same post within 10 minutes; 90% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27xhpn2kk2q"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:cb75da66",
+   "type": "popular_post",
+   "key": "at://did:plc:qxudeqrdbv6676vzjssrhllo/app.bsky.feed.post/3n27xe7toxs2y",
+   "accounts": 870,
+   "posts": 870,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.825,
+   "why": "870 accounts liked or reposted the same post within 10 minutes; 82% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:qxudeqrdbv6676vzjssrhllo/post/3n27xe7toxs2y"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:6088e0e6",
+   "type": "popular_post",
+   "key": "at://did:plc:x4qyokjtdzgl7gmqhsw4ajqj/app.bsky.feed.post/3n27wyyrx3s23",
+   "accounts": 861,
+   "posts": 861,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.95,
+   "why": "861 accounts liked or reposted the same post within 10 minutes; 95% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:x4qyokjtdzgl7gmqhsw4ajqj/post/3n27wyyrx3s23"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:8dc61493",
+   "type": "popular_post",
+   "key": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27ufkokmk2p",
+   "accounts": 846,
+   "posts": 846,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "846 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:4ewnpnebeh7zuk5pbardaxqz/post/3n27ufkokmk2p"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:dfb2a637",
+   "type": "popular_post",
+   "key": "at://did:plc:5o6k7jvowuyaquloafzn3cfw/app.bsky.feed.post/3n27xfu5v6s2w",
+   "accounts": 846,
+   "posts": 846,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "846 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:5o6k7jvowuyaquloafzn3cfw/post/3n27xfu5v6s2w"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:824aa4da",
+   "type": "popular_post",
+   "key": "at://did:plc:h45npzawmwlb4xcqqxk6fiec/app.bsky.feed.post/3n27xovx3xo2x",
+   "accounts": 787,
+   "posts": 787,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.85,
+   "why": "787 accounts liked or reposted the same post within 10 minutes; 85% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:h45npzawmwlb4xcqqxk6fiec/post/3n27xovx3xo2x"
+   ]
+  },
+  {
+   "id": "popular_post:20261113T2150:38111f43",
+   "type": "popular_post",
+   "key": "at://did:plc:h45npzawmwlb4xcqqxk6fiec/app.bsky.feed.post/3n27xnne5ei2s",
+   "accounts": 743,
+   "posts": 743,
+   "window_start": "2026-11-13T21:50:00+00:00",
+   "split": "heldout",
+   "checked_accounts": 40,
+   "resolved_share": 1.0,
+   "established_share": 0.9,
+   "why": "743 accounts liked or reposted the same post within 10 minutes; 90% of 40 checked accounts are 1+ year old with 30+ followers and 30+ posts",
+   "sample_urls": [
+    "https://bsky.app/profile/did:plc:h45npzawmwlb4xcqqxk6fiec/post/3n27xnne5ei2s"
+   ]
+  }
+ ]
+}

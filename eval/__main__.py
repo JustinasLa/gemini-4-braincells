@@ -3,13 +3,14 @@
 recall        recall on synthetic campaigns injected into recorded windows (eval/recall.py)
 copy-slices   keep recorded Jetstream hours (the recorder prunes after 24 h) (eval/slices.py)
 labels        sample|serve|score: hand labels on live clusters -> precision, FPR, kappa
+organic       select|run: false-positive rate on organic hard cases (eval/organic.py)
 """
 
 import argparse
 import logging
 import sys
 
-from eval import calibration, errors, labels, provenance, recall, slices
+from eval import calibration, errors, labels, organic, provenance, recall, slices
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     errors.add_arguments(sub.add_parser("errors", help="latest calibration FP/FN report"))
     provenance.add_arguments(sub.add_parser("audit-versions", help="read-only provenance audit"))
     labels.add_arguments(sub.add_parser("labels", help="hand labels on live clusters"))
+    organic.add_arguments(sub.add_parser("organic", help="FPR on organic hard cases"))
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if a.command == "recall":
@@ -35,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
         return provenance.main_args(a)
     if a.command == "labels":
         return labels.main_args(a)
+    if a.command == "organic":
+        return organic.main_args(a)
     return 2
 
 
