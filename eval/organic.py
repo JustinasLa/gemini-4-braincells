@@ -832,6 +832,12 @@ def main_args(a: argparse.Namespace) -> int:
         budget=a.budget,
         max_windows=a.max_windows,
     )
+    # A fixture case whose window is no longer complete on disk (pruned, cut by --max-windows)
+    # is not scored; say so instead of reporting the FPR on fewer cases.
+    scored = {r.case_id for r in results if r.dataset == "organic_live"}
+    missing = sorted(c["id"] for c in live if c["id"] not in scored)
+    if missing:
+        print(f"warning: {len(missing)} of {len(live)} live cases have no complete window")
     rows = []
     for dataset, extra in (
         ("organic_synth", {"kinds": list(SYNTH_KINDS), "seeds": seeds}),
@@ -843,6 +849,7 @@ def main_args(a: argparse.Namespace) -> int:
                 else str(a.fixture),
                 "rule_version": fixture.get("rule_version"),
                 "fixture_cases": len(live),
+                "missing_cases": missing,
             },
         ),
     ):

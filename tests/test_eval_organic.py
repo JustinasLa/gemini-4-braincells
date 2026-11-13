@@ -336,3 +336,22 @@ def test_write_eval_run_inserts_one_row():
     sql, args = calls[0]
     assert "INSERT INTO eval_runs" in sql
     assert args == ("organic_live", "heldout", None, None, None, 0.0, 19, '{"a": 1}')
+
+
+def test_run_reports_fixture_cases_it_could_not_score(tmp_path):
+    """A live case whose window is not on disk any more is listed, not silently dropped."""
+    import json
+
+    from eval.__main__ import main
+
+    fixture = tmp_path / "organic_live.json"
+    case = {"id": "link_share:gone", "type": "link_share", "split": "heldout"}
+    case["window_start"] = "2026-11-13T19:00:00+00:00"
+    fixture.write_text(json.dumps({"cases": [case]}))
+    out = tmp_path / "rows.json"
+    argv = ["organic", "run", "--offline", "--slices", str(tmp_path / "none"), "--workers", "1"]
+    argv += ["--profiles", str(tmp_path / "p.json"), "--fixture", str(fixture), "--json", str(out)]
+    assert main(argv) == 0
+    live = next(r for r in json.loads(out.read_text()) if r["dataset"] == "organic_live")
+    assert live["n"] == 0
+    assert live["details"]["missing_cases"] == ["link_share:gone"]
