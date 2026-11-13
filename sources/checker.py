@@ -6,7 +6,7 @@ URL it came from. Failures are logged and skipped: a missing check is not eviden
 
 import logging
 import time
-from collections.abc import Collection, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from sources.links import claim_phrase, domain, top_links
@@ -33,45 +33,51 @@ class SourceChecker:
         max_links: int = 3,
         max_hits: int = 8,
         cache_ttl_s: float = 6 * 3600,
+        failure_ttl_s: float = 1800,
     ):
         self._client = client
         self._max_links = max_links
         self._max_hits = max_hits
         self._ttl = cache_ttl_s
+        self._failure_ttl = failure_ttl_s
+        # key -> (expires_at, value); value None = the call failed recently, don't retry yet
         self._cache: dict[str, tuple[float, object]] = {}
 
     def check(
-        self, posts: Sequence[ClusterPost], *, skip_keys: Collection[str] = ()
+        self, posts: Sequence[ClusterPost], *, stored: Mapping[str, dict] | None = None
     ) -> list[SourceEvidence]:
-        """Evidence for checks not already in `skip_keys` (keys of stored evidence)."""
+        """Evidence for checks not already stored. `stored` maps evidence key -> detail."""
+        stored = stored or {}
         n_accounts = len({p.did for p in posts})
         out: list[SourceEvidence] = []
 
         for url, shared_by in top_links(posts, self._max_links):
             key = f"page:{url}"
-            if key in skip_keys:  # checked in an earlier pass; its headline search was too
-                continue
-            facts = self._cached(f"scrape:{url}", lambda u=url: self._client.scrape_facts(u))
-            if facts is None:
-                continue
-            out.append(_page_evidence(key, facts, shared_by, n_accounts))
-            if facts.headline:
-                ev = self._search_evidence("headline", facts.headline, skip_keys)
+            if key in stored:  # scraped in an earlier pass: reuse its headline, don't re-scrape
+                headline = stored[key].get("headline")
+            else:
+                facts = self._cached(f"scrape:{url}", lambda u=url: self._client.scrape_facts(u))
+                if facts is None:
+                    continue
+                out.append(_page_evidence(key, facts, shared_by, n_accounts))
+                headline = facts.headline
+            if headline:
+                ev = self._search_evidence("headline", headline, stored)
                 if ev:
                     out.append(ev)
 
         phrase = claim_phrase(p.text for p in posts)
         if phrase:
-            ev = self._search_evidence("post_text", phrase, skip_keys)
+            ev = self._search_evidence("post_text", phrase, stored)
             if ev:
                 out.append(ev)
         return out
 
     def _search_evidence(
-        self, purpose: str, phrase: str, skip_keys: Collection[str]
+        self, purpose: str, phrase: str, stored: Mapping[str, dict]
     ) -> SourceEvidence | None:
         key = f"search:{purpose}:{phrase.lower()}"
-        if key in skip_keys:
+        if key in stored:
             return None
         query = f'"{phrase}"'
         hits = self._cached(f"search:{query}", lambda: self._client.search(query, self._max_hits))
@@ -82,14 +88,15 @@ class SourceChecker:
     def _cached(self, key: str, fetch):
         now = time.monotonic()
         hit = self._cache.get(key)
-        if hit and now - hit[0] < self._ttl:
+        if hit and now < hit[0]:
             return hit[1]
         try:
             value = fetch()
         except OxylabsError as exc:
-            log.warning("source check skipped (%s): %s", key, exc)
+            log.warning("source check skipped for %.0fs (%s): %s", self._failure_ttl, key, exc)
+            self._cache[key] = (now + self._failure_ttl, None)
             return None
-        self._cache[key] = (now, value)
+        self._cache[key] = (now + self._ttl, value)
         return value
 
 

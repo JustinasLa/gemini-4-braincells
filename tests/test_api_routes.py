@@ -48,7 +48,7 @@ class FakeStore:
 
 
 class FakeChecker:
-    def check(self, posts, skip_keys=()):
+    def check(self, posts, stored=None):
         return [
             SourceEvidence(
                 summary="found", detail={"key": "k"}, source_url="https://x.example", model="m"
@@ -117,11 +117,13 @@ def test_analyze_unknown_url_is_insufficient_with_web_findings(client):
     ) in store.calls
 
 
-def test_analyze_short_text_skips_web_search(client):
-    c, _ = client
+def test_analyze_short_text_skips_web_search_and_cluster_lookup(client):
+    c, store = client
     body = c.post("/api/analyze", json={"text": "hi there"}).json()
+    assert body["status"] == "insufficient"
     assert body["web_findings"] == []
     assert any("too short" in n for n in body["notes"])
+    assert not [call for call in store.calls if call[0] == "text"]
 
 
 def test_bsky_post_url():

@@ -47,14 +47,28 @@ def run_worker(
     settle_s: float,
     refresh_s: float,
     batch: int,
+    failure_backoff_s: float = 600,
 ) -> None:
+    failed: dict[int, float] = {}  # cluster_id -> monotonic time it may be retried
     while True:
+        now = time.monotonic()
+        failed = {cid: t for cid, t in failed.items() if t > now}
         try:
             with connect() as conn:
                 for cluster_id in store.clusters_needing_verdict(
-                    conn, min_score=min_score, settle_s=settle_s, refresh_s=refresh_s, limit=batch
+                    conn,
+                    min_score=min_score,
+                    settle_s=settle_s,
+                    refresh_s=refresh_s,
+                    limit=batch,
+                    exclude=failed.keys(),
                 ):
-                    run_cluster(conn, model, cluster_id)
+                    try:
+                        run_cluster(conn, model, cluster_id)
+                    except Exception:
+                        conn.rollback()
+                        failed[cluster_id] = time.monotonic() + failure_backoff_s
+                        log.exception("verdict for cluster %s failed; retry later", cluster_id)
         except Exception:
             log.exception("analyst worker pass failed; retrying next interval")
         time.sleep(interval_s)
@@ -85,7 +99,14 @@ def main() -> None:
         print(SYSTEM, "\n\n", build_prompt(ctx))
         return
 
-    model = GeminiVerdictModel.from_settings()
+    try:
+        model = GeminiVerdictModel.from_settings()
+    except ValueError as exc:
+        if args.cmd != "worker":
+            sys.exit(str(exc))
+        log.warning("%s; analyst worker idle until the key is configured and it restarts", exc)
+        while True:
+            time.sleep(3600)
     if args.cmd == "cluster":
         with connect() as conn:
             verdict = run_cluster(conn, model, args.cluster_id, dry_run=args.dry_run)

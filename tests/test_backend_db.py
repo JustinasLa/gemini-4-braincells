@@ -142,7 +142,9 @@ def test_sources_store_roundtrip(conn, cluster_id):
     first = store.save_evidence(conn, cluster_id, [ev])
     again = store.save_evidence(conn, cluster_id, [ev.model_copy(update={"summary": "s2"})])
     assert first == again  # upsert by key keeps the id stable
-    assert store.stored_keys(conn, cluster_id) == {"page:x"}
+    assert store.stored_details(conn, cluster_id) == {
+        "page:x": {"key": "page:x", "type": "linked_page"}
+    }
     assert store.clusters_to_check(conn, min_score=0.5, limit=5)[0][0] == cluster_id
 
 
@@ -155,6 +157,21 @@ def test_analyst_store_roundtrip(conn, cluster_id):
     assert len(ctx.sample_posts) == 3
     assert store.clusters_needing_verdict(
         conn, min_score=0.5, settle_s=0, refresh_s=600, limit=5
+    ) == [cluster_id]
+    assert (
+        store.clusters_needing_verdict(
+            conn, min_score=0.5, settle_s=0, refresh_s=600, limit=5, exclude=[cluster_id]
+        )
+        == []
+    )
+
+    # Settling counts from creation, so signals touching updated_at every pass can't block it.
+    conn.execute(
+        "UPDATE clusters SET updated_at = now(), created_at = now() - %s WHERE id = %s",
+        (timedelta(minutes=5), cluster_id),
+    )
+    assert store.clusters_needing_verdict(
+        conn, min_score=0.5, settle_s=90, refresh_s=600, limit=5
     ) == [cluster_id]
 
     store.save_verdict(conn, cluster_id, no_evidence_verdict(ctx))

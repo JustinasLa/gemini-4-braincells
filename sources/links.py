@@ -3,43 +3,32 @@
 import re
 from collections import Counter
 from collections.abc import Iterable
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
+from signals.textnorm import normalize_url
 from sources.models import ClusterPost
 
 # Links that point back into Bluesky itself say nothing about outside sources.
 SKIP_HOSTS = frozenset({"bsky.app", "go.bsky.app"})
 MEDIA_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".m3u8")
-TRACKING_PARAMS = frozenset(
-    {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref", "ref_src", "si"}
-)
 
 _URL = re.compile(r"https?://\S+")
 _MENTION_OR_TAG = re.compile(r"(?<!\w)[@#][\w.\-]+")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
-def normalize_url(url: str) -> str | None:
-    """Canonical form for counting and caching. None for links we don't check."""
-    try:
-        parts = urlsplit(url.strip())
-    except ValueError:
+def checkable_url(url: str) -> str | None:
+    """The canonical URL (same form ingest stores) if it is worth a source check, else None."""
+    norm = normalize_url(url)
+    if not norm:
         return None
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        return None
-    host = parts.hostname.lower().removeprefix("www.")
+    parts = urlsplit(norm)
+    host = parts.hostname or ""
     if host in SKIP_HOSTS or host == "localhost" or re.fullmatch(r"[\d.:]+", host):
         return None
     if parts.path.lower().endswith(MEDIA_SUFFIXES):
         return None
-    query = urlencode(
-        [
-            (k, v)
-            for k, v in parse_qsl(parts.query, keep_blank_values=True)
-            if not k.lower().startswith("utm_") and k.lower() not in TRACKING_PARAMS
-        ]
-    )
-    return urlunsplit(("https", host, parts.path.rstrip("/") or "/", query, ""))
+    return norm
 
 
 def domain(url: str) -> str:
@@ -51,7 +40,7 @@ def top_links(posts: Iterable[ClusterPost], k: int) -> list[tuple[str, int]]:
     sharers: dict[str, set[str]] = {}
     for p in posts:
         for raw in p.embed_urls:
-            url = normalize_url(raw)
+            url = checkable_url(raw)
             if url:
                 sharers.setdefault(url, set()).add(p.did)
     ranked = sorted(sharers.items(), key=lambda kv: (-len(kv[1]), kv[0]))

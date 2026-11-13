@@ -24,12 +24,13 @@ def load_cluster_posts(
     return [ClusterPost(did=r["did"], text=r["text"], embed_urls=r["embed_urls"]) for r in rows]
 
 
-def stored_keys(conn: psycopg.Connection, cluster_id: int) -> set[str]:
+def stored_details(conn: psycopg.Connection, cluster_id: int) -> dict[str, dict]:
+    """{detail.key: detail} of the cluster's stored source evidence."""
     rows = conn.execute(
-        "SELECT detail->>'key' AS key FROM evidence WHERE cluster_id = %s AND kind = 'source'",
+        "SELECT detail FROM evidence WHERE cluster_id = %s AND kind = 'source'",
         (cluster_id,),
     ).fetchall()
-    return {r["key"] for r in rows if r["key"]}
+    return {r["detail"]["key"]: r["detail"] for r in rows if r["detail"].get("key")}
 
 
 def save_evidence(

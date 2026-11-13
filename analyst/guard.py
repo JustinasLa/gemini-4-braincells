@@ -21,7 +21,8 @@ def enforce(draft: VerdictDraft, ctx: ClusterContext, *, model: str) -> Verdict:
     status = draft.status
 
     known = ctx.evidence_ids
-    cited = [c for c in draft.evidence if c.evidence_id in known]
+    unique = {c.evidence_id: c for c in reversed(draft.evidence)}  # first "why" wins
+    cited = [unique[i] for i in dict.fromkeys(c.evidence_id for c in draft.evidence) if i in known]
     dropped = sorted({c.evidence_id for c in draft.evidence} - known)
     if dropped:
         notes.append(f"Dropped citations to unknown evidence ids {dropped}.")

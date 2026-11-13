@@ -1,5 +1,7 @@
 """Database reads and writes for analyst/."""
 
+from collections.abc import Collection
+
 import psycopg
 from psycopg.types.json import Jsonb
 
@@ -77,32 +79,44 @@ def save_verdict(conn: psycopg.Connection, cluster_id: int, v: Verdict) -> int:
 
 
 def clusters_needing_verdict(
-    conn: psycopg.Connection, *, min_score: float, settle_s: float, refresh_s: float, limit: int
+    conn: psycopg.Connection,
+    *,
+    min_score: float,
+    settle_s: float,
+    refresh_s: float,
+    limit: int,
+    exclude: Collection[int] = (),
 ) -> list[int]:
-    """Clusters that need a (new) verdict.
+    """Clusters that need a (new) verdict, skipping `exclude` (e.g. ones that just failed).
 
-    First verdict: once the cluster's latest change is `settle_s` old, so sources and media can
-    land first. Refresh: when something changed after the last verdict, at most every
-    `refresh_s` (signals re-saves evidence of active clusters on every pass).
+    First verdict: once the cluster is `settle_s` old (counted from creation: signals touches
+    active clusters every pass), so sources and media can land first. Refresh: when something
+    changed after the last verdict, at most every `refresh_s`.
     """
     rows = conn.execute(
         """
         WITH changed AS (
-            SELECT c.id,
+            SELECT c.id, c.created_at,
                    greatest(c.updated_at, max(e.created_at) FILTER (WHERE e.kind <> 'analyst'))
                        AS changed_at,
                    max(e.created_at) FILTER (WHERE e.kind = 'analyst') AS verdict_at
             FROM clusters c LEFT JOIN evidence e ON e.cluster_id = c.id
-            WHERE c.score >= %(min_score)s
+            WHERE c.score >= %(min_score)s AND NOT (c.id = ANY(%(exclude)s))
             GROUP BY c.id
             HAVING count(e.id) FILTER (WHERE e.kind <> 'analyst') > 0  -- nothing to cite yet
         )
         SELECT id FROM changed
-        WHERE (verdict_at IS NULL AND changed_at < now() - make_interval(secs => %(settle)s))
+        WHERE (verdict_at IS NULL AND created_at < now() - make_interval(secs => %(settle)s))
            OR (verdict_at < changed_at AND verdict_at < now() - make_interval(secs => %(refresh)s))
         ORDER BY verdict_at NULLS FIRST, changed_at DESC
         LIMIT %(limit)s
         """,
-        {"min_score": min_score, "settle": settle_s, "refresh": refresh_s, "limit": limit},
+        {
+            "min_score": min_score,
+            "settle": settle_s,
+            "refresh": refresh_s,
+            "limit": limit,
+            "exclude": list(exclude),
+        },
     ).fetchall()
     return [r["id"] for r in rows]

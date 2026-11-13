@@ -9,6 +9,7 @@ python -m sources worker [--interval 60]      keep checking recently changed clu
 import argparse
 import json
 import logging
+import sys
 import time
 
 from common.db import connect
@@ -21,7 +22,7 @@ log = logging.getLogger("sources")
 
 def check_cluster(conn, checker: SourceChecker, cluster_id: int, *, dry_run: bool = False) -> list:
     posts = store.load_cluster_posts(conn, cluster_id)
-    items = checker.check(posts, skip_keys=store.stored_keys(conn, cluster_id))
+    items = checker.check(posts, stored=store.stored_details(conn, cluster_id))
     if not dry_run and items:
         store.save_evidence(conn, cluster_id, items)
         conn.commit()
@@ -63,7 +64,16 @@ def main() -> None:
     s.add_argument("--batch", type=int, default=10)
     args = p.parse_args()
 
-    with OxylabsClient.from_settings() as client:
+    try:
+        client = OxylabsClient.from_settings()
+    except ValueError as exc:
+        if args.cmd != "worker":
+            sys.exit(str(exc))
+        log.warning("%s; sources worker idle until the key is configured and it restarts", exc)
+        while True:
+            time.sleep(3600)
+
+    with client:
         if args.cmd == "search":
             print(
                 json.dumps([h.model_dump(mode="json") for h in client.search(args.query)], indent=2)

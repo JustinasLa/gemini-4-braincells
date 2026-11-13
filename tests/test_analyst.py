@@ -115,6 +115,12 @@ def test_model_cannot_be_less_cautious_than_detector(detector, model_says):
     assert v.detector_status == detector
 
 
+def test_duplicate_citations_count_once():
+    v = analyze(ctx(), FakeModel(draft(ids=(1, 1))))
+    assert [c.evidence_id for c in v.evidence] == [1]
+    assert v.status == "insufficient"
+
+
 def test_model_may_be_more_cautious():
     v = analyze(ctx(), FakeModel(draft(status="insufficient", ids=())))
     assert v.status == "insufficient" and v.adjustments == []

@@ -1,7 +1,7 @@
 from datetime import date
 
 from sources.checker import SourceChecker
-from sources.links import claim_phrase, normalize_url, top_links
+from sources.links import checkable_url, claim_phrase, top_links
 from sources.models import ClusterPost, PageFacts, SearchHit
 from sources.oxylabs import OxylabsError
 
@@ -54,20 +54,20 @@ def posts(n=4):
     ]
 
 
-def test_normalize_url():
+def test_checkable_url_uses_ingest_canonical_form():
     assert (
-        normalize_url("http://WWW.News.Example/a/?utm_medium=x&id=3#top")
+        checkable_url("http://WWW.News.Example/a/?utm_medium=x&id=3#top")
         == "https://news.example/a?id=3"
     )
-    assert normalize_url("https://bsky.app/profile/x") is None
-    assert normalize_url("https://cdn.example/img.JPG") is None
-    assert normalize_url("ftp://x.example/") is None
-    assert normalize_url("http://127.0.0.1:8000/") is None
+    assert checkable_url("https://bsky.app/profile/x") is None
+    assert checkable_url("https://cdn.example/img.JPG") is None
+    assert checkable_url("ftp://x.example/") is None
+    assert checkable_url("http://127.0.0.1:8000/") is None
 
 
 def test_top_links_counts_distinct_accounts():
     ps = posts(3) + [ClusterPost(did="did:plc:0", embed_urls=["https://other.example/"])]
-    assert top_links(ps, 5) == [("https://news.example/story", 3), ("https://other.example/", 1)]
+    assert top_links(ps, 5) == [("https://news.example/story", 3), ("https://other.example", 1)]
 
 
 def test_claim_phrase_picks_longest_sentence_of_most_common_text():
@@ -93,13 +93,30 @@ def test_check_builds_page_and_search_evidence_with_urls():
     assert all(i.source_url for i in items)
 
 
-def test_check_skips_stored_keys_and_caches_calls():
+def test_check_skips_stored_evidence_and_caches_calls():
     client = FakeClient()
     checker = SourceChecker(client)
     first = checker.check(posts())
-    again = checker.check(posts(), skip_keys={i.detail["key"] for i in first})
+    again = checker.check(posts(), stored={i.detail["key"]: i.detail for i in first})
     assert again == []
     assert len(client.scrapes) == 1  # page key stored -> no second scrape
+
+
+def test_headline_search_is_retried_when_only_the_page_was_stored():
+    client = FakeClient()
+    first = SourceChecker(client).check(posts())
+    page_only = {i.detail["key"]: i.detail for i in first if i.detail["type"] == "linked_page"}
+    again = SourceChecker(client).check(posts(), stored=page_only)
+    assert [i.detail.get("purpose") for i in again] == ["headline", "post_text"]
+    assert len(client.scrapes) == 1
+
+
+def test_failed_calls_are_not_retried_within_the_failure_ttl():
+    client = FakeClient(fail_scrape=True)
+    checker = SourceChecker(client)
+    checker.check(posts())
+    checker.check(posts())
+    assert len(client.scrapes) == 1
 
 
 def test_failed_scrape_is_skipped_not_reported_as_evidence():
