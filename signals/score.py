@@ -16,8 +16,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from signals.baseline import BaseRates
 from signals.config import DetectorConfig
 from signals.keys import CONTENT_KINDS, Key
+from signals.semantic import EmbedFn, semantic_core
+from signals.textnorm import normalize_text
 from signals.window import WindowData
 
 FAMILIES = ("content", "timing", "network", "identity")
@@ -70,6 +73,11 @@ class ClusterScore:
 
 def _r(x: float) -> float:
     return round(float(x), 4)
+
+
+def _sig(p: float) -> float:
+    """p-values keep 3 significant digits (1.2e-09, not 0.0)."""
+    return float(f"{float(p):.3g}")
 
 
 def _seed(cfg: DetectorConfig, members: list[str], wd: WindowData) -> int:
@@ -141,6 +149,69 @@ def content_signals(m: int, sk: list[Key], cfg: DetectorConfig) -> list[Signal]:
             )
         )
     return out
+
+
+def _semantic_posts(members: list[str], wd: WindowData, cfg: DetectorConfig) -> list:
+    mset = set(members)
+    per: dict[str, list] = {}
+    for p in sorted(wd.posts, key=lambda p: (-p.t, p.uri)):
+        if p.did in mset and len(normalize_text(p.text).split()) >= cfg.semantic_min_tokens:
+            lst = per.setdefault(p.did, [])
+            if len(lst) < cfg.semantic_posts_per_member:
+                lst.append(p)
+    return [p for d in sorted(per) for p in per[d]][: cfg.semantic_max_posts]
+
+
+def semantic_candidate_posts(groups: list[list[str]], wd: WindowData, cfg: DetectorConfig) -> list:
+    """All posts semantic_signal would embed for these clusters (for one batched prefetch)."""
+    seen, out = set(), []
+    for g in groups:
+        if len(g) > cfg.semantic_max_cluster:
+            continue
+        for p in _semantic_posts(g, wd, cfg):
+            if p.uri not in seen:
+                seen.add(p.uri)
+                out.append(p)
+    return out
+
+
+def semantic_signal(
+    members: list[str], wd: WindowData, embed: EmbedFn, cfg: DetectorConfig
+) -> Signal | None:
+    """Largest group of members whose posts say the same thing in different words (Gemini
+    embeddings, cosine >= semantic_threshold between posts of different accounts)."""
+    if len(members) > cfg.semantic_max_cluster:
+        return None
+    posts = _semantic_posts(members, wd, cfg)
+    if len({p.did for p in posts}) < cfg.min_cluster_size:
+        return None
+    vecs = embed([p.uri for p in posts], [p.text or "" for p in posts])
+    embedded = int((~np.isnan(vecs).any(axis=1)).sum())
+    if embedded < 2:
+        return None
+    best, density = semantic_core([p.did for p in posts], vecs, cfg.semantic_threshold)
+    count = len(best)
+    score = (count / len(members)) * min(1.0, count / cfg.min_cluster_size) if count >= 2 else 0.0
+    return Signal(
+        "content",
+        "semantic_duplicate",
+        _r(score),
+        f"{count} of {len(members)} accounts say the same thing as at least a third of the "
+        f"others, in different words ({density:.0%} of account pairs match; Gemini embeddings, "
+        f"cosine >= {cfg.semantic_threshold})",
+        {
+            "accounts": count,
+            "cluster_size": len(members),
+            "posts_embedded": embedded,
+            "pair_density": round(density, 4),
+            "threshold": cfg.semantic_threshold,
+            "model": "gemini-embedding-001",
+            "calibration": "at this threshold 67% of same-campaign post pairs, 5% of same-topic "
+            "organic pairs and 0.04% of random live pairs pass (Gemini-written fictional sets)",
+        },
+        uris=sorted(p.uri for p in posts if p.did in best)[:50],
+        dids=sorted(best),
+    )
 
 
 # ---------------------------------------------------------------- timing ----------------------
@@ -697,6 +768,68 @@ def member_graph(members: list[str], sk: list[Key]) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- identity tests --------------
+def identity_tests(
+    members: list[str], info: dict[str, AccountInfo], rates: BaseRates | None, cfg: DetectorConfig
+) -> list[dict]:
+    """Binomial tests: are fresh accounts / empty profiles over-represented in this cluster
+    compared with a random sample of active accounts? One-sided, base rate smoothed (k+1)/(n+2)
+    so a small sample never claims a zero base rate."""
+    from scipy.stats import binom
+
+    if rates is None:
+        return []
+    known = [info[d] for d in members if d in info]
+    out = []
+    aged = [a for a in known if a.age_days is not None]
+    if len(aged) >= cfg.min_cluster_size and rates.n_age >= cfg.baseline_min_sample:
+        k = sum(1 for a in aged if a.age_days < cfg.fresh_account_days)
+        p0 = (rates.fresh * rates.n_age + 1) / (rates.n_age + 2)
+        out.append(
+            {
+                "test": "fresh_accounts",
+                "k": k,
+                "n": len(aged),
+                "base_rate": _r(p0),
+                "baseline_sample": rates.n_age,
+                "p_value": float(binom.sf(k - 1, len(aged), p0)) if k else 1.0,
+            }
+        )
+    prof = [a for a in known if a.has_avatar is not None]
+    if len(prof) >= cfg.min_cluster_size and rates.n_profile >= cfg.baseline_min_sample:
+        k = sum(
+            1 for a in prof if not a.has_avatar and not a.description_len and (a.followers or 0) < 5
+        )
+        p0 = (rates.empty * rates.n_profile + 1) / (rates.n_profile + 2)
+        out.append(
+            {
+                "test": "empty_profiles",
+                "k": k,
+                "n": len(prof),
+                "base_rate": _r(p0),
+                "baseline_sample": rates.n_profile,
+                "p_value": float(binom.sf(k - 1, len(prof), p0)) if k else 1.0,
+            }
+        )
+    return out
+
+
+def combine_p(p_timing: float | None, tests: list[dict]) -> tuple[float | None, dict]:
+    """Bonferroni over the available tests: p = min(1, m * min p_i)."""
+    ps = {"timing": p_timing} if p_timing is not None else {}
+    ps.update({t["test"]: t["p_value"] for t in tests})
+    if not ps:
+        return None, {}
+    best = min(ps, key=lambda k: (ps[k], k))
+    p = min(1.0, len(ps) * ps[best])
+    return p, {
+        "method": "Bonferroni over the available tests",
+        "tests": {k: _sig(v) for k, v in sorted(ps.items())},
+        "decisive_test": best,
+        "p_value": _sig(p),
+    }
+
+
 # ---------------------------------------------------------------- combine ---------------------
 def score_cluster(
     members: list[str],
@@ -704,13 +837,27 @@ def score_cluster(
     wd: WindowData,
     info: dict[str, AccountInfo],
     cfg: DetectorConfig,
+    embed: EmbedFn | None = None,
+    rates: BaseRates | None = None,
 ) -> ClusterScore:
     rng = np.random.default_rng(_seed(cfg, members, wd))
     sk = shared_keys(members, keys)
     sigs: list[Signal] = []
     sigs += content_signals(len(members), sk, cfg)
-    t_sigs, p_value, p_detail = timing_signals(members, sk, wd, cfg, rng)
+    if embed is not None:
+        sem = semantic_signal(members, wd, embed, cfg)
+        if sem is not None:
+            sigs.append(sem)
+    t_sigs, p_timing, p_detail = timing_signals(members, sk, wd, cfg, rng)
     sigs += t_sigs
+    id_tests = identity_tests(members, info, rates, cfg)
+    p_value, p_combined = combine_p(p_timing, id_tests)
+    if p_combined:
+        p_detail = {
+            **p_detail,
+            "combined": p_combined,
+            "identity_tests": [{**t, "p_value": _sig(t["p_value"])} for t in id_tests],
+        }
     sigs += network_signals(members, sk, wd, cfg)
     sigs += identity_signals(members, info, cfg)
     guards = organic_guards(members, sk, info, wd, cfg)
@@ -751,7 +898,7 @@ def score_cluster(
         family_scores={f: _r(v) for f, v in fam.items()},
         families_fired=fired,
         score=_r(score),
-        p_value=_r(p_value) if p_value is not None else None,
+        p_value=_sig(p_value) if p_value is not None else None,
         p_detail=p_detail,
         guard_score=_r(guard),
         status=status,
