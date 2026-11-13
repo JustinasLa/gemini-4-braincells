@@ -245,14 +245,19 @@ def test_iter_windows_gap_check_tolerates_reordered_events(tmp_path):
     assert out[0][0].max_gap_s == 20.0
 
 
-def test_adhoc_hours_cannot_be_published(capsys):
+def test_adhoc_hours_cannot_be_published(tmp_path, capsys):
     from eval.__main__ import main
 
-    db = ["--split", "heldout", "--database-url", "postgresql://unused"]
-    assert main(["recall", *db, "--hours", "2026111320"]) == 2
-    assert main(["recall", *db, "--max-windows", "1"]) == 2
-    assert main(["recall", *db, "--levels", "L1"]) == 2
-    assert "ad-hoc" in capsys.readouterr().err
+    db = ["--split", "heldout", "--slice", str(tmp_path), "--database-url", "postgresql://unused"]
+    adhoc = [
+        ["--hours", "2026111320"],
+        ["--max-windows", "1"],
+        ["--levels", "L1"],
+        ["--window-s", "3600"],
+    ]
+    for extra in adhoc:
+        assert main(["recall", *db, *extra]) == 2
+        assert "ad-hoc" in capsys.readouterr().err, extra
 
 
 def test_adhoc_run_table_is_labelled(tmp_path, capsys):

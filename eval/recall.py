@@ -39,6 +39,7 @@ DATASET = "synthetic_campaigns"
 LEVELS = ("L1", "L2", "L3")
 MIN_COVERAGE = 0.5  # share of a campaign's accounts that must be in `coordinated` clusters
 MIN_STORE_SCORE = 0.5  # same default as the live worker (SIGNALS_MIN_STORE_SCORE)
+WINDOW_S = 600.0  # the live worker's main window; the only length a split row is published for
 
 
 @dataclass
@@ -182,7 +183,7 @@ def add_arguments(r: argparse.ArgumentParser) -> None:
     r.add_argument("--hours", nargs="+", help="ad-hoc UTC hours (YYYYMMDDHH) instead of the split")
     r.add_argument("--levels", nargs="+", default=list(LEVELS), choices=list(LEVELS))
     r.add_argument("--repeats", type=int, default=5, help="campaigns per level per window")
-    r.add_argument("--window-s", type=float, default=600.0)
+    r.add_argument("--window-s", type=float, default=WINDOW_S)
     r.add_argument("--max-windows", type=int, default=0)
     r.add_argument("--workers", type=int, default=4)
     r.add_argument("--database-url", help="write an eval_runs row here (nothing written if unset)")
@@ -220,12 +221,17 @@ def _git_sha() -> str | None:
 
 def main_args(args) -> int:
     _WINDOWS.clear()  # module state for the fork pool: never carry windows over from a past run
-    partial = bool(args.hours or args.max_windows or set(args.levels) != set(LEVELS))
+    partial = bool(
+        args.hours
+        or args.max_windows
+        or set(args.levels) != set(LEVELS)
+        or args.window_s != WINDOW_S
+    )
     if partial and args.database_url:
         # ad-hoc hours or a partial run are not the split's result: never publish them as one
         print(
-            "--hours, --max-windows and --levels are for ad-hoc runs and can't be combined with "
-            "--database-url",
+            "--hours, --max-windows, --levels and --window-s are for ad-hoc runs and can't be "
+            "combined with --database-url",
             file=sys.stderr,
         )
         return 2
