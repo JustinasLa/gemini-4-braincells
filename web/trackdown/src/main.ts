@@ -1,5 +1,7 @@
 import "./styles.css";
 import rhinoUrl from "./assets/rhino-1515.webp";
+import fullCv from "./assets/venus-full-cv.json";
+import venusFullUrl from "./assets/venus-full.webp";
 import { analyze, listLive, liveCase, type ClusterSummary } from "./data/api";
 import { simulatedCases } from "./data/cases";
 import { simulateFromInput } from "./data/simulate";
@@ -20,23 +22,22 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <button class="btn icon mobile-only rail-btn" data-act="rail" aria-label="Case files">${icon.menu}</button>
-    <div class="wordmark">SHILL OR CHILL</div>
-    <div class="case-head"><span class="label">trackdown</span><h1 id="title"></h1><span id="badges"></span></div>
+    <button class="wordmark" data-act="home" title="Start over">SHILL OR CHILL</button>
+    <div class="case-head"><button class="btn ghost" data-act="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <div class="seg" id="mode"><button data-mode="timeline" class="on">Timeline</button><button data-mode="web">Web</button></div>
       <button class="btn icon mobile-only" data-act="sheet" aria-label="Verdict">${icon.receipt}</button>
-      <button class="btn solid" data-act="trace">${icon.search}<span class="lbl">Trace a post</span><span class="kbd">N</span></button>
+      <button class="btn solid" data-act="trace">${icon.search}<span class="lbl">New trace</span></button>
     </div>
   </header>
   <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
   <main class="stage" id="stage">
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
     <div class="term hidden" id="console" data-ui></div>
-    <div class="hint label" id="hint">drag cards · scroll to zoom · double-click to focus</div>
-    <div class="legend min" id="legend" data-ui></div>
+    <div class="status" id="status" data-ui><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
+    <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Map and key" title="Map and key (M)">${icon.web2}</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
@@ -63,16 +64,22 @@ initTooltips();
 
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
-  `<div class="legend-title"><span class="label">key</span><span>+</span></div>` +
+  `<div class="legend-title"><span class="label">key</span></div>` +
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
   `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="sw box" style="--c:#3fe07a"></span>Machine detection</div>`;
-$("#legend").addEventListener("click", (e) => {
-  if ((e.target as HTMLElement).closest(".legend-title")) {
-    const l = $("#legend");
-    l.classList.toggle("min");
-    $(".legend-title span:last-child", l).textContent = l.classList.contains("min") ? "+" : "–";
-  }
-});
+
+
+// ---------------------------------------------------------------- phases: home -> trace -> done
+// Only what the moment needs is on screen: the canvas + one status line while tracing,
+// the verdict panel and timeline once there is a verdict. Cases, map and key are opt-in.
+type Phase = "home" | "trace" | "done";
+function setPhase(p: Phase) {
+  app.dataset.phase = p;
+  app.classList.toggle("panel-open", p === "done");
+  if (p !== "done") app.classList.remove("rail-open");
+  g.insets.bottom = p === "done" ? 112 : 64;
+  if (p === "done") setTimeout(() => g.fit(undefined, 900), 650);
+}
 
 // ---------------------------------------------------------------- header
 function renderResources(c: TraceCase) {
@@ -159,8 +166,11 @@ document.addEventListener("click", (e) => {
   const a = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
   if (!a || a.closest("#panel") || a.closest(".event")) return;
   const act = a.dataset.act;
-  if (act === "trace") openModal();
-  if (act === "rail") app.classList.toggle("rail-open");
+  if (act === "trace" || act === "home") showHome();
+  if (act === "rail") {
+    app.classList.toggle("rail-open");
+    setTimeout(() => g.fit(undefined, 800), 650);
+  }
   if (act === "sheet") app.classList.toggle("sheet-open");
 });
 stage.querySelector(".zoom")!.addEventListener("click", (e) => {
@@ -168,6 +178,7 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "in") g.zoomBy(1.35);
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
+  if (z === "tools") app.classList.toggle("tools");
 });
 
 // ---------------------------------------------------------------- graph events
@@ -189,13 +200,13 @@ dock.onScrub = () => {
   if (tracing) cancelTrace();
 };
 panel.onReplay = () => current && runTrace(current);
-setTimeout(() => ($("#hint").style.opacity = "0"), 7000);
-stage.addEventListener("pointerdown", () => ($("#hint").style.opacity = "0"), { once: true });
 
 // ---------------------------------------------------------------- opening a case
 function openCase(c: TraceCase, how: "spread" | "static") {
   cancelTrace();
   closeEvent();
+  hideHome();
+  setPhase("done");
   current = c;
   renderRail();
   g.load(c, { revealAll: how === "static" });
@@ -234,26 +245,32 @@ function consoleHead(state: "run" | "done", c: TraceCase) {
   const mode = c.synthetic ? "--simulated" : c.historical ? "--archive" : "";
   return `<div class="term-head"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="file">trackdown.sh ${mode}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "skip" : "close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
 }
-consoleEl.addEventListener("click", (e) => {
-  if ((e.target as HTMLElement).closest("[data-skip]")) {
-    if (tracing) skipFlag = true;
-    else hideConsole();
-  }
+const statusEl = $("#status");
+statusEl.addEventListener("click", (e) => {
+  if ((e.target as HTMLElement).closest("[data-skip]")) skipFlag = true;
 });
+function setStatus(tool: keyof typeof TOOL | null, text: string) {
+  statusEl.classList.toggle("on", !!text);
+  const tl = $(".st-tool", statusEl);
+  tl.className = `st-tool t-${tool ?? "detector"}`;
+  tl.textContent = tool ? TOOL[tool].label : "";
+  $(".st-txt", statusEl).textContent = text;
+}
 
 async function typeLine(body: HTMLElement, tool: keyof typeof TOOL, text: string, run: number) {
   const row = document.createElement("div");
   row.className = "line active";
   row.innerHTML = `<span class="gt">&gt;</span><span class="tool t-${tool}">${TOOL[tool].label}</span><span class="txt"></span><span class="res"></span>`;
   body.appendChild(row);
-  body.scrollTop = body.scrollHeight;
   const t = row.querySelector<HTMLElement>(".txt")!;
   for (let i = 1; i <= text.length; i += 2) {
     if (skipFlag || run !== tracing) break;
     t.textContent = text.slice(0, i);
+    setStatus(tool, text.slice(0, i));
     await wait(11);
   }
   t.textContent = text;
+  setStatus(tool, text);
   return row;
 }
 
@@ -262,6 +279,8 @@ async function runTrace(c: TraceCase) {
   const run = ++tracing;
   skipFlag = false;
   closeEvent();
+  hideHome();
+  setPhase("trace");
   current = c;
   renderRail();
   g.load(c, { revealAll: false });
@@ -270,7 +289,6 @@ async function runTrace(c: TraceCase) {
   dock.u = 1;
   panel.set(c, true);
   consoleEl.innerHTML = consoleHead("run", c);
-  consoleEl.classList.remove("hidden");
   const body = $(".term-body", consoleEl);
   const alive = () => run === tracing && !skipFlag;
   const pause = async (ms: number) => {
@@ -378,16 +396,21 @@ async function runTrace(c: TraceCase) {
   await wait(wasSkipped ? 300 : 800);
   if (run !== tracing) return;
   panel.set(c, false);
-  if (!wasSkipped) showEvent(c, run);
-  if (run === tracing) {
-    tracing = 0;
-    setTimeout(() => !tracing && hideConsole(), 6000);
-  }
+  setStatus(null, "");
+  if (!wasSkipped) {
+    afterReveal = () => setPhase("done");
+    showEvent(c, run);
+  } else setPhase("done");
+  if (run === tracing) tracing = 0;
 }
 
 // ---------------------------------------------------------------- verdict reveal: the Junction banner with the verdict as its wordmark
 let eventEl: HTMLElement | null = null;
+let afterReveal: (() => void) | null = null;
 function closeEvent() {
+  const cb = afterReveal;
+  afterReveal = null;
+  if (cb) setTimeout(cb, 150);
   if (!eventEl) return;
   const e = eventEl;
   eventEl = null;
@@ -418,86 +441,67 @@ async function showEvent(c: TraceCase, run: number) {
   setTimeout(() => eventEl === el && closeEvent(), 5200);
 }
 
-// ---------------------------------------------------------------- trace modal
-const EXAMPLES = [
-  "They're banning tap water on weekends. NOT a joke. Share before it gets deleted",
-  "$GLOW partnership with a top payments network confirmed 🚀",
-  "This flood photo is happening RIGHT NOW and the media is silent",
-  "Harbour bridge closed both ways, loud bang from the east pillar",
-];
-function openModal() {
-  if (document.querySelector(".modal")) return;
-  const back = document.createElement("div");
-  back.className = "modal-back";
-  back.innerHTML = `<div class="modal" role="dialog" aria-label="Trace a post">
-    <div class="banner"><canvas></canvas><div class="bt">SHILL OR CHILL</div><span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span></div>
-    <div class="form">
-      <p class="sub">Drop a post, a link or a handle. We walk it back to the earliest copy we can find, then look at how it spread.</p>
-      <div class="drop"><textarea placeholder="Paste a post, a bsky.app link or @handle…"></textarea>
-        <div class="row label">drop a screenshot · nemotron reads it<span class="file"></span></div></div>
-      <div class="examples">${EXAMPLES.map((e) => `<button data-ex="${esc(e)}">${esc(e.length > 54 ? e.slice(0, 52) + "…" : e)}</button>`).join("")}</div>
-      <div class="foot"><div class="fine">Asks the live API first. If it isn't reachable, you get a clearly labelled simulated trackdown.</div><button class="btn" data-x>Cancel</button><button class="btn solid" data-go>${sm(icon.search, 14)} Trace it</button></div>
+// ---------------------------------------------------------------- home: the banner, one input, a few cases
+let homeEl: HTMLElement | null = null;
+let stopHomeBanner: (() => void) | null = null;
+function showHome() {
+  cancelTrace();
+  closeEvent();
+  if (homeEl) return;
+  const cases = simulatedCases();
+  homeEl = document.createElement("div");
+  homeEl.className = "home";
+  homeEl.innerHTML = `<canvas></canvas>
+    <div class="home-c">
+      <div class="home-wm">SHILL OR CHILL</div>
+      <p class="home-tag">Paste a post. We trace it back to the first copy and check whether its spread was coordinated.</p>
+      <form class="home-form"><input name="q" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
+      <div class="home-ex"><span class="label">or open a case</span>${cases.map((c) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}</button>`).join("")}</div>
     </div>
-  </div>`;
-  document.body.appendChild(back);
-  mountBanner($<HTMLCanvasElement>("canvas", back), { darken: 0.42, per: 80 });
-  const ta = $<HTMLTextAreaElement>("textarea", back);
-  const drop = $(".drop", back);
-  let file: File | null = null;
-  setTimeout(() => ta.focus(), 60);
-  const close = () => {
-    back.classList.add("out");
-    setTimeout(() => back.remove(), 280);
-  };
-  back.addEventListener("click", (e) => {
-    const t = e.target as HTMLElement;
-    if (t === back || t.closest("[data-x]")) close();
-    const ex = t.closest<HTMLElement>("[data-ex]");
-    if (ex) {
-      ta.value = ex.dataset.ex!;
-      ta.focus();
-    }
-    if (t.closest("[data-go]")) go();
-  });
-  ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) go();
-    if (e.key === "Escape") close();
-  });
-  drop.addEventListener("dragover", (e) => {
+    <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
+  document.body.appendChild(homeEl);
+  const img = new Image();
+  img.src = venusFullUrl;
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25 });
+  const input = $<HTMLInputElement>("input", homeEl);
+  setTimeout(() => input.focus(), 400);
+  $("form", homeEl).addEventListener("submit", (e) => {
     e.preventDefault();
-    drop.classList.add("over");
+    startTrace(input.value);
   });
-  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-  drop.addEventListener("drop", (e) => {
-    e.preventDefault();
-    drop.classList.remove("over");
-    const f = e.dataTransfer?.files?.[0];
-    if (f) {
-      file = f;
-      $(".file", drop).innerHTML = `<span class="att">${esc(f.name.slice(0, 28))}</span>`;
-    } else {
-      const txt = e.dataTransfer?.getData("text");
-      if (txt) ta.value = txt;
-    }
+  homeEl.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-hcase]");
+    if (!b) return;
+    const c = simulatedCases().find((x) => x.id === b.dataset.hcase);
+    if (c) runTrace(c);
   });
-  async function go() {
-    const text = ta.value.trim() || (file ? "Screenshot" : "");
-    if (!text) {
-      ta.focus();
-      drop.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(6px)" }, { transform: "translateX(0)" }], { duration: 300 });
-      return;
-    }
-    $<HTMLButtonElement>("[data-go]", back).textContent = "Asking the API…";
-    let c = await analyze(text);
-    if (!c) {
-      c = simulateFromInput(text);
-      toast("// live API not reachable: running a simulated trackdown");
-    }
-    userCases.unshift(c);
-    saveUserCases();
-    close();
-    runTrace(c);
+}
+function hideHome() {
+  if (!homeEl) return;
+  const el = homeEl;
+  homeEl = null;
+  el.classList.add("out");
+  setTimeout(() => {
+    stopHomeBanner?.();
+    el.remove();
+  }, 700);
+}
+async function startTrace(raw: string) {
+  const text = raw.trim();
+  if (!text) {
+    homeEl?.querySelector(".home-form")?.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(6px)" }, { transform: "translateX(0)" }], { duration: 300 });
+    return;
   }
+  const btn = homeEl?.querySelector<HTMLButtonElement>(".home-form button");
+  if (btn) btn.textContent = "Checking…";
+  let c = await analyze(text);
+  if (!c) {
+    c = simulateFromInput(text);
+    toast("// live API not reachable: running a simulated trackdown");
+  }
+  userCases.unshift(c);
+  saveUserCases();
+  runTrace(c);
 }
 
 let toastT = 0;
@@ -518,7 +522,7 @@ document.addEventListener("keydown", (e) => {
     if (eventEl) closeEvent();
     else if (tracing) skipFlag = true;
     else if (g.selId) g.select(null);
-    else hideConsole();
+    else app.classList.remove("rail-open", "tools");
   }
   if (e.key === " ") {
     e.preventDefault();
@@ -528,8 +532,9 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "t" || e.key === "T") setMode(g.mode === "timeline" ? "web" : "timeline");
   if (e.key === "n" || e.key === "N") {
     e.preventDefault();
-    openModal();
+    showHome();
   }
+  if (e.key === "m" || e.key === "M") app.classList.toggle("tools");
   if (e.key === "+" || e.key === "=") g.zoomBy(1.3);
   if (e.key === "-") g.zoomBy(1 / 1.3);
   if (/^[1-9]$/.test(e.key)) {
@@ -559,23 +564,10 @@ renderRail();
 const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
 if (params.has("static")) openCase(first, "static");
+else if (params.has("case")) runTrace(first);
 else {
-  // title card: the painting is read by machine vision, then the trackdown starts
-  const splash = document.createElement("div");
-  splash.className = "splash";
-  splash.innerHTML = `<canvas></canvas><div class="t"><div class="big">SHILL OR CHILL</div><div class="sub">// provenance for the feed · junction 2026</div></div>`;
-  document.body.appendChild(splash);
-  mountBanner($<HTMLCanvasElement>("canvas", splash), { darken: 0.45, per: 75, delay: 200 });
-  let gone = false;
-  const go = () => {
-    if (gone) return;
-    gone = true;
-    splash.classList.add("out");
-    setTimeout(() => splash.remove(), 850);
-    runTrace(first);
-  };
-  splash.addEventListener("click", go);
-  Promise.all([document.fonts.ready, bannerReady, wait(2600)]).then(go);
+  setPhase("home");
+  showHome();
 }
 listLive().then((rows) => {
   liveRows = rows;

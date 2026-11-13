@@ -20,7 +20,9 @@ export interface BannerOpts {
   focusX?: number; // 0..1 horizontal focus for cover-cropping
   delay?: number; // ms before the first box
   per?: number; // ms between boxes
-  src?: HTMLImageElement; // optional different picture (no keypoints drawn then)
+  src?: HTMLImageElement; // optional different picture (no keypoints drawn unless `cv` is given)
+  cv?: { points: Pt[]; links: { a: number; b: number; score: number }[] }; // keypoints for `src`
+  focusY?: number;
 }
 
 /** Draws into `canvas` until it leaves the DOM. Returns a stop function. */
@@ -31,7 +33,9 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
   const t0 = performance.now();
   let raf = 0;
   let stopped = false;
-  const order = PTS.map((_, i) => i).sort((a, b) => PTS[a].x - PTS[b].x);
+  const pts0 = opts.cv?.points ?? PTS;
+  const links0 = opts.cv?.links ?? LINKS;
+  const order = pts0.map((_, i) => i).sort((a, b) => pts0[a].x - pts0[b].x);
   const rank = new Map(order.map((i, r) => [i, r]));
 
   const draw = (now: number) => {
@@ -56,7 +60,7 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
     const iw = pic.naturalWidth * s;
     const ih = pic.naturalHeight * s;
     const ix = (W - iw) * focusX;
-    const iy = (H - ih) * 0.3;
+    const iy = (H - ih) * (opts.focusY ?? 0.3);
     const t = now - t0;
     // slow push-in
     const z = 1 + Math.min(1, t / 14000) * 0.04;
@@ -67,13 +71,13 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
     ctx.filter = `brightness(${darken}) saturate(0.85)`;
     ctx.drawImage(pic, ix, iy, iw, ih);
     ctx.filter = "none";
-    if (!opts.src) {
-      const P = PTS.map((p) => ({ x: ix + p.x * iw, y: iy + p.y * ih, s: p.s * iw, score: p.score }));
+    if (!opts.src || opts.cv) {
+      const P = pts0.map((p) => ({ x: ix + p.x * iw, y: iy + p.y * ih, s: p.s * iw, score: p.score }));
       // match lines draw in after both ends are detected
       ctx.lineWidth = 1;
       ctx.strokeStyle = "rgba(235,235,235,0.75)";
       ctx.setLineDash([6, 6]);
-      for (const l of LINKS) {
+      for (const l of links0) {
         const ta = delay + (rank.get(l.a) ?? 0) * per;
         const tb = delay + (rank.get(l.b) ?? 0) * per;
         const p = Math.min(1, Math.max(0, (t - Math.max(ta, tb) - 150) / 600));
