@@ -13,8 +13,8 @@ uv run pytest tests/test_eval_recall.py                           # offline; no 
 `--database-url` is opt-in: without it nothing is written anywhere. Other flags: `--repeats N`
 (campaigns per level per window, default 5), `--levels L1 L2`, `--workers 4`, `--json-out FILE`,
 `--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). Ad-hoc or partial runs (`--hours`,
-`--max-windows`, a subset of `--levels`) are refused with `--database-url`, so they can't replace
-a split's published row.
+`--max-windows`, a subset of `--levels`, a `--window-s` other than 600) are refused with
+`--database-url`, so they can't replace a split's published row.
 
 ## Datasets and splits
 
