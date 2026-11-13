@@ -14,8 +14,8 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS). API health
 
 Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
 
-Status: ingest, the detector, Oxylabs source checks, Gemini verdicts and the API are on `main` and
-live. The eval harness (open PRs #9 and #10), the Nemotron media worker and the dashboard are being
+Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
+API are on `main` and live. The eval harness (open PRs #9 and #10) and the dashboard are being
 integrated; until they land, `main` has only their stubs and `/api/metrics` may be empty.
 
 ## The thesis
@@ -86,7 +86,7 @@ that anyone was paid or why.
 | `ingest/` | Bluesky Jetstream consumer → Postgres (`posts`, `reposts`, `likes`, `follows`, `account_events`); hour-partitioned raw tables with retention; record/replay. See `ingest/README.md`. |
 | `signals/` | The coordination detector: windows, shared keys, account graph, clusters, four signal families, permutation null model, organic guards, deterministic status, enrichment. See `signals/README.md`. |
 | `sources/` | Oxylabs Web API: `/scrape` with AI extraction on a cluster's most-shared links, `/search` for its headline and repeated text. Every fact keeps its source URL. |
-| `media/` | Nemotron 3.5 Super VL: describes images and video frames in candidate clusters, extracts text, notes reuse cues. Being integrated (not wired into `main` yet). |
+| `media/` | Nemotron 3.5 Super VL: describes images and video thumbnails in candidate clusters, extracts their text (OCR), notes reuse and manipulated-context cues, links different images that share one text template. `media/README.md`. |
 | `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
 | `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. In review (PRs #9, #10). |
 | `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
@@ -164,7 +164,7 @@ One-off and offline tools: `python -m signals once --window 10m --dry-run` (one 
 writes nothing), `python -m sources cluster <id> --dry-run`, `python -m analyst prompt <id>` (shows
 the prompt), `python -m ingest replay DIR --database-url URL` (recorded files into another DB).
 Keys you need: `GEMINI_API_KEY` + `GEMINI_MODEL` (analyst), `OXYLABS_WEB_API_KEY` (sources and the
-web part of `/api/analyze`), `NVIDIA_API_KEY` (media, once its worker lands). Without them the detector and API still run.
+web part of `/api/analyze`), `VERDA_INFERENCE_KEY` or `NVIDIA_API_KEY` (media; `python -m media cluster <id> --dry-run`). Without them the detector and API still run.
 
 Or run the whole stack with Docker on a machine without another web server on :80/:443 (see
 Deploy for the Hostinger override): `docker compose -f deploy/docker-compose.yml --env-file .env up -d --build`.

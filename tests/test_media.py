@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -5,6 +6,7 @@ import openai
 import pytest
 
 from media.nemotron import (
+    ADULT_DESCRIPTION,
     MediaAnalysis,
     MediaInput,
     NemotronClient,
@@ -13,6 +15,7 @@ from media.nemotron import (
     RateLimiter,
     is_vl_model,
     parse_content,
+    safe_description,
 )
 
 GOOD = (
@@ -224,3 +227,25 @@ def test_analysis_round_trips_through_stored_detail():
 def test_media_requires_a_url_or_bytes():
     with pytest.raises(ValueError, match="either url or data"):
         MediaInput("hash-3", "image/jpeg").image_url()
+
+
+@pytest.mark.parametrize(
+    "description, flags",
+    [
+        ("A man holding his penis in a chair.", []),  # word list catches an unflagged reply
+        ("A person on a beach.", ["adult"]),  # the model's own flag is enough
+    ],
+)
+def test_adult_media_is_never_described(description, flags):
+    content = json.dumps({"description": description, "content_flags": flags, "confidence": 0.9})
+    client, _, _ = _client(_response(content))
+    a = client.analyze(MediaInput("h", "image/png", data=b"x"))
+    assert a.description == ADULT_DESCRIPTION
+    assert a.content_flags == ["adult"]
+
+
+def test_ordinary_descriptions_pass_through():
+    assert safe_description("A promotional graphic for a law firm.", ["promo_or_ad"]) == (
+        "A promotional graphic for a law firm.",
+        ["promo_or_ad"],
+    )

@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 # Bumped whenever the prompt or output schema changes (media/README.md has the iteration log).
-PROMPT_VERSION = "media-v2"
+PROMPT_VERSION = "media-v3"
 
 MEDIA_TYPES = ("photo", "screenshot", "meme", "ad_or_promo", "text_image", "video_frame", "other")
 CONTENT_FLAGS = ("adult", "promo_or_ad", "scam_cue", "news_or_politics", "handle_or_url_watermark")
@@ -38,7 +38,9 @@ suspiciously similar way. Your notes are shown publicly as evidence next to that
 Rules:
 - Describe only what is visible. Do not guess who made it, why, or whether it is true.
 - Never call a person or account a bot, shill or spammer. Describe the media, not the people.
-- Sexual or graphic material: say "adult content" (or "graphic content") with no further detail.
+- Sexual, nude or graphic material: set content_flags to include "adult" and write the
+  description as exactly "Adult content." (or "Graphic content."). Do not describe bodies, acts
+  or clothing; list only text, logos, handles and URLs, in extracted_text.
 - extracted_text: legible text in the image, verbatim, one entry per line or block, in reading
   order. Empty list if there is none. Never invent unreadable text.
 - reuse_cues: visible signs the image is mass-produced or reused: template layouts, watermarks,
@@ -52,6 +54,22 @@ Rules:
 
 Return only one JSON object with keys: description (string, at most 2 sentences), media_type,
 extracted_text, reuse_cues, manipulation_cues, content_flags (arrays of strings), confidence."""
+
+
+# Explicit words that must never reach public evidence text (the prompt asks; this enforces).
+_GRAPHIC = re.compile(
+    r"\b(nud(e|ity)|naked|genital\w*|penis|vagina|breasts?|nipples?|sex(ual)? act\w*|erect\w*"
+    r"|anal|masturbat\w*|porn\w*)\b",
+    re.I,
+)
+ADULT_DESCRIPTION = "Adult content (not described)."
+
+
+def safe_description(description: str, flags: list[str]) -> tuple[str, list[str]]:
+    """Replace the description of adult media, flagged by the model or caught by word list."""
+    if "adult" in flags or _GRAPHIC.search(description):
+        return ADULT_DESCRIPTION, flags if "adult" in flags else [*flags, "adult"]
+    return description, flags
 
 
 class NemotronError(RuntimeError):
@@ -354,9 +372,11 @@ class NemotronClient:
             confidence = 0.5
         media_type = str(payload.get("media_type") or "other").strip().lower()
         flags = [f.lower() for f in _strings(payload.get("content_flags"))]
+        flags = [f for f in dict.fromkeys(flags) if f in CONTENT_FLAGS]
+        description, flags = safe_description(description.strip(), flags)
         return MediaAnalysis(
             media_hash=media.media_hash,
-            description=description.strip(),
+            description=description,
             extracted_text=_strings(payload.get("extracted_text")),
             reuse_cues=_strings(payload.get("reuse_cues")),
             manipulation_cues=_strings(payload.get("manipulation_cues")),
@@ -366,7 +386,7 @@ class NemotronClient:
             usage=_usage(response),
             source_uri=media.source_uri,
             media_type=media_type if media_type in MEDIA_TYPES else "other",
-            content_flags=[f for f in flags if f in CONTENT_FLAGS],
+            content_flags=flags,
             model_requested=self.model,
             finish_reason=finish,
         )
