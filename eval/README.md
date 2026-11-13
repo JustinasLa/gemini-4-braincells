@@ -10,20 +10,23 @@ uv run python -m eval recall --split heldout --database-url URL   # ...and write
 uv run pytest tests/test_eval_recall.py                           # offline; no DB, no network
 ```
 
+For `recall`, `--database-url` is opt-in: without it nothing is written anywhere. Other flags:
+`--repeats N` (campaigns per level per window, default 5), `--levels L1 L2`, `--workers 4`,
+`--json-out FILE`, `--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). Ad-hoc or partial runs (`--hours`,
+`--max-windows`, a subset of `--levels`, a `--window-s` other than 600) are refused with
+`--database-url`, so they can't replace a split's published row.
+
 Organic false positives (`organic.py`, below):
 
 ```bash
 uv run python -m eval organic select   # pick live organic cases -> eval/fixtures/organic_live.json
-uv run python -m eval organic run      # run the detector, print the report, write nothing
-uv run python -m eval organic run --write --database-url URL   # ...and write eval_runs rows
+uv run python -m eval organic run      # print the report; no eval_runs rows
+uv run python -m eval organic run --write [--database-url URL]  # ...and write eval_runs rows
 uv run pytest tests/test_eval_organic.py                          # offline; no DB, no network
 ```
 
-`--database-url` is opt-in: without it nothing is written anywhere. Other flags: `--repeats N`
-(campaigns per level per window, default 5), `--levels L1 L2`, `--workers 4`, `--json-out FILE`,
-`--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). Ad-hoc or partial runs (`--hours`,
-`--max-windows`, a subset of `--levels`, a `--window-s` other than 600) are refused with
-`--database-url`, so they can't replace a split's published row.
+For `organic`, `--write` writes the rows (to `--database-url`, default `DATABASE_URL`). Every
+run may add fetched profiles to the profile cache (`--offline` fetches nothing).
 
 ## Datasets and splits
 
