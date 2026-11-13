@@ -58,7 +58,8 @@ entire login                                      # GitHub sign-in (use --device
 entire plugin install graph && entire plugin install brain --yes
 ```
 
-Then start a new agent session in your worktree. Checkpoints contain agent transcripts: never paste
+Then start a new agent session in your worktree. Codex users: approve the Entire hooks once in an
+interactive Codex session (`/hooks`), then check with `entire doctor`. Checkpoints contain agent transcripts: never paste
 keys or `.env` contents into a prompt. Committed Entire files: `.entire/settings.json`,
 `.entire/.gitignore`, `.entire/agent-guide.md`, `.claude/settings.json`, `.codex/hooks.json`,
 `AGENTS.md`, `CLAUDE.md` (Entire manages the marked blocks; add your own text outside them).
