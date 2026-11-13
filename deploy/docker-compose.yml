@@ -27,14 +27,36 @@ services:
     depends_on:
       db: { condition: service_healthy }
 
-  # Add ingest / signals workers here as they land, reusing the same image:
-  # ingest:
-  #   build: { context: .., dockerfile: Dockerfile }
-  #   command: ["python", "-m", "ingest"]
-  #   env_file: ../.env
-  #   environment:
-  #     DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-  #   depends_on: { db: { condition: service_healthy } }
+  # Applies db/schema.sql + db/migrations/*.sql (idempotent), then exits.
+  migrate:
+    build: { context: .., dockerfile: Dockerfile }
+    command: ["python", "-m", "common.migrate"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on: { db: { condition: service_healthy } }
+    restart: "no"
+
+  # Bluesky Jetstream consumer -> Postgres. Cursor in ingest_state; resumes after restarts.
+  ingest:
+    build: { context: .., dockerfile: Dockerfile }
+    command: ["python", "-m", "ingest", "run"]
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+    healthcheck:
+      # Healthy while the newest stored event is less than 2 minutes old.
+      test: ["CMD", "python", "-c", "import sys, psycopg, os; r = psycopg.connect(os.environ['DATABASE_URL']).execute(\"SELECT extract(epoch FROM now() - last_event_at) FROM ingest_state WHERE stream = 'jetstream'\").fetchone(); sys.exit(0 if r and r[0] < 120 else 1)"]
+      interval: 60s
+      start_period: 60s
+      retries: 3
 
   caddy:
     image: caddy:2
