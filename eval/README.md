@@ -33,6 +33,7 @@ run may add fetched profiles to the profile cache (`--offline` fetches nothing).
 | `dataset` | What it measures | Columns filled |
 |---|---|---|
 | `synthetic_campaigns` | **recall**: share of injected synthetic campaigns the detector marks `coordinated` | `recall`, `n`, `details` (`precision`, `f1`, `fpr` stay NULL: no negatives here) |
+| `calibration` | **reliability**: coordination score vs coordination ground truth, and decided-verdict confidence vs correctness | `precision`, `recall`, `f1`, `fpr`, `n`, `details`; each reliability metric has its own eligible `n` |
 | `live_hand_labels` | **precision** of `coordinated` and **FPR** on live clusters, against two humans' blind labels (below) | `precision`, `fpr`, `n` (definite human labels in that split), `details` (kappa, CIs, per-item labels) |
 | `organic_synth` | **FPR**: share of injected synthetic organic bursts (viral, news link, live event, fandom) the detector marks `coordinated` | `fpr`, `n`, `details` |
 | `organic_live` | **FPR** on real organic bursts in recorded windows, picked by a fixed rule that never reads detector output | `fpr`, `n`, `details` |
@@ -190,6 +191,122 @@ count in `details`.
 ## Results
 
 RESULTS_PLACEHOLDER
+
+## Calibration, frozen errors and detector provenance
+
+```bash
+uv run python -m eval calibration --split heldout --json-out /tmp/calibration.json
+uv run python -m eval calibration --split heldout --write  # configured DATABASE_URL
+uv run python -m eval errors                              # latest calibration row, heldout
+uv run python -m eval errors --input /tmp/calibration.json --output eval/reports/latest-errors.md
+uv run python -m eval audit-versions                      # read-only, exit 1 on missing versions
+uv run pytest tests/test_eval_calibration.py
+```
+
+This extends the existing subcommand CLI and uses **only `eval.store.write_eval_run`** to write
+the existing `eval_runs` table. No schema/API changes: `/api/metrics` already returns `details`.
+`--database-url` also opts in to writing; without it or `--write`, calibration does not connect
+to the database. `errors` and `audit-versions` only read the database. `errors` defaults to
+`eval/reports/latest-errors.md`; it reads the newest **calibration** row by created time then ID
+for the requested split. Older recall/FPR-only runs do not contain enough frozen cluster detail
+for a trustworthy error report and are not silently reinterpreted.
+
+### Evaluation units and targets
+
+- Uses the existing `eval.slices` held-out rule and window reader, all complete windows of the
+  split, and the same `signals.detect.detect` entry point. Each window receives one injection
+  at a time: L1/L2/L3 campaigns plus viral/news_link/live_event/fandom organic hard negatives from
+  `signals.synth`. No posts are sent anywhere. `--repeats` defaults to one per type/window.
+- Each injection is one labelled **case**, not one independent real campaign. Positive hit rules
+  reuse recall's union of coordinated accounts >=50% of injected accounts; negative attribution
+  requires >=2 case accounts and >=50% of the cluster, as in organic evaluation.
+- A representative cluster supplies the
+  score/confidence/guard. Positives consider all clusters overlapping the injected accounts;
+  choose greatest overlap first, then coordinated status, then raw score (as recall.judge does).
+  Negatives consider only attributed clusters and choose highest raw score. Member-list tie-breaks
+  are deterministic. `predicted_coordinated` stores the case hit rule,
+  separately from the representative cluster's `status` (a partial hit can still be a case FN).
+- `coordination_score` compares the representative raw score to the coordination label. A noisy-OR
+  signal score is **not promised to be a probability**; this diagram tests that interpretation.
+- `verdict_confidence` compares confidence to **correctness of the representative verdict**.
+  High confidence in `likely_organic` is not a high probability of coordination. `insufficient`
+  verdicts are excluded from this target. Missing clusters have NULL scores, not fabricated zero
+  probabilities; they remain in case n, recall and FP/FN accounting. Metric-specific n is explicit.
+- `by_dataset` keeps synthetic campaigns, organic negatives and optional human-labelled data
+  separate. The designed synthetic class balance is not population prevalence; do not pitch
+  its pooled precision or Brier score as live-world accuracy. Heuristic organic-live labels are
+  not ground truth and are refused until human-reviewed.
+- Bins have equal mass (sizes differ by at most one); `--bins` defaults to 10, capped at eligible
+  n. Sorting uses prediction only, never ground truth. Ties may span adjacent bins with overlapping
+  min/max predictions. ECE is sum(n_bin/n * abs(mean_prediction - observed_rate)); Brier is mean
+  squared prediction error. Wilson 95% intervals describe **observed target rate**, not score
+  uncertainty. Shared windows/repeated templates are correlated; intervals do not correct for it.
+- `--max-windows` produces an explicitly ad-hoc run. It and saved `--input` recomputations cannot
+  publish over a split's database row. No detector threshold is changed by these commands.
+  Replay is deliberately sequential to bound memory use on large recorded windows. Hand-label
+  resolution/validation happens before expensive replay, so malformed labels fail fast.
+
+### `eval_runs.details` JSON contract (schema_version 1)
+
+`dataset="calibration"`; `split` follows the shared rule. Top-level precision/recall/F1/FPR are
+case-classification metrics, NULL when their denominator is zero. `n` includes all labelled cases.
+
+```text
+details = {
+  schema_version: 1, detector_version: string, eval_commit: string|null,
+  ran_at: ISO-8601 UTC, method: "equal_mass",
+  unit, score_target, confidence_target, interval_limit, mixture_limit: string,
+  provenance: {hours_utc, windows, windows_skipped, repeats_per_kind, adhoc, eval_commit_at_start},
+  n_cases: int, positives: int, outcomes: {status: int},
+  coordination_score: Reliability, verdict_confidence: Reliability,
+  by_dataset: {dataset_name: {n_cases, positives, outcomes, coordination_score, verdict_confidence}},
+  cases: [Case]
+}
+Reliability = {
+  n: int, requested_bins: int, brier: number|null, ece: number|null,
+  bins: [{index: int, n: int, positives: int,
+          min_prediction: number, max_prediction: number,
+          mean_prediction: number, observed_rate: number, wilson95: [lower, upper]}]
+}
+Case = {
+  case_id: string, dataset: string, case_type: string, label: 0|1,
+  label_source: "synthetic"|"human", window_start: Unix seconds,
+  detector_version: string, cluster_id: string|int|null, cluster_ids?: [string|int],
+  cluster_id_kind?: string, status: "coordinated"|"likely_organic"|"insufficient"|"no_cluster",
+  predicted_coordinated?: boolean,
+  clusters?: [{cluster_id, status, score, confidence, families_fired, organic_guard_score, overlap}],
+  score: number|null, confidence: number|null, families_fired: [string],
+  organic_guard_score: number|null
+}
+```
+
+Hand-label samples are discovered under `--labels-dir` (default `LABELS_DIR`, or
+`/srv/junction-espoo/data/labels`). When records exist, the adapter reuses the label owner's
+`eval.labels.load_records` / `final_labels` functions for agreed/adjudicated binary labels,
+filters split/version, and records exclusions in `provenance.hand_labels`. If that module is
+not yet merged, this is recorded as blocked; no parallel adjudication implementation is used.
+Frozen label samples currently omit guard/family detail; these remain NULL/unknown, never
+reconstructed from a changed live cluster. Hand-label reliability is unweighted descriptive
+reliability of the stratified sample, **not** population calibration; stored `sample_weight`
+is available for future design-weighted analysis. No human labels existed at implementation time.
+
+`--labels FILE` alternatively appends a JSON array of human-labelled `Case` snapshots. Supply the
+**same measured detector version** and the original window start, preserve DB cluster IDs, use a
+separate dataset name (e.g. `hand_labels`), and exclude unresolved/disagreeing labels rather than
+guessing them. Both class labels are accepted. Split/version mismatches, duplicate case identities,
+nonbinary or heuristic labels, invalid scores and invented scores for missing clusters are refused.
+The snapshot captures detector output at labelling/evaluation time: error analysis never joins
+mutable current cluster rows. No hand labels are manufactured if none exist.
+
+Offline replay IDs have the form `offline:<window>:<kind>:<seed>:<member-digest>` and **are not
+database primary keys**. Every snapshot and eval run names its detector version. Signals already
+writes the version on both cluster INSERT and UPDATE and in `signals` JSON; regression tests
+exercise those actual SQL paths. `audit-versions` checks every current cluster and eval row,
+including disagreement between column and JSON version, without backfilling guessed versions.
+
+The committed reports record actual runs, categories, signals and limitations. Reason categories
+are descriptive, not causal attribution. Follow-up detector fixes belong on the dev split; never
+tune them against these held-out errors. Built with Codex.
 
 ## Limits and findings (honest list)
 
