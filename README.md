@@ -14,6 +14,10 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS). API health
 
 Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
 
+Status: ingest, the detector, Oxylabs source checks, Gemini verdicts and the API are on `main` and
+live. The eval harness (open PRs #9 and #10), the Nemotron media worker and the dashboard are being
+integrated; until they land, `main` has only their stubs and `/api/metrics` may be empty.
+
 ## The thesis
 
 The common way to fight "noise" is to paste a post into a language model and ask whether it is
@@ -68,7 +72,7 @@ that anyone was paid or why.
    Oxylabs Web API              Nemotron 3.5 Super VL       Gemini
    /scrape linked pages,        reads images / frames:      explains the status, cites
    /search where the text       OCR, reuse cues             evidence ids, counter-evidence;
-   or headline appears                                      code-checked (analyst/guard.py)
+   or headline appears          (being integrated)          code-checked (analyst/guard.py)
        └───────────────────────────┴───────────────────────────┘
                                    ▼  evidence (signal | source | media | analyst)
                          api/ (FastAPI) ──▶ web/ dashboard   (Caddy, behind Hostinger's Traefik)
@@ -81,18 +85,18 @@ that anyone was paid or why.
 | `ingest/` | Bluesky Jetstream consumer → Postgres (`posts`, `reposts`, `likes`, `follows`, `account_events`); hour-partitioned raw tables with retention; record/replay. See `ingest/README.md`. |
 | `signals/` | The coordination detector: windows, shared keys, account graph, clusters, four signal families, permutation null model, organic guards, deterministic status, enrichment. See `signals/README.md`. |
 | `sources/` | Oxylabs Web API: `/scrape` with AI extraction on a cluster's most-shared links, `/search` for its headline and repeated text. Every fact keeps its source URL. |
-| `media/` | Nemotron 3.5 Super VL: describes images and video frames in candidate clusters, extracts text, notes reuse cues. |
+| `media/` | Nemotron 3.5 Super VL: describes images and video frames in candidate clusters, extracts text, notes reuse cues. Being integrated (not wired into `main` yet). |
 | `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
-| `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. |
+| `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. In review (PRs #9, #10). |
 | `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
-| `web/` | Dashboard served by Caddy. |
+| `web/` | Dashboard served by Caddy (`web/public/index.html` is a placeholder until the dashboard lands). |
 | `common/` | Shared settings (`common.config`) and DB connections (`common.db`), migrations runner. |
 | `db/` | `schema.sql` plus `migrations/`. |
 | `deploy/` | Docker Compose, Caddy, deploy and outside-check scripts for the Hostinger VPS. |
 
 ## How the metrics are made
 
-`eval/` replays recorded Jetstream hours offline, through the same normaliser and the same
+The eval code is in review (PRs #9 and #10); this describes what it does. `eval/` replays recorded Jetstream hours offline, through the same normaliser and the same
 detector entry point as the live worker, and writes one `eval_runs` row per dataset and split.
 `GET /api/metrics` returns the latest row per dataset and split, unchanged.
 
@@ -102,7 +106,7 @@ detector entry point as the live worker, and writes one `eval_runs` row per data
 - **False-positive rate**: synthetic hard negatives (viral post, news link, live event, fandom)
   and real organic bursts picked by a fixed rule that never looks at detector output.
 - **Split**: odd UTC hours are held out, even hours are for development. We tune only on dev.
-- Each row carries the detector version and the eval commit.
+- Each row's `details` records the detector version and the eval code commit.
 - An empty `/api/metrics` means no run has been published to that deployment yet, so there are
   no accuracy numbers to show yet.
 
@@ -159,9 +163,10 @@ One-off and offline tools: `python -m signals once --window 10m --dry-run` (one 
 writes nothing), `python -m sources cluster <id> --dry-run`, `python -m analyst prompt <id>` (shows
 the prompt), `python -m ingest replay DIR --database-url URL` (recorded files into another DB).
 Keys you need: `GEMINI_API_KEY` + `GEMINI_MODEL` (analyst), `OXYLABS_WEB_API_KEY` (sources and the
-web part of `/api/analyze`), `NVIDIA_API_KEY` (media). Without them the detector and API still run.
+web part of `/api/analyze`), `NVIDIA_API_KEY` (media, once its worker lands). Without them the detector and API still run.
 
-Or run the production stack with Docker: `docker compose -f deploy/docker-compose.yml --env-file .env up -d --build`.
+Or run the whole stack with Docker on a machine without another web server on :80/:443 (see
+Deploy for the Hostinger override): `docker compose -f deploy/docker-compose.yml --env-file .env up -d --build`.
 
 On the shared team server, dev servers must use ports 3000-3099 or 8000-8099 (`je ports`).
 Add dependencies with `uv add <pkg>` and commit `uv.lock`.

@@ -7,6 +7,10 @@ This page describes the code in this repository. Where a value is a setting, the
 it is named; that file is authoritative if it changes. Measured accuracy is not written here: it
 is computed by `eval/` and served live by `GET /api/metrics`.
 
+Status: ingest, the detector, Oxylabs source checks, Gemini verdicts and the API are on `main` and
+running live. The evaluation harness (open PRs #9 and #10) and the Nemotron media worker are being
+integrated; the sections about them describe that code as it stands in review.
+
 ## What we detect
 
 We detect **coordinated amplification**: several accounts that post, repost, like, reply or follow
@@ -23,7 +27,7 @@ of several accounts acting together, so every claim we make is about a group's b
 Every cluster gets exactly one status. The status is decided by fixed rules in `signals/`, never
 by a language model.
 
-| API value (`clusters.status`) | Label in the app | Meaning |
+| API value (`clusters.status`) | Label shown to users | Meaning |
 |---|---|---|
 | `coordinated` | 🚩 Shill | Several independent signal families agree, the timing can't be explained by chance, and no strong organic explanation is present. |
 | `likely_organic` | 😎 Chill | A strong organic explanation is present (for example established accounts, or a wider crowd doing the same thing) and at most one family looks suspicious. |
@@ -86,7 +90,8 @@ Accounts are nodes. Two accounts get an edge when they share at least one conten
 engagement keys (`min_engagement_shared`). Each shared key adds weight `1/ln(1+n)`, where `n` is how
 many accounts used it, so rare shared items count more than common ones. Clusters are the connected
 components; very large components are split into communities with seeded Leiden. Clusters smaller
-than `min_cluster_size` are ignored (`signals/graph.py`).
+than `min_cluster_size` are ignored, and so are Leiden communities larger than `max_cluster_size`
+(`signals/graph.py`).
 
 ## Step 3: signal families
 
@@ -178,7 +183,8 @@ strongest counter-evidence, and what would change the verdict. Code then enforce
 
 - Citations to evidence ids that weren't passed in are dropped.
 - The analyst may agree with the detector or be **more cautious**, never less: from
-  `coordinated` it may go to `insufficient`; from `insufficient` it can't go anywhere else.
+  `coordinated` or `likely_organic` it may go to `insufficient`; from `insufficient` it can't go
+  anywhere else.
 - Fewer than two valid citations means `insufficient`.
 - Every override is recorded in `adjustments` and shown.
 
@@ -229,8 +235,8 @@ Very short texts aren't searched (they match too much of the web).
 
 Every accuracy number the app shows is a row in the `eval_runs` table written by `eval/`, served
 as-is by `GET /api/metrics` (latest row per dataset and split). Nothing is typed into the UI by
-hand. Each row stores the detector version, the eval code commit and the full details (windows
-used, per-case outcomes), so a number can be traced back to what produced it.
+hand. Each row's `details` records the detector version, the eval code commit, the windows used
+and the per-case outcomes, so a number can be traced back to what produced it.
 
 ### Data and splits
 
@@ -284,6 +290,8 @@ it on live traffic.
   and one publisher's set of topic-feed accounts post the same thing at the same second. Guards
   catch schedulers that post on the hour and operators that share a custom handle domain, not all
   of them. Such clusters can sit on the boundary and change status while they update.
+- **Very large rings aren't scored.** A Leiden community bigger than `max_cluster_size` is
+  dropped, so one huge ring that the graph can't split into smaller communities is never shown.
 - **Piggybacking on viral items is invisible.** Items used by too many accounts are dropped on
   purpose (that is what protects breaking news), so a ring that only likes a post that is already
   viral creates no edges.
