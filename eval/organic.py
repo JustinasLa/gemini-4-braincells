@@ -185,9 +185,11 @@ class Profiles:
         self.data: dict[str, dict] = {}
         if path and path.exists():
             for d, e in json.loads(path.read_text()).items():
-                e = {
-                    k: v for k, v in e.items() if k != "missing" and not (k == "plc" and v is None)
-                }
+                # older versions cached failures as {"missing": true, "fetched_at": ...} and
+                # plc None: drop them so the lookup is retried (keep a successful PLC part)
+                if e.get("missing"):
+                    e = {"plc": e["plc"]} if e.get("plc") else {}
+                e = {k: v for k, v in e.items() if not (k == "plc" and v is None)}
                 if e:
                     self.data[d] = e
         self.fetched = 0

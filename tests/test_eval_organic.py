@@ -282,8 +282,18 @@ def test_failed_lookups_are_not_cached(monkeypatch, tmp_path):
     assert p.info("did:plc:never", AT) is None
     p.save()
     assert Profiles(path).data == {}  # a later run tries again
-    path.write_text(json.dumps({"did:plc:old": {"missing": True, "plc": None}}))
-    assert Profiles(path).data == {}  # failures cached by older versions are dropped
+    plc = {"created": OLD, "handle_changes": 0, "pds_host": "x"}
+    legacy = {
+        "did:plc:old": {"missing": True, "fetched_at": "2026-11-13T21:00:00+00:00", "plc": None},
+        "did:plc:half": {"missing": True, "fetched_at": "2026-11-13T21:00:00+00:00", "plc": plc},
+    }
+    path.write_text(json.dumps(legacy))
+    q = Profiles(path)  # failures cached by older versions are dropped, so they're retried
+    assert q.data == {"did:plc:half": {"plc": plc}}
+    calls = []
+    monkeypatch.setattr(enrich, "fetch_profiles", lambda client, dids: calls.extend(dids) or {})
+    q.ensure(["did:plc:old", "did:plc:half"])
+    assert calls == ["did:plc:old", "did:plc:half"]
 
 
 def test_profile_merge_combines_worker_lookups():
