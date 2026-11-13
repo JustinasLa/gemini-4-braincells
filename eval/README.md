@@ -12,7 +12,9 @@ uv run pytest tests/test_eval_recall.py                           # offline; no 
 
 `--database-url` is opt-in: without it nothing is written anywhere. Other flags: `--repeats N`
 (campaigns per level per window, default 5), `--levels L1 L2`, `--workers 4`, `--json-out FILE`,
-`--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split; don't report those as `heldout`).
+`--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). Ad-hoc or partial runs (`--hours`,
+`--max-windows`, a subset of `--levels`) are refused with `--database-url`, so they can't replace
+a split's published row.
 
 ## Datasets and splits
 
@@ -73,6 +75,9 @@ RESULTS_PLACEHOLDER
   differently built campaigns aren't measured.
 - Real accounts get no account info offline, so organic guards that need it can't fire for real
   accounts that end up in the same cluster as a campaign (live, enrichment would fetch it).
+- `deleted` on offline posts/actions only reflects deletes seen up to the window's end (what the
+  live worker sees when it loads the window). The detector doesn't read it; `signals/store.py`
+  only copies it into snapshots.
 - Fixed 10-minute windows: the live worker also slides the window every minute and runs a 1 h
   window. A campaign split across two fixed windows isn't tested here (campaigns are placed inside
   one window).

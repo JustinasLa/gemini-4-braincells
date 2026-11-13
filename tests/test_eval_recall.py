@@ -248,8 +248,10 @@ def test_iter_windows_gap_check_tolerates_reordered_events(tmp_path):
 def test_adhoc_hours_cannot_be_published(capsys):
     from eval.__main__ import main
 
-    argv = ["recall", "--split", "heldout", "--hours", "2026111320"]
-    assert main([*argv, "--database-url", "postgresql://unused"]) == 2
+    db = ["--split", "heldout", "--database-url", "postgresql://unused"]
+    assert main(["recall", *db, "--hours", "2026111320"]) == 2
+    assert main(["recall", *db, "--max-windows", "1"]) == 2
+    assert main(["recall", *db, "--levels", "L1"]) == 2
     assert "ad-hoc" in capsys.readouterr().err
 
 
@@ -260,7 +262,7 @@ def test_adhoc_run_table_is_labelled(tmp_path, capsys):
     argv = ["recall", "--split", "dev", "--slice", str(tmp_path), "--hours", "2027011508"]
     assert main([*argv, "--levels", "L1", "--repeats", "1", "--workers", "1"]) == 0
     out = capsys.readouterr().out
-    assert "recall on synthetic campaigns (dev, AD-HOC hours)" in out
+    assert "recall on synthetic campaigns (dev, AD-HOC run)" in out
     assert "2 windows of 600s" in out
 
 

@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 RECORD_ROOT = Path("/srv/junction-espoo/data/jetstream")
 SLICE_ROOT = Path("/srv/junction-espoo/data/eval-slices/jetstream")
 
-# Split rule (shared with eval/organic.py): a window belongs to the UTC hour it starts in; odd
+# Split rule (shared by every eval in eval/): a window belongs to the UTC hour it starts in; odd
 # hours are `heldout`, even hours are `dev`. Whole hours, so one burst never straddles splits.
 SPLITS = ("dev", "heldout")
 

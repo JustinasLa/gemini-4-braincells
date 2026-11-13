@@ -208,7 +208,7 @@ def _work(task: tuple[int, str | None, int]):
 def _git_sha() -> str | None:
     try:
         out = subprocess.run(
-            ["git", "-C", str(Path(__file__).parent), "rev-parse", "--short", "HEAD"],
+            ["git", "-C", str(Path(__file__).parent), "describe", "--always", "--dirty"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -220,14 +220,17 @@ def _git_sha() -> str | None:
 
 def main_args(args) -> int:
     _WINDOWS.clear()  # module state for the fork pool: never carry windows over from a past run
-    if args.hours and args.database_url:
-        # ad-hoc hours are not the split's hours: never publish them under a split's name
+    partial = bool(args.hours or args.max_windows or set(args.levels) != set(LEVELS))
+    if partial and args.database_url:
+        # ad-hoc hours or a partial run are not the split's result: never publish them as one
         print(
-            "--hours is for ad-hoc runs and can't be combined with --database-url", file=sys.stderr
+            "--hours, --max-windows and --levels are for ad-hoc runs and can't be combined with "
+            "--database-url",
+            file=sys.stderr,
         )
         return 2
     hours = args.hours or split_hours(Path(args.slice), args.split)
-    run_label = f"{args.split}, AD-HOC hours" if args.hours else args.split
+    run_label = f"{args.split}, AD-HOC run" if partial else args.split
     files = hour_files(Path(args.slice), hours)
     if not files:
         print(f"no recorded {args.split} hours under {args.slice} ({hours})", file=sys.stderr)
@@ -299,6 +302,7 @@ def main_args(args) -> int:
                 {
                     "dataset": DATASET,
                     "split": args.split,
+                    "adhoc": partial,
                     "adhoc_hours": args.hours or None,
                     "recall": overall["rate"],
                     "n": overall["n"],
