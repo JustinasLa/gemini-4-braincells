@@ -35,12 +35,23 @@ Add dependencies with `uv add <pkg>` and commit `uv.lock`.
 
 ## Deploy
 
-On the VPS, with `.env` at the repo root (set `PUBLIC_DOMAIN` for automatic HTTPS):
+Live at **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS, Ubuntu 24.04, Docker).
+The VPS's Docker Manager already runs Traefik on :80/:443 with Let's Encrypt, so our Caddy sits
+behind it (`deploy/docker-compose.hostinger.yml`). From any checkout with the deploy SSH key:
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
-curl https://$PUBLIC_DOMAIN/api/health
+git fetch && HOSTINGER_HOST=srv2159172.hstgr.cloud HOSTINGER_SSH_KEY=~/.ssh/hostinger_ed25519 \
+  deploy/deploy.sh                      # default ref: origin/main; pass a sha to roll back
+curl https://noise-radar.srv2159172.hstgr.cloud/api/health
+curl https://noise-radar.srv2159172.hstgr.cloud/version.txt   # deployed commit
 ```
+
+`deploy.sh` ships the committed tree with `git archive` (the VPS has no GitHub access) into
+`/opt/noise-radar/releases/<sha>`, points `current` at it and runs compose. Secrets live only in
+`/opt/noise-radar/.env` on the VPS (same names as `.env.example`); edit it there, then redeploy.
+
+On a plain VPS without Traefik, drop the override and set `PUBLIC_DOMAIN` so Caddy gets HTTPS itself:
+`docker compose -f deploy/docker-compose.yml --env-file .env up -d --build`.
 
 All backend services share one image (`Dockerfile`); add a service in compose with its own
 `command` (e.g. `python -m ingest`).
