@@ -18,6 +18,8 @@ import numpy as np
 
 from signals.config import DetectorConfig
 from signals.keys import CONTENT_KINDS, Key
+from signals.semantic import EmbedFn, semantic_core
+from signals.textnorm import normalize_text
 from signals.window import WindowData
 
 FAMILIES = ("content", "timing", "network", "identity")
@@ -141,6 +143,69 @@ def content_signals(m: int, sk: list[Key], cfg: DetectorConfig) -> list[Signal]:
             )
         )
     return out
+
+
+def _semantic_posts(members: list[str], wd: WindowData, cfg: DetectorConfig) -> list:
+    mset = set(members)
+    per: dict[str, list] = {}
+    for p in sorted(wd.posts, key=lambda p: (-p.t, p.uri)):
+        if p.did in mset and len(normalize_text(p.text).split()) >= cfg.semantic_min_tokens:
+            lst = per.setdefault(p.did, [])
+            if len(lst) < cfg.semantic_posts_per_member:
+                lst.append(p)
+    return [p for d in sorted(per) for p in per[d]][: cfg.semantic_max_posts]
+
+
+def semantic_candidate_posts(groups: list[list[str]], wd: WindowData, cfg: DetectorConfig) -> list:
+    """All posts semantic_signal would embed for these clusters (for one batched prefetch)."""
+    seen, out = set(), []
+    for g in groups:
+        if len(g) > cfg.semantic_max_cluster:
+            continue
+        for p in _semantic_posts(g, wd, cfg):
+            if p.uri not in seen:
+                seen.add(p.uri)
+                out.append(p)
+    return out
+
+
+def semantic_signal(
+    members: list[str], wd: WindowData, embed: EmbedFn, cfg: DetectorConfig
+) -> Signal | None:
+    """Largest group of members whose posts say the same thing in different words (Gemini
+    embeddings, cosine >= semantic_threshold between posts of different accounts)."""
+    if len(members) > cfg.semantic_max_cluster:
+        return None
+    posts = _semantic_posts(members, wd, cfg)
+    if len({p.did for p in posts}) < cfg.min_cluster_size:
+        return None
+    vecs = embed([p.uri for p in posts], [p.text or "" for p in posts])
+    embedded = int((~np.isnan(vecs).any(axis=1)).sum())
+    if embedded < 2:
+        return None
+    best, density = semantic_core([p.did for p in posts], vecs, cfg.semantic_threshold)
+    count = len(best)
+    score = (count / len(members)) * min(1.0, count / cfg.min_cluster_size) if count >= 2 else 0.0
+    return Signal(
+        "content",
+        "semantic_duplicate",
+        _r(score),
+        f"{count} of {len(members)} accounts say the same thing as at least a third of the "
+        f"others, in different words ({density:.0%} of account pairs match; Gemini embeddings, "
+        f"cosine >= {cfg.semantic_threshold})",
+        {
+            "accounts": count,
+            "cluster_size": len(members),
+            "posts_embedded": embedded,
+            "pair_density": round(density, 4),
+            "threshold": cfg.semantic_threshold,
+            "model": "gemini-embedding-001",
+            "calibration": "at this threshold 67% of same-campaign post pairs, 5% of same-topic "
+            "organic pairs and 0.04% of random live pairs pass (Gemini-written fictional sets)",
+        },
+        uris=sorted(p.uri for p in posts if p.did in best)[:50],
+        dids=sorted(best),
+    )
 
 
 # ---------------------------------------------------------------- timing ----------------------
@@ -704,11 +769,16 @@ def score_cluster(
     wd: WindowData,
     info: dict[str, AccountInfo],
     cfg: DetectorConfig,
+    embed: EmbedFn | None = None,
 ) -> ClusterScore:
     rng = np.random.default_rng(_seed(cfg, members, wd))
     sk = shared_keys(members, keys)
     sigs: list[Signal] = []
     sigs += content_signals(len(members), sk, cfg)
+    if embed is not None:
+        sem = semantic_signal(members, wd, embed, cfg)
+        if sem is not None:
+            sigs.append(sem)
     t_sigs, p_value, p_detail = timing_signals(members, sk, wd, cfg, rng)
     sigs += t_sigs
     sigs += network_signals(members, sk, wd, cfg)

@@ -3,7 +3,7 @@ stored cluster says which settings produced it (clusters.detector_version)."""
 
 from dataclasses import asdict, dataclass, field
 
-VERSION = "v1.3"
+VERSION = "v1.4"
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,12 @@ class DetectorConfig:
     fresh_account_days: int = 30
     family_fire: float = 0.5  # a family "fires" when its score reaches this
     permutations: int = 500
+    # Gemini embeddings (signals/semantic.py); used only when an embedder is passed to detect().
+    semantic_threshold: float = 0.85
+    semantic_min_tokens: int = 8
+    semantic_posts_per_member: int = 3
+    semantic_max_posts: int = 300
+    semantic_max_cluster: int = 150
 
     # --- status ---
     min_families_coordinated: int = 2

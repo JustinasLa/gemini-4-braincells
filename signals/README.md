@@ -124,11 +124,34 @@ res = detect(
 Tune on one set of seeds, report on others. `account_info` can also wrap
 `signals.accounts.load_account_info` for real accounts.
 
+## Gemini: red team and semantic defence
+
+- **Defence** (`semantic.py`, signal `content/semantic_duplicate`): Gemini embeddings
+  (`gemini-embedding-001`, 768 dims, task SEMANTIC_SIMILARITY) catch accounts saying the same
+  thing in different words. Only posts of candidate clusters are embedded (cached by URI, batched,
+  budget per pass). An account counts when its posts match at least a third of the other accounts
+  (cosine >= 0.85): density, not chaining, because same-topic organic chats chain easily.
+  Calibration on Gemini-written fictional sets: at 0.85, 67% of same-campaign post pairs, 5% of
+  same-topic organic pairs and 0.04% of random live pairs match. It is content evidence only:
+  `coordinated` still needs a behavioural family and the timing p-value.
+  The worker uses it when `GEMINI_API_KEY` is set (`--no-embeddings` turns it off).
+- **Red team** (`attack.py`): Gemini 4 writes fictional campaigns (one message, many personas,
+  no shared phrases) and organic look-alikes (many people, same fictional event, own opinions).
+  Saved in `fixtures/gemini_attacks.json`; never posted; all accounts built from them are
+  `did:plc:synth...`.
+- **Eval** (`attack_eval.py`): injects them into a real live window (or `--offline`) in four
+  variants (burst/spread x fresh/aged accounts) and runs the detector without and with embeddings.
+  Offline result (v1.4): semantic signal fires on 32/32 campaigns (mean 0.88) and 0/16 organic
+  look-alikes (mean 0.04); `coordinated` 8/8 for burst+fresh both ways, 0 for the other campaign
+  variants (no timing evidence, or established accounts trip the organic guard) and 0/16 organic.
+
 ## Known limits (honest list)
 
 - Slow-drip campaigns spread over hours (L3), with aged or bought accounts and fully paraphrased
   text, mostly evade this: no burst, no duplicate text, no fresh accounts. They come out
   `insufficient`. Hijacked old accounts posting spam can even look organic.
+- The p-value only tests timing. Gemini-paraphrased campaigns spread over the window are
+  recognised as "same message" but stay `insufficient`; an identity base-rate test is planned.
 - The p-value only tests timing. A campaign with duplicate content and fresh accounts but no
   burst is `insufficient`, not `coordinated` (identity base rates are planned).
 - Independent scheduled bots (clock, weather, news feeds) look synchronized; guards catch the

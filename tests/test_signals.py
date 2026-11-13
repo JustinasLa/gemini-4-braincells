@@ -198,3 +198,56 @@ def test_visual_data_for_the_dashboard():
     assert {nodes[e["n"]] for e in c.timeline} <= set(c.members)
     edges = c.member_graph["edges"]
     assert edges and all(0 <= a < len(nodes) and 0 <= b < len(nodes) for a, b, _, _ in edges)
+
+
+# ------------------------------------------------------------------ semantic (no network) ----
+def _unit(v):
+    v = np.asarray(v, dtype=np.float32)
+    return v / np.linalg.norm(v)
+
+
+def test_semantic_core_counts_density_not_chains():
+    from signals.semantic import semantic_core
+
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=32)
+    # campaign: 6 accounts, all close to one message
+    camp = np.stack([_unit(base + 0.15 * rng.normal(size=32)) for _ in range(6)])
+    core, density = semantic_core([f"c{i}" for i in range(6)], camp, 0.85)
+    assert len(core) == 6 and density > 0.9
+    # a chain: rotate in a plane so neighbours match (cos 0.88) but two steps apart don't (0.55):
+    # nobody is similar to a third of the others, so nobody is in the core
+    theta = float(np.arccos(0.88))
+    chain = np.zeros((9, 32), dtype=np.float32)
+    for k in range(9):
+        chain[k, 0], chain[k, 1] = np.cos(k * theta), np.sin(k * theta)
+    core, density = semantic_core([f"o{i}" for i in range(9)], chain, 0.85)
+    assert core == set() and density < 0.3
+
+
+def test_semantic_signal_uses_the_embedder_only_when_given():
+    from signals.score import semantic_signal
+
+    base = empty_window(seed=10)
+    texts = [
+        f"the same long message number {i} about the fictional parking fee in velmora town"
+        for i in range(6)
+    ]
+    s = from_texts_helper(texts, base)
+    wd = inject(base, s)
+    calls = []
+
+    def fake_embed(uris, texts):
+        calls.append(len(uris))
+        return np.stack([_unit(np.ones(8) + 0.01 * i) for i in range(len(uris))])
+
+    sig = semantic_signal(sorted(s.dids), wd, fake_embed, DEFAULT)
+    assert calls and sig is not None and sig.score == 1.0
+    res = run(wd, s.accounts)  # no embedder passed -> no semantic signal anywhere
+    assert not [x for c in res.clusters for x in c.signals if x.name == "semantic_duplicate"]
+
+
+def from_texts_helper(texts, base):
+    from signals.synth import from_texts
+
+    return from_texts(texts, base, coordinated=True, timing="spread", accounts="fresh", seed=1)

@@ -14,8 +14,28 @@ from dataclasses import dataclass, field
 from signals.config import DEFAULT, DetectorConfig
 from signals.graph import build_graph, communities
 from signals.keys import MinHashCache, build_keys
-from signals.score import AccountInfo, ClusterScore, score_cluster
+from signals.score import (
+    AccountInfo,
+    ClusterScore,
+    score_cluster,
+    semantic_candidate_posts,
+    semantic_signal,
+)
+from signals.semantic import EmbedFn
+from signals.textnorm import normalize_text
 from signals.window import WindowData
+
+
+def _long_posters(members: list[str], wd: WindowData, cfg: DetectorConfig) -> int:
+    mset = set(members)
+    return len(
+        {
+            p.did
+            for p in wd.posts
+            if p.did in mset and len(normalize_text(p.text).split()) >= cfg.semantic_min_tokens
+        }
+    )
+
 
 AccountInfoFn = Callable[[list[str]], dict[str, AccountInfo]]
 
@@ -31,6 +51,7 @@ def detect(
     account_info: AccountInfoFn | None = None,
     cfg: DetectorConfig = DEFAULT,
     mh_cache: MinHashCache | None = None,
+    embed: EmbedFn | None = None,
 ) -> DetectResult:
     t0 = time.monotonic()
     keys = build_keys(wd, cfg, mh_cache)
@@ -48,9 +69,30 @@ def detect(
     ordered = list(dict.fromkeys(d for i in suspicious for d in clusters[i].members))
     info = account_info(ordered) if account_info and ordered else {}
     t3 = time.monotonic()
-    for i in suspicious:
-        if any(d in info for d in clusters[i].members):
-            clusters[i] = score_cluster(groups[i], keys, wd, info, cfg)
+    # Rescore with account info, and with Gemini embeddings (paraphrase detection) when given:
+    # for the suspicious clusters plus small clusters with enough long posts to compare.
+    rescore = set(suspicious)
+    if embed is not None:
+        rescore |= {
+            i
+            for i, g in enumerate(groups)
+            if len(g) <= cfg.semantic_max_cluster
+            and _long_posters(g, wd, cfg) >= cfg.min_cluster_size
+        }
+    if embed is not None and rescore:
+        # One batched prefetch for all candidates; per-cluster calls below then hit the cache.
+        posts = semantic_candidate_posts([groups[i] for i in sorted(rescore)], wd, cfg)
+        if posts:
+            embed([p.uri for p in posts], [p.text or "" for p in posts])
+    sus = set(suspicious)
+    for i in sorted(rescore):
+        if i not in sus:
+            # Not suspicious yet: only a full rescore if the (cheap, cached) semantic check fires.
+            sem = semantic_signal(groups[i], wd, embed, cfg)
+            if sem is None or sem.score < cfg.family_fire:
+                continue
+        if embed is not None or any(d in info for d in clusters[i].members):
+            clusters[i] = score_cluster(groups[i], keys, wd, info, cfg, embed)
     t4 = time.monotonic()
     by_status: dict[str, int] = {}
     for c in clusters:
@@ -64,6 +106,7 @@ def detect(
         "clusters": len(clusters),
         "by_status": by_status,
         "accounts_with_info": len(info),
+        "rescored": len(rescore),
         "seconds": {
             "keys": round(t1 - t0, 2),
             "graph": round(t2 - t1, 2),
