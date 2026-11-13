@@ -194,7 +194,8 @@ def test_api_against_db(conn, cluster_id, monkeypatch):
         listed = c.get("/api/clusters", params={"status": "coordinated"}).json()
         assert [x["id"] for x in listed] == [cluster_id]
         assert listed[0]["top_signals"][0]["name"] == "duplicate_text"
-        assert listed[0]["verdict"]["status"] == "insufficient"
+        assert listed[0]["verdict"]["status"] == "coordinated"  # always the detector's call
+        assert listed[0]["verdict"]["llm_assessment"] is None  # no model ran for this verdict
 
         detail = c.get(f"/api/clusters/{cluster_id}").json()
         assert len(detail["members"]) == 3 and detail["members"][0]["handle"].startswith("bot")
@@ -219,3 +220,39 @@ def test_api_against_db(conn, cluster_id, monkeypatch):
     finally:
         app.dependency_overrides.clear()
         get_settings.cache_clear()
+
+
+def test_analyst_tool_evidence_db(conn, cluster_id):
+    """Gemini's tool results land as evidence rows for the cluster and are reused, not refetched."""
+    from analyst import store
+    from analyst.tools import Budget, DbSink, ToolBox, WebCache
+    from tests.test_analyst_agent import FakeWeb
+
+    ctx = store.load_context(conn, cluster_id)
+
+    def box(web):
+        return ToolBox(
+            ctx,
+            web=web,
+            sink=DbSink(conn, cluster_id),
+            cache=WebCache(),
+            budget=Budget(),
+            conn=conn,
+        )
+
+    web = FakeWeb()
+    first = box(web).call("scrape_url", {"url": "https://news.example/story", "why": "origin"})
+    row = conn.execute("SELECT * FROM evidence WHERE id = %s", (first["evidence_id"],)).fetchone()
+    assert row["cluster_id"] == cluster_id and row["kind"] == "source"
+    assert row["source_url"] == "https://news.example/story"
+    assert row["detail"]["requested_by"] == "gemini" and row["detail"]["shared_by_accounts"] == 3
+
+    web2 = FakeWeb()
+    again = box(web2).call("scrape_url", {"url": "https://news.example/story"})
+    assert again["evidence_id"] == first["evidence_id"] and web2.scrapes == []
+
+    b = box(FakeWeb())
+    posts = b.call("get_cluster_posts", {"limit": 2})["posts"]
+    assert len(posts) == 2 and posts[0]["author"].startswith("bot")
+    assert b.call("get_account", {"account": posts[0]["author"]})["handle"] == posts[0]["author"]
+    assert "not a member" in b.call("get_account", {"account": "someone.else"})["error"]
