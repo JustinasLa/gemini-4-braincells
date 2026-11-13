@@ -41,10 +41,20 @@ behind it (`deploy/docker-compose.hostinger.yml`). From any checkout with the de
 
 ```bash
 git fetch && HOSTINGER_HOST=srv2159172.hstgr.cloud HOSTINGER_SSH_KEY=~/.ssh/hostinger_ed25519 \
+  CHECK_URL=https://noise-radar.srv2159172.hstgr.cloud \
   deploy/deploy.sh                      # default ref: origin/main; pass a sha to roll back
-curl https://noise-radar.srv2159172.hstgr.cloud/api/health
+deploy/check.sh                         # outside check: health + ingest lag, clusters, metrics, web
 curl https://noise-radar.srv2159172.hstgr.cloud/version.txt   # deployed commit
 ```
+
+Redeploy after every merge to `main`. `deploy/check.sh` also runs every 5 minutes from the team
+server (cron of the deploying user) and logs to `~/noise-radar-health.log`.
+
+Running it on the VPS: every long-running service has `restart: unless-stopped` (`migrate` is a
+one-shot and exits). Raw Jetstream tables keep `INGEST_RETENTION_HOURS` of data (likes:
+`INGEST_LIKES_RETENTION_HOURS`), set in the VPS `.env`; at ~0.7 GB/hour of raw rows that bounds the
+database, and anything a cluster references is copied to `cluster_posts_snapshot` first. The signals
+worker gets 4G on the VPS (`docker-compose.hostinger.yml`) because the 1h window needs more than 2G.
 
 `deploy.sh` ships the committed tree with `git archive` (the VPS has no GitHub access) into
 `/opt/noise-radar/releases/<sha>`, points `current` at it and runs compose. Secrets live only in
