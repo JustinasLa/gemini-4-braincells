@@ -7,7 +7,7 @@ explains each flagged cluster with evidence, and reports its own measured error 
 
 | Dir | What it does |
 |---|---|
-| `ingest/` | Bluesky Jetstream consumer → Postgres (`accounts`, `posts`, `reposts`, `follows`) |
+| `ingest/` | Bluesky Jetstream consumer → Postgres (`posts`, `reposts`, `likes`, `follows`, `account_events`); record/replay |
 | `signals/` | Coordination detector: windows, signals, clusters, score + confidence, abstention |
 | `media/` | Nemotron Super VL: reads images/video frames, near-duplicate media |
 | `sources/` | Oxylabs `/scrape` + `/search` on cluster links (source URLs kept with every fact) |
@@ -35,12 +35,23 @@ Add dependencies with `uv add <pkg>` and commit `uv.lock`.
 
 ## Deploy
 
-On the VPS, with `.env` at the repo root (set `PUBLIC_DOMAIN` for automatic HTTPS):
+Live at **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS, Ubuntu 24.04, Docker).
+The VPS's Docker Manager already runs Traefik on :80/:443 with Let's Encrypt, so our Caddy sits
+behind it (`deploy/docker-compose.hostinger.yml`). From any checkout with the deploy SSH key:
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
-curl https://$PUBLIC_DOMAIN/api/health
+git fetch && HOSTINGER_HOST=srv2159172.hstgr.cloud HOSTINGER_SSH_KEY=~/.ssh/hostinger_ed25519 \
+  deploy/deploy.sh                      # default ref: origin/main; pass a sha to roll back
+curl https://noise-radar.srv2159172.hstgr.cloud/api/health
+curl https://noise-radar.srv2159172.hstgr.cloud/version.txt   # deployed commit
 ```
+
+`deploy.sh` ships the committed tree with `git archive` (the VPS has no GitHub access) into
+`/opt/noise-radar/releases/<sha>`, points `current` at it and runs compose. Secrets live only in
+`/opt/noise-radar/.env` on the VPS (same names as `.env.example`); edit it there, then redeploy.
+
+On a plain VPS without Traefik, drop the override and set `PUBLIC_DOMAIN` so Caddy gets HTTPS itself:
+`docker compose -f deploy/docker-compose.yml --env-file .env up -d --build`.
 
 All backend services share one image (`Dockerfile`); add a service in compose with its own
 `command` (e.g. `python -m ingest`).
@@ -69,7 +80,11 @@ keys or `.env` contents into a prompt. Committed Entire files: `.entire/settings
 Change these only with a note here, so the other components can follow.
 
 **Database:** `db/schema.sql` (accounts, posts, reposts, follows, clusters, cluster_members,
-cluster_posts, evidence, eval_runs). Cluster `status` is `coordinated | likely_organic | insufficient`;
+cluster_posts, evidence, eval_runs) plus `db/migrations/` (applied by `python -m common.migrate`).
+Migration 002 adds `likes`, `account_events`, `ingest_state`, `campaigns`,
+`cluster_posts_snapshot`, enrichment columns on `accounts` and detector columns on `clusters`
+(`campaign_id, p_value, families_fired, detector_version, window_kind, size, synthetic`), and makes
+the raw tables hour-partitioned by `seen_at` (Jetstream server time). Details: `ingest/README.md`. Cluster `status` is `coordinated | likely_organic | insufficient`;
 evidence `kind` is `signal | media | source | analyst`.
 
 **API** (JSON):
