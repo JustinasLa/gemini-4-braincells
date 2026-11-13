@@ -153,6 +153,12 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
   On a real live background (5 min, 13,945 posts, `fixtures/attack_results_live_20261113T2000Z.json`):
   semantic fires on 32/32 campaigns and 0/16 look-alikes; `coordinated` 5/8 for burst+fresh (the
   other 3 get absorbed into larger live clusters), 0 for the other variants, 0/16 organic.
+  With the identity base-rate test (v1.5, `fixtures/attack_results_live_v15_20261113T2000Z.json`):
+  `coordinated` 8/8 burst+fresh, **8/8 spread+fresh** (was 0/8), 0/16 on aged accounts, 0/16
+  organic look-alikes. Here every campaign also shares likes, so network + identity already make
+  two families; the embeddings add the "same message" evidence the analyst cites. Accounts that
+  only say the same thing and share no action at all never form a cluster: semantic similarity
+  is not used to build the graph (cost), a known gap.
 
 ## Known limits (honest list)
 
