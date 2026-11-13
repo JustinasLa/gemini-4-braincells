@@ -5,14 +5,20 @@ Every number the dashboard shows about our own accuracy comes from here, through
 
 ```bash
 uv run python -m eval copy-slices                                # keep finished recorded hours
-uv run python -m eval recall --split dev                          # print the table only
-uv run python -m eval recall --split heldout --database-url URL   # ...and write an eval_runs row
+uv run python -m eval recall --split dev --base-rates signals/fixtures/attack_results_live_v15_20261113T2000Z.json           # print the table only
+uv run python -m eval recall --split heldout --base-rates signals/fixtures/attack_results_live_v15_20261113T2000Z.json \
+    --database-url URL                                            # ...and write an eval_runs row
 uv run pytest tests/test_eval_recall.py                           # offline; no DB, no network
 ```
 
 For `recall`, `--database-url` is opt-in: without it nothing is written anywhere. Other flags:
 `--repeats N` (campaigns per level per window, default 5), `--levels L1 L2`, `--workers 4`,
-`--json-out FILE`, `--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). Ad-hoc or partial runs (`--hours`,
+`--json-out FILE`, `--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). `--base-rates FILE`
+turns on the detector's identity base-rate test (v1.5) the way the live worker runs it: the live
+worker measures base rates from its DB (`signals.baseline.load_rates`), which the offline eval
+can't reach, so it reads them from a JSON file (`BaseRates.as_dict()`, or any file with a
+`base_rates` key, like Kirill's live measurement above). The source is stored in
+`details.base_rates`; without the flag that is `null` and the identity test is off. Ad-hoc or partial runs (`--hours`,
 `--max-windows`, a subset of `--levels`, a `--window-s` other than 600) are refused with
 `--database-url`, so they can't replace a split's published row.
 
@@ -189,7 +195,43 @@ count in `details`.
 
 ## Results
 
-RESULTS_PLACEHOLDER
+### Recall on synthetic campaigns (`synthetic_campaigns`)
+
+Measured 2026-11-14 with detector v1.5 and the base rates Kirill measured live on 2026-11-13 20:00
+UTC (400 sampled accounts, 1.25% fresh, 0% empty profiles). Result JSON (every trial) is kept in
+`/srv/junction-espoo/data/eval-slices/results/` on the team server.
+
+**heldout**: 7 windows of 10 min from UTC hours 2026111319, 2026111321 (1 skipped as not fully recorded), 5 campaigns per level per window, detector v1.5, eval commit `dc92289`, run 2026-11-13T23:40:45+00:00.
+
+| level | caught | recall | 95% CI | surfaced | best cluster status |
+|---|---|---|---|---|---|
+| L1 | 35/35 | 1.00 | [0.90, 1.00] | 35/35 | coordinated 35 |
+| L2 | 34/35 | 0.97 | [0.85, 0.99] | 35/35 | coordinated 34, insufficient 1 |
+| L3 | 0/35 | 0.00 | [0.00, 0.10] | 35/35 | insufficient 35 |
+| **all** | **69/105** | **0.66** | [0.56, 0.74] | | |
+
+**dev**: 6 windows of 10 min from UTC hours 2026111320 (0 skipped as not fully recorded), 5 campaigns per level per window, detector v1.5, eval commit `dc92289`, run 2026-11-13T23:37:34+00:00.
+
+| level | caught | recall | 95% CI | surfaced | best cluster status |
+|---|---|---|---|---|---|
+| L1 | 30/30 | 1.00 | [0.89, 1.00] | 30/30 | coordinated 30 |
+| L2 | 26/30 | 0.87 | [0.70, 0.95] | 30/30 | coordinated 26, insufficient 4 |
+| L3 | 0/30 | 0.00 | [0.00, 0.11] | 30/30 | insufficient 30 |
+| **all** | **56/90** | **0.62** | [0.52, 0.72] | | |
+
+What this says:
+
+- **L1** (copy-paste, brand-new accounts, < 1 min burst) and **L2** (light paraphrase, 3-8 week
+  old accounts, ~5 min jitter) are caught almost always; every one of them is at least surfaced.
+- **L3** (heavy paraphrase, aged accounts with followers, slow drip) is **never** caught: content
+  and network fire, but neither timing (p ~ 0.9) nor identity (aged accounts) is significant, so
+  the detector abstains (`insufficient`, "can't tell"). Every L3 campaign is surfaced. This is the
+  known limit in `signals/README.md`, now measured.
+- The same trials on v1.3 (no identity test) gave dev 58/90 and heldout 69/105. v1.5 combines the
+  timing and identity tests with Bonferroni (p = 2 x the smaller one): L2 campaigns with weak
+  identity evidence (accounts 20-60 days old) can now miss the p <= 0.01 cut (timing p 0.006 ->
+  combined 0.012-0.015) while others are caught through identity alone (p 0.02 -> 0.00007). Net:
+  dev -2, heldout 0. The trials are deterministic: re-running a split gives identical trials.
 
 ## Limits and findings (honest list)
 
@@ -202,6 +244,9 @@ RESULTS_PLACEHOLDER
 - `deleted` on offline posts/actions only reflects deletes seen up to the window's end (what the
   live worker sees when it loads the window). The detector doesn't read it; `signals/store.py`
   only copies it into snapshots.
+- The base rates are one live snapshot (Fri 20:00 UTC), not measured per window as live. Gemini
+  embeddings (`detect(embed=...)`) are off offline, so the semantic-duplicate signal isn't part of
+  these numbers.
 - Fixed 10-minute windows: the live worker also slides the window every minute and runs a 1 h
   window. A campaign split across two fixed windows isn't tested here (campaigns are placed inside
   one window).
