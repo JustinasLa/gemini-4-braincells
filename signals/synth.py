@@ -398,3 +398,71 @@ def empty_window(
     wd.background = WindowData.background_from_times(wd.start, wd.end, times)
     wd.active_accounts = organic_accounts
     return wd
+
+
+def from_texts(
+    texts: list[str],
+    wd: WindowData,
+    *,
+    coordinated: bool,
+    timing: str,
+    accounts: str,
+    seed: int = 0,
+    tag: str = "gx",
+) -> Synthetic:
+    """Build a synthetic group from given texts (e.g. Gemini-written, signals/attack.py): one
+    account per text, plus shared likes on 4 subjects (a campaign amplifying its operator's
+    posts, or organic people liking the same news posts).
+
+    timing: "burst" (posts within 2 min, likes within 3 min) or "spread" (whole window)
+    accounts: "fresh" (new, templated, empty) or "aged" (old, followed, varied handles)
+    """
+    rng = np.random.default_rng(seed)
+    s = Synthetic(name=f"{tag}_{timing}_{accounts}_s{seed}", coordinated=coordinated)
+    span = wd.end - wd.start
+    t0 = wd.start + rng.uniform(0.2, 0.6) * span
+    subjects = [f"at://did:plc:synth{tag}subj{seed:04d}/app.bsky.feed.post/s{k}" for k in range(4)]
+    for i, text in enumerate(texts):
+        if accounts == "fresh":
+            did = _did(tag + "f", i, seed)
+            word = _WORDS[(seed + i) % len(_WORDS)]
+            info = _info(
+                did,
+                rng,
+                (1, 15),
+                (0, 5),
+                handle=f"{word}{rng.integers(1000, 9999)}.bsky.social",
+                avatar=False,
+                desc=0,
+                pds="synthpds.example",
+            )
+        else:
+            did, info = _established(tag + "a", i, seed, rng)
+        s.accounts[did] = info
+        t = t0 + rng.uniform(0, 120) if timing == "burst" else wd.start + rng.uniform(0, span)
+        s.posts.append(
+            WPost(
+                uri=_post_uri(did, i),
+                did=did,
+                t=float(t),
+                text=text,
+                text_hash=text_hash(text),
+                langs=["en"],
+            )
+        )
+        for k, subj in enumerate(subjects):
+            if timing == "burst":
+                tl = t0 + rng.uniform(0, 180)
+            else:
+                tl = wd.start + rng.uniform(0, span)
+            s.actions.append(
+                WAction(
+                    "like",
+                    f"at://{did}/app.bsky.feed.like/{tag}{k}",
+                    did,
+                    float(min(tl, wd.end - 1)),
+                    subj,
+                    subj.split("/")[2],
+                )
+            )
+    return s

@@ -1,0 +1,1469 @@
+{
+ "fixtures_model": "gemini-4-hydrogen",
+ "detector_version": "v1.5",
+ "base_rates": {
+  "sample_with_age": 400,
+  "fresh_rate": 0.0125,
+  "sample_with_profile": 399,
+  "empty_rate": 0.0
+ },
+ "rows": [
+  {
+   "theme": "a new parking fee in the fictional town of Velmora",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a new parking fee in the fictional town of Velmora",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a new parking fee in the fictional town of Velmora",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a new parking fee in the fictional town of Velmora",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a new parking fee in the fictional town of Velmora",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.7426,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 0.7426,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a new parking fee in the fictional town of Velmora",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.006,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.006,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional energy drink brand called ZapNova",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.8333,
+    "semantic": 0.8333,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional energy drink brand called ZapNova",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.0509,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.8333,
+    "semantic": 0.8333,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 0.0509,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional energy drink brand called ZapNova",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.8333,
+    "semantic": 0.8333,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional energy drink brand called ZapNova",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.8333,
+    "semantic": 0.8333,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional energy drink brand called ZapNova",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional energy drink brand called ZapNova",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.033,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 0.033,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up bill called the Riverside Data Act in the fictional country of Ostland",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.6667,
+    "semantic": 0.6667,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up bill called the Riverside Data Act in the fictional country of Ostland",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.0959,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.6667,
+    "semantic": 0.6667,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 0.0959,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up bill called the Riverside Data Act in the fictional country of Ostland",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.6667,
+    "semantic": 0.6667,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up bill called the Riverside Data Act in the fictional country of Ostland",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.6667,
+    "semantic": 0.6667,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up bill called the Riverside Data Act in the fictional country of Ostland",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up bill called the Riverside Data Act in the fictional country of Ostland",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.0839,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 0.0839,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "the fictional crypto token GLINT",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "the fictional crypto token GLINT",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.0539,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 0.0539,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "the fictional crypto token GLINT",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "the fictional crypto token GLINT",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "the fictional crypto token GLINT",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "the fictional crypto token GLINT",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.042,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 0.042,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional supermarket chain, FreshTrove, closing stores",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional supermarket chain, FreshTrove, closing stores",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional supermarket chain, FreshTrove, closing stores",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional supermarket chain, FreshTrove, closing stores",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional supermarket chain, FreshTrove, closing stores",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional supermarket chain, FreshTrove, closing stores",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up vaccine-free summer camp program in the fictional region of Haldor",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up vaccine-free summer camp program in the fictional region of Haldor",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.009,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "timing",
+     "network"
+    ],
+    "p": 0.009,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up vaccine-free summer camp program in the fictional region of Haldor",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up vaccine-free summer camp program in the fictional region of Haldor",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.8317,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 0.8317,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up vaccine-free summer camp program in the fictional region of Haldor",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.3333,
+    "semantic": 0.3333,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a made-up vaccine-free summer camp program in the fictional region of Haldor",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.3333,
+    "semantic": 0.3333,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.003,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional streaming service, Lumen+, raising prices",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional streaming service, Lumen+, raising prices",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.048,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 0.048,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional streaming service, Lumen+, raising prices",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional streaming service, Lumen+, raising prices",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.75,
+    "semantic": 0.75,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional streaming service, Lumen+, raising prices",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional streaming service, Lumen+, raising prices",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.03,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "timing",
+     "network"
+    ],
+    "p": 0.03,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional mayor, Dana Krell, of the fictional city of Port Ashby",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "timing",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional mayor, Dana Krell, of the fictional city of Port Ashby",
+   "truth": "campaign",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.3861,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 0.3861,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional mayor, Dana Krell, of the fictional city of Port Ashby",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "fresh",
+   "without_embeddings": {
+    "status": "coordinated",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "coordinated",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network",
+     "identity"
+    ],
+    "p": 0.0,
+    "guard": 0.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional mayor, Dana Krell, of the fictional city of Port Ashby",
+   "truth": "campaign",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "insufficient",
+    "content": 1.0,
+    "semantic": 1.0,
+    "fired": [
+     "content",
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional mayor, Dana Krell, of the fictional city of Port Ashby",
+   "truth": "organic",
+   "timing": "spread",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 1.0,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  },
+  {
+   "theme": "a fictional mayor, Dana Krell, of the fictional city of Port Ashby",
+   "truth": "organic",
+   "timing": "burst",
+   "accounts": "aged",
+   "without_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": null,
+    "fired": [
+     "network"
+    ],
+    "p": 0.3564,
+    "guard": 1.0,
+    "cover": 1.0
+   },
+   "with_embeddings": {
+    "status": "likely_organic",
+    "content": 0.0,
+    "semantic": 0.0,
+    "fired": [
+     "network"
+    ],
+    "p": 0.3564,
+    "guard": 1.0,
+    "cover": 1.0
+   }
+  }
+ ],
+ "summary": {
+  "campaign|without_embeddings": {
+   "burst/aged": "0/8 coordinated",
+   "burst/fresh": "8/8 coordinated",
+   "spread/aged": "0/8 coordinated",
+   "spread/fresh": "8/8 coordinated"
+  },
+  "campaign|with_embeddings": {
+   "burst/aged": "0/8 coordinated",
+   "burst/fresh": "8/8 coordinated",
+   "spread/aged": "0/8 coordinated",
+   "spread/fresh": "8/8 coordinated"
+  },
+  "organic|without_embeddings": {
+   "burst/aged": "0/8 coordinated",
+   "spread/aged": "0/8 coordinated"
+  },
+  "organic|with_embeddings": {
+   "burst/aged": "0/8 coordinated",
+   "spread/aged": "0/8 coordinated"
+  }
+ },
+ "embedding_calls": 33,
+ "posts_embedded": 539,
+ "seconds": 776.2
+}
