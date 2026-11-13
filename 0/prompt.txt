@@ -1,0 +1,12 @@
+[File: junction-espoo-temuulen.zip; ref=file_6f391eca-aa16-4e31-a93a-10fedad94f13]
+
+<t3_context version="1">
+<context kind="file" id="file_6f391eca-aa16-4e31-a93a-10fedad94f13">
+name: junction-espoo-temuulen.zip
+mimeType: application/zip
+sizeBytes: 10906
+attachmentId: 83fc0798-656f-4696-b62a-9844888330f7-c70d2df4-2aa0-4237-a9d9-2c71c11d7995-zip
+</context>
+</t3_context>
+
+[Attached file "junction-espoo-temuulen.zip" is saved at: /Users/akmet/.t3/userdata/attachments/83fc0798-656f-4696-b62a-9844888330f7-c70d2df4-2aa0-4237-a9d9-2c71c11d7995-zip.zip]
