@@ -29,6 +29,10 @@ class GeminiVerdictModel:
         self._temperature = temperature
         self.last_call: dict = {}
 
+    def count_requests(self, cap) -> None:
+        """Route every request through `cap` (analyst/ratecap.py)."""
+        self._client = cap.wrap(self._client)
+
     @classmethod
     def from_settings(cls) -> "GeminiVerdictModel":
         s = get_settings()
