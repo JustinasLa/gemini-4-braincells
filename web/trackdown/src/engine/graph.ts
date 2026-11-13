@@ -1,11 +1,10 @@
 // Trackdown graph engine: DOM cards over canvas layers, custom force physics, inertial camera.
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
-import topoUrl from "../assets/topo.webp";
+import backdropUrl from "../assets/venus-backdrop.webp";
 import { fmtDur, REL, ROLE, STATUS } from "../ui/format";
 
-const topoImg = new Image();
-topoImg.src = topoUrl;
+
 
 export type Mode = "timeline" | "web";
 
@@ -72,6 +71,7 @@ function bez(p0: number, p1: number, p2: number, p3: number, t: number) {
 export class Graph {
   stage: HTMLElement;
   world: HTMLElement;
+  backdrop: HTMLElement;
   under: HTMLCanvasElement;
   over: HTMLCanvasElement;
   uctx: CanvasRenderingContext2D;
@@ -124,6 +124,10 @@ export class Graph {
 
   constructor(stage: HTMLElement) {
     this.stage = stage;
+    this.backdrop = document.createElement("div");
+    this.backdrop.className = "backdrop";
+    this.backdrop.style.backgroundImage = `url(${backdropUrl})`;
+    stage.appendChild(this.backdrop);
     this.under = this.mkCanvas(1);
     this.world = document.createElement("div");
     this.world.className = "world";
@@ -139,9 +143,8 @@ export class Graph {
     this.colors.ink = cssVar("--ink");
     this.colors.ink2 = cssVar("--ink-2");
     this.colors.ink3 = cssVar("--ink-3");
-    this.colors.gilt = cssVar("--gilt");
     this.colors.cv = cssVar("--cv");
-    this.colors.panel = cssVar("--inset");
+    
     new ResizeObserver(() => this.resize()).observe(stage);
     this.resize();
     this.bind();
@@ -860,7 +863,7 @@ export class Graph {
     this.drawOver(now, ox, oy);
   }
 
-  private topoPat: CanvasPattern | null = null;
+  private lastBackdrop = "";
 
   private drawUnder(now: number, ox: number, oy: number, op: number) {
     const c = this.uctx;
@@ -869,45 +872,30 @@ export class Graph {
     const C = this.colors;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, this.W, this.H);
-    // war-table terrain: contour texture pinned to the world
-    if (!this.topoPat && topoImg.complete && topoImg.naturalWidth) this.topoPat = c.createPattern(topoImg, "repeat");
-    if (this.topoPat) {
-      const s = Math.max(0.35, k) * 1.25;
-      this.topoPat.setTransform(new DOMMatrix().translate(ox, oy).scale(s));
-      c.globalAlpha = 0.42;
-      c.fillStyle = this.topoPat;
-      c.fillRect(0, 0, this.W, this.H);
-      c.globalAlpha = 1;
+    // the painting drifts slowly behind the graph (parallax), like looking through the work
+    const px = clamp(-this.cx * 0.04, -60, 60);
+    const py = clamp(-this.cy * 0.04, -40, 40);
+    const tf = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px) scale(${(1 + Math.min(0.12, Math.log2(Math.max(k, 0.1) / 0.1) * 0.02)).toFixed(3)})`;
+    if (tf !== this.lastBackdrop) {
+      this.backdrop.style.transform = tf;
+      this.lastBackdrop = tf;
     }
-    // graticule + HUD crosses
-    let step = 256;
-    while (step * k < 90) step *= 2;
+    // faint registration crosses
+    let step = 192;
+    while (step * k < 80) step *= 2;
     const gx0 = Math.floor(-ox / k / step) * step;
     const gy0 = Math.floor(-oy / k / step) * step;
-    c.strokeStyle = "rgba(201,166,94,0.07)";
+    c.strokeStyle = "rgba(255,255,255,0.10)";
     c.lineWidth = 1;
-    c.beginPath();
-    for (let x = gx0; x * k + ox < this.W; x += step) {
-      const sx = Math.round(x * k + ox) + 0.5;
-      c.moveTo(sx, 0);
-      c.lineTo(sx, this.H);
-    }
-    for (let y = gy0; y * k + oy < this.H; y += step) {
-      const sy = Math.round(y * k + oy) + 0.5;
-      c.moveTo(0, sy);
-      c.lineTo(this.W, sy);
-    }
-    c.stroke();
-    c.strokeStyle = "rgba(201,166,94,0.35)";
     c.beginPath();
     for (let x = gx0; x * k + ox < this.W; x += step)
       for (let y = gy0; y * k + oy < this.H; y += step) {
         const sx = Math.round(x * k + ox) + 0.5;
         const sy = Math.round(y * k + oy) + 0.5;
-        c.moveTo(sx - 5, sy);
-        c.lineTo(sx + 5, sy);
-        c.moveTo(sx, sy - 5);
-        c.lineTo(sx, sy + 5);
+        c.moveTo(sx - 4, sy);
+        c.lineTo(sx + 4, sy);
+        c.moveTo(sx, sy - 4);
+        c.lineTo(sx, sy + 4);
       }
     c.stroke();
     c.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
@@ -921,9 +909,9 @@ export class Graph {
         c.beginPath();
         c.rect(b.x - w / 2, top, w, bot - top);
         c.clip();
-        c.fillStyle = "rgba(0,0,0,0.25)";
+        c.fillStyle = "rgba(0,0,0,0.35)";
         c.fillRect(b.x - w / 2, top, w, bot - top);
-        c.strokeStyle = "rgba(201,166,94,0.12)";
+        c.strokeStyle = "rgba(255,255,255,0.07)";
         c.lineWidth = 1 / k;
         for (let y = top - w; y < bot; y += 10) {
           c.beginPath();
@@ -932,7 +920,7 @@ export class Graph {
           c.stroke();
         }
         c.restore();
-        c.strokeStyle = "rgba(201,166,94,0.35)";
+        c.strokeStyle = "rgba(255,255,255,0.22)";
         c.lineWidth = 1 / k;
         c.setLineDash([6 / k, 6 / k]);
         c.beginPath();
@@ -957,7 +945,7 @@ export class Graph {
       const dim = hl && !on;
       const match = e.e.rel === "copy" || e.e.rel === "media";
       const role = this.colors[e.b.d.role] ?? C.ink2;
-      const col = on ? role : match ? "rgba(240,236,226,0.85)" : e.e.rel === "cites" ? "rgba(91,143,230,0.8)" : "rgba(235,227,209,0.5)";
+      const col = on ? role : match ? "rgba(245,245,245,0.9)" : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
       c.save();
       c.globalAlpha = dim ? 0.1 : on ? 1 : match ? 0.75 : 0.7;
       c.strokeStyle = col;
@@ -1012,7 +1000,7 @@ export class Graph {
       // pulses travelling parent -> child
       const n = on ? 3 : 1;
       const speed = on ? 0.0005 : 0.0002;
-      c.fillStyle = on ? role : "#f3ecd9";
+      c.fillStyle = on ? role : "#f2efe9";
       for (let i = 0; i < n; i++) {
         const u = (now * speed + e.seed + i / n) % 1;
         c.globalAlpha = (on ? 0.95 : 0.55) * Math.sin(u * Math.PI);
@@ -1039,26 +1027,15 @@ export class Graph {
         c.fillStyle = col;
         c.strokeStyle = "#0b1117";
         c.lineWidth = 1.5 / k;
-        c.beginPath();
-        c.moveTo(n.x, n.y - r);
-        c.lineTo(n.x + r, n.y);
-        c.lineTo(n.x, n.y + r);
-        c.lineTo(n.x - r, n.y);
-        c.closePath();
-        c.fill();
-        c.stroke();
-        if (big) {
-          c.strokeStyle = col;
-          c.lineWidth = 1 / k;
-          c.beginPath();
-          c.arc(n.x, n.y, r + 6 / k, 0, Math.PI * 2);
-          c.stroke();
-        }
+        c.fillRect(n.x - r * 0.6, n.y - r * 0.6, r * 1.2, r * 1.2);
+        c.strokeStyle = big ? col : "#3fe07a";
+        c.lineWidth = 1.4 / k;
+        c.strokeRect(n.x - r * 1.3, n.y - r * 1.3, r * 2.6, r * 2.6);
         if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId) {
-          c.font = `600 ${11.5 / k}px "Chakra Petch", sans-serif`;
-          c.fillStyle = "#ebe3d1";
+          c.font = `600 ${11.5 / k}px "JetBrains Mono", monospace`;
+          c.fillStyle = "#f2efe9";
           c.textAlign = "center";
-          const label = (n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Exhibit A" : n.d.author.name).toUpperCase();
+          const label = (n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Submitted" : n.d.author.name).toUpperCase();
           c.fillText(label, n.x, n.y - r - 9 / k);
         }
       }
@@ -1086,7 +1063,7 @@ export class Graph {
         c.moveTo(g.x - w / 2, g.y - h / 2);
         c.lineTo(g.x + w / 2, g.y + h / 2);
         c.stroke();
-        c.font = `600 ${11 / Math.sqrt(k)}px "Chakra Petch", sans-serif`;
+        c.font = `600 ${11 / Math.sqrt(k)}px "JetBrains Mono", monospace`;
         c.fillStyle = C.shill;
         c.textAlign = "left";
         c.fillText(g.label, g.x - w / 2, g.y - h / 2 - 6);
@@ -1142,12 +1119,12 @@ export class Graph {
       c.setLineDash([]);
       // label
       c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
-      c.font = '600 11px "Chakra Petch", sans-serif';
-      const label = `LOCK · ${ROLE[n.d.role].label.toUpperCase()}`;
+      c.font = '600 11px "JetBrains Mono", monospace';
+      const label = `MATCH · ${ROLE[n.d.role].label.toUpperCase()}`;
       const tw = c.measureText(label).width + 12;
       c.fillStyle = r.color;
       c.fillRect(sx - hw, sy - hh - 20, tw, 16);
-      c.fillStyle = "#0b1117";
+      c.fillStyle = "#050506";
       c.textAlign = "left";
       c.textBaseline = "middle";
       c.fillText(label, sx - hw + 6, sy - hh - 12);
@@ -1162,15 +1139,15 @@ export class Graph {
   /** score tag on a link: dark plate, coloured border, value + small caption */
   private pill(c: CanvasRenderingContext2D, x: number, y: number, text: string, col: string, cap = "") {
     const k = this.k;
-    const fs = 11.5 / Math.max(k, 0.65);
-    c.font = `600 ${fs}px "Chakra Petch", sans-serif`;
+    const fs = 10.5 / Math.max(k, 0.65);
+    c.font = `600 ${fs}px "JetBrains Mono", monospace`;
     const w1 = c.measureText(text).width;
-    c.font = `600 ${fs * 0.72}px "Chakra Petch", sans-serif`;
+    c.font = `600 ${fs * 0.72}px "JetBrains Mono", monospace`;
     const w2 = cap ? c.measureText(cap).width + fs * 0.6 : 0;
     const w = w1 + w2 + fs * 1.1;
     const h = fs * 1.7;
     c.save();
-    c.fillStyle = "rgba(8,12,16,0.92)";
+    c.fillStyle = "rgba(6,6,8,0.92)";
     c.fillRect(x - w / 2, y - h / 2, w, h);
     c.strokeStyle = col;
     c.lineWidth = 1 / k;
@@ -1179,11 +1156,11 @@ export class Graph {
     c.textAlign = "left";
     let tx = x - w / 2 + fs * 0.55;
     if (cap) {
-      c.fillStyle = "rgba(235,227,209,0.6)";
+      c.fillStyle = "rgba(242,239,233,0.55)";
       c.fillText(cap, tx, y + fs * 0.05);
       tx += w2;
     }
-    c.font = `600 ${fs}px "Chakra Petch", sans-serif`;
+    c.font = `600 ${fs}px "JetBrains Mono", monospace`;
     c.fillStyle = col;
     c.fillText(text, tx, y + fs * 0.05);
     c.restore();
@@ -1215,91 +1192,52 @@ export class Graph {
     return [a.x, y0, a.x, y0 + dy, b.x, y1 - dy, b.x, y1];
   }
 
+  /** A cluster is drawn as one big detection box around its members, labelled like the
+   *  machine-vision boxes in the Junction banner: name + numbers on a solid tab. */
   private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number) {
     const ms = cl.members.map((id) => this.byId.get(id)!).filter((n) => n && n.vis);
     if (ms.length < 3) return;
-    const pad = 30;
-    const pts: [number, number][] = [];
+    const pad = 26;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of ms) {
-      const hw = n.w / 2 + pad;
-      const hh = n.h / 2 + pad;
-      pts.push([n.x - hw, n.y - hh], [n.x + hw, n.y - hh], [n.x + hw, n.y + hh], [n.x - hw, n.y + hh]);
+      x0 = Math.min(x0, n.x - n.w / 2 - pad);
+      x1 = Math.max(x1, n.x + n.w / 2 + pad);
+      y0 = Math.min(y0, n.y - n.h / 2 - pad);
+      y1 = Math.max(y1, n.y + n.h / 2 + pad);
     }
-    const hull = convexHull(pts);
     const col = cl.status === "coordinated" ? this.colors.shill : cl.status === "likely_organic" ? this.colors.chill : this.colors.unsure;
     const k = this.k;
-    const path = () => {
-      c.beginPath();
-      const n = hull.length;
-      for (let i = 0; i < n; i++) {
-        const p = hull[i];
-        const q = hull[(i + 1) % n];
-        const mx = (p[0] + q[0]) / 2;
-        const my = (p[1] + q[1]) / 2;
-        if (i === 0) c.moveTo(mx, my);
-        else c.quadraticCurveTo(p[0], p[1], mx, my);
-      }
-      const p0 = hull[0];
-      const p1 = hull[1 % n];
-      c.quadraticCurveTo(p0[0], p0[1], (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2);
-      c.closePath();
-    };
-    // territory fill + EU4-style border: thick colour band, thin dark edge, inner glow
     c.save();
-    path();
     c.fillStyle = col;
-    c.globalAlpha = 0.11 + 0.025 * Math.sin(now / 900);
-    c.fill();
-    c.clip();
-    c.globalAlpha = 0.5;
-    c.strokeStyle = col;
-    c.lineWidth = 14 / k;
-    path();
-    c.stroke();
-    c.restore();
-    c.save();
-    path();
-    c.strokeStyle = col;
+    c.globalAlpha = 0.05 + 0.02 * Math.sin(now / 900);
+    c.fillRect(x0, y0, x1 - x0, y1 - y0);
     c.globalAlpha = 0.9;
-    c.lineWidth = 2 / k;
-    c.stroke();
-    c.restore();
-    // territory name across the land, spaced like a country label
-    const xs = hull.map((p) => p[0]);
-    const ys = hull.map((p) => p[1]);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-    const cx = (x0 + x1) / 2;
-    const cy = (y0 + y1) / 2;
-    const name = cl.label.toUpperCase();
-    const fs = Math.min((x1 - x0) / (name.length * 1.35), (y1 - y0) / 4.5, 120);
-    c.save();
-    c.textAlign = "center";
-    c.textBaseline = "middle";
-    c.font = `400 ${fs}px Michroma, sans-serif`;
-    c.globalAlpha = 0.26;
-    c.fillStyle = col;
-    const spaced = name.split("").join(String.fromCharCode(8202));
-    c.fillText(spaced, cx, cy);
-    c.restore();
-    // badge on the border: status + numbers
-    const fs2 = 11 / Math.max(k, 0.14);
-    c.save();
-    c.font = `600 ${fs2}px "Chakra Petch", sans-serif`;
-    const label = `${STATUS[cl.status].short.toUpperCase()}  ·  ${cl.stat.toUpperCase()}`;
-    const w = c.measureText(label).width + fs2 * 1.6;
-    const h = fs2 * 2;
-    const by = y0 - h / 2;
-    c.fillStyle = "rgba(8,12,16,0.94)";
-    c.fillRect(cx - w / 2, by - h / 2, w, h);
     c.strokeStyle = col;
-    c.lineWidth = 1.2 / k;
-    c.strokeRect(cx - w / 2, by - h / 2, w, h);
+    c.lineWidth = 2 / k;
+    c.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    // heavier corners
+    const L = Math.min(40 / k, (x1 - x0) / 4);
+    c.lineWidth = 4 / k;
+    c.beginPath();
+    for (const [cx, cy, dx, dy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x1, y1, -1, -1], [x0, y1, 1, -1]] as const) {
+      c.moveTo(cx, cy + dy * L);
+      c.lineTo(cx, cy);
+      c.lineTo(cx + dx * L, cy);
+    }
+    c.stroke();
+    // tab label on the top edge, like a detector's class + score
+    const fs = 11 / Math.max(k, 0.14);
+    c.font = `600 ${fs}px "JetBrains Mono", monospace`;
+    const label = `${STATUS[cl.status].short.toUpperCase()} · ${cl.stat.toUpperCase()}`;
+    const w = c.measureText(label).width + fs * 1.2;
+    const h = fs * 1.9;
+    c.globalAlpha = 1;
     c.fillStyle = col;
-    c.fillRect(cx - w / 2, by - h / 2, fs2 * 0.45, h);
-    c.textAlign = "center";
+    c.fillRect(x0 - 1 / k, y0 - h, w, h);
+    c.fillStyle = "#050506";
+    c.textAlign = "left";
     c.textBaseline = "middle";
-    c.fillStyle = "#ebe3d1";
-    c.fillText(label, cx + fs2 * 0.2, by + fs2 * 0.05);
+    c.fillText(label, x0 + fs * 0.6, y0 - h / 2 + fs * 0.05);
     c.restore();
   }
 
@@ -1309,23 +1247,4 @@ export class Graph {
     const ts = this.case.nodes.map((n) => n.t);
     return fmtDur(Math.max(...ts) - Math.min(...ts));
   }
-}
-
-function convexHull(points: [number, number][]): [number, number][] {
-  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const lower: [number, number][] = [];
-  for (const pt of p) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pt) <= 0) lower.pop();
-    lower.push(pt);
-  }
-  const upper: [number, number][] = [];
-  for (let i = p.length - 1; i >= 0; i--) {
-    const pt = p[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pt) <= 0) upper.pop();
-    upper.push(pt);
-  }
-  upper.pop();
-  lower.pop();
-  return lower.concat(upper);
 }

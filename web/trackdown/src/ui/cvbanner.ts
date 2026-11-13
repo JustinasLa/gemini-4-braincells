@@ -107,7 +107,7 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, sz, sz);
         const shown = p.score * Math.min(1, tt / 520);
-        ctx.font = `600 ${Math.max(9, Math.min(12, sz / 5))}px "Chakra Petch", sans-serif`;
+        ctx.font = `600 ${Math.max(9, Math.min(12, sz / 5))}px "JetBrains Mono", monospace`;
         ctx.fillStyle = "#fff";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";

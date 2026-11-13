@@ -5,10 +5,11 @@ import { simulatedCases } from "./data/cases";
 import { simulateFromInput } from "./data/simulate";
 import { Graph, type Mode } from "./engine/graph";
 import type { TraceCase } from "./types";
-import { coinImg, flipInto, preloadCoin, wait } from "./ui/coin";
+import { flipInto, preloadCoin, wait } from "./ui/coin";
+import { thumbStyle } from "./ui/crop";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtClock, fmtDate, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
@@ -19,36 +20,27 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <div class="brand">
-      <button class="btn icon mobile-only rail-btn" data-act="rail" aria-label="Case files">${icon.menu}</button>
-      <div class="emblem" style="background-image:url(${coinImg("coordinated")})"></div>
-      <div class="wordmark">SHILL OR CHILL<small>TRACKDOWN · JUNCTION 2026</small></div>
-    </div>
-    <div class="resources" id="res"></div>
-    <div class="clockbox">
-      <button class="pp" id="pp" aria-label="Play or pause" data-tip="<h4>Replay the spread</h4>Space to play or pause.">${icon.play}</button>
-      <div class="pips" id="pips" data-tip="<h4>Game speed</h4>How fast the replay runs.">${[1, 2, 3, 4, 5].map((i) => `<button data-sp="${i}"></button>`).join("")}</div>
-      <div class="date" id="date">–<small>–</small></div>
-    </div>
+    <button class="btn icon mobile-only rail-btn" data-act="rail" aria-label="Case files">${icon.menu}</button>
+    <div class="wordmark">SHILL OR CHILL</div>
+    <div class="case-head"><span class="label">trackdown</span><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <div class="seg" id="mode"><button data-mode="timeline" class="on" data-tip="<h4>Timeline</h4>Cards sit at their moment in time (T).">Timeline</button><button data-mode="web" data-tip="<h4>Web</h4>Free force layout (T).">Web</button></div>
-      <button class="btn icon mobile-only" data-act="sheet" aria-label="Attribution">${icon.receipt}</button>
-      <button class="btn gold" data-act="trace">${icon.search}<span class="lbl">Trace a post</span><span class="kbd">N</span></button>
+      <div class="seg" id="mode"><button data-mode="timeline" class="on">Timeline</button><button data-mode="web">Web</button></div>
+      <button class="btn icon mobile-only" data-act="sheet" aria-label="Verdict">${icon.receipt}</button>
+      <button class="btn solid" data-act="trace">${icon.search}<span class="lbl">Trace a post</span><span class="kbd">N</span></button>
     </div>
   </header>
   <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
   <main class="stage" id="stage">
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
     <div class="term hidden" id="console" data-ui></div>
-    <div class="hint" id="hint">Drag cards · scroll to zoom · double-click to focus</div>
-    <div class="legend gilt min" id="legend" data-ui></div>
+    <div class="hint label" id="hint">drag cards · scroll to zoom · double-click to focus</div>
+    <div class="legend min" id="legend" data-ui></div>
     <div class="hud" data-ui>
       <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button></div>
-      <div class="minimap gilt hud-corners" id="minimap"><span class="mm-title">THEATRE</span></div>
+      <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
-    <div class="dock gilt" id="dock" data-ui></div>
+    <div class="dock" id="dock" data-ui></div>
     <div class="vignette"></div>
-    <div class="scanlines"></div>
   </main>
   <aside class="panel" id="panel"></aside>
 </div>`;
@@ -71,9 +63,9 @@ initTooltips();
 
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
-  `<div class="legend-title"><span>Map key</span><span>+</span></div>` +
+  `<div class="legend-title"><span class="label">key</span><span>+</span></div>` +
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#f0ece2"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#ebe3d1"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#5b8fe6"></span>Cites</div><div class="li"><span class="sw" style="--c:#3fe07a"></span>Machine detection</div>`;
+  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="sw box" style="--c:#3fe07a"></span>Machine detection</div>`;
 $("#legend").addEventListener("click", (e) => {
   if ((e.target as HTMLElement).closest(".legend-title")) {
     const l = $("#legend");
@@ -82,108 +74,25 @@ $("#legend").addEventListener("click", (e) => {
   }
 });
 
-// ---------------------------------------------------------------- resource bar (Victoria-style)
-const RI = {
-  posts: icon.bluesky,
-  accounts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.6.2 4.6 1.9 5.3 5.4"/></svg>',
-  hops: icon.shuffle,
-  span: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>',
-  clusters: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l6-2 6 2 4-1v13l-4 1-6-2-6 2-0 0V6z"/><path d="M10 4v14M16 6v14"/></svg>',
-  verdict: icon.crown,
-};
+// ---------------------------------------------------------------- header
 function renderResources(c: TraceCase) {
-  const accounts = new Set(c.nodes.filter((n) => n.role !== "source").map((n) => n.author.handle)).size;
-  const fresh = c.nodes.filter((n) => (n.author.ageDays ?? 999) < 30).length;
-  const hops = Math.max(0, g.pathToOrigin(c.submittedId).length - 1);
-  const ts = c.nodes.map((n) => n.t);
-  const span = Math.max(...ts) - Math.min(...ts);
   const v = STATUS[c.status];
-  const cls = c.status === "coordinated" ? "shill" : c.status === "likely_organic" ? "chill" : "unsure";
-  const tag = c.synthetic ? '<span class="flagtag sim">SIMULATED</span>' : c.historical ? '<span class="flagtag hist">HISTORICAL</span>' : c.live ? '<span class="flagtag live">LIVE</span>' : "";
-  const r = (ic: string, val: string, label: string, tip: string, extra = "") =>
-    `<div class="res" data-tip="${esc(tip)}"><span class="ri">${ic}</span><span><div class="rv ${extra}">${val}</div><div class="rl">${label}</div></span></div>`;
-  $("#res").innerHTML =
-    `<div class="case-title"><b>${esc(c.title)}</b><span>${esc(c.kicker)} ${tag}</span></div>` +
-    r(RI.verdict, v.short.toUpperCase(), "Verdict", `<h4>${v.word}</h4>${v.tag}.${c.scored === false || c.status === "insufficient" ? " No confidence score." : `<div class='row'><span>Confidence</span><b>${Math.round(c.confidence * 100)}%</b></div>`}`, cls) +
-    r(RI.posts, String(c.nodes.length), "Posts", `<h4>Posts on the map</h4><div class='row'><span>Total</span><b>${c.nodes.length}</b></div><div class='row'><span>Found by search</span><b>${c.nodes.filter((n) => n.role === "source").length}</b></div>`) +
-    r(RI.accounts, String(accounts), c.historical ? "Hands" : "Accounts", `<h4>${c.historical ? "Hands" : "Accounts"}</h4><div class='row'><span>Distinct</span><b>${accounts}</b></div><div class='row'><span>Under 30 days old</span><b class='${fresh ? "neg" : ""}'>${fresh}</b></div>`) +
-    r(RI.hops, String(hops), "Copies back", `<h4>Copies back</h4>Hops from the submitted post to the earliest copy.`) +
-    r(RI.span, fmtDur(span), "Span", `<h4>Span</h4>First to last post on the map.`) +
-    r(RI.clusters, String(c.clusters.length), "Territories", `<h4>Territories</h4>${c.clusters.length ? c.clusters.map((cl) => `<div class='row'><span>${esc(cl.label)}</span><b>${STATUS[cl.status].short}</b></div>`).join("") : "No cluster large enough to draw."}`);
+  $("#title").textContent = c.title;
+  const tag = c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
+  $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
   document.title = `${c.title} · Shill or Chill`;
 }
 
-// ---------------------------------------------------------------- clock + speed (EU4)
-const SPEEDS = [0.25, 0.5, 1, 2, 4];
-let speedIx = 2;
-function setSpeed(i: number) {
-  speedIx = Math.max(0, Math.min(4, i));
-  dock.speed = SPEEDS[speedIx];
-  document.querySelectorAll<HTMLElement>("#pips button").forEach((b, j) => b.classList.toggle("on", j <= speedIx));
-}
-setSpeed(2);
-$("#pips").addEventListener("click", (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>("[data-sp]");
-  if (b) setSpeed(Number(b.dataset.sp) - 1);
-});
-$("#pp").addEventListener("click", () => dock.toggle());
-let lastDate = "";
-function updateClock() {
-  const c = current;
-  if (!c) return;
-  const tm = g.timeMap;
-  const first = tm[0]?.[0];
-  const last = tm[tm.length - 1]?.[0];
-  const t = dock.u >= 0.9999 ? last : dock.timeForU(dock.u);
-  if (t == null || first == null) return;
-  const s = `${fmtDate(t, false)}${new Date(t).getUTCFullYear() >= 1900 ? ` · ${fmtClock(t)}` : ""}|T+${fmtDur(t - first)} since origin`;
-  if (s === lastDate) return;
-  lastDate = s;
-  const [a, b] = s.split("|");
-  $("#date").innerHTML = `${esc(a)}<small>${esc(b)}</small>`;
-  $("#pp").innerHTML = dock.playing ? icon.pause : icon.play;
-}
-
 // ---------------------------------------------------------------- outliner
-function spark(c: TraceCase, canvas: HTMLCanvasElement) {
-  const dpr = Math.min(2, devicePixelRatio || 1);
-  const w = 200;
-  const h = 14;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  const x = canvas.getContext("2d")!;
-  x.scale(dpr, dpr);
-  const ts = c.nodes.map((n) => n.t).sort((a, b) => a - b);
-  const xs: number[] = [];
-  let acc = 0;
-  ts.forEach((t, i) => {
-    if (i) acc += Math.log2(1 + (t - ts[i - 1]) / 60000);
-    xs.push(acc);
-  });
-  const max = acc || 1;
-  const bins = new Array(40).fill(0);
-  xs.forEach((v) => bins[Math.min(39, Math.floor((v / max) * 39))]++);
-  const m = Math.max(...bins);
-  x.fillStyle = "rgba(201,166,94,0.3)";
-  x.fillRect(0, h - 1, w, 1);
-  bins.forEach((b, i) => {
-    if (!b) return;
-    const bh = Math.max(2, Math.sqrt(b / m) * (h - 2));
-    x.fillStyle = STATUS[c.status].color;
-    x.globalAlpha = 0.45 + 0.55 * (b / m);
-    x.fillRect(i * 5, h - 1 - bh, 3, bh);
-  });
-}
-
 function railItem(c: TraceCase) {
   const sub = c.nodes.find((n) => n.id === c.submittedId);
   const ori = c.nodes.find((n) => n.id === c.originId);
+  const th = c.historical ? { style: `background-image:url(${rhinoUrl});background-position:72% 40%;background-size:260%`, score: "1515" } : thumbStyle(c.id, 64);
   return `<button class="cat-item${current?.id === c.id ? " on" : ""}" data-case="${c.id}" style="--vc:${STATUS[c.status].css}">
-    <span class="mini-coin" style="background-image:url(${coinImg(c.status)})"></span>
+    <span class="thumb" style="${th.style}" data-score="${th.score}"></span>
     <span class="vd">${STATUS[c.status].short} · ${esc(c.kicker)}</span>
     <span class="ttl">${esc(c.title)}</span>
     <span class="meta">${ori ? fmtShort(ori.t) : ""} → ${sub ? fmtShort(sub.t) : ""}${sub && ori ? ` · ${fmtDur(sub.t - ori.t)}` : ""}</span>
-    <canvas class="spark"></canvas>
   </button>`;
 }
 
@@ -206,23 +115,17 @@ function renderRail() {
   const sims = simulatedCases();
   const live = liveRows
     .map(
-      (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="mini-coin" style="background-image:url(${coinImg(r.status)})"></span>
+      (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(4)}"></span>
       <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster ${r.id}</span>
       <span class="meta">${r.size ?? "?"} accounts · score ${r.score.toFixed(2)}</span></button>`,
     )
     .join("");
   $("#rail").innerHTML = `
-    ${userCases.length ? `<div class="ol-head">Your traces<span class="cnt">${userCases.length}</span></div>${userCases.map(railItem).join("")}` : ""}
-    ${live ? `<div class="ol-head">Live from the monitor<span class="cnt">${liveRows.length}</span></div>${live}` : ""}
-    <div class="ol-head">Case files<span class="cnt">${sims.length}</span></div>
+    ${userCases.length ? `<div class="label"><span>your traces</span><span>${userCases.length}</span></div>${userCases.map(railItem).join("")}` : ""}
+    ${live ? `<div class="label"><span>live from the monitor</span><span>${liveRows.length}</span></div>${live}` : ""}
+    <div class="label"><span>case files</span><span>${sims.length}</span></div>
     ${sims.map(railItem).join("")}
     <p class="rail-note"><b>Case files are simulated</b> (fictional accounts, <span class="mono" style="font-size:11px">.example</span> sites) except Dürer's Rhinoceros, which is real history. ${live ? "Live clusters come straight from the detector." : "Live clusters appear here when the monitor API is reachable."}</p>`;
-  $("#rail")
-    .querySelectorAll<HTMLButtonElement>("[data-case]")
-    .forEach((b) => {
-      const c = [...userCases, ...sims].find((x) => x.id === b.dataset.case)!;
-      spark(c, b.querySelector("canvas")!);
-    });
 }
 $("#rail").addEventListener("click", async (e) => {
   const b = (e.target as HTMLElement).closest<HTMLElement>("[data-case],[data-live]");
@@ -281,7 +184,6 @@ g.onFrame = () => {
   dock.tick(performance.now());
   drawRuler(ruler, g);
   mini.draw();
-  updateClock();
 };
 dock.onScrub = () => {
   if (tracing) cancelTrace();
@@ -329,8 +231,8 @@ function cancelTrace() {
   if (tracing) skipFlag = true;
 }
 function consoleHead(state: "run" | "done", c: TraceCase) {
-  const mode = c.synthetic ? "simulated" : c.historical ? "archive" : "live";
-  return `<div class="term-head"><span class="rec"></span><span>${state === "run" ? "Trackdown // tracking" : "Trackdown // complete"} · ${mode}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "Skip ›" : "Close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
+  const mode = c.synthetic ? "--simulated" : c.historical ? "--archive" : "";
+  return `<div class="term-head"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="file">trackdown.sh ${mode}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "skip" : "close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
 }
 consoleEl.addEventListener("click", (e) => {
   if ((e.target as HTMLElement).closest("[data-skip]")) {
@@ -483,75 +385,37 @@ async function runTrace(c: TraceCase) {
   }
 }
 
-// ---------------------------------------------------------------- EU4-style event window for the verdict
+// ---------------------------------------------------------------- verdict reveal: the Junction banner with the verdict as its wordmark
 let eventEl: HTMLElement | null = null;
 function closeEvent() {
   if (!eventEl) return;
   const e = eventEl;
   eventEl = null;
   e.classList.add("out");
-  setTimeout(() => e.remove(), 280);
+  setTimeout(() => e.remove(), 480);
 }
 async function showEvent(c: TraceCase, run: number) {
   closeEvent();
   const v = STATUS[c.status];
-  const hops = Math.max(0, g.pathToOrigin(c.submittedId).length - 1);
-  const accounts = new Set(c.nodes.filter((n) => n.role !== "source").map((n) => n.author.handle)).size;
-  const scored = c.scored !== false && c.status !== "insufficient";
-  const back = document.createElement("div");
-  back.className = "modal-back";
-  back.innerHTML = `<div class="event gilt hud-corners" role="dialog" aria-label="Verdict">
-    <div class="banner"><canvas></canvas><div class="coin-slot"></div><div class="verdict-word" style="color:${v.css}">${v.word}</div><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, c. 1485 · ORB keypoints"}</span></div>
-    <div class="ev-body">
-      <h2 class="ev-title">${esc(c.title)}</h2>
-      <div class="ev-sub">Attribution · ${esc(c.kicker)}${c.synthetic ? " · simulated" : c.historical ? " · historical record" : ""}</div>
-      <p class="ev-text">${esc(c.summary)}</p>
-      <div class="effects">
-        <div class="row"><span>Verdict</span><b style="color:${v.css}">${v.word} · ${v.tag}</b></div>
-        <div class="row"><span>Confidence</span><b>${scored ? Math.round(c.confidence * 100) + "%" : c.status === "insufficient" ? "Abstained" : "Not scored"}</b></div>
-        <div class="row"><span>Copies back to the earliest</span><b>${hops}</b></div>
-        <div class="row"><span>${c.historical ? "Hands involved" : "Accounts involved"}</span><b>${accounts}</b></div>
-      </div>
-      <div class="opts">
-        ${c.clusters.length ? `<button class="btn" data-ev="territory">Inspect the ${esc(c.clusters[0].label.toLowerCase())}</button>` : ""}
-        <button class="btn" data-ev="origin">Go to the earliest copy</button>
-        <button class="btn" data-ev="receipts">Read the receipts</button>
-        <button class="btn gold" data-ev="close">Noted</button>
-      </div>
-    </div></div>`;
-  document.body.appendChild(back);
-  eventEl = back;
-  const cvs = $<HTMLCanvasElement>("canvas", back);
+  const el = document.createElement("div");
+  el.className = "reveal";
+  el.style.setProperty("--vc", v.css);
+  el.innerHTML = `<canvas></canvas><div class="center"><div class="coin-slot"></div><div class="vw${v.word.length > 8 ? " long" : ""}">${v.word.toUpperCase()}</div><div class="vt">${v.tag}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
+  stage.appendChild(el);
+  eventEl = el;
   let src: HTMLImageElement | undefined;
   if (c.historical) {
     src = new Image();
     src.src = rhinoUrl;
   }
-  mountBanner(cvs, { darken: c.historical ? 0.55 : 0.4, focusX: 0.55, per: 70, src });
-  back.addEventListener("click", (e) => {
-    const t = e.target as HTMLElement;
-    const act = t.closest<HTMLElement>("[data-ev]")?.dataset.ev;
-    if (t === back || act === "close") closeEvent();
-    if (act === "territory") {
-      closeEvent();
-      g.fit(c.clusters[0].members, 900);
-    }
-    if (act === "origin") {
-      closeEvent();
-      g.select(c.originId);
-      g.focus(c.originId, 1, 900);
-    }
-    if (act === "receipts") {
-      closeEvent();
-      panel.tab = "receipts";
-      panel.render();
-      app.classList.add("sheet-open");
-    }
-  });
+  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5 });
+  el.addEventListener("click", closeEvent);
   await bannerReady;
-  await wait(250);
-  await flipInto($(".coin-slot", back), c.status, () => run !== tracing && tracing !== 0);
-  $(".verdict-word", back).animate([{ opacity: 0, letterSpacing: "0.8em" }, { opacity: 1, letterSpacing: "0.3em" }], { duration: 700, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" });
+  await wait(300);
+  await flipInto($(".coin-slot", el), c.status, () => run !== tracing && tracing !== 0);
+  $(".vw", el).animate([{ opacity: 0, letterSpacing: "0.7em" }, { opacity: 1, letterSpacing: "0.3em" }], { duration: 800, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" });
+  $(".vt", el).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: 350, fill: "forwards" });
+  setTimeout(() => eventEl === el && closeEvent(), 5200);
 }
 
 // ---------------------------------------------------------------- trace modal
@@ -565,14 +429,14 @@ function openModal() {
   if (document.querySelector(".modal")) return;
   const back = document.createElement("div");
   back.className = "modal-back";
-  back.innerHTML = `<div class="modal gilt hud-corners" role="dialog" aria-label="Trace a post">
-    <div class="banner"><canvas></canvas><div class="bt">SHILL OR CHILL</div><span class="credit">Botticelli, c. 1485 · live ORB keypoints</span></div>
+  back.innerHTML = `<div class="modal" role="dialog" aria-label="Trace a post">
+    <div class="banner"><canvas></canvas><div class="bt">SHILL OR CHILL</div><span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span></div>
     <div class="form">
       <p class="sub">Drop a post, a link or a handle. We walk it back to the earliest copy we can find, then look at how it spread.</p>
       <div class="drop"><textarea placeholder="Paste a post, a bsky.app link or @handle…"></textarea>
-        <div class="row">◈ Drop a screenshot · Nemotron reads it<span class="file"></span></div></div>
+        <div class="row label">drop a screenshot · nemotron reads it<span class="file"></span></div></div>
       <div class="examples">${EXAMPLES.map((e) => `<button data-ex="${esc(e)}">${esc(e.length > 54 ? e.slice(0, 52) + "…" : e)}</button>`).join("")}</div>
-      <div class="foot"><div class="fine">Asks the live API first. If it isn't reachable, you get a clearly labelled simulated trackdown.</div><button class="btn" data-x>Cancel</button><button class="btn gold" data-go>${sm(icon.search, 14)} Trace it</button></div>
+      <div class="foot"><div class="fine">Asks the live API first. If it isn't reachable, you get a clearly labelled simulated trackdown.</div><button class="btn" data-x>Cancel</button><button class="btn solid" data-go>${sm(icon.search, 14)} Trace it</button></div>
     </div>
   </div>`;
   document.body.appendChild(back);
@@ -627,7 +491,7 @@ function openModal() {
     let c = await analyze(text);
     if (!c) {
       c = simulateFromInput(text);
-      toast("Live API not reachable · running a simulated trackdown");
+      toast("// live API not reachable: running a simulated trackdown");
     }
     userCases.unshift(c);
     saveUserCases();
@@ -640,7 +504,7 @@ let toastT = 0;
 function toast(msg: string) {
   document.querySelector(".toast")?.remove();
   const t = document.createElement("div");
-  t.className = "toast hud-corners";
+  t.className = "toast";
   t.textContent = msg;
   document.body.appendChild(t);
   clearTimeout(toastT);
@@ -666,8 +530,8 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     openModal();
   }
-  if (e.key === "+" || e.key === "=") setSpeed(speedIx + 1);
-  if (e.key === "-") setSpeed(speedIx - 1);
+  if (e.key === "+" || e.key === "=") g.zoomBy(1.3);
+  if (e.key === "-") g.zoomBy(1 / 1.3);
   if (/^[1-9]$/.test(e.key)) {
     const all = [...userCases, ...simulatedCases()];
     const c = all[Number(e.key) - 1];
@@ -699,7 +563,7 @@ else {
   // title card: the painting is read by machine vision, then the trackdown starts
   const splash = document.createElement("div");
   splash.className = "splash";
-  splash.innerHTML = `<canvas></canvas><div class="t"><div class="big">SHILL OR CHILL</div><div class="sub">Provenance for the feed · Junction 2026</div></div>`;
+  splash.innerHTML = `<canvas></canvas><div class="t"><div class="big">SHILL OR CHILL</div><div class="sub">// provenance for the feed · junction 2026</div></div>`;
   document.body.appendChild(splash);
   mountBanner($<HTMLCanvasElement>("canvas", splash), { darken: 0.45, per: 75, delay: 200 });
   let gone = false;

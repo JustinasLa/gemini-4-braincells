@@ -1,7 +1,7 @@
 import { hashStr } from "../data/build";
 import type { Media, TraceNode } from "../types";
 import { esc, fmtDate, fmtNum, ROLE } from "./format";
-import { arms, armsSeed } from "./heraldry";
+import { cropHtml } from "./crop";
 import { icon } from "./icons";
 
 const PLATFORM: Record<string, string> = { bluesky: "Bluesky", web: "Web page", news: "News", forum: "Forum", video: "Video", chat: "Chat", factcheck: "Web page", print: "Print", letter: "Letter" };
@@ -48,7 +48,7 @@ const flagClass = (f: string) => (/old|followers|templated|every|first seen|neve
 export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?: number): string {
   const a = n.author;
   const fresh = (a.ageDays ?? 999) < 30;
-  const shield = arms(armsSeed(a.handle, a.templated), { blank: fresh && !a.templated, size: compact ? 18 : 28 });
+  const shield = cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: compact ? 22 : 30 });
   const handle = `${n.platform === "bluesky" ? "@" : ""}${esc(a.handle)}`;
   if (compact) {
     const t = new Date(n.t);
@@ -57,7 +57,7 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
       <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} D OLD</span>` : ""}${a.followers != null ? `<span>${a.followers} FOL.</span>` : ""}<time>${clock}</time></div>`;
   }
   const mark = ROLE[n.role].mark ? `<div class="rolemark">${esc(ROLE[n.role].mark!)}</div>` : "";
-  const stamp = n.role === "submitted" ? `<div class="stamp">EXHIBIT A</div>` : "";
+  const stamp = n.role === "submitted" ? `<div class="stamp">SUBMITTED</div>` : "";
   const flags = n.flags?.length ? `<div class="flags">${n.flags.map((f) => `<span class="flag${flagClass(f)}">${esc(f)}</span>`).join("")}</div>` : "";
   const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${PLATFORM[n.platform] ?? n.platform}</span>`;
   return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b><span>${handle}</span></div><span class="catno">#${String(no).padStart(2, "0")}</span></header>

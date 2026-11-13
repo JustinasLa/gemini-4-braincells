@@ -52,19 +52,19 @@ export const initials = (name: string) =>
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 export const STATUS: Record<Status, { word: string; css: string; short: string; tag: string; color: string }> = {
-  coordinated: { word: "Shill", css: "var(--shill)", color: "#d2442f", short: "Shill", tag: "Coordinated spread" },
-  likely_organic: { word: "Chill", css: "var(--chill)", color: "#36b39a", short: "Chill", tag: "Organic spread" },
-  insufficient: { word: "Can't tell (yet)", css: "var(--unsure)", color: "#8f9ab0", short: "Can't tell", tag: "Not enough evidence" },
+  coordinated: { word: "Shill", css: "var(--shill)", color: "#e2533c", short: "Shill", tag: "Coordinated spread" },
+  likely_organic: { word: "Chill", css: "var(--chill)", color: "#5fc9a8", short: "Chill", tag: "Organic spread" },
+  insufficient: { word: "Can't tell (yet)", css: "var(--unsure)", color: "#9aa6bf", short: "Can't tell", tag: "Not enough evidence" },
 };
 
 export const ROLE: Record<Role, { label: string; color: string; mark?: string }> = {
-  origin: { label: "Earliest known", color: "#e6bb5c", mark: "Earliest known" },
-  mutation: { label: "Altered copy", color: "#e08a3c", mark: "Altered copy" },
-  relay: { label: "Reshare", color: "#8c949b" },
-  amplifier: { label: "In coordinated cluster", color: "#d2442f" },
-  organic: { label: "Independent", color: "#36b39a" },
-  submitted: { label: "Submitted", color: "#f1ead8" },
-  source: { label: "Found by search", color: "#5b8fe6", mark: "Found by search" },
+  origin: { label: "Earliest known", color: "#e4b36a", mark: "Earliest known" },
+  mutation: { label: "Altered copy", color: "#d9783d", mark: "Altered copy" },
+  relay: { label: "Reshare", color: "#8f8b84" },
+  amplifier: { label: "In coordinated cluster", color: "#e2533c" },
+  organic: { label: "Independent", color: "#5fc9a8" },
+  submitted: { label: "Submitted", color: "#f2efe9" },
+  source: { label: "Found by search", color: "#7aa2f0", mark: "Found by search" },
 };
 
 export const REL: Record<Relation, { label: string; dash: number[] }> = {
