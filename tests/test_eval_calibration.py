@@ -161,7 +161,7 @@ def cluster(members, status="coordinated", score=0.8):
     return ClusterScore(
         members=members,
         signals=[],
-        family_scores={},
+        family_scores={"content": score, "timing": 0.8},
         families_fired=["content", "timing"],
         score=score,
         confidence=0.6,
