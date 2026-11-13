@@ -121,6 +121,21 @@ services:
       db: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
+  # Nemotron 3.5 Super VL reads images / video thumbnails in candidate clusters -> evidence(kind=media).
+  media:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    command: ["python", "-m", "media", "worker"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+
 volumes:
   pgdata:
   caddy_data:
