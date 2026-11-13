@@ -426,6 +426,8 @@ a { color: inherit; }
   .app, .app.rail-open, .app.panel-open, .app.rail-open.panel-open { grid-template-columns: 1fr; grid-template-rows: 52px 1fr; }
   .app .panel { border-left-color: transparent; }
   .home-form { flex-direction: column; }
+  .home-form input { flex: none; width: 100%; }
+  .home-wm { font-size: 6.4vw; letter-spacing: 0.2em; text-indent: 0.2em; }
   .status { bottom: 12px; font-size: 12px; }
   .topbar { gap: 8px; padding: 0 10px; }
   .wordmark { font-size: 12px; letter-spacing: 0.22em; flex: 1; }
