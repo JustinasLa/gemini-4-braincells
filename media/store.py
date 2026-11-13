@@ -11,10 +11,18 @@ from media.nemotron import PROMPT_VERSION
 
 
 def candidate_clusters(
-    conn: psycopg.Connection, *, statuses: list[str], min_score: float, limit: int
+    conn: psycopg.Connection,
+    *,
+    statuses: list[str],
+    min_score: float,
+    limit: int,
+    done: dict[int, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Clusters worth reading media for: detector status in `statuses` (in priority order),
-    score >= min_score, and at least one live post with media. Most recently changed first."""
+    score >= min_score, and at least one live post with media. Most recently changed first.
+    `done` ({cluster_id: updated_at} already fully read) is excluded before the limit, so read
+    clusters don't use up the batch while their updated_at is unchanged."""
+    done = done or {}
     return conn.execute(
         """
         SELECT c.id, c.status, c.score, c.updated_at FROM clusters c
@@ -25,10 +33,20 @@ def candidate_clusters(
             WHERE cp.cluster_id = c.id AND s.deleted_at IS NULL
               AND cardinality(s.media_hashes) > 0
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM unnest(%(done_ids)s::bigint[], %(done_at)s::timestamptz[]) AS d(id, at)
+            WHERE d.id = c.id AND d.at = c.updated_at
+          )
         ORDER BY array_position(%(statuses)s, c.status), c.updated_at DESC, c.id DESC
         LIMIT %(limit)s
         """,
-        {"statuses": statuses, "min_score": min_score, "limit": limit},
+        {
+            "statuses": statuses,
+            "min_score": min_score,
+            "limit": limit,
+            "done_ids": list(done),
+            "done_at": list(done.values()),
+        },
     ).fetchall()
 
 
