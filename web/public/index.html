@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Noise Radar</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+    pre { background: #f3f3f3; padding: 1rem; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Noise Radar</h1>
+  <p>Placeholder page. The dashboard replaces this (see <code>web/</code>).</p>
+  <h2>API health</h2>
+  <pre id="health">loading…</pre>
+  <script>
+    fetch("/api/health").then(r => r.json())
+      .then(j => { document.getElementById("health").textContent = JSON.stringify(j, null, 2); })
+      .catch(e => { document.getElementById("health").textContent = "API unreachable: " + e; });
+  </script>
+</body>
+</html>
