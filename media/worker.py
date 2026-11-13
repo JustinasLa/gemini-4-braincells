@@ -191,6 +191,7 @@ class MediaRun:
     findings: list[Finding] = field(default_factory=list)
     failures: list[MediaFailure] = field(default_factory=list)
     skipped: int = 0  # unique media beyond max_media
+    deferred: int = 0  # media skipped because it failed recently (retried after its backoff)
 
     @property
     def analyses(self) -> list[MediaAnalysis]:
@@ -245,6 +246,7 @@ def process_cluster_media(
     run.skipped = max(0, len(groups) - max_media)
     for group in groups[:max_media]:
         if skip and skip(group.media_hash):
+            run.deferred += 1
             continue
         first = group.posts[0]
         stored = cache_lookup(group.media_hash) if cache_lookup else None

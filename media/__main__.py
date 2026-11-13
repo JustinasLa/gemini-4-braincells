@@ -62,10 +62,12 @@ def run_worker(client, settings, *, interval_s: float, batch: int) -> None:
             try:
                 with connect() as conn:
                     for c in store.candidate_clusters(
-                        conn, statuses=statuses, min_score=settings.media_min_score, limit=batch
+                        conn,
+                        statuses=statuses,
+                        min_score=settings.media_min_score,
+                        limit=batch,
+                        done=seen,
                     ):
-                        if seen.get(c["id"]) == c["updated_at"]:
-                            continue
                         run = read_cluster(
                             conn,
                             client,
@@ -74,7 +76,7 @@ def run_worker(client, settings, *, interval_s: float, batch: int) -> None:
                             max_media=settings.media_max_per_cluster,
                             backoff=backoff,
                         )
-                        if not run.failures:
+                        if not run.failures and not run.deferred:
                             seen[c["id"]] = c["updated_at"]
             except NotVisionModelError:
                 raise

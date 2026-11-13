@@ -157,3 +157,15 @@ def test_persist_upserts_by_media_hash_and_cache_spans_clusters(conn):
     assert persist_evidence(conn, cid, grown) == 2  # t1 and the template row (new account)
     after = store.stored_media(conn, cid)["t1"]
     assert after["id"] == rows[0]["id"] and after["detail"]["n_accounts"] == 3
+
+
+def test_done_clusters_do_not_use_up_the_batch(conn):
+    statuses = ["coordinated", "insufficient"]
+    first = store.candidate_clusters(conn, statuses=statuses, min_score=0.5, limit=1)[0]
+    done = {first["id"]: first["updated_at"]}
+    second = store.candidate_clusters(conn, statuses=statuses, min_score=0.5, limit=1, done=done)
+    assert second and second[0]["id"] != first["id"]
+    # Once signals updates the done cluster, it is a candidate again.
+    conn.execute("UPDATE clusters SET updated_at = now() WHERE id = %s", (first["id"],))
+    again = store.candidate_clusters(conn, statuses=statuses, min_score=0.5, limit=1, done=done)
+    assert again[0]["id"] == first["id"]

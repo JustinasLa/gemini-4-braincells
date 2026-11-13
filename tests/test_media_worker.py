@@ -193,3 +193,23 @@ def test_ocr_template_needs_two_accounts_and_real_text():
     run = process_cluster_media(one_account, FakeClient(texts), FakeFetcher())
     assert ocr_template(run.findings) is None
     assert ocr_template(_run_with_texts({"a": ["HI"], "b": ["HI"]}).findings) is None
+
+
+def test_backed_off_media_is_counted_as_deferred_then_retried():
+    now = [0.0]
+    backoff = FailureBackoff(base_s=300, clock=lambda: now[0])
+    fetcher = FakeFetcher(missing={"flaky"})
+    posts = [_post(1, "did:a", "flaky"), _post(2, "did:b", "ok")]
+    first = process_cluster_media(posts, FakeClient(), fetcher, skip=backoff)
+    for f in first.failures:
+        backoff.failed(f.media_hash)
+    assert [f.media_hash for f in first.failures] == ["flaky"]
+
+    now[0] = 60  # next pass, still backing off: not a failure, but not complete either
+    second = process_cluster_media(posts, FakeClient(), fetcher, skip=backoff)
+    assert second.failures == [] and second.deferred == 1
+
+    now[0] = 301  # backoff over: tried again
+    fetcher.missing.clear()
+    third = process_cluster_media(posts, FakeClient(), fetcher, skip=backoff)
+    assert third.deferred == 0 and {f.group.media_hash for f in third.findings} == {"flaky", "ok"}
