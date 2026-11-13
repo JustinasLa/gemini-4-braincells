@@ -64,6 +64,8 @@ class ClusterScore:
     confidence: float
     post_uris: list[str]
     core: list[str]
+    timeline: list[dict] = field(default_factory=list)
+    member_graph: dict = field(default_factory=dict)
 
 
 def _r(x: float) -> float:
@@ -179,6 +181,19 @@ def burst_stat(
     return num / den if den else np.zeros(p)
 
 
+def null_histogram(sims: np.ndarray, observed: float, bins: int = 20) -> dict:
+    """Histogram of the statistic over the shifted (random) worlds, for plotting next to the
+    observed value. The statistic is a share, so the bins cover [0, 1]."""
+    counts, edges = np.histogram(np.clip(sims, 0, 1), bins=bins, range=(0.0, 1.0))
+    return {
+        "bin_edges": [_r(e) for e in edges],
+        "counts": counts.astype(int).tolist(),
+        "observed": _r(observed),
+        "worlds": int(len(sims)),
+        "worlds_at_least_observed": int((sims >= observed - 1e-12).sum()),
+    }
+
+
 def timing_signals(
     members: list[str], sk: list[Key], wd: WindowData, cfg: DetectorConfig, rng: np.random.Generator
 ) -> tuple[list[Signal], float | None, dict]:
@@ -193,11 +208,13 @@ def timing_signals(
         # Null: shift each account's whole activity by its own random offset (circular within
         # the window). Keeps every account's own rhythm, breaks cross-account alignment.
         done, hits = 0, 0
+        sims: list[np.ndarray] = []
         for batch in (100, cfg.permutations - 100):
             if batch <= 0:
                 break
             shifts = rng.uniform(0, length, size=(batch, len(members)))
             sim = burst_stat(eligible, cfg, shifts, member_index, wd.start, length)
+            sims.append(sim)
             hits += int((sim >= obs - 1e-12).sum())
             done += batch
             if (1 + hits) / (1 + done) > 0.1:  # clearly not significant: stop early
@@ -217,6 +234,7 @@ def timing_signals(
             "p_value": _r(p_value),
             "keys_tested": len(eligible),
             "actions_tested": n_actions,
+            "null_distribution": null_histogram(np.concatenate(sims), obs),
         }
         out.append(
             Signal(
@@ -632,6 +650,53 @@ def organic_guards(
     return out
 
 
+# ---------------------------------------------------------------- visuals ---------------------
+# Compact shapes: DIDs are listed once in member_graph["nodes"]; timeline and edges refer to them
+# by index, so a cluster's JSON stays small enough to list.
+TIMELINE_MAX = 150
+GRAPH_MAX_MEMBERS = 150
+GRAPH_MAX_EDGES = 150
+
+
+def timeline(members: list[str], sk: list[Key]) -> list[dict]:
+    """Member actions on shared items, in time order: {t, n (node index), kind, key, uri}.
+    `key` is a short stable id so the UI can colour actions on the same item alike."""
+    index = {d: i for i, d in enumerate(members)}
+    events = []
+    for k in sk:
+        kid = hashlib.blake2b(f"{k.kind}|{k.value}".encode(), digest_size=4).hexdigest()
+        for u in k.uses:
+            events.append(
+                {"t": round(u.t, 3), "n": index[u.did], "kind": k.kind, "key": kid, "uri": u.ref}
+            )
+    events.sort(key=lambda e: (e["t"], e["n"], e["uri"]))
+    if len(events) > TIMELINE_MAX:  # keep an even sample across the whole span
+        idx = np.linspace(0, len(events) - 1, TIMELINE_MAX).round().astype(int)
+        events = [events[i] for i in sorted(set(idx.tolist()))]
+    return events
+
+
+def member_graph(members: list[str], sk: list[Key]) -> dict:
+    """{nodes: [did], edges: [[i, j, shared_content, shared_engagement]], truncated}: edges
+    between members weighted by how many items they shared, strongest first."""
+    out = {"nodes": members, "edges": [], "truncated": False}
+    if len(members) > GRAPH_MAX_MEMBERS:
+        out["truncated"] = True
+        return out
+    index = {d: i for i, d in enumerate(members)}
+    pairs: dict[tuple[int, int], list[int]] = {}
+    for k in sk:
+        acc = sorted(index[d] for d in k.accounts)
+        col = 0 if k.family == "content" else 1
+        for a in range(len(acc)):
+            for b in range(a + 1, len(acc)):
+                pairs.setdefault((acc[a], acc[b]), [0, 0])[col] += 1
+    ranked = sorted(pairs.items(), key=lambda kv: (-sum(kv[1]), kv[0]))
+    out["edges"] = [[a, b, c, e] for (a, b), (c, e) in ranked[:GRAPH_MAX_EDGES]]
+    out["truncated"] = len(ranked) > GRAPH_MAX_EDGES
+    return out
+
+
 # ---------------------------------------------------------------- combine ---------------------
 def score_cluster(
     members: list[str],
@@ -693,4 +758,6 @@ def score_cluster(
         confidence=_r(confidence),
         post_uris=post_uris,
         core=core,
+        timeline=timeline(members, sk),
+        member_graph=member_graph(members, sk),
     )

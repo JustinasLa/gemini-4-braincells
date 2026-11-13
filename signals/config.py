@@ -3,7 +3,7 @@ stored cluster says which settings produced it (clusters.detector_version)."""
 
 from dataclasses import asdict, dataclass, field
 
-VERSION = "v1.2"
+VERSION = "v1.3"
 
 
 @dataclass(frozen=True)

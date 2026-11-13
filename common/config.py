@@ -11,11 +11,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://noise:change-me@localhost:5432/noise"
 
     gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-pro"
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
 
-    oxylabs_username: str = ""
-    oxylabs_password: str = ""
+    oxylabs_web_api_key: str = ""
     context_dev_api_key: str = ""
 
     jetstream_url: str = "wss://jetstream2.us-east.bsky.network/subscribe"

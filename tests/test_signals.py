@@ -178,3 +178,23 @@ def test_same_input_same_output():
         return [(c.members, c.status, c.score, c.p_value, c.family_scores) for c in r.clusters]
 
     assert key(a) == key(b)
+
+
+# ------------------------------------------------------------------ demo visuals -------------
+def test_visual_data_for_the_dashboard():
+    base = empty_window(seed=9)
+    s = campaign("L1", base, seed=9)
+    c = best_cluster(run(inject(base, s), s.accounts), s.dids)
+    nd = c.p_detail["null_distribution"]
+    assert sum(nd["counts"]) == nd["worlds"] == c.p_detail["permutations"]
+    assert len(nd["bin_edges"]) == len(nd["counts"]) + 1
+    assert nd["observed"] == c.p_detail["observed"]
+    # p-value is consistent with the histogram's tail
+    assert c.p_value == round((1 + nd["worlds_at_least_observed"]) / (1 + nd["worlds"]), 4)
+    ts = [e["t"] for e in c.timeline]
+    assert ts == sorted(ts) and c.timeline
+    nodes = c.member_graph["nodes"]
+    assert nodes == c.members
+    assert {nodes[e["n"]] for e in c.timeline} <= set(c.members)
+    edges = c.member_graph["edges"]
+    assert edges and all(0 <= a < len(nodes) and 0 <= b < len(nodes) for a, b, _, _ in edges)
