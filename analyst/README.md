@@ -45,6 +45,11 @@ Rules the code enforces:
 - **Budget per cluster** (env): `ANALYST_MAX_TOOL_CALLS=6`, `ANALYST_MAX_WEB_CALLS=4` (live
   Oxylabs requests; cache hits are free), `ANALYST_TIME_BUDGET_S=120`. Calls past a limit get an
   error result telling Gemini to write the verdict; the next turn has function calling off.
+- **Hourly cap for the worker** (env `ANALYST_MAX_GEMINI_CALLS_PER_HOUR=100`, 0 = off;
+  `analyst/ratecap.py`). Each verdict counts its Gemini turns (`model_calls`, at least 1; a
+  failed run counts 1) in a sliding hour. When the cap is full, the worker logs once and waits;
+  new clusters still go before refreshes. On start it counts the analyst rows stored in the last
+  hour, so a restart doesn't reset the window. 100/h means at most 2,400 requests a day.
 - **Cache.** One process-wide cache by URL and query (6 h; failures 30 min, never retried in a
   run). A page the `sources` worker already scraped for the cluster (`detail.key = page:<url>`) is
   reused from the DB without a new request.

@@ -3,6 +3,7 @@
 python -m analyst prompt 42                 print the prompt for cluster 42 (no model call)
 python -m analyst cluster 42 [--dry-run]    write (or just print) a verdict for cluster 42
 python -m analyst worker [--interval 30]    keep verdicts fresh as clusters and evidence change
+                                            (capped by ANALYST_MAX_GEMINI_CALLS_PER_HOUR)
 
 Verdicts for candidate clusters use Gemini function calling into sources/ (analyst/agent.py);
 --no-tools falls back to the single-shot verdict. --dry-run writes nothing (tool evidence too).
@@ -16,6 +17,7 @@ import time
 from analyst import store
 from analyst.gemini import VerdictModel
 from analyst.prompt import SYSTEM, build_prompt
+from analyst.ratecap import HourlyCap, calls_in
 from analyst.runner import Analyst
 from analyst.service import analyze
 from common.config import get_settings
@@ -60,28 +62,50 @@ def run_worker(
     settle_s: float,
     refresh_s: float,
     batch: int,
+    cap: HourlyCap | None = None,
     failure_backoff_s: float = 600,
 ) -> None:
+    cap = cap or HourlyCap(0)
+    seeded = cap.limit <= 0
     failed: dict[int, float] = {}  # cluster_id -> monotonic time it may be retried
+    capped_logged = False
     while True:
         now = time.monotonic()
         failed = {cid: t for cid, t in failed.items() if t > now}
         try:
             with connect() as conn:
-                for cluster_id in store.clusters_needing_verdict(
-                    conn,
-                    min_score=min_score,
-                    settle_s=settle_s,
-                    refresh_s=refresh_s,
-                    limit=batch,
-                    exclude=failed.keys(),
-                ):
-                    try:
-                        run_cluster(conn, model, cluster_id)
-                    except Exception:
-                        conn.rollback()
-                        failed[cluster_id] = time.monotonic() + failure_backoff_s
-                        log.exception("verdict for cluster %s failed; retry later", cluster_id)
+                if not seeded:
+                    used = cap.seed_from_db(conn)
+                    seeded = True
+                    log.info("Gemini cap: %d/%d requests used in the last hour", used, cap.limit)
+                if not cap.allows():
+                    if not capped_logged:
+                        log.warning(
+                            "Gemini cap reached (%d requests/hour); next verdict in ~%.0f s",
+                            cap.limit,
+                            cap.seconds_until_free(),
+                        )
+                        capped_logged = True
+                else:
+                    capped_logged = False
+                    for cluster_id in store.clusters_needing_verdict(
+                        conn,
+                        min_score=min_score,
+                        settle_s=settle_s,
+                        refresh_s=refresh_s,
+                        limit=batch,
+                        exclude=failed.keys(),
+                    ):
+                        if not cap.allows():
+                            break
+                        verdict = None
+                        try:
+                            verdict = run_cluster(conn, model, cluster_id)
+                        except Exception:
+                            conn.rollback()
+                            failed[cluster_id] = time.monotonic() + failure_backoff_s
+                            log.exception("verdict for cluster %s failed; retry later", cluster_id)
+                        cap.record(calls_in(verdict))
         except Exception:
             log.exception("analyst worker pass failed; retrying next interval")
         time.sleep(interval_s)
@@ -135,6 +159,7 @@ def main() -> None:
             settle_s=args.settle,
             refresh_s=args.refresh,
             batch=args.batch,
+            cap=HourlyCap(get_settings().analyst_max_gemini_calls_per_hour),
         )
 
 
