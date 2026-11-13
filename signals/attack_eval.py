@@ -151,6 +151,7 @@ def main() -> None:
     p.add_argument("--live-end", default=None, help="ISO end of a 10-minute live window")
     p.add_argument("--offline", action="store_true", help="synthetic background, no database")
     p.add_argument("--out", default=None)
+    p.add_argument("--minutes", type=int, default=10, help="length of the live background window")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     for noisy in ("httpx", "httpx2", "google_genai", "signals.semantic"):
@@ -164,7 +165,7 @@ def main() -> None:
             else datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=15)
         )
         with psycopg.connect(get_settings().database_url) as conn:
-            base = load_window(conn, end - timedelta(minutes=10), end, DEFAULT)
+            base = load_window(conn, end - timedelta(minutes=args.minutes), end, DEFAULT)
         log.info("background: live window ending %s (%d posts)", end.isoformat(), len(base.posts))
     emb = GeminiEmbedder()
     t = time.monotonic()
@@ -172,11 +173,11 @@ def main() -> None:
     result["embedding_calls"] = emb.calls
     result["posts_embedded"] = emb.embedded
     result["seconds"] = round(time.monotonic() - t, 1)
-    print(json.dumps(result["summary"], indent=1))
-    print("embedding calls:", emb.calls, "posts embedded:", emb.embedded)
     if args.out:
         with open(args.out, "w") as fh:
             json.dump(result, fh, indent=1)
+    print(json.dumps(result["summary"], indent=1))
+    print("embedding calls:", emb.calls, "posts embedded:", emb.embedded)
 
 
 if __name__ == "__main__":

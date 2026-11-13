@@ -144,6 +144,9 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
   Offline result (v1.4): semantic signal fires on 32/32 campaigns (mean 0.88) and 0/16 organic
   look-alikes (mean 0.04); `coordinated` 8/8 for burst+fresh both ways, 0 for the other campaign
   variants (no timing evidence, or established accounts trip the organic guard) and 0/16 organic.
+  On a real live background (5 min, 13,945 posts, `fixtures/attack_results_live_20261113T2000Z.json`):
+  semantic fires on 32/32 campaigns and 0/16 look-alikes; `coordinated` 5/8 for burst+fresh (the
+  other 3 get absorbed into larger live clusters), 0 for the other variants, 0/16 organic.
 
 ## Known limits (honest list)
 
