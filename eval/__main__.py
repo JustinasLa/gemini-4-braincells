@@ -10,7 +10,7 @@ import argparse
 import logging
 import sys
 
-from eval import labels, organic, recall, slices
+from eval import calibration, errors, labels, organic, provenance, recall, slices
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,6 +18,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="command", required=True)
     recall.add_arguments(sub.add_parser("recall", help="recall on synthetic campaigns"))
     slices.add_arguments(sub.add_parser("copy-slices", help="copy recorded hours for eval"))
+    calibration.add_arguments(sub.add_parser("calibration", help="held-out reliability data"))
+    errors.add_arguments(sub.add_parser("errors", help="latest calibration FP/FN report"))
+    provenance.add_arguments(sub.add_parser("audit-versions", help="read-only provenance audit"))
     labels.add_arguments(sub.add_parser("labels", help="hand labels on live clusters"))
     organic.add_arguments(sub.add_parser("organic", help="FPR on organic hard cases"))
     a = p.parse_args(argv)
@@ -26,6 +29,12 @@ def main(argv: list[str] | None = None) -> int:
         return recall.main_args(a)
     if a.command == "copy-slices":
         return slices.main_args(a)
+    if a.command == "calibration":
+        return calibration.main_args(a)
+    if a.command == "errors":
+        return errors.main_args(a)
+    if a.command == "audit-versions":
+        return provenance.main_args(a)
     if a.command == "labels":
         return labels.main_args(a)
     if a.command == "organic":
