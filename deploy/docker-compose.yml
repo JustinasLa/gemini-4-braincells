@@ -58,6 +58,28 @@ services:
       start_period: 60s
       retries: 3
 
+  # Coordination detector: 10m window every minute, 1h window every 5 min; writes clusters/evidence.
+  signals:
+    build: { context: .., dockerfile: Dockerfile }
+    command: ["python", "-m", "signals", "run"]
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 2G }
+    healthcheck:
+      # Healthy while a detection pass has written or touched a cluster in the last 15 minutes,
+      # or there is simply nothing suspicious (then the check falls back to "process is up").
+      test: ["CMD", "python", "-c", "import os, psycopg; psycopg.connect(os.environ['DATABASE_URL']).execute('SELECT 1')"]
+      interval: 60s
+      start_period: 120s
+      retries: 3
+
   caddy:
     image: caddy:2
     restart: unless-stopped

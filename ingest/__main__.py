@@ -34,15 +34,25 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="python -m ingest")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="consume live Jetstream into Postgres")
-    r.add_argument("--record", default=os.environ.get("INGEST_RECORD_DIR"),
-                   help="also tee raw events to hourly gzip files in this directory")  # fmt: skip
-    r.add_argument("--retention-hours", type=int,
-                   default=int(os.environ.get("INGEST_RETENTION_HOURS", "48")))  # fmt: skip
-    r.add_argument("--likes-retention-hours", type=int,
-                   default=int(os.environ.get("INGEST_LIKES_RETENTION_HOURS", "0")) or None,
-                   help="keep likes shorter than other raw tables")  # fmt: skip
-    r.add_argument("--record-keep-hours", type=int,
-                   default=int(os.environ.get("INGEST_RECORD_KEEP_HOURS", "24")))  # fmt: skip
+    r.add_argument(
+        "--record",
+        default=os.environ.get("INGEST_RECORD_DIR"),
+        help="also tee raw events to hourly gzip files in this directory",
+    )
+    r.add_argument(
+        "--retention-hours", type=int, default=int(os.environ.get("INGEST_RETENTION_HOURS", "48"))
+    )
+    r.add_argument(
+        "--likes-retention-hours",
+        type=int,
+        default=int(os.environ.get("INGEST_LIKES_RETENTION_HOURS", "0")) or None,
+        help="keep likes shorter than other raw tables",
+    )
+    r.add_argument(
+        "--record-keep-hours",
+        type=int,
+        default=int(os.environ.get("INGEST_RECORD_KEEP_HOURS", "24")),
+    )
     r.add_argument("--max-events", type=int, default=None)
     rp = sub.add_parser("replay", help="replay recorded files into a (separate) database")
     rp.add_argument("paths", nargs="+", help="recording directory or .jsonl.gz files")
@@ -50,8 +60,9 @@ def main() -> None:
     rp.add_argument("--database-url", default=None)
     rp.add_argument("--max-events", type=int, default=None)
     m = sub.add_parser("maintain", help="create partitions, apply retention")
-    m.add_argument("--retention-hours", type=int,
-                   default=int(os.environ.get("INGEST_RETENTION_HOURS", "48")))  # fmt: skip
+    m.add_argument(
+        "--retention-hours", type=int, default=int(os.environ.get("INGEST_RETENTION_HOURS", "48"))
+    )
     args = p.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")

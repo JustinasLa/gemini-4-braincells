@@ -20,10 +20,17 @@ def blob(cid):
 
 
 def test_plain_post():
-    row = normalize(commit("app.bsky.feed.post", {
-        "$type": "app.bsky.feed.post", "text": "Hello  World!", "langs": ["en"],
-        "createdAt": "2026-11-13T19:32:02.801Z",
-    }))  # fmt: skip
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {
+                "$type": "app.bsky.feed.post",
+                "text": "Hello  World!",
+                "langs": ["en"],
+                "createdAt": "2026-11-13T19:32:02.801Z",
+            },
+        )
+    )
     assert isinstance(row, Post)
     assert row.uri == f"at://{DID}/app.bsky.feed.post/3n27pxszzdz2w"
     assert row.text == "Hello  World!"
@@ -35,46 +42,90 @@ def test_plain_post():
 
 
 def test_post_with_images():
-    row = normalize(commit("app.bsky.feed.post", {
-        "text": "look", "createdAt": "2026-11-13T19:32:02Z",
-        "embed": {"$type": "app.bsky.embed.images",
-                  "images": [{"alt": "", "image": blob("bafkimg1")},
-                             {"alt": "", "image": {"cid": "bafklegacy", "mimeType": "image/png"}}]},
-    }))  # fmt: skip
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {
+                "text": "look",
+                "createdAt": "2026-11-13T19:32:02Z",
+                "embed": {
+                    "$type": "app.bsky.embed.images",
+                    "images": [
+                        {"alt": "", "image": blob("bafkimg1")},
+                        {"alt": "", "image": {"cid": "bafklegacy", "mimeType": "image/png"}},
+                    ],
+                },
+            },
+        )
+    )
     assert row.embed_kind == "images"
     assert row.media_hashes == ["bafkimg1", "bafklegacy"]
 
 
 def test_post_with_video():
-    row = normalize(commit("app.bsky.feed.post", {
-        "text": "", "createdAt": "2026-11-13T19:32:02Z",
-        "embed": {"$type": "app.bsky.embed.video", "video": blob("bafkvid")},
-    }))  # fmt: skip
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {
+                "text": "",
+                "createdAt": "2026-11-13T19:32:02Z",
+                "embed": {"$type": "app.bsky.embed.video", "video": blob("bafkvid")},
+            },
+        )
+    )
     assert row.embed_kind == "video"
     assert row.media_hashes == ["bafkvid"]
     assert row.text_hash is None
 
 
 def test_external_link_and_facets():
-    row = normalize(commit("app.bsky.feed.post", {
-        "text": "read this #News @bob.bsky.social example.org/x",
-        "createdAt": "2026-11-13T19:32:02Z",
-        "embed": {"$type": "app.bsky.embed.external",
-                  "external": {"uri": "https://WWW.Example.com/a/?utm_source=x&id=2#frag",
-                               "title": "t", "description": "d"}},
-        "facets": [
-            {"index": {"byteStart": 0, "byteEnd": 1},
-             "features": [{"$type": "app.bsky.richtext.facet#link",
-                           "uri": "https://example.org/x?fbclid=zzz"}]},
-            {"index": {"byteStart": 0, "byteEnd": 1},
-             "features": [{"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:bob"}]},
-            {"index": {"byteStart": 0, "byteEnd": 1},
-             "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": "News"}]},
-            {"index": {"byteStart": 0, "byteEnd": 1},
-             "features": [{"$type": "app.bsky.richtext.facet#link",
-                           "uri": "https://example.com/a?id=2"}]},
-        ],
-    }))  # fmt: skip
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {
+                "text": "read this #News @bob.bsky.social example.org/x",
+                "createdAt": "2026-11-13T19:32:02Z",
+                "embed": {
+                    "$type": "app.bsky.embed.external",
+                    "external": {
+                        "uri": "https://WWW.Example.com/a/?utm_source=x&id=2#frag",
+                        "title": "t",
+                        "description": "d",
+                    },
+                },
+                "facets": [
+                    {
+                        "index": {"byteStart": 0, "byteEnd": 1},
+                        "features": [
+                            {
+                                "$type": "app.bsky.richtext.facet#link",
+                                "uri": "https://example.org/x?fbclid=zzz",
+                            }
+                        ],
+                    },
+                    {
+                        "index": {"byteStart": 0, "byteEnd": 1},
+                        "features": [
+                            {"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:bob"}
+                        ],
+                    },
+                    {
+                        "index": {"byteStart": 0, "byteEnd": 1},
+                        "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": "News"}],
+                    },
+                    {
+                        "index": {"byteStart": 0, "byteEnd": 1},
+                        "features": [
+                            {
+                                "$type": "app.bsky.richtext.facet#link",
+                                "uri": "https://example.com/a?id=2",
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+    )
     assert row.embed_kind == "external"
     assert row.embed_urls == ["https://example.com/a?id=2", "https://example.org/x"]
     assert row.mentions == ["did:plc:bob"]
@@ -84,26 +135,49 @@ def test_external_link_and_facets():
 def test_reply():
     parent = "at://did:plc:p/app.bsky.feed.post/1"
     root = "at://did:plc:r/app.bsky.feed.post/0"
-    row = normalize(commit("app.bsky.feed.post", {
-        "text": "I love this show, such a hidden gem.", "createdAt": "2026-11-13T19:32:02Z",
-        "reply": {"parent": {"uri": parent, "cid": "c1"}, "root": {"uri": root, "cid": "c0"}},
-    }))  # fmt: skip
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {
+                "text": "I love this show, such a hidden gem.",
+                "createdAt": "2026-11-13T19:32:02Z",
+                "reply": {
+                    "parent": {"uri": parent, "cid": "c1"},
+                    "root": {"uri": root, "cid": "c0"},
+                },
+            },
+        )
+    )
     assert row.reply_to == parent and row.reply_root == root
 
 
 def test_quote_and_record_with_media():
     q = "at://did:plc:q/app.bsky.feed.post/9"
-    row = normalize(commit("app.bsky.feed.post", {
-        "text": "lol", "createdAt": "2026-11-13T19:32:02Z",
-        "embed": {"$type": "app.bsky.embed.record", "record": {"uri": q, "cid": "c"}},
-    }))  # fmt: skip
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {
+                "text": "lol",
+                "createdAt": "2026-11-13T19:32:02Z",
+                "embed": {"$type": "app.bsky.embed.record", "record": {"uri": q, "cid": "c"}},
+            },
+        )
+    )
     assert row.embed_kind == "record" and row.quote_uri == q
-    row = normalize(commit("app.bsky.feed.post", {
-        "text": "lol", "createdAt": "2026-11-13T19:32:02Z",
-        "embed": {"$type": "app.bsky.embed.recordWithMedia",
-                  "record": {"$type": "app.bsky.embed.record", "record": {"uri": q, "cid": "c"}},
-                  "media": {"$type": "app.bsky.embed.images", "images": [{"image": blob("m")}]}},
-    }))  # fmt: skip
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {
+                "text": "lol",
+                "createdAt": "2026-11-13T19:32:02Z",
+                "embed": {
+                    "$type": "app.bsky.embed.recordWithMedia",
+                    "record": {"$type": "app.bsky.embed.record", "record": {"uri": q, "cid": "c"}},
+                    "media": {"$type": "app.bsky.embed.images", "images": [{"image": blob("m")}]},
+                },
+            },
+        )
+    )
     assert row.embed_kind == "recordWithMedia"
     assert row.quote_uri == q and row.media_hashes == ["m"]
 
@@ -146,9 +220,20 @@ def test_deletes():
 
 
 def test_account_and_identity_events():
-    row = normalize({"did": DID, "time_us": T_US, "kind": "account", "account": {
-        "active": False, "did": DID, "seq": 5, "status": "takendown",
-        "time": "2026-11-13T19:32:06.412Z"}})  # fmt: skip
+    row = normalize(
+        {
+            "did": DID,
+            "time_us": T_US,
+            "kind": "account",
+            "account": {
+                "active": False,
+                "did": DID,
+                "seq": 5,
+                "status": "takendown",
+                "time": "2026-11-13T19:32:06.412Z",
+            },
+        }
+    )
     assert isinstance(row, AccountEvent)
     assert (row.kind, row.active, row.status, row.seq) == ("account", False, "takendown", 5)
     row = normalize(
