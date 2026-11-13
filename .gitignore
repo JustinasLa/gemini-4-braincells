@@ -28,3 +28,4 @@ data/
 .entire/worktrees/
 web/trackdown/node_modules/
 web/trackdown/dist/
+!web/trackdown/src/data/
