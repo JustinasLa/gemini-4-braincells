@@ -262,3 +262,16 @@ def test_adhoc_run_table_is_labelled(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "recall on synthetic campaigns (dev, AD-HOC hours)" in out
     assert "2 windows of 600s" in out
+
+
+def test_consecutive_runs_do_not_share_windows(tmp_path, capsys):
+    from eval.__main__ import main
+
+    _write(tmp_path, list(_ticks(T0, T0 + 600)), hour="2027011508")  # dev (even hour)
+    _write(tmp_path, list(_ticks(T0 + 3600, T0 + 4200)), hour="2027011509", name="00-2")
+    common = ["--slice", str(tmp_path), "--levels", "L1", "--repeats", "1", "--workers", "1"]
+    assert main(["recall", "--split", "dev", *common]) == 0
+    capsys.readouterr()
+    assert main(["recall", "--split", "heldout", *common]) == 0
+    out = capsys.readouterr().out
+    assert "1 windows of 600s from hours 2027011509" in out and "1/1" in out

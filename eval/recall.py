@@ -219,6 +219,7 @@ def _git_sha() -> str | None:
 
 
 def main_args(args) -> int:
+    _WINDOWS.clear()  # module state for the fork pool: never carry windows over from a past run
     if args.hours and args.database_url:
         # ad-hoc hours are not the split's hours: never publish them under a split's name
         print(
