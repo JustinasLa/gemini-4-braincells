@@ -48,6 +48,25 @@ services:
       - caddy_data:/data
     depends_on: [api]
 
+  # Source checks (Oxylabs Web API) and analyst verdicts (Gemini) for scored clusters.
+  sources:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    command: ["python", "-m", "sources", "worker"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on: { db: { condition: service_healthy } }
+
+  analyst:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    command: ["python", "-m", "analyst", "worker"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on: { db: { condition: service_healthy } }
+
 volumes:
   pgdata:
   caddy_data:
