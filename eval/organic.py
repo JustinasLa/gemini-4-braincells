@@ -193,6 +193,25 @@ class Profiles:
             tmp.write_text(json.dumps(self.data, separators=(",", ":"), sort_keys=True))
             tmp.replace(self.path)
 
+    def needs(self, did: str) -> bool:
+        """Not enriched yet: no profile lookup, or (did:plc) no PLC lookup."""
+        e = self.data.get(did)
+        return e is None or (did.startswith("did:plc:") and "plc" not in e)
+
+    def merge(self, new: dict[str, dict]) -> None:
+        """Merge entries fetched by worker processes. Two workers may fetch the same account; a
+        failed lookup (`missing`, `plc: None`) never replaces a successful one."""
+        for d, e in new.items():
+            old = self.data.get(d)
+            if old is None:
+                self.data[d] = e
+                continue
+            merged = dict(old) if e.get("missing") and not old.get("missing") else dict(e)
+            plcs = [x.get("plc") for x in (e, old) if "plc" in x]
+            if plcs:
+                merged["plc"] = next((q for q in plcs if q), plcs[0])
+            self.data[d] = merged
+
     def ensure(self, dids: list[str], plc: bool = True) -> None:
         """Fetch profiles (and PLC logs) that aren't cached yet. Missing accounts are cached as
         `{"missing": true}` so they aren't asked for again."""
@@ -288,16 +307,17 @@ def _ts(s: str | None) -> float | None:
 def account_info_fn(
     profiles: Profiles, at: float, synth: Synthetic | None = None, budget: int = ENRICH_BUDGET
 ) -> Callable[[list[str]], dict[str, AccountInfo]]:
-    """The detector's `account_info` callback. Like production, real accounts are enriched only
-    for the first `budget` DIDs of the detector's priority list (strongest suspicious cluster
-    first). Synthetic accounts always come with their generated info."""
+    """The detector's `account_info` callback, like `signals.__main__`'s: enrich at most `budget`
+    not-yet-enriched accounts (in the detector's priority order, strongest suspicious cluster
+    first), then return info for every requested account that is enriched. Synthetic accounts
+    always come with their generated info."""
 
     def fn(dids: list[str]) -> dict[str, AccountInfo]:
         out: dict[str, AccountInfo] = {}
         if synth:
             out.update({d: synth.accounts[d] for d in dids if d in synth.accounts})
-        real = [d for d in dids if not d.startswith(SYNTH_PREFIX)][:budget]
-        profiles.ensure(real)
+        real = [d for d in dids if not d.startswith(SYNTH_PREFIX)]
+        profiles.ensure([d for d in real if profiles.needs(d)][:budget])
         for d in real:
             if (a := profiles.info(d, at)) is not None:
                 out[d] = a
@@ -667,7 +687,7 @@ def run_eval(
         for rs, st, new in outs:
             results += rs
             stats.append(st)
-            profiles.data.update(new)
+            profiles.merge(new)
             profiles.fetched += len(new)
         profiles.save()
         _G.clear()

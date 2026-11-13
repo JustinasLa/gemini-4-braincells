@@ -252,14 +252,33 @@ def test_summary_counts_fpr_and_lists_false_positives():
 
 
 # ------------------------------------------------------------------ detector glue ------------
-def test_account_info_budget_and_synthetic_accounts():
-    p = _profiles(5)
+def test_account_info_budget_and_synthetic_accounts(monkeypatch):
+    p = _profiles(5)  # u0..u4 already enriched (profile + PLC lookup done)
+    fetched = []
+    monkeypatch.setattr(p, "ensure", lambda dids, plc=True: fetched.extend(dids))
     s = hard_negative("news_link", empty_window(), seed=1)
     synth = sorted(s.dids)[:2]
-    fn = account_info_fn(p, AT, s, budget=3)
-    out = fn(synth + [f"did:plc:u{i}" for i in range(5)])
-    assert set(out) == set(synth) | {"did:plc:u0", "did:plc:u1", "did:plc:u2"}
+    fn = account_info_fn(p, AT, s, budget=2)
+    new = [f"did:plc:new{i}" for i in range(4)]
+    out = fn(synth + [f"did:plc:u{i}" for i in range(5)] + new)
+    # the budget limits enrichment only; every enriched account is returned, as in production
+    assert fetched == new[:2]
+    assert set(out) == set(synth) | {f"did:plc:u{i}" for i in range(5)}
     assert out["did:plc:u0"].age_days == pytest.approx(800 + WINDOW_S / 86400)  # at window end
+
+
+def test_profile_merge_keeps_successful_lookups():
+    p = _profiles(1)
+    p.data["did:plc:u0"]["plc"] = {"created": OLD, "handle_changes": 0, "pds_host": "pds.example"}
+    good = dict(p.data["did:plc:u0"])
+    p.merge({"did:plc:u0": {"missing": True, "plc": None}})  # another worker's failed lookup
+    assert p.data["did:plc:u0"] == good
+    p.merge({"did:plc:u0": {**good, "followers": 999, "plc": None}})
+    assert p.data["did:plc:u0"]["followers"] == 999
+    assert p.data["did:plc:u0"]["plc"]["pds_host"] == "pds.example"
+    p.merge({"did:plc:x": {"missing": True}})
+    assert p.data["did:plc:x"] == {"missing": True}
+    assert p.needs("did:plc:x") and not p.needs("did:plc:u0") and p.needs("did:plc:nobody")
 
 
 def test_synthetic_hard_negatives_on_a_synthetic_background_are_not_coordinated():
