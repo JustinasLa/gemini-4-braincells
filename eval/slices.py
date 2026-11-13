@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
+
 from ingest.normalize import Action, Delete, Post, normalize
 from ingest.recorder import read_events, recorded_files
 from signals.config import DEFAULT, DetectorConfig
@@ -73,17 +75,14 @@ class _Bucket:
     times: dict[str, list[float]] = field(
         default_factory=lambda: {"post": [], "like": [], "repost": [], "follow": []}
     )
-    first_t: float = float("inf")
-    last_t: float = float("-inf")
-    max_gap: float = 0.0
-    _prev_t: float | None = None
+    ticks: list[float] = field(default_factory=list)  # every event time, to find holes
 
-    def tick(self, t: float) -> None:
-        if self._prev_t is not None and t > self._prev_t:
-            self.max_gap = max(self.max_gap, t - self._prev_t)
-        self._prev_t = t if self._prev_t is None else max(self._prev_t, t)
-        self.first_t = min(self.first_t, t)
-        self.last_t = max(self.last_t, t)
+    def coverage(self) -> tuple[float, float, float]:
+        """(first, last, longest gap) over the window's events, in time order (events can
+        arrive out of order, so gaps are measured after sorting)."""
+        t = np.sort(np.asarray(self.ticks))
+        gap = float(np.diff(t).max()) if len(t) > 1 else 0.0
+        return float(t[0]), float(t[-1]), gap
 
 
 _KIND = {"likes": "like", "reposts": "repost", "follows": "follow"}
@@ -141,13 +140,14 @@ def iter_windows(
         emitted.add(k)
         start, end = k * length, (k + 1) * length
         info = WindowInfo(start, end, events=sum(len(v) for v in b.times.values()))
-        info.max_gap_s = round(b.max_gap, 1)
-        if b.first_t - start > MAX_GAP_S:
+        first, last, gap = b.coverage()
+        info.max_gap_s = round(gap, 1)
+        if first - start > MAX_GAP_S:
             info.skipped = "recording starts inside this window"
-        elif end - b.last_t > MAX_GAP_S:
+        elif end - last > MAX_GAP_S:
             info.skipped = "recording ends inside this window"
-        elif b.max_gap > MAX_GAP_S:
-            info.skipped = f"hole of {b.max_gap:.0f}s in the recording"
+        elif gap > MAX_GAP_S:
+            info.skipped = f"hole of {gap:.0f}s in the recording"
         if info.skipped:
             return info, None
         return info, _to_window(b, start, end, cfg)
@@ -165,7 +165,7 @@ def iter_windows(
         b = buckets.get(k)
         if b is None:
             b = buckets[k] = _Bucket()
-        b.tick(t)
+        b.ticks.append(t)
         if isinstance(row, Delete):
             b.deletes.add(row.uri)
             continue

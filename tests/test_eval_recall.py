@@ -228,3 +228,24 @@ def test_store_roundtrip():
             (rid,),
         ).fetchone()
     assert row == ("synthetic_campaigns", "dev", None, 0.5, None, 4, {"x": 1})
+
+
+def test_iter_windows_gap_check_tolerates_reordered_events(tmp_path):
+    ev = list(_ticks(T0, T0 + 1800))
+    # deliver the event at +100 s right after the first one (within the reorder allowance)
+    ev.insert(1, ev.pop(5))
+    _write(tmp_path, ev)
+    out = list(iter_windows(hour_files(tmp_path, ["2027011508"])))
+    assert [i.skipped for i, _ in out] == [None, None, None]
+    assert out[0][0].max_gap_s == 20.0
+
+
+def test_adhoc_hours_cannot_be_published(capsys, monkeypatch):
+    import sys
+
+    from eval.__main__ import main
+
+    argv = ["eval", "recall", "--split", "heldout", "--hours", "2026111320"]
+    monkeypatch.setattr(sys, "argv", [*argv, "--database-url", "postgresql://unused"])
+    assert main() == 2
+    assert "ad-hoc" in capsys.readouterr().err

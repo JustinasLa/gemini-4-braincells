@@ -50,7 +50,14 @@ def _git_sha() -> str | None:
 
 
 def cmd_recall(args) -> int:
+    if args.hours and args.database_url:
+        # ad-hoc hours are not the split's hours: never publish them under a split's name
+        print(
+            "--hours is for ad-hoc runs and can't be combined with --database-url", file=sys.stderr
+        )
+        return 2
     hours = args.hours or SPLITS[args.split]
+    label = f"{args.split}, AD-HOC hours" if args.hours else args.split
     files = hour_files(Path(args.slice), hours)
     if not files:
         print(f"no recorded files for hours {hours} under {args.slice}", file=sys.stderr)
@@ -110,7 +117,7 @@ def cmd_recall(args) -> int:
         "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "runtime_s": round(time.monotonic() - t0),
     }
-    print(R.format_table(summary, args.split))
+    print(R.format_table(summary, label))
     print(
         f"\n{len(_WINDOWS)} windows of {args.window_s:.0f}s from hours {', '.join(hours)} UTC; "
         f"skipped {len(skipped)}; detector {DEFAULT.version}; {details['runtime_s']}s"
@@ -122,6 +129,7 @@ def cmd_recall(args) -> int:
                 {
                     "dataset": R.DATASET,
                     "split": args.split,
+                    "adhoc_hours": args.hours or None,
                     "recall": overall["rate"],
                     "n": overall["n"],
                     "details": details,
