@@ -1,0 +1,957 @@
+{
+ "run_at": "2026-11-13T21:57:34+00:00",
+ "clusters": [
+  900,
+  529,
+  675,
+  831,
+  669
+ ],
+ "budget": {
+  "max_tool_calls": 6,
+  "max_web_calls": 4,
+  "max_seconds": 120.0
+ },
+ "summary": [
+  {
+   "mode": "agent",
+   "model": "gemini-4-hydrogen",
+   "n": 5,
+   "json_valid": 5,
+   "citations_valid": 1.0,
+   "usable": 5,
+   "agrees": 1,
+   "latency_p50_s": 29.53,
+   "latency_max_s": 47.13,
+   "cost_per_cluster_usd": 0.0657228,
+   "tool_calls_mean": 3,
+   "cited_tool_evidence": 6
+  },
+  {
+   "mode": "agent",
+   "model": "gemini-4-argon",
+   "n": 5,
+   "json_valid": 5,
+   "citations_valid": 1.0,
+   "usable": 5,
+   "agrees": 4,
+   "latency_p50_s": 25.22,
+   "latency_max_s": 37.73,
+   "cost_per_cluster_usd": 0.021025600000000002,
+   "tool_calls_mean": 0.6,
+   "cited_tool_evidence": 0
+  },
+  {
+   "mode": "agent",
+   "model": "gemini-4-carbon",
+   "n": 5,
+   "json_valid": 5,
+   "citations_valid": 1.0,
+   "usable": 5,
+   "agrees": 2,
+   "latency_p50_s": 65.11,
+   "latency_max_s": 104.09,
+   "cost_per_cluster_usd": 0.0700856,
+   "tool_calls_mean": 3.2,
+   "cited_tool_evidence": 5
+  },
+  {
+   "mode": "agent",
+   "model": "gemini-3.8-flash",
+   "n": 5,
+   "json_valid": 5,
+   "citations_valid": 1.0,
+   "usable": 5,
+   "agrees": 3,
+   "latency_p50_s": 17.68,
+   "latency_max_s": 40.46,
+   "cost_per_cluster_usd": 0.0182132,
+   "tool_calls_mean": 1.8,
+   "cited_tool_evidence": 2
+  },
+  {
+   "mode": "agent",
+   "model": "gemini-3.5-flash-lite",
+   "n": 5,
+   "json_valid": 5,
+   "citations_valid": 1.0,
+   "usable": 5,
+   "agrees": 4,
+   "latency_p50_s": 1.35,
+   "latency_max_s": 1.61,
+   "cost_per_cluster_usd": 0.0013498,
+   "tool_calls_mean": 0,
+   "cited_tool_evidence": 0
+  }
+ ],
+ "runs": [
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 900,
+   "detector": "insufficient",
+   "cost_usd": 0.108854,
+   "prompt_tokens": 37369,
+   "output_tokens": 7040,
+   "model_turns": 4,
+   "tool_calls": 4,
+   "web_calls": 3,
+   "cited_tool_evidence": 3,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://corrmag.blogspot.com/2026/11/surfing-stars-girlfriend-arrested.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.tmz.com/2026/02/16/california-surfer-kurt-van-dyke-killed-costa-rica-robbery/",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://mario-mag.blogspot.com/2026/11/surfing-stars-girlfriend-arrested.html",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 47.13
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 529,
+   "detector": "insufficient",
+   "cost_usd": 0.045255,
+   "prompt_tokens": 9975,
+   "output_tokens": 4039,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.72,
+   "latency_s": 20.62
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 675,
+   "detector": "insufficient",
+   "cost_usd": 0.052823,
+   "prompt_tokens": 12850,
+   "output_tokens": 4473,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.cnbc.com/2026/11/13/faa-ground-stop.html",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 25.87
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 831,
+   "detector": "insufficient",
+   "cost_usd": 0.051489,
+   "prompt_tokens": 13351,
+   "output_tokens": 4195,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://apnews.com/article/flights-halted-airports-faa-f81b0904331dafad6133f291e5f531a8",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 29.53
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 669,
+   "detector": "insufficient",
+   "cost_usd": 0.070193,
+   "prompt_tokens": 19310,
+   "output_tokens": 5497,
+   "model_turns": 4,
+   "tool_calls": 6,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.news.uscg.mil/Press-Releases/Article/4168606/coast-guard-responds-to-vessel-collision-sunken-barge-on-lower-mississippi-rive/",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.8,
+   "latency_s": 31.84
+  },
+  {
+   "model": "gemini-4-argon",
+   "mode": "agent",
+   "cluster_id": 900,
+   "detector": "insufficient",
+   "cost_usd": 0.014228,
+   "prompt_tokens": 2969,
+   "output_tokens": 829,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.75,
+   "latency_s": 14.27
+  },
+  {
+   "model": "gemini-4-argon",
+   "mode": "agent",
+   "cluster_id": 529,
+   "detector": "insufficient",
+   "cost_usd": 0.033146,
+   "prompt_tokens": 7583,
+   "output_tokens": 1798,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 30.2
+  },
+  {
+   "model": "gemini-4-argon",
+   "mode": "agent",
+   "cluster_id": 675,
+   "detector": "insufficient",
+   "cost_usd": 0.02278,
+   "prompt_tokens": 6585,
+   "output_tokens": 961,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.78,
+   "latency_s": 23.83
+  },
+  {
+   "model": "gemini-4-argon",
+   "mode": "agent",
+   "cluster_id": 831,
+   "detector": "insufficient",
+   "cost_usd": 0.02401,
+   "prompt_tokens": 7555,
+   "output_tokens": 890,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.88,
+   "latency_s": 25.22
+  },
+  {
+   "model": "gemini-4-argon",
+   "mode": "agent",
+   "cluster_id": 669,
+   "detector": "insufficient",
+   "cost_usd": 0.010964,
+   "prompt_tokens": 2557,
+   "output_tokens": 585,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 37.73
+  },
+  {
+   "model": "gemini-4-carbon",
+   "mode": "agent",
+   "cluster_id": 900,
+   "detector": "insufficient",
+   "cost_usd": 0.12467,
+   "prompt_tokens": 36760,
+   "output_tokens": 5115,
+   "model_turns": 4,
+   "tool_calls": 8,
+   "web_calls": 4,
+   "cited_tool_evidence": 3,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://corrmag.blogspot.com/2026/11/surfing-stars-girlfriend-arrested.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://mario-mag.blogspot.com/2026/11/surfing-stars-girlfriend-arrested.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://cinemamoziklub.blogspot.com/2011/06/az-igazsag-ara-lincoln-lawyer.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://miam--max-mag.blogspot.com/2026/11/magellanic-penguins-return-to-los.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": null,
+     "cached": false,
+     "ok": false
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": false
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": false
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 100.91
+  },
+  {
+   "model": "gemini-4-carbon",
+   "mode": "agent",
+   "cluster_id": 529,
+   "detector": "insufficient",
+   "cost_usd": 0.048338,
+   "prompt_tokens": 9484,
+   "output_tokens": 2937,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.78,
+   "latency_s": 36.0
+  },
+  {
+   "model": "gemini-4-carbon",
+   "mode": "agent",
+   "cluster_id": 675,
+   "detector": "insufficient",
+   "cost_usd": 0.052748,
+   "prompt_tokens": 12524,
+   "output_tokens": 2770,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 45.24
+  },
+  {
+   "model": "gemini-4-carbon",
+   "mode": "agent",
+   "cluster_id": 831,
+   "detector": "insufficient",
+   "cost_usd": 0.06151,
+   "prompt_tokens": 20805,
+   "output_tokens": 1990,
+   "model_turns": 4,
+   "tool_calls": 3,
+   "web_calls": 2,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.independent.co.uk/news/federal-aviation-administration-washington-b3084842.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.theguardian.com/us-news/2026/nov/13/trump-nvidia-stock-jensen-huang-us-china",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.88,
+   "latency_s": 104.09
+  },
+  {
+   "model": "gemini-4-carbon",
+   "mode": "agent",
+   "cluster_id": 669,
+   "detector": "insufficient",
+   "cost_usd": 0.063162,
+   "prompt_tokens": 13426,
+   "output_tokens": 3631,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.78,
+   "latency_s": 65.11
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "mode": "agent",
+   "cluster_id": 900,
+   "detector": "insufficient",
+   "cost_usd": 0.006944,
+   "prompt_tokens": 2389,
+   "output_tokens": 1374,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 3,
+   "cited_valid": 3,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 11.99
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "mode": "agent",
+   "cluster_id": 529,
+   "detector": "insufficient",
+   "cost_usd": 0.011728,
+   "prompt_tokens": 5868,
+   "output_tokens": 1954,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 17.06
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "mode": "agent",
+   "cluster_id": 675,
+   "detector": "insufficient",
+   "cost_usd": 0.020038,
+   "prompt_tokens": 12402,
+   "output_tokens": 2863,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 2,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.cnn.com/2026/11/13/us/faa-nationwide-ground-stop",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://www.cnn.com/2026/11/13/us/live-news/flights-ground-stop-faa",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 40.46
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "mode": "agent",
+   "cluster_id": 831,
+   "detector": "insufficient",
+   "cost_usd": 0.040954,
+   "prompt_tokens": 37550,
+   "output_tokens": 3411,
+   "model_turns": 6,
+   "tool_calls": 5,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.cnbc.com/2026/11/13/faa-ground-stop.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.92,
+   "latency_s": 35.73
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "mode": "agent",
+   "cluster_id": 669,
+   "detector": "insufficient",
+   "cost_usd": 0.011402,
+   "prompt_tokens": 5547,
+   "output_tokens": 1931,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 17.68
+  },
+  {
+   "model": "gemini-3.5-flash-lite",
+   "mode": "agent",
+   "cluster_id": 900,
+   "detector": "insufficient",
+   "cost_usd": 0.001252,
+   "prompt_tokens": 2389,
+   "output_tokens": 214,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 3,
+   "cited_valid": 3,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.5,
+   "latency_s": 1.31
+  },
+  {
+   "model": "gemini-3.5-flash-lite",
+   "mode": "agent",
+   "cluster_id": 529,
+   "detector": "insufficient",
+   "cost_usd": 0.001399,
+   "prompt_tokens": 2098,
+   "output_tokens": 308,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 3,
+   "cited_valid": 3,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.8,
+   "latency_s": 1.61
+  },
+  {
+   "model": "gemini-3.5-flash-lite",
+   "mode": "agent",
+   "cluster_id": 675,
+   "detector": "insufficient",
+   "cost_usd": 0.001395,
+   "prompt_tokens": 2049,
+   "output_tokens": 312,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 3,
+   "cited_valid": 3,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 1.35
+  },
+  {
+   "model": "gemini-3.5-flash-lite",
+   "mode": "agent",
+   "cluster_id": 831,
+   "detector": "insufficient",
+   "cost_usd": 0.0014,
+   "prompt_tokens": 2218,
+   "output_tokens": 294,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 3,
+   "cited_valid": 3,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 1.23
+  },
+  {
+   "model": "gemini-3.5-flash-lite",
+   "mode": "agent",
+   "cluster_id": 669,
+   "detector": "insufficient",
+   "cost_usd": 0.001303,
+   "prompt_tokens": 1977,
+   "output_tokens": 284,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 3,
+   "cited_valid": 3,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.8,
+   "latency_s": 1.4
+  }
+ ]
+}
