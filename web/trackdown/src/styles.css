@@ -506,16 +506,9 @@ input:focus-visible { outline: none; }
   .peek .pk-t span { font: 500 10.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
   .peek .pk-go { flex: none; font: 600 12px/1 var(--sans); color: var(--text-2); }
   /* two rows: play + readout, then a full-width scrubber */
-<<<<<<< HEAD
-  .app[data-phase="done"] .dock { bottom: 72px; height: 124px; grid-template-columns: 1fr; grid-template-rows: auto 1fr; gap: 6px; padding: 8px 10px; }
-  .app[data-phase="done"] .dock .scrub { height: 56px; }
-  .step { width: 36px; height: 36px; }
-  .app[data-phase="done"] .hud { bottom: 206px; }
-=======
-  .app[data-phase="done"] .dock { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); height: 112px; grid-template-columns: 1fr; grid-template-rows: auto 1fr; gap: 6px; padding: 8px 10px; }
-  .app[data-phase="done"] .dock .scrub { height: 50px; }
-  .app[data-phase="done"] .hud { bottom: 194px; }
->>>>>>> 2940c73 (Mobile interactions: enlarge Trackdown touch targets and clarify result sheet)
+  .app[data-phase=done] .dock { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); height: 112px; grid-template-columns: 1fr; grid-template-rows: auto 1fr; gap: 6px; padding: 8px 10px; }
+  .app[data-phase=done] .dock .scrub { height: 50px; }
+  .app[data-phase=done] .hud { bottom: 194px; }
   .zoom button { width: 44px; height: 44px; }
   .zoom button[data-z="in"], .zoom button[data-z="out"] { display: none; }
   .zoom button[data-z="fit"] { border-top: 0; }
