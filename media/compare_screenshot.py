@@ -131,22 +131,25 @@ def _one(client: NemotronClient, v: dict[str, Any], item: dict[str, Any]) -> dic
     latency_ms = log_call_attempt(
         model=client.model, media_hash=item["cid"], started=t, response=r, task="screenshot"
     )
-    ch = r.choices[0]
+    ch = r.choices[0] if r.choices else None
+    content = ch.message.content if ch else None
     out: dict[str, Any] = {
         "cid": item["cid"],
         "latency_ms": latency_ms,
         "model": r.model,
-        "finish": ch.finish_reason,
-        "null_content": not ch.message.content,
+        "finish": ch.finish_reason if ch else None,
+        "null_content": not content,
         "prompt_tokens": r.usage.prompt_tokens if r.usage else None,
         "completion_tokens": r.usage.completion_tokens if r.usage else None,
         "reasoning_tokens": getattr(
             getattr(r.usage, "completion_tokens_details", None), "reasoning_tokens", None
         ),
-        "raw": ch.message.content,
+        "raw": content,
     }
+    if ch is None:
+        return out | {"ok": False, "error": "NoChoices"}
     try:
-        payload = parse_content(ch.message.content)
+        payload = parse_content(content)
         post = screenshot_from_payload(
             payload, media_hash=item["cid"], model=r.model, latency_ms=latency_ms
         )
