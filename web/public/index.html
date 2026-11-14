@@ -402,7 +402,7 @@
     const h = state.health;
     const ok = h && h.ok;
     el.className = `live ${ok ? 'ok' : 'down'}`;
-    el.querySelector('.txt').textContent = ok ? `Live · last post ${ago(h.last_event_at)}` : 'Monitor offline';
+    el.querySelector('.txt').textContent = ok ? (h.last_event_at ? `Live · last post ${ago(h.last_event_at)}` : 'Live') : 'Monitor offline';
     el.title = ok && h.last_event_at ? `Last post ingested ${when(h.last_event_at)}` : '';
   }
 
@@ -422,7 +422,7 @@
       const on = (page || 'monitor') === a.dataset.nav || (page === 'cluster' && a.dataset.nav === 'monitor');
       if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
-    if (page === 'cluster' && arg) return showCluster(Number(arg));
+    if (page === 'cluster' && /^\d+$/.test(arg || '')) return showCluster(Number(arg));
     if (page === 'accuracy') { document.title = 'Accuracy · Noise Radar'; return renderAccuracy(); }
     if (page === 'method') { document.title = 'Method · Noise Radar'; return renderMethod(); }
     document.title = 'Noise Radar · Live monitor';
@@ -482,19 +482,22 @@
     };
   }
 
+  // VerdictBrief.status is the detector's call at review time. If it has changed since, the review
+  // is about an earlier call: say so instead of reporting a disagreement that never happened.
   const opinionOf = (c) => {
     const v = c.verdict;
     if (!v) return null;
     const call = v.llm_assessment || v.status;
-    return { call, agrees: call === c.status };
+    if (v.status && v.status !== c.status) return { call, stale: true };
+    return { call, agrees: v.agrees_with_detector != null ? Boolean(v.agrees_with_detector) : call === c.status };
   };
   function row(c) {
     const size = c.size == null ? '–' : c.size;
     const names = (c.top_signals || []).filter((s) => s.polarity !== 'against' && fired(s)).map((s) => sigName(s.name).toLowerCase());
     const sub = [`#${Number(c.id)}`, names.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
     const op = opinionOf(c);
-    const opCell = !op ? '<span class="opinion muted">Not reviewed</span>' : op.agrees ? '<span class="opinion">Agrees</span>' : `<span class="opinion" title="Gemini reads this cluster differently">Says ${esc(word(op.call).toLowerCase())}</span>`;
-    const opText = !op ? 'not reviewed by Gemini' : op.agrees ? 'Gemini agrees' : `Gemini says ${word(op.call).toLowerCase()}`;
+    const opCell = !op ? '<span class="opinion muted">Not reviewed</span>' : op.stale ? '<span class="opinion muted" title="Gemini reviewed this cluster before the detector’s call changed">Earlier call</span>' : op.agrees ? '<span class="opinion">Agrees</span>' : `<span class="opinion" title="Gemini reads this cluster differently">Says ${esc(word(op.call).toLowerCase())}</span>`;
+    const opText = !op ? 'not reviewed by Gemini' : op.stale ? 'Gemini reviewed an earlier call' : op.agrees ? 'Gemini agrees' : `Gemini says ${word(op.call).toLowerCase()}`;
     return `<a class="row" href="#/cluster/${Number(c.id)}" aria-label="${esc(`${word(c.status)}: ${headline(c)}. ${size} accounts, coordination ${fix2(c.score)}, ${opText}, ${ago(c.window_end)}.`)}">
       <span class="c-st">${chip(c.status)}</span>
       <span class="c-main"><span class="headline">${esc(headline(c))}${c.synthetic ? '<span class="tag">Test data</span>' : ''}</span><span class="sub">${esc(sub)}</span></span>
@@ -509,7 +512,8 @@
   // ---------- cluster detail
   // one column on narrow screens, in reading order, so focus order matches what is on screen
   const oneCol = matchMedia('(max-width: 1000px)');
-  oneCol.addEventListener('change', () => { const m = location.hash.match(/^#\/cluster\/(\d+)/); const c = m && state.details.get(Number(m[1])); if (c) renderCluster(c); });
+  const openClusterId = () => { const m = location.hash.match(/^#\/?cluster\/(\d+)$/); return m ? Number(m[1]) : null; };
+  oneCol.addEventListener('change', () => { const c = state.details.get(openClusterId()); if (c) renderCluster(c); });
   async function showCluster(id) {
     document.title = `Cluster #${id} · Noise Radar`;
     const cached = state.details.get(id);
@@ -519,9 +523,9 @@
       const c = await api(`/api/clusters/${encodeURIComponent(id)}`);
       state.details.set(id, c);
       const changed = !cached || cached.updated_at !== c.updated_at || JSON.stringify(cached.analyst) !== JSON.stringify(c.analyst);
-      if (location.hash === `#/cluster/${id}` && changed) { const y = window.scrollY; renderCluster(c); window.scrollTo(0, y); }
+      if (openClusterId() === id && changed) { const y = window.scrollY; renderCluster(c); window.scrollTo(0, y); }
     } catch (e) {
-      if (location.hash !== `#/cluster/${id}` || cached) return;
+      if (openClusterId() !== id || cached) return;
       app.innerHTML = `<a class="back" href="#/">← All clusters</a><div class="card state" role="alert"><h2>Couldn’t open cluster #${id}</h2><p>${esc(e.message)}</p><button class="btn" data-retry>Try again</button></div>`;
       app.querySelector('[data-retry]').onclick = () => showCluster(id);
     }
@@ -661,10 +665,10 @@
     const a = v || c.verdict;
     if (!a) return `<section class="card o-op" aria-labelledby="h-op"><div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div><p class="muted">Gemini hasn’t reviewed this cluster. Reviews go to the strongest clusters first, within an hourly budget.</p></section>`;
     const call = a.llm_assessment || a.status;
-    const agrees = call === c.status;
     const reviewedAt = (c.verdict && c.verdict.created_at) || a.created_at || null;
     const thenStatus = v && v.detector_status;
     const callChanged = thenStatus && thenStatus !== c.status;
+    const agrees = a.agrees_with_detector != null && !callChanged ? Boolean(a.agrees_with_detector) : call === c.status;
     const older = v && v.cluster_updated_at && c.updated_at && new Date(v.cluster_updated_at) < new Date(c.updated_at) - 1000;
     // "evidence_id 123" in model prose becomes the same citation link as the cited list
     const cite = (id) => (anchored.has(Number(id)) ? `<a class="cite" href="#ev-${Number(id)}" data-jump="${Number(id)}">#${Number(id)}</a>` : `<span class="cite">#${Number(id)}</span>`);
@@ -675,7 +679,7 @@
     const tools = Array.isArray(v && v.tool_calls) ? v.tool_calls.length : (a.tool_calls || 0);
     return `<section class="card o-op" aria-labelledby="h-op">
       <div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div>
-      <p class="opinion-line">${chip(call)}<span>${agrees ? 'Agrees with the detector' : 'Reads it differently'}</span></p>
+      <p class="opinion-line">${chip(call)}<span>${callChanged ? (call === c.status ? 'Matches the detector’s current call' : 'Reviewed an earlier call') : agrees ? 'Agrees with the detector' : 'Reads it differently'}</span></p>
       <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.${older && !callChanged ? ` Reviewed${reviewedAt ? ` ${esc(when(reviewedAt))}` : ''} on an earlier snapshot, so its counts may differ from the evidence on this page.` : ''}</p>
       ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> At the time of this review the detector said “${esc(word(thenStatus))}”, and its counts come from that earlier snapshot.</p>` : ''}
       ${a.summary ? `<p style="margin-top:14px">${prose(a.summary)}</p>` : ''}
@@ -882,19 +886,26 @@
     el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
     el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
   });
+  const page = () => location.hash.replace(/^#\/?/, '').split('/')[0];
+  // Re-render the list pages after new data; cluster pages fetch their own detail.
+  function refreshView() {
+    if (page() === 'accuracy') return renderAccuracy();
+    if (page() !== '') return;
+    const a = document.activeElement;
+    if (a && a.matches('input, textarea')) return;
+    const keyOf = (el) => (!el || !app.contains(el) ? null : ['href', 'data-filter', 'data-more', 'data-retry'].map((k) => (el.hasAttribute(k) ? `[${k}="${CSS.escape(el.getAttribute(k))}"]` : null)).find(Boolean));
+    const key = keyOf(a);
+    const y = window.scrollY;
+    renderMonitor();
+    window.scrollTo(0, y);
+    const f = key && app.querySelector(key);
+    if (f) f.focus({ preventScroll: true });
+  }
+  async function poll() {
+    try { await load(); refreshView(); } finally { setTimeout(poll, 30000); }
+  }
   route();
-  load().then(route);
-  setInterval(async () => {
-    await load();
-    const onMonitor = !location.hash.replace(/^#\/?/, '');
-    const typing = document.activeElement && document.activeElement.matches('input, textarea');
-    if (onMonitor && !typing) {
-      const y = window.scrollY;
-      const focused = document.activeElement && document.activeElement.getAttribute('href');
-      renderMonitor(); window.scrollTo(0, y);
-      if (focused) { const f = app.querySelector(`[href="${CSS.escape(focused)}"]`); if (f) f.focus({ preventScroll: true }); }
-    }
-  }, 30000);
+  load().then(refreshView).finally(() => setTimeout(poll, 30000));
   setInterval(renderLive, 10000);
 })();
 </script>

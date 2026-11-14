@@ -246,7 +246,7 @@ document.addEventListener("click", (e) => {
   const a = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
   if (!a || a.closest("#panel") || a.closest(".event")) return;
   const act = a.dataset.act;
-  if (act === "trace" || act === "home") showHome();
+  if (act === "trace") showHome();
   if (act === "rail") {
     app.classList.toggle("rail-open");
     if (app.classList.contains("rail-open")) setTimeout(() => $("#rail").querySelector<HTMLElement>("button")?.focus(), 50);
