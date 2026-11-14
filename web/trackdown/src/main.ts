@@ -622,6 +622,8 @@ async function startTrace(raw: string, mock = false) {
   dock.pause();
   dock.u = 1;
   let graphSignature = "";
+  // Each poll re-renders the console; only steps not shown before slide in, so it does not flash.
+  const shownSteps = new Set<string>();
   const latest: { result: LookupResult | null } = { result: null };
   const update = (result: LookupResult) => {
     if (controller.signal.aborted || run !== tracing) return;
@@ -646,11 +648,13 @@ async function startTrace(raw: string, mock = false) {
     } else g.case = trace;
     renderResources(trace);
     panel.set(trace, result.state !== "done");
-    const rows = trace.steps.map((step) => `<div class="line ${step.state === "running" ? "active" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"${step.detail && step.state !== "failed" ? ` title="${esc(step.detail)}"` : ""}><b>${esc(step.text)}</b>${step.detail && step.state === "failed" ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${step.state === "done" ? (step.found?.length ? String(step.found.length) : "") : esc(step.state ?? "pending")}</span></div>`).join(""); // one short line per step, readable as it streams in; details are a hover away, failures show theirs
+    const stepKey = (step: (typeof trace.steps)[0], i: number) => step.id ?? `#${i}`;
+    const rows = trace.steps.map((step, i) => `<div class="line${step.state === "running" ? " active" : ""}${shownSteps.has(stepKey(step, i)) ? " seen" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"${step.detail && step.state !== "failed" ? ` title="${esc(step.detail)}"` : ""}><b>${esc(step.text)}</b>${step.detail && step.state === "failed" ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${step.state === "done" ? (step.found?.length ? String(step.found.length) : "") : esc(step.state ?? "pending")}</span></div>`).join(""); // one short line per step, readable as it streams in; details are a hover away, failures show theirs
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
     const dot = result.state === "failed" ? "r" : result.state === "running" ? "g live" : "g";
     consoleEl.innerHTML = `<div class="term-head"><span class="d ${dot}" title="Lookup ${esc(result.state)}"></span>${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
+    trace.steps.forEach((step, i) => shownSteps.add(stepKey(step, i)));
     const running = trace.steps.find((step) => step.state === "running");
     setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
   };

@@ -174,6 +174,14 @@ export class Graph {
   // ------------------------------------------------------------------ loading
   load(c: TraceCase, opts: { revealAll: boolean } = { revealAll: true }) {
     this.case = c;
+    // A live lookup reloads the graph as sources arrive: keep already-decoded images so cards don't blink.
+    const loaded = new Map<string, HTMLImageElement[]>();
+    for (const img of this.world.querySelectorAll("img")) {
+      if (!img.complete || !img.naturalWidth) continue;
+      const list = loaded.get(img.src) ?? [];
+      list.push(img);
+      loaded.set(img.src, list);
+    }
     this.world.innerHTML = "";
     this.nodes = [];
     this.byId.clear();
@@ -193,6 +201,12 @@ export class Graph {
       el.dataset.id = d.id;
       const inSim = c.edges.find((e) => e.to === d.id && e.sim != null && (e.rel === "media" || e.rel === "copy"))?.sim;
       el.innerHTML = cardHtml(d, compact, order.get(d.id) ?? 0, inSim);
+      for (const img of el.querySelectorAll("img")) {
+        const old = loaded.get(img.src)?.pop();
+        if (!old) continue;
+        for (const a of img.getAttributeNames()) if (a !== "src") old.setAttribute(a, img.getAttribute(a)!);
+        img.replaceWith(old);
+      }
       if (inSim != null && d.media) el.classList.add("matched");
       this.world.appendChild(el);
       const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], tilt: 0, last: "", drag: false };
