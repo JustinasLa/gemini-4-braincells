@@ -271,25 +271,36 @@ watermark removed, and 3 identical pairs (re-encoded at JPEG q55-70 and/or resiz
 Sequential calls, 2026-11-14. "Kind" = the expected kind is among `kinds`; "clean" = also no
 unrelated kind (a crop may also report what it cut off), and an identical pair returns no change.
 
-**Verda, `nemotron-3.5-super-vl` (Super VL confirmed), 3 runs.** Prompt as of commit `7bda242`.
-The final prompt differs in the red-box text only. At `7bda242` every call carried a system rule
-("B may carry a thin red rectangle drawn by our tool ... never report it; look inside it for the
-change") and a per-call note ("Any red box only marks where a pixel comparison saw a
-difference ... never report it"), box or no box. The final prompt drops both and adds a reworded
-per-call note ("The red box on B only marks ...") only when a box is drawn. The label rule now
-reads `Ignore the "A: earlier" / "B: later" labels.` The later code guards don't change the
-model's reply. Re-run on Verda before relying on these numbers for the final prompt (Verda was
-down from ~09:50 UTC).
+**Verda, `nemotron-3.5-super-vl` (Super VL confirmed), final prompt and code, 3 runs**
+(2026-11-14 ~12:55 UTC, after Verda's outage):
 
 | Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
 |---|---|---|---|---|---|---|
-| **composite (default)** | 60/60 | 57/60 | 57/60 | 12/12 | 0.24-0.30 s | 0.37-0.40 s |
-| pair (two images) | 60/60 | 53/60 | 55/60 | 12/12 | 0.27-0.38 s | 0.37-0.51 s |
-| composite + `edited_region` box (2 runs) | 40/40 | 37/40 | 34/40 | 8/8 | 0.29-0.36 s | 0.38-0.43 s |
+| **composite (default)** | 60/60 | 56/60 | 53/60 | 12/12 | 0.31-0.33 s | 0.43-0.46 s |
 
 Per kind, composite, each of 3 runs: caption changed 4/4, text added 1/1, text removed 1/1,
 element added 1/1, element removed 1/2, face changed 2/2, cropped 2/2, recolored 2/2, watermark
-2/2, identical 3/3. No reply had a forbidden word, a person's name, panel words or our red box.
+2/2, identical 3/3 (2/3 in one run). Not clean: the inset reads as added (3/3; the same reply
+also adds a spurious "cropped"), the portrait crop also claims a replaced face (3/3), and one
+identical pair read as cropped (1/3). No reply had a forbidden word, a person's name, panel
+words, our red box or our panel labels.
+
+**Earlier prompt (commit `7bda242`), Verda, 3 runs per layout.** It differs from the final
+prompt only in the red-box text: every call carried a system rule ("B may carry a thin red
+rectangle drawn by our tool ... never report it; look inside it for the change") and a per-call
+note ("Any red box only marks ..."), box or no box. The final prompt sends a reworded per-call
+note only when a box is drawn. The label rule was reworded but says the same.
+
+| Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
+|---|---|---|---|---|---|---|
+| composite | 60/60 | 57/60 | 57/60 | 12/12 | 0.24-0.30 s | 0.37-0.40 s |
+| pair (two images) | 60/60 | 53/60 | 55/60 | 12/12 | 0.27-0.38 s | 0.37-0.51 s |
+| composite + `edited_region` box (2 runs) | 40/40 | 37/40 | 34/40 | 8/8 | 0.29-0.36 s | 0.38-0.43 s |
+
+The final prompt is slightly less clean (53 vs 57 of 60). Its new error, a replaced face on the
+portrait crop, matches what the earlier prompt did only with a box drawn. That points at the
+dropped "look inside it for the change" rule, a lead for the next prompt version, not a cause
+proven here.
 
 **NVIDIA build API, Super VL not confirmed, 1 run, final prompt (smoke check only).** Same model
 id requested, but every reply is labelled `private/nvidia/nemotron-3.5-super-120b-a12b`, which
@@ -304,7 +315,8 @@ What we learned:
 - Verda answers some calls with a bare HTTP 500, whatever the request shape (schema,
   `json_object`, none): about 70% in one busy period, 0-10% otherwise. Hence the one retry.
 - Pair layout reported a crop that is not there in an identical pair (a re-encoded portrait) in
-  3 of 3 runs. Composite returned no change for all 3 identical pairs in every Verda run.
+  3 of 3 runs. Composite returned no change for the identical pairs in 9 of 9 cases with the
+  earlier prompt and 8 of 9 with the final one (3 pairs x 3 runs each).
 - With a red `edited_region` box, the first prompt reported the box as an added element (7 of
   the 12 valid pair-layout replies). The prompt rule and the code guard brought that to 0, but
   the box did not improve accuracy on these pairs.
