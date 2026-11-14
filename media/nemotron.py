@@ -83,6 +83,10 @@ class NemotronError(RuntimeError):
     """Nemotron could not return a valid analysis for one media item."""
 
 
+class NemotronTimeUp(NemotronError):
+    """The caller's deadline left no time to start (or retry) a call."""
+
+
 class NotVisionModelError(NemotronError):
     """Not Nemotron Super VL. Fatal: stop instead of storing mislabelled rows."""
 
@@ -188,8 +192,12 @@ class RateLimiter:
         self._clock, self._sleep = clock, sleep
         self._next = 0.0
 
-    def wait(self) -> None:
+    def wait(self, deadline: float | None = None, need_s: float = 1.0) -> None:
+        """Wait for this call's slot. With `deadline` (on this limiter's clock): raise
+        NemotronTimeUp, without taking the slot, when the slot starts too late for a call."""
         now = self._clock()
+        if deadline is not None and max(now, self._next) + need_s > deadline:
+            raise NemotronTimeUp("Nemotron: time budget used up before the call could start")
         if now < self._next:
             self._sleep(self._next - now)
             now = self._next
@@ -432,7 +440,9 @@ class NemotronClient:
         self._cache[media.media_hash] = result
         return result
 
-    def read_screenshot(self, media: MediaInput) -> ScreenshotPost | None:
+    def read_screenshot(
+        self, media: MediaInput, *, deadline: float | None = None
+    ) -> ScreenshotPost | None:
         """Read a screenshot of a social-media post as fields (media/screenshot.py).
 
         None when the image isn't a screenshot of a post, or nothing findable is legible.
@@ -462,6 +472,7 @@ class NemotronClient:
             reasoning=self.screenshot_reasoning,
             max_tokens=self.screenshot_max_tokens,
             task="screenshot",
+            deadline=deadline,
         )
         choice = response.choices[0] if response.choices else None
         finish = getattr(choice, "finish_reason", None)
@@ -487,13 +498,21 @@ class NemotronClient:
         reasoning: bool | None = None,
         max_tokens: int | None = None,
         task: str = "analyze",
+        deadline: float | None = None,
     ) -> tuple[Any, int]:
+        """One completion with retries. `deadline` (time.monotonic()) bounds everything: the
+        rate-limit wait, each request's timeout and every retry; past it, NemotronTimeUp."""
         extra: dict[str, Any] = {}
         if not (self.reasoning if reasoning is None else reasoning):
             extra["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
         for attempt in range(self._max_retries):
-            self._limiter.wait()
+            self._limiter.wait(deadline)
             started = time.monotonic()
+            if deadline is not None:
+                left = deadline - started
+                if left < 1.0:
+                    raise NemotronTimeUp("Nemotron: time budget used up")
+                extra["timeout"] = left  # this request ends by the deadline
             try:
                 self.calls += 1
                 response = self._client.chat.completions.create(
@@ -521,6 +540,10 @@ class NemotronClient:
                 if not retry:
                     raise NemotronError(f"Nemotron request failed: {exc}") from exc
                 delay = min(60.0, 2**attempt) * (1 + random.random() / 2)
+                if deadline is not None and time.monotonic() + delay + 1.0 > deadline:
+                    raise NemotronTimeUp(
+                        f"Nemotron: no time left to retry after {type(exc).__name__}"
+                    ) from exc
                 self._sleep(delay)
                 continue
             except Exception as exc:  # a programming error, not an API failure: log, re-raise

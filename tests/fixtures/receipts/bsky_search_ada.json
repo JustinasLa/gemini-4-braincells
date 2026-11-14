@@ -1,0 +1,65 @@
+{
+  "posts": [
+    {
+      "uri": "at://did:plc:fictionalada0000000000001/app.bsky.feed.post/3lfictional0001",
+      "cid": "bafyreifictional3lfictional0001",
+      "author": {
+        "did": "did:plc:fictionalada0000000000001",
+        "handle": "ada.example.com",
+        "displayName": "Ada Example",
+        "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:fictionalada0000000000001/bafkreifictionalavatar@jpeg",
+        "associated": {
+          "chat": {
+            "allowIncoming": "following"
+          }
+        },
+        "labels": [],
+        "createdAt": "2024-02-01T10:00:00.000Z"
+      },
+      "record": {
+        "$type": "app.bsky.feed.post",
+        "createdAt": "2026-11-13T14:14:05.120Z",
+        "langs": [
+          "en"
+        ],
+        "text": "The lighthouse keepers' union meets on Thursday to vote on the new night shift rota for the harbour"
+      },
+      "bookmarkCount": 0,
+      "replyCount": 4,
+      "repostCount": 12,
+      "likeCount": 57,
+      "quoteCount": 2,
+      "indexedAt": "2026-11-13T14:14:05.120Z",
+      "labels": []
+    },
+    {
+      "uri": "at://did:plc:fictionalimpostor00000002/app.bsky.feed.post/3lfictional0002",
+      "cid": "bafyreifictional3lfictional0002",
+      "author": {
+        "did": "did:plc:fictionalimpostor00000002",
+        "handle": "ada-example.bsky.social",
+        "displayName": "Ada Example",
+        "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:fictionalimpostor00000002/bafkreifictionalavatar2@jpeg",
+        "labels": [],
+        "createdAt": "2026-11-01T08:00:00.000Z"
+      },
+      "record": {
+        "$type": "app.bsky.feed.post",
+        "createdAt": "2026-11-13T15:02:44.000Z",
+        "langs": [
+          "en"
+        ],
+        "text": "The lighthouse keepers' union meets on Thursday to vote on the new night shift rota for the harbour"
+      },
+      "bookmarkCount": 0,
+      "replyCount": 4,
+      "repostCount": 12,
+      "likeCount": 57,
+      "quoteCount": 2,
+      "indexedAt": "2026-11-13T15:02:44.000Z",
+      "labels": []
+    }
+  ],
+  "hitsTotal": 2,
+  "cursor": "2"
+}

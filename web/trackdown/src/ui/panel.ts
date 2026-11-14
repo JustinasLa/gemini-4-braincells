@@ -3,7 +3,7 @@ import { modelTool, readingsDisagree, readingsOf, type LookupAssessment } from "
 import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
-import { esc, fmtDate, fmtDur, fmtNum, httpUrl, REL, ROLE, STATUS, TOOL } from "./format";
+import { esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, relOf, roleOf, STATUS, TOOL } from "./format";
 import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
@@ -121,7 +121,7 @@ export class Panel {
     const nodes = new Map(c.nodes.map((n) => [n.id, n]));
     const sub = nodes.get(c.submittedId);
     const ori = nodes.get(c.originId);
-    const accounts = new Set(c.nodes.filter((n) => n.role !== "source").map((n) => n.author.handle)).size;
+    const accounts = new Set(c.nodes.filter(inTrace).map((n) => n.author.handle)).size;
     const fresh = c.nodes.filter((n) => (n.author.ageDays ?? 999) < 30).length;
     const hops = Math.max(0, this.g.pathToOrigin(c.submittedId).length - 1);
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
@@ -181,7 +181,7 @@ export class Panel {
         const prev = i ? nodes.get(path[i - 1]) : null;
         const e = prev ? c.edges.find((x) => x.from === prev.id && x.to === id) : null;
         const start = c.lookup ? "Path start" : "Earliest";
-        return `<button class="hop" data-go="${esc(id)}" style="--c:${ROLE[n.role].color}"><span class="rn">${i + 1}</span><span style="min-width:0"><div class="h-t">${esc(n.author.name)}</div><div class="h-s">${esc(ROLE[n.role].label)} · ${n.timeUnknown || n.undated ? "time unknown" : fmtDate(n.t, false)}</div></span><span class="h-gap">${prev ? `<b>${n.timeUnknown || prev.timeUnknown || n.undated || prev.undated ? "gap unknown" : `+${fmtDur(n.t - prev.t)}`}</b>${e ? REL[e.rel].label : ""}${e?.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}` : `<b>${start}</b>`}</span></button>`;
+        return `<button class="hop" data-go="${esc(id)}" style="--c:${roleOf(n.role).color}"><span class="rn">${i + 1}</span><span style="min-width:0"><div class="h-t">${esc(n.author.name)}</div><div class="h-s">${esc(roleOf(n.role).label)} · ${n.timeUnknown || n.undated ? "time unknown" : fmtDate(n.t, false)}</div></span><span class="h-gap">${prev ? `<b>${n.timeUnknown || prev.timeUnknown || n.undated || prev.undated ? "gap unknown" : `+${fmtDur(n.t - prev.t)}`}</b>${e ? esc(relOf(e.rel).label) : ""}${e?.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}` : `<b>${start}</b>`}</span></button>`;
       })
       .join("")}
       ${c.clusters.length ? `<div class="sect label">${c.lookup ? "Monitored clusters / copy samples" : "Detected clusters"} <span>${c.clusters.length}</span></div>${c.clusters.map((cl) => `<div class="ev" style="--tc:${STATUS[cl.status].color}"><div class="by">${STATUS[cl.status].short} · ${esc(cl.label)}</div><p>${esc(cl.stat)}</p></div>`).join("")}` : ""}`;
@@ -228,21 +228,34 @@ export class Panel {
 
   private detail(n: TraceNode) {
     const c = this.c!;
-    const inE = c.edges.filter((e) => e.to === n.id);
-    const outE = c.edges.filter((e) => e.from === n.id);
     const nodes = new Map(c.nodes.map((x) => [x.id, x]));
+    // copy/spread links drive "earlier / later" and the path; a screenshot link is shown on its own
+    const inE = c.edges.filter((e) => e.to === n.id && isLineageEdge(e, nodes.get(e.from), n));
+    const outE = c.edges.filter((e) => e.from === n.id && isLineageEdge(e, n, nodes.get(e.to)));
+    const shotOf = c.edges.filter((e) => e.from === n.id && e.rel === "screenshot_of" && nodes.has(e.to));
+    const shownIn = c.edges.filter((e) => e.to === n.id && e.rel === "screenshot_of" && nodes.has(e.from));
+    const other = c.edges.filter((e) => e.to === n.id && !isLineageEdge(e, nodes.get(e.from), n) && e.rel !== "screenshot_of" && nodes.has(e.from));
     const a = n.author;
     const fresh = (a.ageDays ?? 999) < 30;
     const rel = inE
+      .concat(other)
       .map((e) => {
-        const p = nodes.get(e.from)!;
+        const p = nodes.get(e.from);
+        if (!p) return "";
         const when = n.undated || p.undated || n.timeUnknown || p.timeUnknown ? "" : `, ${fmtDur(n.t - p.t)} apart`;
-        return `<div><b>${REL[e.rel].label[0].toUpperCase() + REL[e.rel].label.slice(1)}${e.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}</b> from <a href="#" data-go="${esc(p.id)}">${esc(p.author.name)}</a>${when}${e.tool ? ` <span class="rel-by">· ${TOOL[e.tool].long}</span>` : ""}.${e.note ? ` <span class="rel-note">${esc(e.note)}.</span>` : ""}</div>`;
+        const label = relOf(e.rel).label;
+        return `<div><b>${esc(label[0].toUpperCase() + label.slice(1))}${e.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}</b> from <a href="#" data-go="${esc(p.id)}">${esc(p.author.name)}</a>${when}${e.tool ? ` <span class="rel-by">· ${esc(TOOL[e.tool]?.long ?? e.tool)}</span>` : ""}.${e.note ? ` <span class="rel-note">${esc(e.note)}.</span>` : ""}</div>`;
       })
       .join("");
+    // a screenshot link describes the screenshot, never a person
+    const shotLine = (e: TraceCase["edges"][number], peer: TraceNode, text: string) => `<div><b>${text}</b> <a href="#" data-go="${esc(peer.id)}">${esc(peer.author.name)}</a>${e.sim != null ? ` · word similarity ${e.sim.toFixed(2)}` : ""}${e.tool ? ` <span class="rel-by">· ${esc(TOOL[e.tool]?.long ?? e.tool)}</span>` : ""}.${e.note ? ` <span class="rel-note">${esc(e.note)}.</span>` : ""}</div>`;
+    const shots = [
+      ...shotOf.map((e) => shotLine(e, nodes.get(e.to)!, "A screenshot in this post shows a post by")),
+      ...shownIn.map((e) => shotLine(e, nodes.get(e.from)!, "Shown in a screenshot in a post by")),
+    ].join("");
     return `<section class="detail">
       <button class="close" data-act="close" aria-label="Close">${sm(icon.close, 13)}</button>
-      <div class="label" style="color:${ROLE[n.role].color}">${esc(ROLE[n.role].label)}</div>
+      <div class="label" style="color:${roleOf(n.role).color}">${esc(roleOf(n.role).label)}</div>
       <div class="d-who">${cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: 42 })}<div class="who"><b>${esc(a.name)}</b>${a.handle !== a.name ? `<span>${esc(a.handle)}</span>` : ""}</div></div>
       <p class="d-txt">${esc(n.text)}</p>
       ${n.media?.note ? `<div class="media-note">${esc(n.media.note)}</div>` : ""}
@@ -253,16 +266,21 @@ export class Panel {
         ${a.followers != null ? `<div><div class="k2">Followers</div><div class="v2${a.followers < 20 ? " warn" : ""}">${fmtNum(a.followers)}</div></div>` : ""}
       </div>
       ${this.realData(n)}
+      ${shots ? `<div class="rel">${shots}</div>` : ""}
       ${rel ? `<div class="rel">${rel}</div>` : n.role === "origin" ? `<div class="rel"><b>Earliest copy we found.</b> Nothing older matched; an older copy could still exist offline.</div>` : ""}
       <div class="navrow">
         ${inE[0] ? `<button class="btn" data-go="${esc(inE[0].from)}">${sm(icon.arrowL)} Earlier post</button>` : ""}
         ${outE[0] ? `<button class="btn" data-go="${esc(outE[0].to)}">Later post ${sm(icon.arrowR)}</button>` : ""}
         ${inE.length ? `<button class="btn" data-act="path">Show path to earliest</button>` : ""}
+        ${shotOf[0] ? `<button class="btn" data-go="${esc(shotOf[0].to)}">Real post in the screenshot ${sm(icon.arrowR)}</button>` : ""}
+        ${shownIn[0] ? `<button class="btn" data-go="${esc(shownIn[0].from)}">${sm(icon.arrowL)} Post with the screenshot</button>` : ""}
       </div>
       ${n.url && !c.synthetic ? `<a class="d-src" href="${esc(n.url)}" target="_blank" rel="noopener">Open the original ↗</a>` : c.synthetic ? `<div class="nolink">Simulated post: no live link.</div>` : ""}
     </section>`;
   }
 }
 
-/** a drawable chain: at least two posts that aren't search results */
-export const hasChain = (c: TraceCase) => c.nodes.filter((n) => n.role !== "source").length > 1;
+/** a post in the copy/spread trace: not a search result, not the real post shown in a screenshot */
+const inTrace = (n: TraceNode) => n.role !== "source" && n.role !== "screenshotted";
+/** a drawable chain: at least two posts in the trace */
+export const hasChain = (c: TraceCase) => c.nodes.filter(inTrace).length > 1;
