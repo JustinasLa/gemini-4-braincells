@@ -32,7 +32,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <button class=btn id=judge-menu aria-expanded=false>Explore</button>
-      <span class=trace-wrap><button class=btn solid data-act=trace aria-label=New trace>${icon.search}<span class=lbl>New trace</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
+      <span class=trace-wrap><button class=btn solid data-act=trace aria-label="New search">${icon.search}<span class=lbl>New search</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
     </div>
   </header>
   <nav id="judge-links" hidden style="position:fixed;z-index:1000;top:58px;right:12px;background:#171717;padding:16px;gap:16px;flex-direction:column"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=methodology">Methodology &amp; limits</a><a href="?view=judge">Try a post</a></nav>
