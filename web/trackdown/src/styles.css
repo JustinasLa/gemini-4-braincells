@@ -533,10 +533,14 @@ a.caption-hit:hover, a.caption-hit:focus-visible { background: rgba(63, 224, 122
   .app.panel-open .panel-grip, .app.lookup-active .panel-grip { display: none; }
   .panel-inner { width: auto; padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
   .mobile-only { display: inline-flex !important; }
-  .hud { bottom: 100px; right: 10px; }
+  .hud { bottom: 100px; right: max(8px, env(safe-area-inset-right, 0px)); max-width: calc(100% - 16px); }
+  .zoom { width: 46px; max-width: 100%; }
+  .zoom button { width: 100%; min-width: 0; }
+  .minimap { max-width: 100%; }
 
   .dock { left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom, 0px)); height: 76px; grid-template-columns: auto 1fr; gap: 10px; padding: 8px 10px; }
   /* Keep the hidden trace-state dock's measured box inside the stage while it fades in. */
+  .stage .dock { height: 76px; }
   .app:not([data-phase=done]) .dock { transform: translateY(0); }
   .stage .dock-right { display: none; }
   .stage .clock { min-width: 0; }
@@ -546,6 +550,48 @@ a.caption-hit:hover, a.caption-hit:focus-visible { background: rgba(63, 224, 122
   .examples button { min-height: 48px; padding: 11px 12px; }
   .banner { height: 120px; }
   .banner .bt { font-size: 20px; }
+
+  /* Keep the verdict card, replay dock, and map controls in separate phone zones. */
+  .app[data-phase=done] .peek {
+    bottom: max(8px, env(safe-area-inset-bottom));
+    min-height: 56px;
+    height: auto;
+    padding: 10px 12px;
+  }
+  .peek .pk-t { min-width: 0; }
+  .peek .pk-t b {
+    display: -webkit-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.2;
+  }
+  .peek .pk-go { white-space: nowrap; }
+  .app[data-phase=done] .dock {
+    left: 8px;
+    right: 8px;
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 64px);
+    height: 112px;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 42px minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .app[data-phase=done] .dock-left { min-width: 0; gap: 10px; }
+  .app[data-phase=done] .dock .play { flex: none; width: 42px; height: 42px; }
+  .app[data-phase=done] .dock .clock { flex: 1; min-width: 0; gap: 4px; }
+  .app[data-phase=done] .dock .clock .d,
+  .app[data-phase=done] .dock .clock .rel {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .app[data-phase=done] .dock .clock .rel { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .app[data-phase=done] .dock .scrub { width: 100%; min-width: 0; height: 42px; }
+  .app[data-phase=done] .hud { bottom: calc(max(8px, env(safe-area-inset-bottom)) + 196px); }
+  .app[data-phase=done] .zoom { box-shadow: 0 0 0 1px #08080a; }
+  .app[data-phase=done] .zoom button[data-z=fit] { border-top: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -624,6 +670,7 @@ a.caption-hit:hover, a.caption-hit:focus-visible { background: rgba(63, 224, 122
   .home-ex button { min-height: 44px; padding: 10px 4px; }
   .btn { min-height: 44px; }
   .status .st-skip { min-height: 44px; padding: 12px 8px; }
+  .status { bottom: calc(126px + max(8px, env(safe-area-inset-bottom, 0px))); max-width: calc(100% - 24px); }
 }
 .judge-error { display: grid; justify-items: start; gap: 10px; }
 .judge-error .btn { min-height: 44px; }
@@ -648,3 +695,28 @@ a.caption-hit:hover, a.caption-hit:focus-visible { background: rgba(63, 224, 122
 
 /* Keep the Explore menu visually compact while giving every destination a full tap row. */
 #judge-links a { display: flex; min-height: 44px; align-items: center; }
+
+/* Mobile hit areas and safe-area placement for judge controls. */
+.play, .step { min-width: 44px; min-height: 44px; }
+.home-ex button, #judge-links a { min-height: 44px; }
+#judge-links a { display: flex; align-items: center; }
+
+@media (max-width: 860px) {
+  .app[data-phase=done] .peek { bottom: max(8px, env(safe-area-inset-bottom)); min-height: 56px; height: auto; padding: 10px 12px; }
+  .peek .pk-t { min-width: 0; }
+  .peek .pk-t b { display: -webkit-box; white-space: normal; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.2; }
+  .peek .pk-go { white-space: nowrap; }
+  .app[data-phase=done] .dock { left: 8px; right: 8px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 80px); height: 112px; min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); gap: 6px; padding: 8px 10px; }
+  .app[data-phase=done] .dock-left { min-width: 0; gap: 10px; }
+  .app[data-phase=done] .dock .play { flex: none; width: 44px; height: 44px; }
+  .app[data-phase=done] .dock .clock { flex: 1; min-width: 0; gap: 4px; }
+  .app[data-phase=done] .dock .clock .d, .app[data-phase=done] .dock .clock .rel { min-width: 0; overflow-wrap: anywhere; }
+  .app[data-phase=done] .dock .clock .rel { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .app[data-phase=done] .dock .scrub { width: 100%; min-width: 0; height: 42px; }
+  .app[data-phase=done] .hud { bottom: calc(max(8px, env(safe-area-inset-bottom)) + 196px); right: max(8px, env(safe-area-inset-right)); max-width: calc(100% - 16px); }
+  .app[data-phase=done] .zoom, .zoom { width: 46px; max-width: 100%; }
+  .zoom button { width: 100%; min-width: 0; }
+  .minimap { max-width: 100%; }
+  .app[data-phase=done] .zoom button[data-z=fit] { border-top: 0; }
+  .status { bottom: calc(126px + max(8px, env(safe-area-inset-bottom))); max-width: calc(100% - 24px); }
+}

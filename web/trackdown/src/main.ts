@@ -360,7 +360,13 @@ function consoleHead(state: "run" | "done", c: TraceCase) {
 }
 const statusEl = $("#status");
 statusEl.addEventListener("click", (e) => {
-  if ((e.target as HTMLElement).closest("[data-skip]") && !lookupController) skipFlag = true;
+  if ((e.target as HTMLElement).closest("[data-skip]")) {
+    skipFlag = true;
+    if (lookupController) {
+      lookupController.abort();
+      setPhase("done");
+    }
+  }
 });
 consoleEl.addEventListener("click", (event) => {
   if ((event.target as HTMLElement).closest("[data-close-console]")) hideConsole();
