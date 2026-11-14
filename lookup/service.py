@@ -1597,6 +1597,7 @@ class Lookup:
         if role == "mention" and sim < X_MIN_SIM:
             with self.lock:  # its own page shows it isn't about this text: drop the search hit
                 self.result.posts = [q for q in self.result.posts if q.id != p.id]
+                self.result.edges = [e for e in self.result.edges if p.id not in (e.from_, e.to)]
             return None
         kind = {
             "quote": "quotes it",
@@ -1633,7 +1634,7 @@ class Lookup:
                     text=m.quoted_text or "",
                     created_at=snowflake_time(m.quoted_id),
                     time_source="snowflake",
-                    role="copy" if sim_quoted >= COPY_MIN else "mention",
+                    role="copy",  # quoted_other is set only when sim_quoted >= COPY_MIN
                     similarity=round(sim_quoted, 2),
                     receipt_id=rid,
                     verified=True,
@@ -1645,6 +1646,8 @@ class Lookup:
         return post
 
     def _copies_bsky(self) -> None:
+        from urllib.parse import quote_plus
+
         phrase = textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
         if not phrase or not self.deps.bsky:
             self.skip(
@@ -1663,7 +1666,7 @@ class Lookup:
                 "searchPosts",
                 f"Bluesky search for the exact text: {len(posts)} posts",
                 query=q,
-                source_url=f"https://bsky.app/search?q={q}",
+                source_url=f"https://bsky.app/search?q={quote_plus(q)}",
                 call=self.deps.bsky.last_call,
             )
             ref = self._subject_text or phrase
@@ -1790,6 +1793,7 @@ class Lookup:
             self.skip("media", "Nemotron is not configured on this server")
             return
         with self.step("media") as st:
+            own_http = self.deps.http is None
             http = self.deps.http or httpx.Client(timeout=20, follow_redirects=False)
             # only the platforms' own image CDNs are downloaded (an upload is already here)
             urls = [
@@ -1809,6 +1813,8 @@ class Lookup:
                 with self.lock:
                     closed.set()
                 mp.shutdown(wait=False, cancel_futures=True)
+                if own_http:  # a read left behind fails on the closed client; it can't publish
+                    http.close()
             late = BudgetExceeded("time budget used up")
             reads = [f.result() if f.done() and not f.cancelled() else late for f in futures]
             texts, read = [], 0
@@ -1927,12 +1933,12 @@ class Lookup:
                 "not a vision-language model."
             )
             return None
-        if a.media_type == "screenshot" and "/card_img/" not in url:
-            with self.lock:  # the "screenshot" step reads it as a post (bytes None: cached)
-                self._shots.append((url, h, mime, data))
         with self.lock:  # one critical section with `closed`: a late reading is never shown
             if closed.is_set():
                 return BudgetExceeded("the image reading came after the time budget")
+            if a.media_type == "screenshot" and "/card_img/" not in url:
+                # the "screenshot" step reads it as a post (bytes None: cached)
+                self._shots.append((url, h, mime, data))
             rid = self.receipt(
                 "nemotron",
                 "chat.completions",
