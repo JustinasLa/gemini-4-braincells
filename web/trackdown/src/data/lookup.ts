@@ -349,11 +349,11 @@ const counts = (values: Record<string, number | null | undefined> | null | undef
   const parts = Object.entries(values ?? {}).filter(([, value]) => value != null).map(([label, value]) => `${fmtNum(value!)} ${label}`);
   return parts.length ? parts.join(" · ") : null;
 };
-const SHOT_FLAG: Record<string, string> = { matches: "screenshot matches the real post", differs: "screenshot differs from the real post", not_found: "screenshot: no matching post found", unchecked: "screenshot not checked" };
+export const SHOT_FLAG: Record<string, string> = { matches: "screenshot matches the real post", differs: "screenshot differs from the real post", not_found: "screenshot: no matching post found", unchecked: "screenshot not checked" };
 const DIFF_OP: Record<string, string> = { shot_only: "only in the screenshot", post_only: "only in the real post" };
 
 /** One "Screenshot check" data group. Everything is plain text; the panel escapes it. */
-function screenshotFacts(shot: LookupScreenshot): NonNullable<TraceNode["realData"]>[number] {
+export function screenshotFacts(shot: LookupScreenshot): NonNullable<TraceNode["realData"]>[number] {
   const out: { label: string; value: string }[] = [];
   const add = (label: string, value: string | number | null | undefined) => { if (value != null && value !== "") out.push({ label, value: String(value) }); };
   add("Result", shotLabel(shot.label, shot.reason));

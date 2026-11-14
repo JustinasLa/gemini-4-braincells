@@ -182,3 +182,23 @@ What we learned:
   `other`, after the "not in the list is other, never x" rule). On a cut-off Bluesky post the
   model read the next, fully legible post of the thread (both settings).
 - No count was ever written as 0 when not shown; no UI-oddity note described a person.
+
+## Screenshot receipts (`detail.type = "screenshot_receipt"`)
+
+For every finding with a screenshot read, the worker checks the screenshot against the real
+post (`media/screenshot_receipts.py` calls `lookup.receipts.find_original`: Bluesky AppView
+and Oxylabs, in parallel, ~20 s budget per cluster) and stores one more `kind='media'` row:
+
+- key `detail.media_hash = "screenshot-receipt:<hash>"`, per cluster (like the OCR template);
+- `detail.receipt`, the `ScreenshotReceipt`: label `matches` | `differs` (with a word diff) |
+  `not_found` ("no matching post found: it may be deleted, private or never posted") |
+  `unchecked` (with the reason). The label describes the screenshot, never a person; counts
+  are context only;
+- `detail.fetches`, every fetch the check made, and `detail.carrier_at`, the earliest post
+  carrying the screenshot (the time anchor: a screenshot can't show a later post).
+
+A stored answer is reused without any call for 24 h while the file, its read and
+`carrier_at` are unchanged (`MEDIA_SCREENSHOT_RECEIPTS=0` turns the checks off). A re-check
+that only moves counts or timings refreshes the row without a new `created_at`, so it isn't
+new evidence for the analyst. Trackdown's cluster view shows the check on each post carrying
+the screenshot.

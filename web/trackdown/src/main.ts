@@ -11,7 +11,7 @@ import type { TraceCase } from "./types";
 import { flipInto, preloadCoin, wait } from "./ui/coin";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDate, fmtDur, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDate, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";

@@ -20,6 +20,7 @@ try {
   const { mockLookupResult } = await server.ssrLoadModule("/src/data/mockLookup.ts");
   const { cardHtml } = await server.ssrLoadModule("/src/ui/card.ts");
   const { isLineageEdge } = await server.ssrLoadModule("/src/ui/format.ts");
+  const { clusterCase } = await server.ssrLoadModule("/src/data/api.ts");
   const dump = process.argv.indexOf("--dump");
   if (dump > 0) writeFileSync(process.argv[dump + 1], JSON.stringify(mockLookupResult));
 
@@ -50,6 +51,20 @@ try {
     const edge = trace.edges.find((e) => e.rel === "screenshot_of");
     assert.deepEqual([edge.from, edge.to, edge.note], ["x:100", "x:98", "Differs from the real post"]);
     assert.equal(trace.nodes.find((n) => n.id === "x:98").cluster, undefined);
+  });
+
+  check("cluster view: a worker screenshot_receipt row shows on the posts carrying it", () => {
+    const uri = "at://did:plc:fictional1/app.bsky.feed.post/3kfict";
+    const receipt = { media_hash: "bafyfict", label: "differs", reason: "The screenshot differs from @ada.example.com's real post on Bluesky: 1 word changed.", platform: "bluesky", handle: "ada.example.com", shown_text: "A <b>fictional</b> claim", original_text: "A fictional claim, edited", original_url: "https://bsky.app/profile/ada.example.com/post/3kreal", diff: [{ op: "same", text: "A" }, { op: "shot_only", text: "<b>fictional</b>" }], differences: [], shown_counts: {}, ui_oddities: [], receipt_ids: [], time_check: "unknown" };
+    const d = { id: 7, status: "insufficient", score: 0.4, confidence: 0.3, synthetic: false, signals: [], analyst: null, members: [],
+      posts: [{ uri, did: "did:plc:fictional1", text: "look at this", created_at: "2026-11-13T10:00:00Z", embed_urls: [], media_hashes: ["bafyfict"] }],
+      evidence: [{ id: 1, kind: "media", summary: "Screenshot of @ada.example.com's post on Bluesky: differs from the real post.", detail: { type: "screenshot_receipt", media_hash: "screenshot-receipt:bafyfict", post_uris: [uri], receipt } }] };
+    const trace = clusterCase(d);
+    const node = trace.nodes.find((n) => n.id === uri);
+    assert.ok(node.realData.some((g) => g.label === "Screenshot check"), "group attached");
+    assert.ok(node.flags.includes("screenshot differs from the real post"));
+    const html = renderAll(trace);
+    assert.ok(!html.includes("<b>fictional</b>"), "escaped");
   });
 
   check("a reply to a screenshotted post is not lineage (no parent, no earlier post)", () => {
