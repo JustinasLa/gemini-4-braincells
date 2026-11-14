@@ -174,8 +174,8 @@ ImageMatch {
   "width": 388, "height": 257,       // either can be null
   "relation": "cropped",            // same | resized | cropped | edited | different | unknown
   "distance": 6,                     // null when not compared
-  "crop_box": [0, 0, 388, 257] | null,
-  "edited_region": [0, 0, 388, 40] | null,
+  "crop_box": [0.05, 0.1, 0.95, 1.0] | null,   // fractions 0..1 of the upload, see below
+  "edited_region": [0.0, 0.0, 1.0, 0.16] | null,
   "relation_note": "Visible image comparison",
   "changes": ["Caption changed from one line to another"],
   "change_kinds": ["caption_changed"],
@@ -186,6 +186,10 @@ ImageMatch {
 `change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
 `element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.
 Only `edited`/`cropped` matches get Nemotron change descriptions; code decides the relation.
+`crop_box` and `edited_region` are `(left, top, right, bottom)` fractions 0..1 of the uploaded
+image, the base of `media.variants.relate(upload, match)`, not pixels and not the match's own
+frame: `crop_box` is where the match sits inside the upload (null when the match is larger),
+`edited_region` is where it differs (draw it on the upload, or on the aligned match).
 `different` matches are removed after comparison. Candidate IDs remain stable, so arrays can
 shrink and IDs can have gaps. An unavailable comparison stays `unknown`, not an image origin.
 `receipt_id` identifies the engine result until comparison, then the downloaded/comparison

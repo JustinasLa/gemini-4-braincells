@@ -24,8 +24,10 @@ class ImageMatch(BaseModel):
     height: int | None = None
     relation: Literal["same", "resized", "cropped", "edited", "different", "unknown"] = "unknown"
     distance: float | None = None
-    crop_box: tuple[int, int, int, int] | None = None
-    edited_region: tuple[int, int, int, int] | None = None
+    # (left, top, right, bottom) fractions 0..1 of the uploaded image (relate()'s base);
+    # crop_box is None when the match is larger than the upload
+    crop_box: tuple[float, float, float, float] | None = None
+    edited_region: tuple[float, float, float, float] | None = None
     relation_note: str = ""
     changes: list[str] = Field(default_factory=list)
     change_kinds: list[

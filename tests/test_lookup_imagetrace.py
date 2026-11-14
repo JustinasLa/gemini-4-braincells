@@ -147,8 +147,8 @@ def relate(base, other):
     return SimpleNamespace(
         kind=kind,
         distance=0 if kind == "same" else 6,
-        crop_box=(0, 0, 1, 1) if kind == "cropped" else None,
-        edited_region=(0, 0, 1, 1) if kind == "edited" else None,
+        crop_box=(0.12, 0.0, 0.88, 1.0) if kind == "cropped" else None,
+        edited_region=(0.0, 0.0, 1.0, 0.31) if kind == "edited" else None,
         note="Visible image comparison",
     )
 
@@ -226,7 +226,7 @@ def test_upload_end_to_end_dates_dedup_relations_receipts_and_brief():
     ]
     assert job.result.image_origin_id == "img:1" and job.result.origin_id is None
     assert matches[0].engine == "tineye" and matches[0].first_seen == OLD
-    assert matches[-1].changes and matches[-1].edited_region == (0, 0, 1, 1)
+    assert matches[-1].changes and matches[-1].edited_region == (0.0, 0.0, 1.0, 0.31)
     edge = next(edge for edge in job.result.edges if edge.rel == "variant")
     assert edge.from_ == "img:1" and edge.to == "img:3" and edge.tool == "nemotron"
     assert len(searches.calls) == 3
@@ -304,7 +304,7 @@ def test_cropped_is_origin_eligible_and_described():
     job = job_for(Searches([hit("cropped.png")]))
     run_trace(job)
     assert job.result.image_origin_id == "img:1"
-    assert job.result.image_matches[0].crop_box == (0, 0, 1, 1)
+    assert job.result.image_matches[0].crop_box == (0.12, 0.0, 0.88, 1.0)
     assert job.result.image_matches[0].changes
     assert all(edge.from_ != edge.to for edge in job.result.edges)
 
@@ -599,9 +599,18 @@ def test_public_download_pins_dns_answer(scheme, port):
 
 def test_new_result_contract_serializes_boxes_as_arrays():
     match = ImageMatch(
-        id="img:1", engine="tineye", image_url="https://images.example/test", crop_box=(1, 2, 3, 4)
+        id="img:1",
+        engine="tineye",
+        image_url="https://images.example/test",
+        crop_box=(0.1, 0.2, 0.3, 0.4),
     )
-    assert match.model_dump(mode="json")["crop_box"] == [1, 2, 3, 4]
+    assert match.model_dump(mode="json")["crop_box"] == [0.1, 0.2, 0.3, 0.4]
+    # media.variants.relate() returns fractions 0..1 of the upload; validation must keep them
+    again = ImageMatch.model_validate(
+        match.model_dump() | {"crop_box": (0.12, 0.0, 0.88, 1.0), "edited_region": [0, 0, 1, 0.31]}
+    )
+    assert again.crop_box == (0.12, 0.0, 0.88, 1.0)
+    assert again.edited_region == (0.0, 0.0, 1.0, 0.31)
 
 
 def test_earliest_tineye_hit_wins_even_if_promoted_result_is_first():
