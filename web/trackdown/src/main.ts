@@ -752,6 +752,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     dock.toggle();
   }
+  if (e.key === "," || e.key === ".") dock.step(e.key === "," ? -1 : 1);
   if (e.key === "f" || e.key === "F") g.fit();
   if (e.key === "n" || e.key === "N") {
     e.preventDefault();
