@@ -133,12 +133,21 @@ class Receipt(BaseModel):
     at: datetime
 
 
+class ClaimCheck(BaseModel):
+    claim: str
+    finding: Literal["supported", "contradicted", "mixed", "unverified"] = "unverified"
+    explanation: str
+    cites: list[int] = Field(default_factory=list)
+
+
 class Assessment(BaseModel):
     model: str
     summary: str
     origin: str | None = None
     corroboration: str | None = None
     spread_pattern: str | None = None
+    claim_checks: list[ClaimCheck] = Field(default_factory=list)
+    media_provenance: str | None = None
     counter_evidence: list[str] = Field(default_factory=list)
     would_change: list[str] = Field(default_factory=list)
     cites: list[int] = Field(default_factory=list)

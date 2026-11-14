@@ -530,11 +530,12 @@ def test_only_pages_dated_on_the_page_can_be_the_origin():
     assert job.result.origin_id == "page:3"
 
 
-def test_older_snippet_page_is_read_before_it_can_be_origin():
+def test_source_page_is_read_but_search_date_cannot_make_it_origin():
     job = Lookup("lk_v", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps())
     job.run()
-    # the web search hit ("1 hour ago") is not older than the post, so it isn't scraped
-    assert not any(c[0] == "facts" for c in job.deps.oxylabs.calls)
+    assert any(c[0] == "facts" for c in job.deps.oxylabs.calls)
+    assert job.result.pages[0].time_source is None
+    assert job.result.origin_id == f"x:{SUBJ}"
 
 
 def test_finished_result_is_frozen():

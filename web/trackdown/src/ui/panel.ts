@@ -6,6 +6,7 @@ import { esc, fmtDate, fmtDur, fmtNum, httpUrl, REL, ROLE, STATUS, TOOL } from "
 import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
+import { coordinationNote, factualFindings } from "./findings";
 
 const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" height="${n}"`);
 type Tab = "verdict" | "provenance" | "receipts" | "folio";
@@ -84,7 +85,7 @@ export class Panel {
     const path = hasChain(c) ? this.g.pathToOrigin(c.submittedId).length : 0;
     if (this.tab === "provenance" && path < 2) this.tab = "verdict";
     const tabs = [
-      ["verdict", "Verdict", ""],
+      ["verdict", c.lookup ? "Findings" : "Verdict", ""],
       ...(path > 1 ? [["provenance", "Chain", String(path)]] : []),
       ["receipts", "Evidence", String(c.receipts.length)],
       ...(sel ? [["folio", "Post", ""]] : []),
@@ -118,7 +119,7 @@ export class Panel {
     const hops = Math.max(0, this.g.pathToOrigin(c.submittedId).length - 1);
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
     const unscored = c.historical ? "Not scored" : "No call";
-    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
+    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.lookup ? "Coordination only: no conclusive detector verdict. See factual findings separately." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
     const notice = c.mock ? `<div class="notice"><b>Development mock.</b> All people, metrics and <span class="mono">.example</span> sources here are fictional. No live lookup was made.</div>` : c.synthetic
       ? `<div class="notice"><b>Simulated case.</b> Fictional accounts and <span class="mono">.example</span> sites, built to show how a trackdown works. Not a verdict on any real post.</div>`
       : c.historical
@@ -133,13 +134,15 @@ export class Panel {
       : "";
     const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>` : "";
     return `
+      ${c.lookup ? factualFindings(c.lookup) : ""}
       <section class="verdict" style="--vc:${v.css}">
+        ${c.lookup ? '<div class="label">Coordination verdict · not a truth rating</div>' : ""}
         <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : v.tag}${c.live ? " · live" : ""}</div></div></div>
-        <p class="vs">${esc(c.summary)}</p>
-        ${c.lookup ? `<p class="lookup-message">${c.lookup.status === "matched" && c.lookup.clusters.length ? "Coordination status belongs to the matched monitored cluster, not to an individual account." : "Coordination: Can't tell. Copies and engagement are observations, not proof of coordination."}</p>` : ""}
-        <div class="conf${scored ? "" : " abstain"}"><div class="row"><span class="label">Confidence</span><b>${scored ? Math.round(c.confidence * 100) + "%" : unscored}</b></div><div class="bar"><i></i></div>${scored ? "" : `<div class="conf-note">${unscoredNote}</div>`}</div>
+        <p class="vs">${esc(c.lookup ? coordinationNote(c.lookup) : c.summary)}</p>
+        <div class="conf${scored ? "" : " abstain"}"><div class="row"><span class="label">${c.lookup ? "Coordination confidence" : "Confidence"}</span><b>${scored ? Math.round(c.confidence * 100) + "%" : unscored}</b></div><div class="bar"><i></i></div>${scored ? "" : `<div class="conf-note">${unscoredNote}</div>`}</div>
         ${notice}
       </section>
+      ${c.lookup ? `<div class="sect label">Model summary · collected evidence</div><p class="lookup-message">${esc(c.summary)}</p>` : ""}
       ${stats}
       ${replay}
       ${this.spread(c)}

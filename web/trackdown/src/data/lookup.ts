@@ -78,6 +78,12 @@ export interface LookupSpread {
   min_gap_s: number | null;
   note: string;
 }
+export interface ClaimCheck {
+  claim: string;
+  finding: "supported" | "contradicted" | "mixed" | "unverified";
+  explanation: string;
+  cites: number[];
+}
 export interface LookupResult {
   id: string;
   state: "running" | "done" | "failed";
@@ -96,10 +102,12 @@ export interface LookupResult {
   edges: { from: string; to: string; rel: Relation; sim: number | null; tool: LookupTool; note: string | null }[];
   clusters: (ClusterSummary & { match?: string[]; verdict_applies?: boolean })[];
   spread: LookupSpread | null;
-  receipts: { id: number; tool: LookupTool; endpoint: string; summary: string; source_url: string | null; query: string | null; request_id: string | null; latency_ms: number | null; cached: boolean; at: string }[];
+  receipts: { id: number; tool: LookupTool; endpoint: string; summary: string; source_url: string | null; query: string | null; request_id: string | null; latency_ms: number | null; cached: boolean; ok?: boolean; at: string }[];
   assessment: {
     model: string; summary: string; origin: string | null; corroboration: string | null; spread_pattern: string | null;
     counter_evidence: string[]; would_change: string[]; cites: number[];
+    claim_checks?: ClaimCheck[];
+    media_provenance?: string | null;
     llm_reading: "organic_looking" | "copy_campaign_looking" | "unclear";
     latency_ms: number | null; cost_usd: number | null;
   } | null;
@@ -260,7 +268,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     ],
     wouldChange: result.assessment?.would_change ?? [],
     steps: result.steps.map((step) => ({ id: step.id, tool: toolFor(step.tool), text: step.label, state: step.state, detail: step.detail, found: step.found.map(resolve).filter((id) => nodeIds.has(id)) })),
-    summary: result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Can't tell: this link's footprint does not establish coordination."}`,
+    summary: result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Coordination: insufficient evidence. This is not a finding about the accuracy of the content."}`,
     lookup: result,
   };
 }

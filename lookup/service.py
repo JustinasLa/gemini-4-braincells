@@ -52,7 +52,7 @@ STEPS = [
     ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
     ("coverage", "oxylabs", "Find coverage of the story"),
     ("media", "nemotron", "Read the images with Nemotron VL"),
-    ("verify", "oxylabs", "Read candidate copies on their own pages"),
+    ("verify", "oxylabs", "Read source pages and candidate copies"),
     ("monitor", "detector", "Check the clusters we monitor"),
     ("assess", "gemini", "Gemini reads the receipts"),
 ]
@@ -139,6 +139,7 @@ class Deps:
     assessor: Any = None  # lookup.assess.Assessor
     http: httpx.Client | None = None  # media downloads
     verify_max: int = 8
+    source_pages_max: int = 3
     profiles_max: int = 4
     replies_max: int = 8
     media_max: int = 2
@@ -274,7 +275,8 @@ class Lookup:
                         old.role = "linked"
                     # a "linked" page always comes from /scrape (_linked): it was read
                     if (
-                        pg.time_source == "page"
+                        pg.claims
+                        or pg.time_source == "page"
                         or pg.role == "linked"
                         or (pg.receipt_id and not old.publisher and pg.publisher)
                     ):
@@ -816,6 +818,8 @@ class Lookup:
             self._spend()
             facts = self.deps.oxylabs.scrape_facts(url, deadline=self._provider_deadline())
             call = dict(self.deps.oxylabs.last_call)
+            if facts.http_status is not None and facts.http_status >= 400:
+                raise ValueError(f"source page returned HTTP {facts.http_status}")
             pub = facts.published_at
             ptime, punc = _page_time(pub)
             rid = self.receipt(
@@ -976,9 +980,9 @@ class Lookup:
                 and (p.similarity or 0) >= X_MIN_SIM
                 and p.id != self.result.subject_id
             ]
-        pages = self._older_page_candidates()
+        pages = self._source_page_candidates()
         if not ref or not (cands or pages):
-            self.skip("verify", "no candidate copies to read")
+            self.skip("verify", "no source pages or candidate copies to read")
             return
         with self.step("verify") as st:
             cands.sort(key=lambda p: -(p.similarity or 0))
@@ -1001,19 +1005,48 @@ class Lookup:
             self._run_bounded([lambda h=h: self._safe_x_author(h) for h in copiers], workers=4)
             ids = {p.id for p in cands}
             with self.lock:
-                kinds = [p.role for p in self.result.posts if p.id in ids]
+                kinds = [p.role for p in self.result.posts if p.id in ids and p.verified]
                 present = {p.id for p in self.result.posts}
+                read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
+                read_pages = [pg.id for pg in pages if pg.receipt_id in read_ids]
                 unread = sum(
                     1
                     for p in self.result.posts
                     if p.platform == "x" and not p.verified and p.role == "mention"
                 )
-            st.found = [i for i in ids if i in present]
+            st.found = [i for i in ids if i in present] + read_pages
             st.detail = (
-                f"{len(cands)} read: {kinds.count('copy')} copies · {kinds.count('quote')} quotes"
+                f"{len(kinds)} posts read: {kinds.count('copy')} copies"
+                f" · {kinds.count('quote')} quotes"
                 f" · {kinds.count('reply')} replies"
+                f" · {len(read_pages)}/{len(pages)} source pages read"
                 + (f" · {unread} more candidates not read" if unread else "")
             )
+
+    def _source_page_candidates(self) -> list[Page]:
+        with self.lock:
+            read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
+            candidates = [
+                pg
+                for pg in self.result.pages
+                if pg.receipt_id not in read_ids and pg.id != self.result.subject_id
+            ]
+        older_ids = {pg.id for pg in self._older_page_candidates()}
+        candidates.sort(
+            key=lambda pg: (
+                not domain(pg.url).endswith((".gov", ".edu", ".ac.uk", ".gov.uk")),
+                pg.id not in older_ids,
+            )
+        )
+        selected = []
+        hosts = set()
+        for page in candidates:
+            host = domain(page.url)
+            if host not in hosts:
+                selected.append(page)
+                hosts.add(host)
+        selected.extend(page for page in candidates if page not in selected)
+        return selected[: max(0, self.deps.source_pages_max)]
 
     def _run_bounded(self, jobs: list, workers: int) -> None:
         """Run jobs in parallel until the provider deadline; never wait past it."""
@@ -1055,14 +1088,22 @@ class Lookup:
             self._spend()
             facts = self.deps.oxylabs.scrape_facts(pg.url, deadline=self._provider_deadline())
             call = dict(self.deps.oxylabs.last_call)
+            if facts.http_status is not None and facts.http_status >= 400:
+                raise ValueError(f"source page returned HTTP {facts.http_status}")
+        except BudgetExceeded:
+            self.note("Some source pages were not read because the time budget was used up.")
+            return
         except Exception as exc:
             log.info("verify page %s failed: %s", pg.url, exc)
+            self.note(
+                f"Source page could not be read: {pg.url}. Its search snippet is not verification."
+            )
             return
         t, unc = _page_time(facts.published_at)
         rid = self.receipt(
             "oxylabs",
             "/scrape",
-            f"Older page read: {facts.publisher or domain(facts.final_url)}"
+            f"Source page read: {facts.publisher or domain(facts.final_url)}"
             + (f", published {facts.published_at}" if facts.published_at else ", no date found"),
             source_url=facts.final_url or pg.url,
             call=call,
@@ -1072,10 +1113,10 @@ class Lookup:
             pg.publisher = facts.publisher or pg.publisher
             pg.author = facts.author or pg.author
             pg.published_at = facts.published_at
-            pg.claims = facts.claims or pg.claims
+            pg.headline = facts.headline or pg.headline
+            pg.claims = facts.claims
             pg.receipt_id = rid
-            if t is not None:
-                pg.time, pg.time_source, pg.time_uncertainty_s = t, "page", unc
+            pg.time, pg.time_source, pg.time_uncertainty_s = t, "page" if t else None, unc
 
     def _safe_verify(self, p: Post, reference: str) -> None:
         try:
@@ -1194,7 +1235,7 @@ class Lookup:
             st.detail = f"{len(found)} Bluesky posts with the same text"
 
     def _coverage(self) -> None:
-        q = self._card_title or textsim.phrase(self._subject_text, 14)
+        q = textsim.phrase(self._subject_text, 40) or self._card_title
         if not q:
             self.skip("coverage", "nothing to search for")
             return
