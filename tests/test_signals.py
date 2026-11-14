@@ -598,3 +598,24 @@ def test_japanese_copy_paste_and_paraphrase_become_content_keys():
     neardup = [k for kv, k in keys.items() if kv[0] == "neardup" and "did:plc:ja0" in k.accounts]
     assert text_keys and len(text_keys[0].accounts) == 3  # exact copies
     assert neardup and len(neardup[0].accounts) >= 5  # character shingles catch the paraphrases
+
+
+def test_clock_aligned_guard_states_the_span_it_counts():
+    """Posts up to 15 s before a half hour count as aligned, so the text and expected share must
+    cover that span too (105 of 1800 s, not 90)."""
+    from signals.keys import Key, Use
+    from signals.score import organic_guards
+
+    members = [f"did:plc:k{i}" for i in range(5)]
+    half_hour = 1_800_000_000.0  # a multiple of 1800
+    uses = [Use(d, half_hour - 10, f"at://{d}/app.bsky.feed.post/1") for d in members]
+    key = Key("text", "h", uses, set(members))
+    key.total_accounts = len(members)
+    g = next(
+        x
+        for x in organic_guards(members, [key], {}, WindowData(start=0, end=600), DEFAULT)
+        if x.name == "clock_aligned_posting"
+    )
+    assert g.detail["aligned"] == 5
+    assert g.detail["expected_share"] == round(105 / 1800, 4)
+    assert "15 s before" in g.summary and "6% expected" in g.summary
