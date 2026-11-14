@@ -149,3 +149,36 @@ Step {
 
 Step ids in order: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`,
 `copies_bsky`, `coverage`, `media`, `monitor`, `assess`. Steps that don't apply are `skipped`.
+
+## Rules that keep it honest (and why)
+
+- **Times.** X post times come from the post id (snowflake), so every X post found, even one
+  only seen in a search result, has its exact creation time. Bluesky times are the record's
+  `createdAt`. Web pages get the publisher's date when the scrape extracts one, otherwise the
+  search engine's hint ("3 hours ago" relative to the search) marked `search_hint`.
+- **Counts.** X hides zero counts on the logged-out page, so a missing number is `null`, never
+  0. Counts are what the page showed at `metrics_as_of`.
+- **Copies are verified.** A search hit only says the text appears there. Up to
+  `LOOKUP_VERIFY_MAX` candidate X posts are read on their own page: a quote of the post, a
+  reply to it, or a copy of its words (similarity = share of the post's words the copy
+  carries). On 13 Nov 2026 the top "copy" hit for a viral joke was in fact a quote post.
+  X hits sharing under 35% of the words are dropped (search engines match loose keywords).
+- **Images.** Nemotron reads the post's own images; their text (8+ words) is searched like the
+  post text. Link-card thumbnails are described but not searched (their text is a photo label).
+  A post that is only an image is searched by the text inside it.
+- **Short links** (t.co etc.) are resolved before the page is scraped.
+- **No verdict from a footprint.** `status` is `matched` only when the monitor's database has a
+  cluster with the link, text or Bluesky accounts. Gemini's `llm_reading` is shown as its
+  reading, never as the status, and keeps only citations of receipts that exist.
+
+## Try it
+
+```bash
+uv run uvicorn api.main:app --port 8005          # needs OXYLABS_WEB_API_KEY; GEMINI/VERDA optional
+curl -s -XPOST localhost:8005/api/lookup -H 'content-type: application/json' \
+  -d '{"url":"https://x.com/StephenKing/status/2121360054330986967"}' | jq .id
+curl -s localhost:8005/api/lookup/<id> | jq '.state, .steps[] | {id, state, detail}'
+```
+
+A typical X post lookup makes 8-20 Oxylabs calls (1 post page, 1-5 profiles, 4 searches, up
+to 8 copy pages, 1 linked page), 0-2 Nemotron calls and 1 Gemini call, in 20-40 s.
