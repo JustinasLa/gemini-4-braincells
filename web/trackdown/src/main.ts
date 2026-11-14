@@ -23,7 +23,7 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <a class="wordmark" href="/monitor/" title="Back to the live monitor" aria-label="Noise Radar: back to the live monitor">NOISE RADAR</a>
+    <a class="wordmark" href="/monitor/" title="Back to the live monitor" aria-label="Shill or Chill: back to the live monitor">SHILL OR CHILL</a>
     <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
@@ -133,7 +133,7 @@ function setInsets() {
 function renderResources(c: TraceCase) {
   const v = STATUS[c.status];
   $("#title").textContent = c.title;
-  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
+  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
   $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
@@ -146,7 +146,7 @@ function renderResources(c: TraceCase) {
   if (c.findingsOnly) app.dataset.notime = "";
   else delete app.dataset.notime;
   $("#empty").hidden = !empty;
-  document.title = `${c.title} · Trackdown · Noise Radar`;
+  document.title = `${c.title} · Trackdown · Shill or Chill`;
 }
 
 // ---------------------------------------------------------------- outliner
@@ -568,7 +568,6 @@ function showHome() {
   homeEl.innerHTML = `<canvas></canvas>
     <a class="home-back" href="/monitor/">← Live monitor</a>
     <div class="home-c">
-      <div class="home-eyebrow label">Noise Radar · Trackdown</div>
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
       <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
@@ -579,7 +578,7 @@ function showHome() {
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-back, .home-eyebrow, .home-wm, .home-tag, .home-form, .home-ex, .credit")] });
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-back, .home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
   $("form", homeEl).addEventListener("submit", (e) => {
