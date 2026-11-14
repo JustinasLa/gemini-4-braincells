@@ -1196,6 +1196,8 @@ def test_real_rate_limiter_reserves_and_sleeps_within_budget(images):
         "The top label changed from 'A: earlier' to 'B: later'.",  # live, lk_a83a7c2ff47c2545
         "The label changed from \u201cA: Earlier\u201d to \u201cB: later\u201d.",
         'The text "B: later" was added at the top.',
+        "The top-left label 'A: earlier' was removed from the top left corner.",
+        "The label changed from \u2018A: earlier\u2019 to \u2018B: later\u2019.",
     ],
 )
 @pytest.mark.parametrize("layout", ["composite", "pair"])
@@ -1242,6 +1244,9 @@ def test_real_text_resembling_labels_is_kept(images, sentence):
         "In 'B: later', a sunflower inset was removed from the bottom right.",
         "The top label changed from 'A: earlier' to 'B: later' and a hat was added.",
         "The caption changed from 'A: earlier' to 'A: now'.",
+        "The text 'B: later' was added at the top and a hat was removed.",
+        "The label 'A: earlier' was removed along with the sunflower inset.",
+        "The red text 'B: later' was added at the top.",
     ],
 )
 def test_label_quotes_alongside_real_edits_are_kept(images, sentence):

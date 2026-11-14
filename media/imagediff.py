@@ -131,7 +131,23 @@ _NO_CHANGE_FORMS = tuple(
 # The composite's own panel labels, read back as image text or as an edit (live, prod lookup
 # lk_a83a7c2ff47c2545: "The top label changed from 'A: earlier' to 'B: later'."). Only a text
 # report quoting nothing but the exact labels counts; transcriptions are never altered.
-_LABEL = re.compile(r"\s*[AB]\s*:\s*(?:earlier|later)\s*", re.I)
+# Its own narrow grammar: position words, a label noun, the exact quoted labels and a location
+# made only of position words. Any other word means the sentence may report a real edit.
+_POS = r"(?:top|bottom|upper|lower|left|right|centre|center|middle|corner|edge)"
+_WHERE = rf"(?:\s+(?:at|in|on|to|from|near)\s+the\s+{_POS}(?:[\s-]+{_POS})*"
+_WHERE += r"(?:\s+of\s+the\s+(?:image|picture|panel))?)?"
+_LNOUN = r"(?:labels?|text|captions?|headings?|titles?|headers?|tags?)"
+_LBL = r"\s*[AB]\s*:\s*(?:earlier|later)\s*"
+_LQ = rf"(?:'{_LBL}'|\"{_LBL}\"|\u2018{_LBL}\u2019|\u201c{_LBL}\u201d)"
+_LABEL_ONLY = tuple(
+    re.compile(form, re.I)
+    for form in (
+        rf"(?:the\s+)?(?:{_POS}[\s-]+)*{_LNOUN}{_WHERE}\s+(?:(?:was|has\s+been)\s+)?"
+        rf"(?:changed|switched|replaced|updated)\s+from\s+{_LQ}\s+to\s+{_LQ}\.?",
+        rf"(?:the|an?)\s+(?:{_POS}[\s-]+)*{_LNOUN}\s+{_LQ}{_WHERE}\s+(?:was|has\s+been)\s+"
+        rf"(?:added|removed){_WHERE}\.?",
+    )
+)
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
 # Larger inputs are refused from the header, before decoding (decompression bombs). This is far
@@ -438,15 +454,9 @@ def _words(text: str) -> list[str]:
 
 
 def _only_label_change(sentence: str) -> bool:
-    """The whole sentence is a text report whose every quote is one of our panel labels
-    ("The top label changed from 'A: earlier' to 'B: later'."). A sentence about anything
-    else, or quoting any other text, is kept: real image text is never dropped for this."""
-    for form in _TEXT_FORMS:
-        match = form.fullmatch(sentence)
-        if match is not None:
-            quotes = [q for q in match.groups() if q is not None]
-            return bool(quotes) and all(_LABEL.fullmatch(q[1:-1]) for q in quotes)
-    return False
+    """The whole sentence only reports our panel labels ("The top label changed from 'A:
+    earlier' to 'B: later'."). Anything else in it (another edit, other quoted text) keeps it."""
+    return any(form.fullmatch(sentence.strip()) for form in _LABEL_ONLY)
 
 
 def _says_no_change(sentence: str) -> bool:
