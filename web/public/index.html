@@ -568,7 +568,7 @@
       <div class="card-head"><h2 id="h-call">The detector’s call</h2><span class="label">Rule-based decision</span></div>
       <div class="metrics4">
         <div class="metric"><span class="label">Coordination</span><b>${fix2(c.score)}</b><small>score from 0 to 1, not a probability</small></div>
-        <div class="metric"><span class="label">${combined ? 'Combined p' : 'Timing p'}</span><b>${pval(c.p_value ?? sig.p_value)}</b><small>${combined ? 'timing and identity tests, corrected for testing several' : 'timing vs. shuffled timing'}</small></div>
+        <div class="metric"><span class="label">${combined ? 'Combined p' : 'Timing p'}</span><b>${pval(c.p_value ?? sig.p_value)}</b><small>${combined ? 'timing and identity tests, corrected for multiple tests' : 'timing vs. shuffled timing'}</small></div>
         <div class="metric"><span class="label">Families fired</span><b>${fam.length} of ${famTotal}</b><small>${fam.length ? esc(fam.join(', ')) : 'none'}</small></div>
         <div class="metric"><span class="label">Organic safeguard</span><b>${fix2(sig.organic_guard_score)}</b><small>high means it looks like a real crowd</small></div>
       </div>
@@ -605,7 +605,7 @@
         <p>${esc(tidy(s.summary))}</p>${receipt(byId.get(s.evidence_id))}</div>`;
     return `<section class="card o-sig" aria-labelledby="h-sig">
       <div class="card-head"><h2 id="h-sig">Evidence</h2><span class="label">${win ? 'Latest window' : plural(all.length, 'check')}</span></div>
-      <h3 class="label group-label">Points to coordination · ${forCo.length} of ${all.length} signals</h3>
+      <h3 class="label group-label">Points to coordination <span style="white-space:nowrap">· ${forCo.length} of ${all.length} signals</span></h3>
       ${forCo.length ? `<div>${forCo.map(one).join('')}</div>` : '<p class="muted">No coordination signal fired.</p>'}
       ${guards.length ? `<h3 class="label group-label">Organic safeguards that held</h3><div>${guards.map(one).join('')}</div>` : ''}
       ${quiet.length ? `<details class="fold"><summary>${plural(quiet.length, 'check')} found nothing: ${esc(quiet.map((s) => sigName(s.name).toLowerCase()).join(', '))}</summary><div>${quiet.map(one).join('')}</div></details>` : ''}
@@ -677,7 +677,7 @@
       <div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div>
       <p class="opinion-line">${chip(call)}<span>${agrees ? 'Agrees with the detector' : 'Reads it differently'}</span></p>
       <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.${older && !callChanged ? ` Reviewed${reviewedAt ? ` ${esc(when(reviewedAt))}` : ''} on an earlier snapshot, so its counts may differ from the evidence on this page.` : ''}</p>
-      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> At the time of this review the detector said “${esc(word(thenStatus))}”.</p>` : ''}
+      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> At the time of this review the detector said “${esc(word(thenStatus))}”, and its counts come from that earlier snapshot.</p>` : ''}
       ${a.summary ? `<p style="margin-top:14px">${prose(a.summary)}</p>` : ''}
       ${!agrees && !callChanged && a.disagreement_reason ? `<p class="notice"><strong>Why it disagrees:</strong> ${prose(a.disagreement_reason)}</p>` : ''}
       <div class="reasons">
