@@ -163,6 +163,15 @@ class SwarmDetail(SwarmCard):
     caption: str | None = None  # the text on the picture, when read
 
 
+class SwarmLiveRef(BaseModel):
+    """A pointer from a lookup to the live Bluesky group of the same picture (its page is
+    /?swarm=<id>, its data GET /api/swarms/{id}). Small on purpose: lookups are polled."""
+
+    id: str
+    verdict: Verdict
+    n_accounts: int
+
+
 class SwarmWall(BaseModel):
     items: list[SwarmCard] = Field(default_factory=list)
     as_of: datetime | None = None

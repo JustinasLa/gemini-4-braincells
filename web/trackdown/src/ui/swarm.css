@@ -30,11 +30,13 @@
 /* the swarm page */
 .sw-page .st-mine img { background: #0c0c0e; }
 .sw-posts { margin: 14px 0 0; padding: 0; list-style: none; max-width: 760px; }
-.sw-posts a { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 14px; align-items: baseline; padding: 10px 0; color: var(--text); text-decoration: none; border-bottom: 1px dashed var(--line); }
+/* a fixed handle column: every line's words end at the same place */
+.sw-posts a { display: grid; grid-template-columns: 46px minmax(0, 1fr) minmax(0, 220px); gap: 14px; align-items: baseline; padding: 10px 0; color: var(--text); text-decoration: none; border-bottom: 1px dashed var(--line); }
 .sw-posts a:hover .sw-t { text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; }
 .sw-posts time { font: 500 12px/1.3 var(--mono); color: var(--text-3); }
 .sw-t { font: 400 14.5px/1.4 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sw-h { max-width: 220px; font: 400 12px/1.3 var(--mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw-t + .sw-h { justify-self: end; }
 .sw-more { max-width: 760px; }
 .sw-more summary { padding: 12px 0 0; cursor: pointer; list-style: none; font: 500 12px/1.3 var(--mono); color: var(--text-3); }
 .sw-more summary::-webkit-details-marker { display: none; }
@@ -60,6 +62,7 @@
   .sw-chips li { padding: 6px 10px; font-size: 14px; }
   .sw-posts a { grid-template-columns: 42px minmax(0, 1fr); gap: 2px 12px; }
   .sw-h { grid-column: 2; max-width: 100%; }
+  .sw-t + .sw-h { justify-self: start; }
   .sw-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 28px; }
 }
 @media (prefers-reduced-motion: reduce) {

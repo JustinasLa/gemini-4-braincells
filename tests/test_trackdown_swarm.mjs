@@ -50,7 +50,26 @@ test("Shill chips skip families that did not fire, and empty summaries", () => {
 test("Chill chips are the strongest 'against' signals; Can't tell has no chips", () => {
   const signals = [sig("timing", 0.3, "6 accounts in 25 min"), sig("copy", 0.76, "64 different captions", "against"), sig("timing", 0.81, "spread over 18 h", "against")];
   assert.deepEqual(swarmChips({ verdict: "organic", fired: [], signals }).map((c) => c.summary), ["spread over 18 h", "64 different captions"]);
+  // a guard's family would read wrong over it ("Copy-paste" over "64 different captions")
+  assert.ok(swarmChips({ verdict: "organic", fired: [], signals }).every((c) => c.label === ""));
   assert.deepEqual(swarmChips({ verdict: "unclear", fired: [], signals }), []);
+});
+
+test("posts seconds apart stay one block in the middle, not stretched across the axis", () => {
+  // real data: 5 accounts posted the same picture within 2 s
+  const tight = layoutTimeline([0, 0.4, 1.3, 1.5, 2.1].map((t) => point(1e9 + t)), { cols: 48, rows: 10 });
+  const cols = new Set(tight.dots.map((d) => d.col));
+  assert.equal(cols.size, 1, `5 posts in 2 s share a column, got ${[...cols]}`);
+  assert.ok(Math.abs([...cols][0] - 23.5) <= 1, "and sit in the middle");
+  // 7 posts about 20 s apart: a narrow block, still centred
+  const short = layoutTimeline(Array.from({ length: 7 }, (_, i) => point(i * 20)), { cols: 48, rows: 10 });
+  const used = short.dots.map((d) => d.col);
+  assert.ok(Math.max(...used) - Math.min(...used) <= 6, `7 posts in 2 min take a few columns, got ${Math.max(...used) - Math.min(...used) + 1}`);
+  assert.ok(Math.abs((Math.max(...used) + Math.min(...used)) / 2 - 23.5) <= 1);
+  // posts hours apart still use the whole width
+  const spread = layoutTimeline(Array.from({ length: 5 }, (_, i) => point(i * 4 * 3600)), { cols: 48, rows: 10 });
+  assert.equal(spread.dots[0].col, 0);
+  assert.equal(spread.dots.at(-1).col, 47);
 });
 
 test("a burst becomes a solid block; scattered posts stay apart", () => {

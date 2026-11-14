@@ -9,7 +9,9 @@ import "./swarm.css";
 
 const PITCH = 10; // viewBox units per dot column / row
 const COLS = 48;
+const COLS_NARROW = 32; // a phone: fewer, bigger dots, while they fill at most half the grid (a shape, not a solid block)
 const ROWS = 10;
+const columns = (n: number) => (n <= (COLS_NARROW * ROWS) / 2 && typeof matchMedia === "function" && matchMedia("(max-width: 600px)").matches ? COLS_NARROW : COLS);
 
 /** a link to the page of one live picture; the dev mock flag rides along */
 export function swarmHref(id: string): string {
@@ -26,10 +28,11 @@ const epoch = (iso: string | null | undefined) => (iso ? Date.parse(iso) / 1000 
 function plot(report: SwarmReport): string {
   const points = report.timeline ?? [];
   if (!points.length) return "";
-  const { dots, burst } = layoutTimeline(points, { cols: COLS, rows: ROWS });
+  const cols = columns(points.length);
+  const { dots, burst } = layoutTimeline(points, { cols, rows: ROWS });
   // as tall as the tallest stack: a swarm stands up as a column, a spread of people lies flat
   const used = Math.max(3, ...dots.map((d) => d.row + 1));
-  const w = COLS * PITCH, h = used * PITCH;
+  const w = cols * PITCH, h = used * PITCH;
   const cx = (col: number) => (col + 0.5) * PITCH;
   const cy = (row: number) => h - (row + 0.5) * PITCH;
   const fill = (d: (typeof dots)[0]) => (d.group >= 0 ? GROUP_FILLS[Math.min(d.group, GROUP_FILLS.length - 1)] : d.burst ? "var(--vc)" : "var(--sw-dot)");
@@ -49,17 +52,19 @@ function plot(report: SwarmReport): string {
   </figure>`;
 }
 
-/** The swarm strip: the dot timeline, the verdict word, up to four chips, the basis note. */
+/** The swarm strip: the dot timeline, the verdict word, up to four chips, the basis note (not on the
+ *  live picture's own page, `stack`: there every post is the live feed's, and the chips already count them). */
 export function swarmStrip(report: SwarmReport, opts: { live?: string | null; stack?: boolean } = {}): string {
   const v = VERDICT[report.verdict] ?? VERDICT.unclear;
   const chips = swarmChips(report);
   const why = report.verdict === "unclear" && report.why_unclear?.trim() ? `<p class="sw-why">${esc(report.why_unclear.trim())}</p>` : "";
+  const note = !opts.stack && report.basis_note?.trim() ? `<p class="sw-note">${esc(report.basis_note.trim())}</p>` : "";
   return `<section class="st-sec sw${opts.stack ? " stack" : ""}" data-verdict="${esc(report.verdict)}" style="--vc:${v.css}" aria-labelledby="sw-word">
     <h2 class="sw-word" id="sw-word">${esc(v.word)}</h2>
     ${plot(report)}
     <div class="sw-say">
-      ${chips.length ? `<ul class="sw-chips">${chips.map((c) => `<li><b>${esc(c.label)}</b>${esc(c.summary)}</li>`).join("")}</ul>` : why}
-      ${report.basis_note?.trim() ? `<p class="sw-note">${esc(report.basis_note.trim())}</p>` : ""}
+      ${chips.length ? `<ul class="sw-chips">${chips.map((c) => `<li>${c.label ? `<b>${esc(c.label)}</b>` : ""}${esc(c.summary)}</li>`).join("")}</ul>` : why}
+      ${note}
       ${opts.live ? `<a class="sw-live" href="${esc(swarmHref(opts.live))}">Live on Bluesky →</a>` : ""}
     </div>
   </section>`;
@@ -128,13 +133,18 @@ const clock = (iso: string | null) => {
 };
 function postRow(post: SwarmDetail["posts"][0]): string {
   const words = firstWords(post.text, 9);
-  return `<li><a href="${esc(post.url)}" target="_blank" rel="noopener noreferrer"><time>${esc(clock(post.at))}</time><span class="sw-t">${esc(words || "·")}</span>${post.handle ? `<span class="sw-h">${esc(post.handle)}</span>` : ""}</a></li>`;
+  const handle = post.handle ? `<span class="sw-h">${esc(post.handle)}</span>` : "";
+  // a picture posted without words: the handle takes the line (no lone dot far from its handle)
+  const line = words ? `<span class="sw-t">${esc(words)}</span>${handle}` : handle || `<span class="sw-t">·</span>`;
+  return `<li><a href="${esc(post.url)}" target="_blank" rel="noopener noreferrer"><time>${esc(clock(post.at))}</time>${line}</a></li>`;
 }
 
 export function swarmPageHtml(detail: SwarmDetail, canTrace: boolean): string {
   const lines = (detail.caption ?? "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 4);
   const posts = (detail.posts ?? []).filter((post) => post && /^https?:\/\//i.test(post.url)).slice(0, 30);
   const SHOWN = 8;
+  // the list holds at most 30 links; the count is every post of the picture, as the chips count them
+  const total = Math.max(posts.length, Number.isFinite(detail.n_posts) ? detail.n_posts : 0);
   return `<div class="st-wrap">
     <section class="st-hero sw-hero">
       <figure class="st-mine"><img src="${esc(detail.picture)}" alt="${esc(lines.join(" ") || "The picture")}" referrerpolicy="no-referrer" draggable="false"></figure>
@@ -143,7 +153,7 @@ export function swarmPageHtml(detail: SwarmDetail, canTrace: boolean): string {
         ${canTrace ? `<div class="st-actions"><button class="btn solid" type="button" data-swarm-trace>Trace it</button></div>` : ""}
       </div>
     </section>
-    ${posts.length ? `<section class="st-sec" aria-labelledby="sw-posts-h"><h2 id="sw-posts-h">Posts<span>${posts.length}</span></h2>
+    ${posts.length ? `<section class="st-sec" aria-labelledby="sw-posts-h"><h2 id="sw-posts-h">Posts<span>${total}</span></h2>
       <ol class="sw-posts">${posts.slice(0, SHOWN).map(postRow).join("")}</ol>
       ${posts.length > SHOWN ? `<details class="sw-more"><summary>+${posts.length - SHOWN}</summary><ol class="sw-posts">${posts.slice(SHOWN).map(postRow).join("")}</ol></details>` : ""}
     </section>` : ""}
@@ -167,7 +177,9 @@ export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void) 
     catch { button.closest(".st-actions")?.remove(); } // unreadable after all: no button rather than an error
   });
   el.addEventListener("error", (event) => {
-    if (event.target instanceof HTMLImageElement) event.target.replaceWith(Object.assign(document.createElement("span"), { className: "st-noimg", textContent: "No picture" }));
+    if (!(event.target instanceof HTMLImageElement)) return;
+    event.target.replaceWith(Object.assign(document.createElement("span"), { className: "st-noimg", textContent: "No picture" }));
+    el.querySelector("[data-swarm-trace]")?.closest(".st-actions")?.remove(); // nothing left to trace
   }, true);
   return {
     /** false when the picture is not there (404, API down): the caller shows the home instead */

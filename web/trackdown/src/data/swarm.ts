@@ -93,16 +93,17 @@ export const GROUP_FILLS = ["#e4b36a", "#7aa2f0", "#b9a6e3", "#f2efe9"];
 export interface SwarmChip { family: SwarmFamily; label: string; summary: string; score: number }
 
 /** What the verdict rests on, as at most `max` chips. Shill: the strongest "for" signal of each
- *  family that fired. Chill: the strongest "against" signals. Can't tell: none (why_unclear says it). */
+ *  family that fired. Chill: the strongest "against" signals, unlabelled. Can't tell: none (why_unclear says it). */
 export function swarmChips(report: Pick<SwarmReport, "verdict" | "signals" | "fired">, max = 4): SwarmChip[] {
   if (report.verdict === "unclear") return [];
   const signals = (report.signals ?? []).filter((s) => s && s.summary?.trim() && Number.isFinite(s.score));
   const chip = (s: SwarmSignal): SwarmChip => ({ family: s.family, label: FAMILY_NAME[s.family] ?? s.family, summary: s.summary.trim(), score: s.score });
   const byScore = (a: SwarmSignal, b: SwarmSignal) => b.score - a.score;
   if (report.verdict === "organic") {
+    // no family label: a guard's family names what it rules out ("Copy-paste" over "14 of 18 own words")
     const seen = new Set<string>();
     return signals.filter((s) => s.polarity === "against").sort(byScore)
-      .filter((s) => !seen.has(s.summary.trim()) && !!seen.add(s.summary.trim())).slice(0, max).map(chip);
+      .filter((s) => !seen.has(s.summary.trim()) && !!seen.add(s.summary.trim())).slice(0, max).map((s) => ({ ...chip(s), label: "" }));
   }
   const fired = new Set(report.fired ?? []);
   const best = new Map<SwarmFamily, SwarmSignal>();
@@ -147,9 +148,13 @@ export function layoutTimeline(points: readonly SwarmTimelinePoint[], opts: { co
   const pos = [0];
   for (let i = 1; i < n; i++) pos.push(pos[i - 1] + Math.log1p(Math.max(0, pts[i].t - pts[i - 1].t) / tau));
   const total = pos[n - 1];
-  const block = Math.ceil(n / rows);
-  // all at one instant: centre the block
-  const target = pos.map((p) => (total > 0 ? Math.round((p / total) * (cols - 1)) : Math.floor((cols - block) / 2)));
+  // Everything within half an hour is not stretched across the whole width: the axis is then at least
+  // as long as four hour-long gaps, so posts seconds apart (5 accounts in 2 s) stay one block, centred
+  // below, instead of looking like people who posted all day. Longer spans reach both ends.
+  const short = pts[n - 1].t - pts[0].t < 1800;
+  const span = short ? Math.max(total, 4 * Math.log1p(3600 / tau)) : total;
+  const compact = total < span;
+  const target = pos.map((p) => Math.round((p / span) * (cols - 1)));
 
   // forward: never left of the previous sighting, at most `rows` per column
   const col = new Array<number>(n);
@@ -171,6 +176,10 @@ export function layoutTimeline(points: readonly SwarmTimelinePoint[], opts: { co
       col[i] = c;
       count++;
     }
+  }
+  if (compact) {
+    const shift = Math.floor((cols - 1 - (col[n - 1] - col[0])) / 2) - col[0];
+    for (let i = 0; i < n; i++) col[i] += shift;
   }
 
   // same-words groups ranked by size, biggest first; ties by first appearance
