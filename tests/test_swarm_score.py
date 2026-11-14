@@ -713,3 +713,457 @@ def test_scores_rank_by_strength_not_saturate():
     b = score_swarm(big, info_b, selected_by_file=True, window=WIN)
     assert a.verdict == b.verdict == "swarm"
     assert a.score < b.score < 1.0
+
+
+# ---------------------------------------------------------------- swarm-v3 regressions ----------
+# Two ad rings from production (live, selected_by_file, 24 h window) that swarm-v2 called
+# "unclear": the accounts family stopped at 0.49 because shares were scored raw, not as their
+# excess over the baseline, and minted handles (nextbuy01, nextbuy-2, logannb001) were missed.
+
+PROD_BASELINE = Baseline(fresh_rate=0.0308, n=38459)
+RING_BIO = "Premium research peptides for laboratory use only fast worldwide shipping"
+RING_1 = (
+    "nextbuyvip89 emmaelizebethi76 nextbuy01 nextbuyvip03 nextbuy nextbuy2 nextbuy346 nextbuy84 "
+    "nextbuy567i nextbuy-1 nextbuy-2 nextbuy-3 jhonnext1 logannb001 scottnb002 chalesnb003 "
+    "reminext04 drakenext04 mitchnb07 philipnb06 pamelanb08 lissanb09 carltonnb10 bily92 "
+    "harry2026lee frank1999gsb"
+).split()
+RING_2 = (
+    "goodstuff05 goodstu goodstuff19-96 goodstuff19 goodstuff19-00 goodstuff19-0 goodstuff94 "
+    "goodstuff90 goodstuff01 goodstuff02 goodstuff033 goodstuff998 goodstuff56 seaversgood01 "
+    "jodygood02 hawwigood03 willgood04 carltongood05 jorsh01 andyconor90 gemma1g nextbuy-3 "
+    "genlabs101 genlabs202 goodstuff-3 goodstuff-2 goodstuff-1"
+).split()
+
+
+def ring_case(handles, *, fresh, same_week, bios, alike_bios, top_text, burst_n, burst_s, seed):
+    """One picture posted once by each ring account over ~6 h: `burst_n` of them inside `burst_s`
+    seconds, `fresh` accounts under 30 days old (`same_week` of them made in one week), `bios`
+    accounts with a bio (`alike_bios` the same), and the ad copy: `top_text` accounts with one
+    7-word line, all but one of the rest in three other copied 8-word lines."""
+    rng = random.Random(seed)
+    n = len(handles)
+    first = T0 - timedelta(hours=10)
+    offs = sorted(rng.uniform(0, burst_s) for _ in range(burst_n))
+    offs += sorted(rng.uniform(burst_s + 1800, 6 * 3600) for _ in range(n - burst_n))
+    lines = [
+        "SHOP NOW next generation metabolic research peptide",
+        "best metabolic research peptide on the market today",
+        "order your research peptide today with fast shipping",
+        "lab grade metabolic peptide now in stock order now",
+    ]
+    rest = n - top_text - 1
+    texts = [lines[0]] * top_text
+    for j in range(rest):
+        texts.append(lines[1 + j % 3])
+    texts.append("my cat thinks this is a very strange advert")
+    s, info = [], {}
+    for i, h in enumerate(handles):
+        acc = f"did:plc:ring{seed}x{i}"
+        at = first + timedelta(seconds=offs[i])
+        s.append(post(f"r{seed}_{i}", acc, at, texts[i], "cidRing"))
+        if i < same_week:
+            created = first - timedelta(days=12, hours=rng.uniform(0, 120))
+        elif i < fresh:
+            created = first - timedelta(days=rng.uniform(1, 28))
+        else:
+            created = first - timedelta(days=rng.uniform(60, 900))
+        bio = (
+            (RING_BIO if i < alike_bios else "dad runner coffee and long walks") if i < bios else ""
+        )
+        info[acc] = AccountInfo(
+            key=acc,
+            handle=f"{h}.bsky.social",
+            created_at=created,
+            followers=rng.randint(0, 40),
+            bio=bio,
+            has_avatar=rng.random() < 0.5,
+        )
+    return s, info
+
+
+def score_live(s, info):
+    win = (T0 - timedelta(hours=23), T0 + timedelta(hours=1))
+    return score_swarm(
+        s, info, basis="live", selected_by_file=True, window=win, baseline=PROD_BASELINE
+    )
+
+
+def test_ad_ring_nextbuy_is_swarm():
+    s, info = ring_case(
+        RING_1,
+        fresh=14,
+        same_week=11,
+        bios=7,
+        alike_bios=6,
+        top_text=15,
+        burst_n=11,
+        burst_s=300,
+        seed=35,
+    )
+    r = score_live(s, info)
+    assert r.verdict == "swarm", (r.why_unclear, r.families)
+    assert {"accounts", "copy"} <= set(r.fired)
+    names = {x.name: x for x in r.signals}
+    assert names["same_cohort"].score >= 0.4  # 14 of 26 fresh against a 3% baseline
+    assert names["templated_handles"].score >= 0.5  # nextbuy + counter, name + nb + counter
+    assert names["same_bio"].score >= 0.5  # 6 of the 7 bios there are
+    assert r.families["copy"] >= 0.5 and r.guard < 0.6
+
+
+def test_ad_ring_goodstuff_is_swarm():
+    s, info = ring_case(
+        RING_2,
+        fresh=16,
+        same_week=7,
+        bios=6,
+        alike_bios=5,
+        top_text=15,
+        burst_n=7,
+        burst_s=960,
+        seed=36,
+    )
+    r = score_live(s, info)
+    assert r.verdict == "swarm", (r.why_unclear, r.families)
+    assert {"accounts", "copy"} <= set(r.fired)
+    names = {x.name: x for x in r.signals}
+    assert names["same_cohort"].score >= 0.5
+    assert names["templated_handles"].score >= 0.5
+    assert names["templated_handles"].numbers["minted"] >= 16
+
+
+def test_tested_share_scores_its_excess_over_the_baseline():
+    s, info = ring_case(
+        RING_1,
+        fresh=14,
+        same_week=0,
+        bios=0,
+        alike_bios=0,
+        top_text=15,
+        burst_n=0,
+        burst_s=300,
+        seed=37,
+    )
+    sig = lambda r: next(x for x in r.signals if x.name == "same_cohort")  # noqa: E731
+    low = sig(score_swarm(s, info, baseline=Baseline(fresh_rate=0.03, n=5000)))
+    high = sig(score_swarm(s, info, baseline=Baseline(fresh_rate=0.25, n=5000)))
+    assert low.score > 0.4 > high.score > 0  # same 14 of 26, weaker against a higher rate
+    assert low.score > 1.2 * 0.355  # v2 scored the raw share's bound (0.355) whatever the rate
+    assert sig(score_swarm(s, info)).score <= 0.45  # no baseline: untested, capped
+
+
+def test_fans_and_ordinary_names_are_not_minted():
+    rng = random.Random(40)
+    cases = [
+        # fans with meaningful numbers on one stem
+        [
+            "swiftie13",
+            "swiftie89",
+            "swiftie1989",
+            "swiftie22",
+            "swiftie2014",
+            "folklorefan",
+            "taylornation13",
+            "lovergirl",
+            "midnightsrain",
+            "cardigan",
+        ],
+        # ordinary first names with small numbers that share a last letter pair
+        [
+            "dylan01",
+            "logan7",
+            "ryan3",
+            "brian12",
+            "megan2001",
+            "susan88",
+            "katie",
+            "marcus",
+            "olivia",
+            "noah",
+        ],
+    ]
+    for hs in cases:
+        s = [
+            post(i, f"did:plc:o{i}", T0 + timedelta(seconds=rng.uniform(0, 900)), "", "cidO")
+            for i in range(len(hs))
+        ]
+        info = {
+            f"did:plc:o{i}": AccountInfo(key=f"did:plc:o{i}", handle=f"{h}.bsky.social")
+            for i, h in enumerate(hs)
+        }
+        r = score_swarm(s, info, basis="live", selected_by_file=True, window=LIVE_WIN)
+        t = next((x for x in r.signals if x.name == "templated_handles"), None)
+        assert t is None or t.score < 0.5, (hs, t)
+        assert r.verdict != "swarm"
+
+
+def test_same_bio_is_measured_among_accounts_with_a_bio():
+    accs = [f"did:plc:b{i}" for i in range(20)]
+    s = [post(i, a, T0 + timedelta(hours=i), "", f"c{i}") for i, a in enumerate(accs)]
+    info = {a: AccountInfo(key=a, bio=RING_BIO if i < 5 else "") for i, a in enumerate(accs)}
+    info[accs[5]] = AccountInfo(key=accs[5], bio="I paint birds and drink too much coffee")
+    bio = next(x for x in score_swarm(s, info).signals if x.name == "same_bio")
+    assert bio.numbers == {"kind": "bio", "alike": 5, "with_bio": 6}
+    assert bio.score >= 0.5
+    # three accounts sharing a short generic bio among many different ones stay low
+    info = {
+        a: AccountInfo(key=a, bio="love my family" if i < 3 else own_text(random.Random(i), 6))
+        for i, a in enumerate(accs)
+    }
+    bio = next((x for x in score_swarm(s, info).signals if x.name == "same_bio"), None)
+    assert bio is None or bio.score < 0.2
+
+
+# ---------------------------------------------------------------- one_publisher ----------------
+# A leisure trust's venue accounts posting one job advert at 09:00 with a scheduler is
+# coordinated but not inauthentic. one_publisher is the only guard that overrides fired families,
+# and only when the accounts family did not fire.
+
+PUB_NOW = datetime(2026, 11, 13, 9, 0, tzinfo=UTC)
+PUB_WIN = (PUB_NOW - timedelta(hours=20), PUB_NOW + timedelta(hours=4))
+
+
+def _day(s: str) -> datetime:
+    return datetime.fromisoformat(s).replace(tzinfo=UTC)
+
+
+def publisher_case(rows, texts, times, *, avatar=True):
+    """rows: (handle, created_at, followers, display name, bio)"""
+    s, info = [], {}
+    for i, (h, created, followers, name, bio) in enumerate(rows):
+        acc = f"did:plc:{h.replace('-', '').replace('_', '')}"
+        s.append(post(f"pub_{i}", acc, times[i], texts[i], "cidPub"))
+        info[acc] = AccountInfo(
+            key=acc,
+            handle=f"{h}.bsky.social",
+            created_at=created,
+            followers=followers,
+            following=1,
+            name=name,
+            bio=bio,
+            has_avatar=avatar,
+        )
+    return s, info
+
+
+def score_pub(s, info, baseline=PROD_BASELINE):
+    return score_swarm(
+        s, info, basis="live", selected_by_file=True, window=PUB_WIN, baseline=baseline
+    )
+
+
+def cv_life_case():
+    """Group 29ae401b0260: CV Life (Coventry) and four venue accounts, one job advert, 2 s."""
+    rows = [("cvlife", _day("2024-12-06"), 74, None, None)] + [
+        (f"{venue}-coventry", _day("2025-01-02"), 2 + j * 2, None, None)
+        for j, venue in enumerate(["ahc", "at7", "moathouse", "xcel"])
+    ]
+    rng = random.Random(29)
+    text = "We're hiring! Join our team as a Leisure Assistant. Apply now at cvlife.com/jobs"
+    times = [PUB_NOW + timedelta(seconds=rng.uniform(0, 2)) for _ in rows]
+    return publisher_case(rows, [text] * len(rows), times)
+
+
+ROOF_CITIES = [
+    ("greenfd", "Greenfield"),
+    ("jackson", "Jackson"),
+    ("kenosha", "Kenosha"),
+    ("milwaukee", "Milwaukee"),
+    ("oakcreek", "Oak Creek"),
+    ("waukesha", "Waukesha"),
+    ("wauwatosa", "Wauwatosa"),
+]
+ROOF_TEXT = (
+    "Roof quote: full scope, free estimate, gutters and siding too. Online: https://example.com/q"
+)
+
+
+def roof_depot_case():
+    rows = [
+        (
+            f"roofdepot{c}",
+            _day("2026-05-29"),
+            4 + j % 3,
+            f"Roof Depot {n}",
+            f"Roofing, gutters, and exterior upgrades in {n}, WI. https://example.com/{c}",
+        )
+        for j, (c, n) in enumerate(ROOF_CITIES)
+    ]
+    rng = random.Random(30)
+    times = [PUB_NOW + timedelta(seconds=rng.uniform(0, 840)) for _ in rows]
+    return publisher_case(rows, [ROOF_TEXT] * len(rows), times)
+
+
+def quality_first_case():
+    rows = [
+        (f"qualityfirst{c}", _day(d), f, f"Quality First {c.title()}", None)
+        for c, d, f in [
+            ("camp", "2026-05-07", 48),
+            ("conc", "2026-05-12", 60),
+            ("home", "2026-05-20", 86),
+            ("reno", "2026-05-28", 70),
+            ("sac", "2026-06-02", 55),
+        ]
+    ]
+    rng = random.Random(31)
+    times = [PUB_NOW + timedelta(seconds=rng.uniform(0, 600)) for _ in rows]
+    return publisher_case(rows, [ROOF_TEXT] * len(rows), times)
+
+
+def test_cv_life_job_advert_is_organic():
+    """v3 called this Shill: timing (5 accounts in 2 s) and copy (same words x5) fired."""
+    r = score_pub(*cv_life_case())
+    assert {"timing", "copy"} <= set(r.fired) and "accounts" not in r.fired
+    assert r.verdict == "organic", (r.why_unclear, r.fired)
+    pub = next(x for x in r.signals if x.name == "one_publisher")
+    assert pub.summary == "4 accounts, one name"
+    assert pub.polarity == "against" and pub.family == "accounts" and not pub.examples
+    assert pub.score >= 0.6 and pub.numbers["established"] == 1
+    assert r.guard >= 0.6
+
+
+def test_franchise_accounts_with_one_name_are_unclear():
+    """Five-month-old branch accounts: marketing and an ad network look the same."""
+    for case in (roof_depot_case, quality_first_case):
+        r = score_pub(*case())
+        assert {"timing", "copy"} <= set(r.fired) and "accounts" not in r.fired, case
+        assert r.verdict == "unclear" and r.why_unclear == "one name, new accounts", case
+        pub = next(x for x in r.signals if x.name == "one_publisher")
+        assert pub.numbers["established"] == 0
+
+
+def test_rings_are_not_one_publisher():
+    for kw in (
+        dict(
+            handles=RING_1,
+            fresh=14,
+            same_week=11,
+            bios=7,
+            alike_bios=6,
+            top_text=15,
+            burst_n=11,
+            burst_s=300,
+            seed=35,
+        ),
+        dict(
+            handles=RING_2,
+            fresh=16,
+            same_week=7,
+            bios=6,
+            alike_bios=5,
+            top_text=15,
+            burst_n=7,
+            burst_s=960,
+            seed=36,
+        ),
+    ):
+        r = score_live(*ring_case(**kw))
+        assert r.verdict == "swarm"
+        assert not any(x.name == "one_publisher" for x in r.signals)
+
+
+def test_genlabs_like_ring_stays_swarm():
+    rng = random.Random(53)
+    hs = (
+        [f"genlabs{n}" for n in range(30, 52)]
+        + ["genlab51", "genlab47"]
+        + [f"yourmuscleshop{n}" for n in range(1, 25)]
+        + ["bobby1", "kate22", "mike_rx", "lara", "tomtom7"]
+    )
+    rows = []
+    for j, h in enumerate(hs):
+        if j < 36:
+            created = PUB_NOW - timedelta(days=rng.uniform(2, 25))
+        elif j < 43:
+            created = PUB_NOW - timedelta(days=rng.uniform(60, 700))
+        else:
+            created = None
+        rows.append((h, created, rng.randint(0, 30), None, None))
+    texts = [
+        rng.choice(
+            [
+                "GenLabs research peptides lab tested and shipped worldwide order today",
+                "best research peptides at GenLabs lab tested and shipped order now",
+            ]
+        )
+        for _ in rows
+    ]
+    times = [PUB_NOW - timedelta(seconds=rng.uniform(0, 6 * 3600)) for _ in rows]
+    r = score_pub(*publisher_case(rows, texts, times, avatar=False))
+    assert r.verdict == "swarm" and "accounts" in r.fired
+    assert not any(x.name == "one_publisher" for x in r.signals)
+
+
+def test_fresh_accounts_sharing_a_name_are_not_excused():
+    """A ring that names its fresh accounts stem + place: the fresh test fires, no excuse."""
+    places = [
+        "texas",
+        "ohio",
+        "florida",
+        "georgia",
+        "arizona",
+        "nevada",
+        "iowa",
+        "utah",
+        "maine",
+        "idaho",
+    ]
+    rows = [
+        (f"patriotvoice{p}", PUB_NOW - timedelta(days=9, hours=j), 3, None, None)
+        for j, p in enumerate(places)
+    ]
+    rng = random.Random(41)
+    times = [PUB_NOW + timedelta(seconds=rng.uniform(0, 120)) for _ in rows]
+    text = "They are lying to you about the election wake up and share this now"
+    s, info = publisher_case(rows, [text] * len(rows), times)
+    r = score_pub(s, info)
+    assert r.verdict == "swarm" and "accounts" in r.fired
+    assert not any(x.name == "one_publisher" for x in r.signals)
+    # without a baseline (a lookup) the fresh test cannot fire: abstain, never organic
+    r = score_pub(s, info, baseline=None)
+    assert r.verdict == "unclear" and r.why_unclear == "one name, new accounts"
+
+
+def test_generic_tokens_are_not_one_name():
+    rng = random.Random(42)
+    words = ["daily", "city", "tech", "sport", "metro", "local", "world", "crypto", "game", "film"]
+    rows = [
+        (
+            f"{w}{k}news" if k else f"{w}news",
+            _day("2020-03-01"),
+            500,
+            "Official News",
+            None,
+        )
+        for k in ("", "the", "real")
+        for w in words
+    ]
+    times = [PUB_NOW + timedelta(seconds=rng.uniform(0, 60)) for _ in rows]
+    text = "BREAKING: the river bridge is closed in both directions until further notice"
+    # all old and created on one day, so only the generic exclusion stops the guard
+    r = score_pub(*publisher_case(rows, [text] * len(rows), times))
+    assert len(rows) == 30
+    assert not any(x.name == "one_publisher" for x in r.signals)
+    assert r.verdict != "organic"
+
+
+def test_fans_sharing_a_stem_are_not_one_publisher():
+    rng = random.Random(43)
+    hs = [
+        "taylorsversion",
+        "taylornation",
+        "taylorgang",
+        "taylorismymom",
+        "taylorfan",
+        "tayloredit",
+        "swiftiesforever",
+        "folklorefan",
+    ]
+    rows = [
+        (h, _day("2019-01-01") + timedelta(days=rng.uniform(0, 2000)), 300, None, None) for h in hs
+    ]
+    times = [PUB_NOW + timedelta(seconds=rng.uniform(0, 30)) for _ in rows]
+    text = "she really said that and the whole fandom lost it today again"
+    r = score_pub(*publisher_case(rows, [text] * len(rows), times))
+    assert not any(x.name == "one_publisher" for x in r.signals)  # not created together
+    assert r.verdict != "organic"
