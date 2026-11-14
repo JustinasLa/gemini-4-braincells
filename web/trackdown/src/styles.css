@@ -262,6 +262,7 @@ input:focus-visible { outline: none; }
 .term-head .d.r { background: #e2533c; } .term-head .d.y { background: #e4b36a; } .term-head .d.g { background: var(--cv); }
 .term-head .file { margin-left: 6px; }
 .term-head .x { margin-left: auto; font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
+.term-head button.x { min-width: 44px; min-height: 44px; margin: -9px -8px -9px 0; }
 .term-head .x:hover { color: var(--text); }
 .term-body { flex: 1 1 auto; min-height: 0; padding: 10px 14px 12px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #2a2a2e transparent; font: 400 11.5px/1.6 var(--mono); color: var(--text-2); }
 .term-body .cmd { color: var(--text-3); margin-bottom: 6px; }
@@ -444,7 +445,7 @@ input:focus-visible { outline: none; }
 .drop .row .file { margin-left: auto; }
 .drop .att { color: var(--cv); font: 400 11px/1 var(--mono); }
 .examples { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
-.examples button { text-align: left; font: 400 13px/1.35 var(--sans); padding: 9px 11px; color: var(--text-2); border: 1px solid var(--line); transition: border-color 0.2s, color 0.2s; }
+.examples button { min-height: 44px; text-align: left; font: 400 13px/1.35 var(--sans); padding: 9px 11px; color: var(--text-2); border: 1px solid var(--line); transition: border-color 0.2s, color 0.2s; }
 .examples button:hover { color: var(--text); border-color: var(--cv); }
 .modal .foot { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
 .modal .foot .fine { font: 400 11px/1.5 var(--mono); color: var(--text-3); flex: 1; }
@@ -495,27 +496,37 @@ input:focus-visible { outline: none; }
   .legend { left: 8px; right: 64px; bottom: 204px; grid-template-columns: 1fr 1fr; gap: 7px 10px; white-space: normal; }
   .legend .li { white-space: normal; }
   .topbar .btn { width: 44px; height: 44px; padding: 0; }
-  .app[data-phase="done"] .peek { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 10; display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 14px; text-align: left; background: rgba(8, 8, 10, 0.96); border: 1px solid var(--line-2); border-top: 2px solid var(--vc); }
+  .app[data-phase="done"] .peek { position: absolute; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); z-index: 10; display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 8px 14px; text-align: left; background: rgba(8, 8, 10, 0.98); border: 1px solid var(--line-3); border-top: 2px solid var(--vc); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55); }
+  .app[data-phase="done"] .peek:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
   .peek .vchip { flex: none; }
   .peek .pk-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .peek .pk-t b { font: 600 14px/1.2 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .peek .pk-t span { font: 500 10.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
   .peek .pk-go { flex: none; font: 600 12px/1 var(--sans); color: var(--text-2); }
   /* two rows: play + readout, then a full-width scrubber */
+<<<<<<< HEAD
   .app[data-phase="done"] .dock { bottom: 72px; height: 124px; grid-template-columns: 1fr; grid-template-rows: auto 1fr; gap: 6px; padding: 8px 10px; }
   .app[data-phase="done"] .dock .scrub { height: 56px; }
   .step { width: 36px; height: 36px; }
   .app[data-phase="done"] .hud { bottom: 206px; }
+=======
+  .app[data-phase="done"] .dock { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); height: 112px; grid-template-columns: 1fr; grid-template-rows: auto 1fr; gap: 6px; padding: 8px 10px; }
+  .app[data-phase="done"] .dock .scrub { height: 50px; }
+  .app[data-phase="done"] .hud { bottom: 194px; }
+>>>>>>> 2940c73 (Mobile interactions: enlarge Trackdown touch targets and clarify result sheet)
   .zoom button { width: 44px; height: 44px; }
   .zoom button[data-z="in"], .zoom button[data-z="out"] { display: none; }
   .zoom button[data-z="fit"] { border-top: 0; }
-  .tabs { padding: 0 6px; }
-  .tabs button { letter-spacing: 0.06em; padding: 0 2px; }
-  .app .panel { position: fixed; left: 0; right: 0; bottom: 0; height: 74vh; z-index: 45; border-left: 0; border-top: 1px solid var(--line-3); transform: translateY(100%); transition: transform 0.45s var(--ease-out), box-shadow 0.45s; }
+  .tabs { padding: 0 8px; gap: 3px; }
+  .tabs button { min-width: 0; height: 52px; padding: 0 3px; font-size: 10.5px; letter-spacing: 0.04em; }
+  .tabs button .n { margin-left: 4px; }
+  .tabs button.on { background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent); border-bottom-width: 2px; }
+  .sheet-close { width: 48px; height: 48px; margin-right: 4px; }
+  .app .panel { position: fixed; left: 0; right: 0; bottom: 0; height: min(78dvh, 720px); max-height: calc(100dvh - 52px - env(safe-area-inset-top, 0px)); z-index: 45; border-left: 0; border-top: 1px solid var(--line-3); padding-bottom: env(safe-area-inset-bottom, 0px); transform: translateY(100%); transition: transform 0.45s var(--ease-out), box-shadow 0.45s; overscroll-behavior: contain; }
   .app.sheet-open .panel { box-shadow: 0 -30px 80px rgba(0, 0, 0, 0.8); }
   .detail .close { display: none; } /* the sheet's own close is the one close control on a phone */
   .app.sheet-open .panel { transform: none; }
-  .panel-inner { width: auto; }
+  .panel-inner { width: auto; padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
   .mobile-only { display: inline-flex !important; }
   .hud { bottom: 100px; right: 10px; }
 
@@ -524,7 +535,8 @@ input:focus-visible { outline: none; }
   .stage .clock { min-width: 0; }
   .clock .d { font-size: 11px; }
   .term { top: 40px; left: 8px; right: 8px; width: auto; max-height: max(200px, calc(100% - 420px)); }
-  .examples { grid-template-columns: 1fr; }
+  .examples { grid-template-columns: 1fr; gap: 8px; }
+  .examples button { min-height: 48px; padding: 11px 12px; }
   .banner { height: 120px; }
   .banner .bt { font-size: 20px; }
 }
@@ -598,4 +610,8 @@ input:focus-visible { outline: none; }
   .home-q { flex: none; width: 100%; }
   .home-form .home-upload .lbl { display: inline !important; }
   .home-wm { font-size: 6.2vw; letter-spacing: 0.2em; text-indent: 0.2em; }
+  .home-ex { gap: 4px 8px; }
+  .home-ex button { min-height: 44px; padding: 10px 4px; }
+  .btn { min-height: 44px; }
+  .status .st-skip { min-height: 44px; padding: 12px 8px; }
 }
