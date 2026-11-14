@@ -70,6 +70,9 @@ def text_hash(text: str | None) -> str | None:
     return hashlib.blake2b(norm.encode(), digest_size=8).hexdigest()
 
 
+MAX_URL_LEN = 1000  # Postgres index entries max out near 2.7 kB; real links are far shorter
+
+
 def normalize_url(url: str | None) -> str | None:
     """Canonical form for comparing links: https, lowercase host without www., no fragment,
     no tracking params, sorted query, no trailing slash. Resolves nothing (no network)."""
@@ -108,7 +111,8 @@ def normalize_url(url: str | None) -> str | None:
     path = parts.path or ""
     if path.endswith("/"):
         path = path.rstrip("/")
-    return urlunsplit(("https", host, path, urlencode(query), ""))
+    out = urlunsplit(("https", host, path, urlencode(query), ""))
+    return out[:MAX_URL_LEN]
 
 
 def url_domain(normalized_url: str) -> str:
