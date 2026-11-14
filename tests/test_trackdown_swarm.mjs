@@ -30,10 +30,11 @@ const { swarmStrip, swarmPageHtml } = await import(
 );
 
 test("the picture page shows both signal strengths without inventing confidence or truth probabilities", () => {
-  const report = { verdict: "organic", score: 0.12, guard: 0.71, signals: [], timeline: [] };
+  const report = { verdict: "organic", score: 0.12, guard: 0.71, n_accounts: 14, signals: [], timeline: [] };
   const html = swarmPageHtml({ report, picture: "https://image.example/meme.jpg", posts: [] }, true);
   assert.match(html, /Chill<\/h2>/);
   assert.match(html, /Confidence: <b>not calibrated<\/b>/);
+  assert.match(html, /role="group" aria-label="Confidence and signal strengths"/);
   assert.match(html, /Swarm signal<\/dt><dd>12\/100/);
   assert.match(html, /Organic signal<\/dt><dd>71\/100/);
   assert.match(html, /The spread looks organic/);
@@ -43,7 +44,7 @@ test("the picture page shows both signal strengths without inventing confidence 
 });
 
 test("Can't tell keeps conflicting scores and the abstention reason visible; missing scores stay unknown", () => {
-  const report = { verdict: "unclear", score: 0.85, guard: 0.78, why_unclear: "conflicting <signals>", signals: [], timeline: [] };
+  const report = { verdict: "unclear", score: 0.85, guard: 0.78, n_accounts: 5, why_unclear: "conflicting <signals>", signals: [sig("copy", 0.85, "same words ×4")], timeline: [] };
   const html = swarmStrip(report);
   assert.match(html, /Can&#39;t tell<\/h2>/);
   assert.match(html, /85\/100/);
@@ -59,6 +60,10 @@ test("Can't tell keeps conflicting scores and the abstention reason visible; mis
   assert.match(zero, /Swarm signal<\/dt><dd>100\/100/);
   assert.match(zero, /Organic signal<\/dt><dd>0\/100/);
   assert.match(zero, /spread shows signs of coordination/);
+  const unscored = swarmStrip({ ...report, n_accounts: 0, score: 0, guard: 0, why_unclear: "no posts of the picture" });
+  assert.equal((unscored.match(/<dd>Unavailable<\/dd>/g) ?? []).length, 2);
+  assert.match(unscored, /no posts of the picture/);
+  assert.doesNotMatch(unscored, /0\/100/);
 });
 
 test("verdict words and family names follow the product's words", () => {
