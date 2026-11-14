@@ -1,4 +1,4 @@
-"""One bounded Super VL comparison, with paired or labelled composite image inputs."""
+"""One bounded Super VL comparison, with paired or side-by-side composite image inputs."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, cast, get_args
 
 import openai
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 from media.nemotron import (
     NemotronClient,
@@ -28,7 +28,7 @@ from media.nemotron import (
 )
 
 log = logging.getLogger(__name__)
-PROMPT_VERSION = "imagediff-v1"
+PROMPT_VERSION = "imagediff-v2"
 # composite beat pair on the live eval (19/20 vs 18/20 clean; pair invented edits on an
 # identical pair), at the same latency: media/README.md, "Image diff".
 DEFAULT_LAYOUT: Literal["pair", "composite"] = "composite"
@@ -128,47 +128,6 @@ _NO_CHANGE_FORMS = tuple(
         rf"(?:\s+(?:to|in)\s+{_SUBJECT.removesuffix(r'\s+')})?\.?",
     )
 )
-# The composite's own panel labels, read back as image text or as an edit (live, prod lookup
-# lk_a83a7c2ff47c2545: "The top label changed from 'A: earlier' to 'B: later'."). Only a text
-# report quoting nothing but the exact labels counts; transcriptions are never altered.
-# Its own narrow grammar: position words, a label noun, the exact quoted labels and a location
-# made only of position words. Any other word means the sentence may report a real edit.
-_PANEL_LABELS = ("A: earlier", "B: later")  # drawn by _composite, named in SYSTEM_PROMPT
-_POS = r"(?:top|bottom|upper|lower|left|right|centre|center|middle|corner|edge)"
-_WHERE = rf"(?:\s+(?:at|in|on|to|from|near)\s+the\s+{_POS}(?:[\s-]+{_POS})*"
-_WHERE += r"(?:\s+of\s+the\s+(?:image|picture|panel))?)?"
-_MOD = rf"(?:(?:{_POS}|panel|image|picture)[\s-]+)*"
-_LNOUN = r"(?:labels?|text|captions?|headings?|titles?|headers?|tags?)(?:\s+text)?"
-
-
-def _label_pattern(label: str) -> str:  # "A: earlier" -> A\s*:\s*earlier, loose spacing
-    key, word = label.split(":")
-    return rf"\s*{re.escape(key.strip())}\s*:\s*{re.escape(word.strip())}\s*"
-
-
-_LBL_EACH = tuple(re.compile(_label_pattern(label), re.I) for label in _PANEL_LABELS)
-
-
-def _quoted(pattern: str) -> str:
-    return rf"(?:'{pattern}'|\"{pattern}\"|\u2018{pattern}\u2019|\u201c{pattern}\u201d)"
-
-
-# Panel-specific: A's label is the "before" side, B's the "after" side of a label report.
-_LQ_A, _LQ_B = (_quoted(_label_pattern(label)) for label in _PANEL_LABELS)
-_AUX = r"(?:(?:was|were|has\s+been|have\s+been)\s+)?"
-_SWAP = r"(?:changed|switched|replaced|updated)"
-_LABEL_ONLY = tuple(
-    re.compile(form, re.I)
-    for form in (
-        rf"(?:the\s+)?{_MOD}{_LNOUN}{_WHERE}\s+{_AUX}{_SWAP}\s+from\s+{_LQ_A}\s+to\s+{_LQ_B}\.?",
-        rf"(?:the\s+)?{_MOD}{_LNOUN}(?:\s+{_LQ_A})?{_WHERE}\s+{_AUX}{_SWAP}\s+(?:to|with|by)\s+"
-        rf"{_LQ_B}{_WHERE}\.?",
-        rf"(?:the|an?)\s+{_MOD}{_LNOUN}\s+{_LQ_B}{_WHERE}\s+(?:was|were|has\s+been)\s+added"
-        rf"{_WHERE}\.?",
-        rf"(?:the|an?)\s+{_MOD}{_LNOUN}\s+{_LQ_A}{_WHERE}\s+(?:was|were|has\s+been)\s+removed"
-        rf"{_WHERE}\.?",
-    )
-)
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
 # Larger inputs are refused from the header, before decoding (decompression bombs). This is far
@@ -190,7 +149,8 @@ Return only JSON: text_before, text_after, changes, kinds, content_flags, confid
   Examples: "The caption changed from 'X' to 'Y'.", "A red hat was added on the right.",
   "The image was cropped; the left third is gone.", "The colours were shifted to a warmer
   tone.", "A watermark '@handle' was added at the bottom."
-- kinds: one per change, in the same order, chosen from {list(CHANGE_KINDS)}.
+- kinds: one per change, in the same order, chosen from {list(CHANGE_KINDS)}. A watermark
+  or handle added or removed is "watermark".
 - Report only differences you can clearly see. Re-encoding, compression, resizing, sharpness
   and slight brightness differences are not changes. Identical or visually same images:
   changes [] and kinds []. If unsure whether a difference is there, leave it out.
@@ -198,7 +158,7 @@ Return only JSON: text_before, text_after, changes, kinds, content_flags, confid
   authorship or truth. Never use deepfake, fake, faked, real, authentic, genuine, bot, shill,
   troll or propaganda. For a swapped face say:
   "The face of the person in the centre was replaced with a different face."
-- Ignore the "{_PANEL_LABELS[0]}" / "{_PANEL_LABELS[1]}" labels.
+- The grey bar between the two panels only separates them; ignore it.
 - content_flags: subset of ["adult", "graphic"]. Sexual/nude material: ["adult"].
   Gore/violence: ["graphic"]. Do not describe bodies or acts in either case.
 - confidence: a number from 0 to 1."""
@@ -363,8 +323,13 @@ def _mark(
 def _composite(
     original: Image.Image, variant: Image.Image
 ) -> tuple[Image.Image, tuple[int, int, int, int]]:
-    """Side-by-side A | B with label bars; also returns B's panel as (x, y, w, h)."""
-    gap, bar = 16, 40
+    """Side-by-side A | B split by a grey bar; also returns B's panel as (x, y, w, h).
+
+    No text labels: drawn "A: earlier" / "B: later" once leaked live as an edit (lookup
+    lk_a83a7c2ff47c2545), and the unlabelled composite was cleaner on the Verda eval
+    (media/README.md, "Image diff"). The prompt names the panels by position instead.
+    """
+    gap = 16
     height = min(original.height, variant.height)
     ratio = original.width / original.height + variant.width / variant.height
     scaled_height = min(height, (_MAX_COMPOSITE - gap) / ratio)
@@ -377,14 +342,13 @@ def _composite(
         for image in (original, variant)
     ]
     widths = [max(128, image.width) for image in panels]
-    composite = Image.new("RGB", (sum(widths) + gap, height + bar), "white")
-    draw = ImageDraw.Draw(composite)
-    font = ImageFont.load_default(size=20)
-    for image, label, offset in zip(panels, _PANEL_LABELS, (0, widths[0] + gap), strict=True):
-        composite.paste(image, (offset, bar))
-        draw.text((offset + 8, 8), label, fill="black", font=font)
-    panel = (widths[0] + gap, bar, panels[1].width, height)
-    if composite.width > _MAX_COMPOSITE:  # a very narrow panel was padded for its label
+    composite = Image.new("RGB", (sum(widths) + gap, height), "white")
+    for image, offset in zip(panels, (0, widths[0] + gap), strict=True):
+        composite.paste(image, (offset, 0))
+    divider = (widths[0], 0, widths[0] + gap - 1, height - 1)
+    ImageDraw.Draw(composite).rectangle(divider, fill=(128, 128, 128))
+    panel = (widths[0] + gap, 0, panels[1].width, height)
+    if composite.width > _MAX_COMPOSITE:  # a very narrow panel was padded to 128 px
         scale = _MAX_COMPOSITE / composite.width
         size = (_MAX_COMPOSITE, max(1, round(composite.height * scale)))
         composite = composite.resize(size, Image.Resampling.LANCZOS)
@@ -400,13 +364,10 @@ def _part(image: Image.Image) -> dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}}
 
 
-def _normalise(
-    payload: dict[str, Any], model: str, *, marked: bool = False, labelled: bool = False
-) -> ImageDiff:
+def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> ImageDiff:
     """Keep kinds aligned 1:1: padding, drops and deduplication follow original change indices.
 
     ``marked``: we drew a red edited_region box on B, so a change about a red box is ours.
-    ``labelled``: we drew the "A: earlier" / "B: later" panel labels (composite layout).
     """
     raw = payload.get("changes")
     if not isinstance(raw, str | list):
@@ -415,15 +376,6 @@ def _normalise(
     sentences = [" ".join(" ".join(_strings([value])).split()) for value in raw]
     before = [text[:300] for text in _strings(payload.get("text_before"), limit=20)]
     after = [text[:300] for text in _strings(payload.get("text_after"), limit=20)]
-    # Both drawn labels transcribed, each on its own panel ("A: earlier" in A, "B: later" in B):
-    # the model read our labels, which would show as a text change. One alone may be real text.
-    if (
-        labelled
-        and any(_LBL_EACH[0].fullmatch(text) for text in before)
-        and any(_LBL_EACH[1].fullmatch(text) for text in after)
-    ):
-        before = _drop_first(before, _LBL_EACH[0])  # one overlay each; a repeat may be real
-        after = _drop_first(after, _LBL_EACH[1])
     flags = [flag.lower() for flag in _strings(payload.get("content_flags"))]
     _, flags = safe_description(" ".join(sentences + before + after), flags)
     kinds = payload.get("kinds", [])
@@ -437,7 +389,6 @@ def _normalise(
         if (
             not sentence
             or _FORBIDDEN.search(unquoted)
-            or (labelled and _only_label_change(sentence))
             or _says_no_change(sentence)
             or (marked and _MARKER.search(unquoted))
         ):
@@ -479,19 +430,6 @@ class _OcrText:
 
 def _words(text: str) -> list[str]:
     return _WORD.findall(text.casefold())
-
-
-def _drop_first(lines: list[str], pattern: re.Pattern[str]) -> list[str]:
-    for index, line in enumerate(lines):
-        if pattern.fullmatch(line):
-            return lines[:index] + lines[index + 1 :]
-    return lines
-
-
-def _only_label_change(sentence: str) -> bool:
-    """The whole sentence only reports our panel labels ("The top label changed from 'A:
-    earlier' to 'B: later'."). Anything else in it (another edit, other quoted text) keeps it."""
-    return any(form.fullmatch(sentence.strip()) for form in _LABEL_ONLY)
 
 
 def _says_no_change(sentence: str) -> bool:
@@ -631,7 +569,7 @@ def describe_changes(
         if getattr(choice, "finish_reason", None) == "length":
             raise ValueError("comparison cut off at max_tokens")
         payload = parse_content(choice.message.content)
-        result = _normalise(payload, response.model, marked=marked, labelled=layout == "composite")
+        result = _normalise(payload, response.model, marked=marked)
         latency = log_call_attempt(
             model=model,
             media_hash=media_hash,

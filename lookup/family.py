@@ -73,7 +73,6 @@ BRANCH_CHANGE = {
     "edit": "the photo itself edited",
     "screenshot": "shared inside a screenshot",
 }
-_LABEL_LEAK = re.compile(r"\b[AB]\s*:\s*(?:earlier|later)\b|label above", re.I)
 
 
 def _key(text: str) -> str:
@@ -500,7 +499,7 @@ class Builder:
         diff = describe(self.job.deps.nemotron, a, b, timeout_s=self._left(DIFF_S))
         if diff is None:
             return
-        changes = [s for s in diff.changes if s and not _LABEL_LEAK.search(s)]
+        changes = [s for s in diff.changes if s]
         visual = [
             s
             for s in changes

@@ -202,7 +202,7 @@ that only moves counts or timings refreshes the row without a new `created_at`, 
 new evidence for the analyst. Trackdown's cluster view shows the check on each post carrying
 the screenshot.
 
-## Image diff (`imagediff-v1`)
+## Image diff (`imagediff-v2`)
 
 `describe_changes(client, original, variant, *, timeout_s, edited_region=None,
 layout="composite", max_tokens=2048) -> ImageDiff | None` (`media/imagediff.py`) says in plain sentences what changed between an earlier meme and a later
@@ -233,10 +233,12 @@ worker, is logged at ERROR here.
   `log_call_attempt` (`task=imagediff`) and must pass the Super VL check. It calls the OpenAI
   client directly, not `NemotronClient._complete`, whose 4-try backoff cannot keep to a budget.
 - **Layout:** Verda accepts two images per request, so both were measured. The default is one
-  composite image: both scaled to one height, labelled "A: earlier" / "B: later", at most 2048 px
-  wide. `edited_region` (fractions of the variant) draws a red box on B after scaling. Only then
-  is the model told about the box, and a "red box/outline/border/frame" sentence is dropped as
-  our own marker. `media/variants.py`'s `Relation.edited_region` can be passed as is: it comes
+  composite image: both scaled to one height, side by side with a 16 px grey bar between them,
+  at most 2048 px wide. No text labels are drawn (the prompt names the panels by position):
+  `imagediff-v1` drew "A: earlier" / "B: later", which leaked live once as an edit (lookup
+  `lk_a83a7c2ff47c2545`) and was less accurate (see Evaluation). `edited_region` (fractions
+  of the variant) draws a red box on B after scaling. Only then is the model told about the
+  box, and a "red box/outline/border/frame" sentence is dropped as our own marker. `media/variants.py`'s `Relation.edited_region` can be passed as is: it comes
   only with an aligned "edited" relation, where fractions of the (EXIF-oriented) base and the
   variant agree.
 - **Wording guards (code, after the prompt):** describes the media, never names a person. A
@@ -247,19 +249,11 @@ worker, is logged at ERROR here.
   a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported but scare quotes are not exempt. A
   sentence that is only a plain no-change statement ("The background is unchanged.", "Nothing
   else changed.") is dropped. A compound sentence is kept even if part of it says nothing
-  changed: dropping a real edit would wrongly report no change. In the composite layout the panel
-  labels it draws are not reported: a sentence that only reports them (a narrow grammar: position
-  words, a label noun, the exact quoted "A: earlier" / "B: later", a position-only location) is
-  dropped (seen once live in prod, lookup `lk_a83a7c2ff47c2545`: "The
-  top label changed from 'A: earlier' to 'B: later'."). Any sentence that quotes other text or
-  reports something else is kept. The grammar follows the panels: 'A: earlier' only as the
-  source or as removed, 'B: later' only as the destination or as added. When the transcriptions
-  hold both labels, each on its own panel ("A: earlier" in `text_before`, "B: later" in
-  `text_after`), one occurrence of each is removed (the UI would show them as a text change);
-  one alone, or a repeat, is kept as possible real text. Known limit: a real caption change to
-  literally 'B: later' (from 'A: earlier' or with no source quoted) is dropped too. Adult or graphic media (model flag or the
-  shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
-  no text lists.
+  changed: dropping a real edit would wrongly report no change. Adult or graphic media (model
+  flag or the shared `safe_description` word list) gives exactly "Adult content." or "Graphic
+  content." with no text lists. (`imagediff-v1` also had a code guard that dropped reports of
+  its own drawn panel labels; with no labels drawn it is gone, and so is its known limit that a
+  real caption change to 'B: later' was dropped.)
 
 ### Evaluation
 
@@ -270,8 +264,55 @@ watermark removed, and 3 identical pairs (re-encoded at JPEG q55-70 and/or resiz
 Sequential calls, 2026-11-14. "Kind" = the expected kind is among `kinds`; "clean" = also no
 unrelated kind (a crop may also report what it cut off), and an identical pair returns no change.
 
-**Verda, `nemotron-3.5-super-vl` (Super VL confirmed), final prompt and code, 3 runs**
-(2026-11-14 ~12:55 UTC, after Verda's outage):
+**`imagediff-v2` (current), Verda, `nemotron-3.5-super-vl` (Super VL confirmed), 2026-11-14
+20:50-21:50 UTC.** Two changes from v1: the composite has a grey bar between the panels instead of
+the drawn "A: earlier" / "B: later" labels (and no label bar), and the kinds rule adds 'A
+watermark or handle added or removed is "watermark".' Variants and the v1 baseline ran in
+interleaved rounds the same night, so Verda's load drift hits all of them alike. "+ box" = an
+`edited_region` box from a thresholded pixel difference (|A-B| > 40 in grey) on same-size pairs.
+
+| Prompt | Layout | Runs | Valid | Kind right | Clean | Caption text read | p50 latency |
+|---|---|---|---|---|---|---|---|
+| **v2 (default)** | composite | 6 | 120/120 | 114/120 | 113/120 | 24/24 | 0.31 s |
+| **v2** | composite + box | 6 | 120/120 | 117/120 | 112/120 | 24/24 | 0.34 s |
+| v1, same night | composite | 18 | 360/360 | 336/360 | 317/360 | 72/72 | 0.29 s |
+| v1, same night | composite + box | 15 | 300/300 | 285/300 | 268/300 | 60/60 | 0.31 s |
+
+Clean per run (of 20): v2 18-19 vs v1 16-19 (composite), v2 18-19 vs v1 17-19 (box). Latency
+was measured call by call: v1 and v2 alternated on each pair (order flipped every pair), 4
+rounds x 20 pairs per layout. The p50 above is from that run; the median per-pair ratio v2/v1 is
+1.014 (composite) and 1.017 (box). Per-run p50 in the accuracy runs drifted with Verda's load
+from 0.24 to 0.60 s for every prompt. Not clean in v2: the removed inset still reads as added
+(6/6 runs in each layout; with a box 3 of those also say removed), the portrait crop still
+claims a replaced face once (1/6 composite, 0/6 box), and with a box the hue-shifted sunflower
+adds a spurious "cropped" (2/6). v1, same night: the portrait crop claimed a replaced face in
+15/18 composite and 11/15 box runs, and an identical meme read as cropped in 7/18. Without the
+kinds rule, the divider build labelled the removed watermark `text_removed` with a box (6 of 15
+runs, sentence correct); with it, 0/6.
+
+Variants tried (composite unless noted; v1 = baseline above):
+
+| Variant | Change from v1 | Runs | Kind right | Clean |
+|---|---|---|---|---|
+| a1 | 7bda242's red-box text on every call, box or not | 3 | 57/60 | 53/60 |
+| a2 | system rule "Find where B's pixels differ from A's and look there for each change; content that is still there unaltered is not a change." + "look inside it" in the box note | 6 | 115/120 | 111/120 |
+| a2 + box | same | 3 | 58/60 | 50/60 |
+| a4 + box | a2's rule, v1's box note (no box: same requests as a2) | 6 | 109/120 | 104/120 |
+| a5 | a2's rule as a per-call note, only when no box is drawn | 9 | 170/180 | 154/180 |
+| a3 | a2 + "A crop or zoom shows the same content with edges cut off: report it as one crop, not as a changed face or object." | 3 | 57/60 | 54/60 |
+| b1 | grey divider, no text labels | 9 | 171/180 | 167/180 |
+| b1 + box | same | 9 | 172/180 | 170/180 |
+| c2 / c3 / c5 | b1 + a2 / a3 / a5 | 3 / 6 / 6 | 57/60, 114/120, 114/120 | 53/60, 110/120, 109/120 |
+| **v2** | b1 + PROMPT_VERSION bump + the watermark kinds rule | 6 + 6 box | see above | see above |
+
+The lead from v1 ("look inside it for the change") was real but narrow: the rule in the system
+prompt helps without a box (a2) and hurts with one (a2/a4 + box: the model hunts for an edit
+inside the box and reports crops in identical pairs), and as a per-call note it does nothing
+(a5). Combined with the divider it adds nothing. The divider alone is cleaner with and without
+a box, and it removes the panel-label leak at its source.
+
+**`imagediff-v1` (commit `d39c488`), Verda, Super VL confirmed, 3 runs** (2026-11-14 ~12:55
+UTC, after Verda's outage):
 
 | Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
 |---|---|---|---|---|---|---|
@@ -284,11 +325,11 @@ also adds a spurious "cropped"), the portrait crop also claims a replaced face (
 identical pair read as cropped (1/3). No reply had a forbidden word, a person's name, panel
 words, our red box or our panel labels.
 
-**Earlier prompt (commit `7bda242`), Verda, 3 runs per layout.** It differs from the final
-prompt only in the red-box text: every call carried a system rule ("B may carry a thin red
-rectangle drawn by our tool ... never report it; look inside it for the change") and a per-call
-note ("Any red box only marks ..."), box or no box. The final prompt sends a reworded per-call
-note only when a box is drawn. The label rule was reworded but says the same.
+**Earlier prompt (commit `7bda242`), Verda, 3 runs per layout.** It differs from v1 only in
+the red-box text: every call carried a system rule ("B may carry a thin red rectangle drawn by
+our tool ... never report it; look inside it for the change") and a per-call note ("Any red box
+only marks ..."), box or no box. v1 sends a reworded per-call note only when a box is drawn.
+The label rule was reworded but says the same.
 
 | Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
 |---|---|---|---|---|---|---|
@@ -296,12 +337,11 @@ note only when a box is drawn. The label rule was reworded but says the same.
 | pair (two images) | 60/60 | 53/60 | 55/60 | 12/12 | 0.27-0.38 s | 0.37-0.51 s |
 | composite + `edited_region` box (2 runs) | 40/40 | 37/40 | 34/40 | 8/8 | 0.29-0.36 s | 0.38-0.43 s |
 
-The final prompt is slightly less clean (53 vs 57 of 60). Its new error, a replaced face on the
-portrait crop, matches what the earlier prompt did only with a box drawn. That points at the
-dropped "look inside it for the change" rule, a lead for the next prompt version, not a cause
-proven here.
+v1 is slightly less clean (53 vs 57 of 60). Its new error, a replaced face on the portrait crop,
+matches what the earlier prompt did only with a box drawn. That pointed at the dropped "look
+inside it for the change" rule; v2's variants above tested it.
 
-**NVIDIA build API, Super VL not confirmed, 1 run, final prompt (smoke check only).** Same model
+**NVIDIA build API, Super VL not confirmed, 1 run, v1 prompt (smoke check only).** Same model
 id requested, but every reply is labelled `private/nvidia/nemotron-3.5-super-120b-a12b`, which
 `is_super_vl_model` rejects. The check was bypassed in a throwaway script, and nothing was stored.
 Composite: 19/20 valid (one 40 s timeout), kind right 17/20, clean 15/20, captions read 4/4, p50
@@ -315,7 +355,7 @@ What we learned:
   `json_object`, none): about 70% in one busy period, 0-10% otherwise. Hence the one retry.
 - Pair layout reported a crop that is not there in an identical pair (a re-encoded portrait) in
   3 of 3 runs. Composite returned no change for the identical pairs in 9 of 9 cases with the
-  earlier prompt and 8 of 9 with the final one (3 pairs x 3 runs each).
+  earlier prompt and 8 of 9 with v1 (3 pairs x 3 runs each).
 - With a red `edited_region` box, the first prompt reported the box as an added element (7 of
   the 12 valid pair-layout replies). The prompt rule and the code guard brought that to 0, but
   the box did not improve accuracy on these pairs.
