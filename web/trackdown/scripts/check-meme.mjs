@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 
-const bundle = await build({ stdin: { contents: 'export * from "./src/data/imageTrace.ts"; export * from "./src/data/lookup.ts"; export * from "./src/data/mockMeme.ts"; export { comparisonSource } from "./src/ui/compare.ts"; export { isLineageRel } from "./src/ui/format.ts"; export { hasVerdict } from "./src/data/lookup.ts";', resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, platform: "node", format: "esm" });
+const bundle = await build({ stdin: { contents: 'export * from "./src/data/imageTrace.ts"; export * from "./src/data/lookup.ts"; export * from "./src/data/mockMeme.ts"; export { comparisonSource, changesHtml } from "./src/ui/compare.ts"; export { isLineageRel } from "./src/ui/format.ts";', resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, platform: "node", format: "esm" });
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`);
 let checks = 0;
 const check = (name, run) => { run(); checks++; console.log(`✓ ${name}`); };
@@ -106,6 +106,14 @@ check("change sentences say which way to read them (changes_from), older servers
   assert.match(finding.sentence, /From this picture to that copy, as a model reads it:/);
   delete upload.image_matches[0].changes_from;
   assert.match(api.memeFinding(upload).sentence, /What changed, as a model reads it:/, "older servers keep the neutral lead-in");
+});
+check("a withdrawn change description says so instead of 'No change description returned'", () => {
+  const trace = api.lookupCase(fixture);
+  const base = { id: "img:x", relation: "edited", changes: [], change_kinds: [], changes_from: null };
+  assert.match(api.changesHtml(trace, { ...base, changes_withdrawn: true }), /Description withdrawn \(a later date changed its direction\)/);
+  assert.doesNotMatch(api.changesHtml(trace, { ...base, changes_withdrawn: true }), /No change description returned/);
+  assert.match(api.changesHtml(trace, base), /No change description returned/);
+  assert.doesNotMatch(api.changesHtml(trace, { ...base, changes: ["Caption changed."], changes_withdrawn: false }), /withdrawn/);
 });
 check("relation groups count matches, exclude original and different", () => {
   const state = api.imageTraceState(fixture);

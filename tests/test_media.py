@@ -162,6 +162,12 @@ def test_fields_are_normalised_leniently():
     assert a.reuse_cues == [] and a.manipulation_cues == []
 
 
+def test_confidence_past_float_range_falls_back():
+    content = '{"description":"Poster","confidence":1' + "0" * 400 + "}"
+    client, _, _ = _client(_response(content))
+    assert client.analyze(MediaInput("h", "image/png", data=b"x")).confidence == 0.5
+
+
 def test_missing_description_is_rejected():
     client, _, _ = _client(_response('{"description":"","confidence":0.4}'))
     with pytest.raises(NemotronError, match="invalid analysis"):

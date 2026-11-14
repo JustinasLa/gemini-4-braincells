@@ -11,7 +11,7 @@ export function imageCardHtml(node: TraceNode): string {
   const url = pageUrl(match.page_url);
   return `<div class="meme-card meme-${relation}" data-ui>
     <button class="meme-card-open" data-ui data-meme-compare="${esc(node.id)}" aria-label="Compare ${esc(relation)} copy on ${esc(domainOf(match))}">
-      <span class="meme-eyebrow">// ${node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
+      <span class="meme-eyebrow">${node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
       <strong>${esc(domainOf(match))}</strong>
       <span class="meme-card-preview">Compare with submission ↗</span>
     </button>
@@ -30,14 +30,14 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
   if (!state?.enabled) return;
   // the phone verdict bar shows the image search's progress whichever panel tab is open
   if (peek && (state.searching || state.comparing)) peek.innerHTML = `<span class="pk-t"><b>${state.searching ? "Searching for earlier copies…" : "Comparing variations…"}</b><span>${trace.mock ? "MOCK · " : ""}Meme trace · view progress</span></span><span class="pk-go">Open ↑</span>`;
-  if (!["verdict", "receipts"].includes(tab)) return;
+  if (tab !== "verdict") return;
   const count = state.groups.reduce((total, group) => total + group.matches.length, 0);
   const original = state.origin;
   const finding = trace.lookup ? memeFinding(trace.lookup) : null;
   const button = (id: string, title: string, subtitle: string) => `<button class="meme-list-item" data-meme-compare="${esc(id)}"><span>${esc(title)}</span><small>${esc(subtitle)}</small><span class="meme-list-arrow" aria-hidden="true">↗</span></button>`;
   const html = `<section class="meme-section" aria-label="Meme trace">
-    <h2 class="meme-eyebrow">// ${trace.mock ? "MOCK · " : ""}MEME TRACE</h2>
-    ${finding && finding !== "pending" ? `<div class="meme-finding" style="--vc:${finding.color}"><div class="label">What the image search found · not a coordination call</div><div class="meme-finding-word">${esc(finding.word.toUpperCase())}</div><p>${esc(finding.sentence)}</p></div>` : ""}
+    ${trace.mock ? '<h2 class="meme-eyebrow">MOCK</h2>' : ""}
+    ${finding && finding !== "pending" ? `<div class="meme-finding" style="--vc:${finding.color}"><div class="meme-finding-word">${esc(finding.word.toUpperCase())}</div><p>${esc(finding.sentence)}</p></div>` : ""}
     <h3>Original <small>earliest match found</small></h3>
     ${state.searching ? '<p class="meme-scanning" role="status">Searching for earlier copies…</p>' : ""}
     ${original ? `${button(original.id, domainOf(original), firstSeenLabel(original))}<p class="meme-note">Earliest match returned, not proof of the first publication or authorship.</p>` : state.noEarlier ? `<p class="meme-empty">${count ? "No unedited copy of this picture found. The matches below are edited versions or could not be compared." : "No earlier copy found"}</p>` : !state.searching ? '<p class="meme-note">No original established.</p>' : ""}

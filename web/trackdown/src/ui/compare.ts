@@ -2,6 +2,7 @@ import { boxFrame, changeDirection, domainOf, engineLabel, firstSeenLabel, human
 import { uploadUrl } from "../data/lookup";
 import type { TraceCase } from "../types";
 import { esc } from "./format";
+import { icon } from "./icons";
 import { memeImage } from "./memeImage";
 
 let active: HTMLDialogElement | null = null;
@@ -27,13 +28,13 @@ function boxes(match: ImageMatch, side: "upload" | "match"): string {
   }).join("");
 }
 
-function changesHtml(trace: TraceCase, match: ImageMatch): string {
+export function changesHtml(trace: TraceCase, match: ImageMatch): string {
   const changes = (match.changes ?? []).filter((change) => typeof change === "string");
   const kinds = [...new Set((match.change_kinds ?? []).filter((kind) => typeof kind === "string"))]; // one chip per kind
   const step = trace.lookup?.steps.find((candidate) => candidate.id === "variations");
   const pending = step?.state === "pending" || step?.state === "running";
   const direction = changeDirection(match).heading;
-  return `<h3>What changed${direction ? ` <small class="meme-direction">${esc(direction)}</small>` : ""}</h3>${pending ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}${changes.length ? `<ul>${changes.map((change) => `<li>${esc(change)}</li>`).join("")}</ul>` : !pending ? '<p class="meme-note">No change description returned.</p>' : ""}<div class="meme-kind-chips">${kinds.map((kind) => `<span>${esc(humanLabel(kind))}</span>`).join("")}</div><p class="meme-honesty">Changes are Nemotron’s model reading of the two images, not verified facts.</p>`;
+  return `<h3>What changed${direction ? ` <small class="meme-direction">${esc(direction)}</small>` : ""}</h3>${pending ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}${changes.length ? `<ul>${changes.map((change) => `<li>${esc(change)}</li>`).join("")}</ul>` : match.changes_withdrawn ? '<p class="meme-note">Description withdrawn (a later date changed its direction).</p>' : !pending ? '<p class="meme-note">No change description returned.</p>' : ""}<div class="meme-kind-chips">${kinds.map((kind) => `<span>${esc(humanLabel(kind))}</span>`).join("")}</div><p class="meme-honesty">Changes are Nemotron’s model reading of the two images, not verified facts.</p>`;
 }
 
 const titleText = (match: ImageMatch) => {
@@ -46,8 +47,15 @@ const pictureKey = (match: ImageMatch) => JSON.stringify([match.image_url, match
 
 function factsHtml(match: ImageMatch): string {
   const page = pageUrl(match.page_url);
-  const dimensions = Number.isFinite(match.width) && Number.isFinite(match.height) && match.width! > 0 && match.height! > 0 ? `${match.width} × ${match.height} px` : "Dimensions unknown";
-  return `<span>${esc(humanLabel(relationOf(match)))}</span><span>${Number.isFinite(match.distance) ? `Perceptual distance ${match.distance}` : "Perceptual distance unknown"}</span><span>${esc(engineLabel(match))}</span><span>${dimensions}</span><span>${esc(firstSeenLabel(match))}</span><span>${Number.isFinite(match.receipt_id) ? `Receipt #${match.receipt_id}` : "Receipt not supplied"}</span>${page ? `<a href="${esc(page)}" target="_blank" rel="noopener noreferrer">Page on ${esc(domainOf(match))} ↗</a>` : ""}`;
+  const dimensions = Number.isFinite(match.width) && Number.isFinite(match.height) && match.width! > 0 && match.height! > 0 ? `${match.width} × ${match.height} px` : "Unknown";
+  const fact = (label: string, value: string, extra = "") => `<div class="meme-fact${extra}"><dt>${label}</dt><dd>${value}</dd></div>`;
+  return fact("Relation", esc(humanLabel(relationOf(match))), " relation")
+    + fact("Perceptual distance", Number.isFinite(match.distance) ? String(match.distance) : "Unknown")
+    + fact("Search engine", esc(engineLabel(match)))
+    + fact("Size", dimensions)
+    + fact("Receipt", Number.isFinite(match.receipt_id) ? `#${match.receipt_id}` : "Not supplied")
+    + (page ? fact("Source page", `<a href="${esc(page)}" target="_blank" rel="noopener noreferrer">${esc(domainOf(match))} ↗</a>`) : "")
+    + fact("First seen", esc(firstSeenLabel(match)), " wide");
 }
 
 /** Replace a region's markup only when it changed, keeping focus on an equivalent control. */
@@ -107,6 +115,8 @@ export function refreshComparison(trace: TraceCase) {
   if (!active || active.dataset.trace !== trace.id) return;
   const match = trace.lookup?.image_matches?.find((candidate) => candidate.id === active!.dataset.match);
   if (!match) return showRemoved(active);
+  if (active.dataset.removed) return; // its body is gone: a match that comes back stays "no longer a match"
+  active.dataset.relation = relationOf(match);
   active.querySelector("#meme-compare-title")!.textContent = titleText(match);
   renderPictures(active, trace, match);
   swap(active.querySelector<HTMLElement>(".meme-comparison-facts")!, factsHtml(match));
@@ -120,10 +130,11 @@ export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLEle
   dialog.className = "meme-compare";
   dialog.dataset.trace = trace.id;
   dialog.dataset.match = match.id;
+  dialog.dataset.relation = relationOf(match);
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
   dialog.setAttribute("aria-labelledby", "meme-compare-title");
-  dialog.innerHTML = `<header class="meme-dialog-head"><div><p class="meme-eyebrow">// ${trace.mock ? "MOCK · " : ""}IMAGE COMPARISON</p><h2 id="meme-compare-title">${esc(titleText(match))}</h2></div><button class="meme-close" aria-label="Close comparison" autofocus>×</button></header>
+  dialog.innerHTML = `<header class="meme-dialog-head"><div><p class="meme-eyebrow">${trace.mock ? "Mock · " : ""}Image comparison</p><h2 id="meme-compare-title">${esc(titleText(match))}</h2></div><button class="meme-close" aria-label="Close comparison" autofocus>${icon.close}</button></header>
     <div class="meme-compare-body">
       <div class="meme-modes" role="group" aria-label="Comparison layout"><button data-view="side" aria-pressed="true">Side by side</button><button data-view="overlay" aria-pressed="false">Slider overlay</button></div>
       <div class="meme-comparison" data-view="side" style="--reveal:50%">
@@ -134,7 +145,7 @@ export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLEle
       <label class="meme-slider" hidden>Reveal match <output>50%</output><input type="range" min="0" max="100" value="50" aria-label="Reveal matched image" aria-valuetext="50 percent match revealed"></label>
       <div class="meme-box-key"><span>Solid green: edited region</span><span>Dashed white: the part of the submission a cropped match shows</span></div>
       <p class="meme-note">Boxes come from the pixel comparison of the two images. Slider alignment is visual only, not an image registration.</p>
-      <div class="meme-comparison-facts">${factsHtml(match)}</div>
+      <dl class="meme-comparison-facts">${factsHtml(match)}</dl>
       <section class="meme-changes" aria-live="polite">${changesHtml(trace, match)}</section>
     </div>`;
   renderPictures(dialog, trace, match);

@@ -49,7 +49,7 @@ class WindowData:
     # Per-second counts of ALL events of each kind in the window (not just loaded ones): the
     # empirical background used by the timing null model. kind -> array of len(end - start).
     background: dict[str, np.ndarray] = field(default_factory=dict)
-    # Distinct accounts per kind over the whole stream in the window (for popularity / base rates).
+    # Distinct accounts that posted in the window.
     active_accounts: int = 0
     _index: "WindowIndex | None" = field(default=None, repr=False, compare=False)
 
@@ -145,13 +145,7 @@ FROM {table} WHERE seen_at >= %(s)s AND seen_at < %(e)s GROUP BY 1
 def load_window(
     conn: psycopg.Connection, start: datetime, end: datetime, cfg: DetectorConfig
 ) -> WindowData:
-    p = {
-        "s": start,
-        "e": end,
-        "lo": cfg.min_key_accounts,
-        "hi": cfg.max_key_accounts,
-        "s_epoch": start.timestamp(),
-    }
+    p = {"s": start, "e": end, "s_epoch": start.timestamp()}
     wd = WindowData(start=start.timestamp(), end=end.timestamp())
     cur = conn.cursor()
     posts = _earliest(cur.execute(_POSTS_SQL, p))
@@ -193,8 +187,6 @@ def load_window(
             if 0 <= sec < n:
                 bg[sec] = cnt
         wd.background[kind] = bg
-    row = cur.execute(
-        "SELECT count(DISTINCT did) FROM posts WHERE seen_at >= %(s)s AND seen_at < %(e)s", p
-    ).fetchone()
-    wd.active_accounts = row[0] if row else 0
+    # Same range as _POSTS_SQL, so this equals count(DISTINCT did) over posts: no extra query.
+    wd.active_accounts = len({post.did for post in wd.posts})
     return wd

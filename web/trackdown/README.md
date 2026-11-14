@@ -17,8 +17,8 @@ npm run check                       # lookup rendering regression (fixture -> lo
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
 `?lookup=<URL-encoded link>` starts a live lookup. An image (a meme, a screenshot) starts an image
 lookup from the home screen's Upload image button, by dropping it on the home screen or by pasting
-it into the input (`POST /api/lookup/image`, lookup/README.md); photos over 2 MB or 2048 px are sent
-as a 2048 px JPEG. In the Vite development server only,
+it into the input (`POST /api/lookup/image`, lookup/README.md); images over 2 MB (PNGs also over
+2048 px) are sent as a JPEG of at most 2048 px. In the Vite development server only,
 `?mockLookup` runs a progressive fictional fixture; the header, panel and console label it MOCK.
 The fixture is excluded from production builds and never runs by default.
 
@@ -46,8 +46,7 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 ## What's on screen
 
 - **Canvas** (`src/engine/graph.ts`): DOM cards over two canvas layers. Custom physics: pairwise
-  repulsion, rectangle collisions, parent/child springs, and in *Timeline* mode every card is
-  anchored to its time. *Web* mode drops the time anchor for a free force layout.
+  repulsion, rectangle collisions, parent/child springs, and every card is anchored to its time.
   - Time axis: gaps grow with `log(gap)`, so seconds-apart bursts and years-apart hops fit on one
     axis. Gaps over 3 days are marked on the ruler and dock ("2.7 yr gap"). Posts less than 2 min apart
     become a time-ordered grid, so a 31-account burst reads as one block.
@@ -65,13 +64,12 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
   follows, the origin gets a shockwave, the rest of the spread pours in, and the verdict coin lands.
 - **Timeline dock** (`src/ui/dock.ts`): histogram on the same compressed axis, scrub or play the
   spread (also a native range input for keyboards), ruler across the top, minimap.
-- **Panel** (`src/ui/panel.ts`): tabs Verdict / Chain / Evidence / Post. Evidence is grouped as
-  "Supports the verdict" and "Signs of organic spread" (or "Evidence considered" for Can't tell),
-  plus "what would change our mind". On phones it is a modal sheet opened from the verdict bar.
+- **Panel** (`src/ui/panel.ts`): tabs Verdict (Findings for a lookup) / Post. On phones it is a
+  modal sheet opened from the verdict bar.
 
-Keys: `N` trace a post · `Space` play/pause · `F` fit · `T` timeline/web · `M` key and map · with the
-map focused `←/→` earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
-Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
+Keys: `N` trace a post · `Space` play/pause · `,`/`.` step · `F` fit · `M` key and map · `←/→`
+earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
+Phones: Fit and KEY sit in the map toolbar.
 
 ## Data and honesty
 
@@ -82,13 +80,14 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   *Historical record*. It is not scored and was not run through the detector. Its one present-day
   repost is marked as illustrative. It shows the honesty point: a picture can be wrong without its
   spread being coordinated.
-- **Live clusters**: when `GET /api/clusters` answers, they're listed under "From the monitor" and
-  converted by `liveCase()` (`src/data/api.ts`) from the `ClusterDetail` shape in
-  `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
+- **Live clusters**: `/?cluster=<id>` (and a legacy analysis that matched a cluster) loads
+  `GET /api/clusters/{id}`, converted by `liveCase()` (`src/data/api.ts`) from the `ClusterDetail`
+  shape in `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
   them. Parent links are inferred: a post's parent is the earliest earlier post sharing its link,
   image hash or normalised text.
 - **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise (the API looks up an `@handle` as that Bluesky profile),
-  then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
+  then follows the job's event stream `GET /api/lookup/{id}/events`; if the stream fails or stalls
+  it polls `GET /api/lookup/{id}` every 0.6 seconds. Either way it gives up after 150 seconds. Each snapshot updates
   the step console, cards and receipts. The finale is revealed once the primary reading is in (an
   image search still running delays it until that search finishes); failures and timeouts leave
   partial receipts available without a finale. See "Finale: verdict coin or meme finding". Starting another
@@ -122,7 +121,7 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   image, and the earliest observed copy is not necessarily the original source. Older API
   responses without `claim_checks` show an explicit unavailable-assessment message.
   Run `npm test` for rendering, citation safety, legacy fallback, and verdict-separation tests.
-- **Fallbacks**: an unavailable lookup (404/503/network) tries `POST /api/analyze`; only if that
+- **Fallbacks**: an unavailable text or link lookup (404/503/network) tries `POST /api/analyze`; only if that
   path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
   rate limits (429), job failure and timeout show an error instead of silently inventing a trace.
 - **Hosting**: `npm run ship` refreshes `web/public/trackdown/`. Caddy serves it as the site's home
@@ -163,8 +162,8 @@ submitted picture in place of the coin and the same sentence at the top of the M
 
 A match is older when the submission is an upload (it has no time of its own, and every match was
 online before it) or when its date is before the post's, with the server's one-day slack for a
-TinEye crawl date. A lookup with no image search and no verdict has no finale; the header chip then
-reads "Live trace". `npm run check:meme` covers each finding.
+TinEye crawl date. A lookup with no image search and no verdict has no finale and no header chip.
+`npm run check:meme` covers each finding.
 
 ## Meme trace (image matches)
 
@@ -174,7 +173,9 @@ slider; slider on phones). Image dates say “first seen by TinEye” (an upper 
 “page dated”, “time from post id”, or “date unknown”; an upload never becomes its own origin.
 Descriptions are Nemotron’s reading, not verified facts. `changes_from` says which way to read them: "match" → the
 list is headed "This copy → your picture", "upload" → "Your picture → this copy"; absent stays a
-plain "What changed". It is a reading convention, not a claim about which picture is older. Boxes from the pixel comparison are 0..1 fractions of
+plain "What changed". It is a reading convention, not a claim about which picture is older. A description the server took back
+(`changes_withdrawn`, a later date flipped its direction) reads "Description withdrawn", not "No change
+description returned". Boxes from the pixel comparison are 0..1 fractions of
 the submission (`media.variants.relate(upload, match)`): the edited region is drawn on both images,
 a crop box marks the part of the submission a cropped match shows. Variant links are visual relationships drawn beside the copy chain, never lineage: the server's
 variant edges (image origin → edited/cropped matches) are used as sent. The submission joins the copy

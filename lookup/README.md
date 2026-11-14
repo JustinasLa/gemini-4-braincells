@@ -95,19 +95,24 @@ GET  /api/lookup/{id}/image  -> the uploaded image, while the job lives (404 aft
 not the declared content type. The bytes stay in the job, in memory, for `LOOKUP_JOB_TTL_S`
 and are never written to disk or the database; the JSON carries only their sha256, type and
 size. The upload is the submitted post (`upload:<sha256[:16]>`, no author, no time). Nemotron
-reads it, and:
+reads it (its text goes on the card and into the monitor check and the reading), and:
 
-- with 5+ words of text in the image, that text drives the same searches as a post's text
-  (web, X, Bluesky; candidates read on their own pages). The earliest copy read on its own page
-  is `origin_id`; copies below 0.8 similarity are reworded variants, counted in a note. A meme
-  also gets " meme" added to the coverage query, which brings up meme pages.
-- with less text (a short caption), or none, there's no exact-phrase search. The coverage step
-  looks for pages about the image by its caption, or by Nemotron's description (never for adult
-  content). Those pages are role "coverage": about the image, never copies or the origin.
-- the upload is never its own origin: with no verified copy, `origin_id` is null.
+- the results are matches of the picture, or posts and pages that carry at least 3 words in a
+  row of its text (`textsim.caption_runs`; case and punctuation don't matter, a run of only
+  stop words like "is in the" doesn't count).
+- reverse-image search finds the picture: TinEye and Yandex find candidate pictures and optional
+  local visual matching compares them.
+- with 3+ words of text, the web, X and Bluesky searches look for it as an exact phrase, in
+  reading order. A hit, and later the post read on its own page, joins the trace only with a
+  3-word run, however few of its words it otherwise shares; the others are dropped. Each kept
+  post or page lists its runs in `caption_match`, which Trackdown highlights in its text. The
+  earliest copy read on its own page is `origin_id`.
+- Nemotron's description is never searched for, and nor is the looser coverage query (skipped).
+  With fewer than 3 words of text, only the picture is searched for.
+- an upload Nemotron types a screenshot of a post still goes through the screenshot step, which
+  looks for the real post it shows.
+- the upload is never its own origin: with no dated match, `origin_id` is null.
 
-Reverse-image search runs alongside the text searches, including for captionless images:
-TinEye and Yandex find candidate pictures and optional local visual matching compares them.
 Uploads need a public URL: `LOOKUP_PUBLIC_BASE_URL`, or `https://{PUBLIC_HOST}`. The production
 host is `noise-radar.srv2159172.hstgr.cloud`. Without one, the reverse-image step explains why
 it is skipped. `LOOKUP_REVERSE_IMAGE=false` disables it (the API default is true). An uploaded
@@ -178,10 +183,26 @@ ImageMatch {
   "edited_region": [0.0, 0.0, 1.0, 0.16] | null,
   "relation_note": "Visible image comparison",
   "changes": ["Caption changed from one line to another"],
-  "change_kinds": ["caption_changed"],
+  "change_kinds": ["caption_changed"],  // deduplicated, in Nemotron's order
+  "changes_from": "match" | "upload" | null,  // which side the changes start from, see below
+  "changes_withdrawn": false,  // true: a description was taken back (see below)
   "receipt_id": 12
 }
 ```
+
+`changes_from` says which way to read `changes` (media.imagediff reads one picture as the
+starting point). `"match"`: the changes turn this copy into the submitted picture.
+`"upload"`: they turn the submitted picture (the upload or the post's image) into this copy.
+For an upload it is always `"match"`: a comparison convention, not a chronology (when someone
+uploads a picture says nothing about when it was made or edited). For a post it is `"match"`
+only when the copy's first-seen upper bound proves it existed before the post, judged on the
+copy's latest dates; a description whose direction a late-arriving date flips is not shown,
+or is withdrawn if already published (`changes`, `change_kinds` and `changes_from` cleared,
+`changes_withdrawn: true`, `receipt_id` back on the comparison receipt; the description's own
+receipt says why). With `changes_withdrawn` the empty `changes` say nothing about the content;
+show "description withdrawn", not "no change".
+Neither value says who copied whom or which picture was made first; show the direction with
+the sentences (e.g. "This copy → your picture").
 
 `change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
 `element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.
@@ -206,8 +227,8 @@ tools `tineye`, `yandex`, and `fetch`: every engine request, download/redirect a
 call has a receipt, including failures and calls whose completion was not confirmed in time.
 
 Two steps are inserted between `coverage` and `media`:
-- `reverse_image`: **Find the picture on the web (TinEye, Yandex)**.
-- `variations`: **Compare every copy with the upload**.
+- `reverse_image`: **Web searched for the picture** (TinEye, Yandex).
+- `variations`: **Copies compared**.
 
 The trace starts before synchronous upload OCR, or just after the post read supplies its image
 URL, alongside the existing searches. TinEye, Yandex imageview and Yandex sites run in parallel
@@ -253,7 +274,9 @@ Post {
   "metrics_as_of": "...",             // when the page was read
   "card": {"title": "...", "domain": "wsj.com", "url": "https://t.co/..."},   // or null
   "media_urls": ["https://pbs.twimg.com/media/...jpg"],
-  "receipt_id": 3
+  "receipt_id": 3,
+  "caption_match": ["when the comets land"] // uploaded image only: parts of `text` that repeat
+                                      // 3+ words in a row of the image's text; else []
 }
 Account {
   "platform": "x", "handle": "lookner", "name": "Steve Lookner",
@@ -273,7 +296,8 @@ Page {
   "time": "2026-11-13T21:05:00Z",     // best known time (published_at, else search hint), or null
   "time_source": "page",              // page | search_hint | null
   "time_uncertainty_s": 86400,        // true time is in [time, time + this]; null if unknown
-  "receipt_id": 7
+  "receipt_id": 7,
+  "caption_match": []                 // as on Post, in `headline` or `snippet`
 }
 MediaFinding {
   "media_url": "...", "post_id": "x:...", "description": "...", "extracted_text": ["..."],
@@ -371,6 +395,8 @@ Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies
    and `media` (the images in parallel) all start at once. `screenshot` follows `media` on the
    same worker: each image Nemotron typed a screenshot is read as a post and checked against
    the real post (`lookup/receipts.py`); for an image-only post it runs alongside the searches.
+   An uploaded image skips `coverage`; with fewer than 3 words of text in it, the other three
+   searches too.
 3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
    (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
    verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read

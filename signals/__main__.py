@@ -118,15 +118,8 @@ def main() -> None:
             end = datetime.now(UTC).replace(microsecond=0) - LAG_GUARD
             wd = load_window(conn, end - timedelta(minutes=10), end, cfg)
             n = sample_and_enrich(conn, wd, end, args.n)
-            print(
-                json.dumps(
-                    {
-                        "enriched": n,
-                        "rates": (load_rates(conn, end, cfg) or None)
-                        and load_rates(conn, end, cfg).as_dict(),
-                    }
-                )
-            )
+            rates = load_rates(conn, end, cfg)
+            print(json.dumps({"enriched": n, "rates": rates.as_dict() if rates else None}))
             return
         if args.cmd == "once":
             print(

@@ -1,9 +1,9 @@
-// Right-hand window: tabs for the verdict, the provenance chain, the receipts and the selected folio.
+// Right-hand window: tabs for the verdict and the selected folio.
 import { hasVerdict, modelTool, readingsDisagree, readingsOf, type LookupAssessment } from "../data/lookup";
 import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
-import { clusterShort, esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, relOf, roleOf, STATUS, TOOL } from "./format";
+import { esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, markRuns, relOf, roleOf, STATUS, TOOL } from "./format";
 import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
@@ -12,7 +12,7 @@ import { mountVariations } from "./variations";
 
 const LEAN: Record<string, string> = { organic_looking: "looks organic", copy_campaign_looking: "looks like a copy campaign", unclear: "unclear" };
 const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" height="${n}"`);
-type Tab = "verdict" | "provenance" | "receipts" | "folio";
+type Tab = "verdict" | "folio";
 
 export class Panel {
   el: HTMLElement;
@@ -86,19 +86,15 @@ export class Panel {
     if (!c) return;
     const sel = this.g.selId ? c.nodes.find((n) => n.id === this.g.selId) : null;
     if (this.tab === "folio" && !sel) this.tab = "verdict";
-    const path = hasChain(c) ? this.g.pathToOrigin(c.submittedId).length : 0;
-    if (this.tab === "provenance" && path < 2) this.tab = "verdict";
     const tabs = [
       ["verdict", c.lookup ? "Findings" : "Verdict", ""],
-      ...(path > 1 ? [["provenance", "Chain", String(path)]] : []),
-      ["receipts", "Evidence", String(c.receipts.length)],
       ...(sel ? [["folio", "Post", ""]] : []),
     ] as [Tab, string, string][];
     const view = `${c.id}|${this.tab}|${this.pending}|${this.tab === "folio" ? sel?.id : ""}`;
     const quiet = view === this.shown;
     this.shown = view;
     const width = `${Math.round(c.confidence * 100)}%`;
-    const body = this.pending && this.tab === "verdict" ? this.pendingHtml() : this.tab === "verdict" ? this.verdict(c) : this.tab === "provenance" ? this.provenance(c) : this.tab === "receipts" ? this.receipts(c) : this.detail(sel!);
+    const body = this.pending && this.tab === "verdict" ? this.pendingHtml() : this.tab === "verdict" ? this.verdict(c) : this.detail(sel!);
     this.el.innerHTML = `<div class="panel-inner${quiet ? " quiet still" : ""}"><div class="win-head"><div class="tabs" role="tablist" aria-label="Result">${tabs
       .map(([id, label, n]) => `<button role="tab" id="tab-${id}" aria-controls="tabpanel" data-tab="${id}" aria-selected="${this.tab === id}" tabindex="${this.tab === id ? 0 : -1}" class="${this.tab === id ? "on" : ""}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`)
       .join("")}</div><button class="sheet-close mobile-only" data-act="sheet-close" aria-label="Close">${sm(icon.close, 14)}</button></div><div class="pane" role="tabpanel" id="tabpanel" aria-labelledby="tab-${this.tab}">${body}</div></div>`;
@@ -114,19 +110,13 @@ export class Panel {
 
   private pendingHtml() {
     const failed = this.c?.lookup?.state === "failed";
-    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting live receipts"}</div><p class="lookup-message" ${failed ? 'role="alert"' : 'role="status"'}>${esc(failed ? this.c.lookup.error || "The lookup failed. No final verdict was issued." : "Posts, pages and receipts appear as they arrive. Coordination is not judged until the lookup finishes.")}</p><p class="lookup-message">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts. Select a card for its data, or open Evidence.</p>${this.spread(this.c)}`;
+    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting live receipts"}</div><p class="lookup-message" ${failed ? 'role="alert"' : 'role="status"'}>${esc(failed ? this.c.lookup.error || "The lookup failed. No final verdict was issued." : "Posts, pages and receipts appear as they arrive. Coordination is not judged until the lookup finishes.")}</p><p class="lookup-message">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts. Select a card for its data.</p>`;
     return `<div class="pending"><div class="label">Tracing</div>
       <p>Walking back one copy at a time to the earliest version we can find, then measuring how it spread.</p></div>`;
   }
 
   private verdict(c: TraceCase) {
     const v = STATUS[c.status];
-    const nodes = new Map(c.nodes.map((n) => [n.id, n]));
-    const sub = nodes.get(c.submittedId);
-    const ori = nodes.get(c.originId);
-    const accounts = new Set(c.nodes.filter((n) => inTrace(n) && !n.imageMatch).map((n) => n.author.handle)).size;
-    const fresh = c.nodes.filter((n) => (n.author.ageDays ?? 999) < 30).length;
-    const hops = Math.max(0, this.g.pathToOrigin(c.submittedId).length - 1);
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
     const unscored = c.historical ? "Not scored" : "No call";
     const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
@@ -135,13 +125,6 @@ export class Panel {
       : c.historical
         ? `<div class="notice"><b>Historical record.</b> Written by hand from public history, not run through the detector. The verdict is our reading of it.</div>`
         : "";
-    const stats = hasChain(c)
-      ? `<div class="stats">
-        <div class="stat" data-tip="${esc(`<h4>Copies back</h4>Hops from the submitted post to the earliest copy we found.`)}"><div class="n">${hops}</div><div class="l">${hops === 1 ? "Copy back" : "Copies back"}</div></div>
-        <div class="stat" data-tip="${esc(`<h4>Age of the claim</h4><div class='row'><span>Earliest</span><b>${ori ? fmtDate(ori.t, false) : "–"}</b></div><div class='row'><span>Submitted</span><b>${sub ? fmtDate(sub.t, false) : "–"}</b></div>`)}"><div class="n">${sub && ori ? fmtDur(sub.t - ori.t) : "–"}</div><div class="l">Earliest → submitted</div></div>
-        <div class="stat" data-tip="${esc(`<h4>${c.historical ? "Hands" : "Accounts"}</h4><div class='row'><span>Distinct</span><b>${accounts}</b></div><div class='row'><span>Under 30 days old</span><b class='${fresh ? "neg" : ""}'>${fresh}</b></div>`)}"><div class="n">${accounts}</div><div class="l">${c.historical ? "Hands" : accounts === 1 ? "Account in trace" : "Accounts in trace"}</div></div>
-      </div>`
-      : "";
     const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>` : "";
     return `
       ${c.lookup ? factualFindings(c.lookup) : ""}
@@ -158,9 +141,7 @@ export class Panel {
         ${notice}
       </section>`}
       ${c.lookup ? `<div class="sect label">Model summary · collected evidence</div><p class="lookup-message">${esc(c.summary)}</p>` : ""}
-      ${stats}
-      ${replay}
-      ${this.spread(c)}`;
+      ${replay}`;
   }
 
   /** model readings of the receipts. They are inferences: the status always comes from `status`. */
@@ -178,61 +159,12 @@ export class Panel {
     };
     if (readings.length > 1 && readingsDisagree(lookup)) return `<div class="notice">The two readings differ. Both are shown; neither sets the status.</div>${readings.map((r, i) => block(r, i, true)).join("")}${waiting}`;
     // the primary reading's summary is the lead paragraph above
-    return `<div class="receipt-meta">Model reading by ${esc(readings[0].model)} · not a verdict</div>${readings.slice(1).map((r, i) => block(r, i + 1, false)).join("")}${waiting}`;
-  }
-
-  private provenance(c: TraceCase) {
-    const path = this.g.pathToOrigin(c.submittedId).reverse();
-    const nodes = new Map(c.nodes.map((n) => [n.id, n]));
-    return `<div class="sect label" style="margin-top:0">Chain of copies <span>${path.length}</span></div>${path
-      .map((id, i) => {
-        const n = nodes.get(id)!;
-        const prev = i ? nodes.get(path[i - 1]) : null;
-        const e = prev ? c.edges.find((x) => x.from === prev.id && x.to === id) : null;
-        const start = c.lookup ? "Path start" : "Earliest";
-        return `<button class="hop" data-go="${esc(id)}" style="--c:${roleOf(n.role).color}"><span class="rn">${i + 1}</span><span style="min-width:0"><div class="h-t">${esc(n.author.name)}</div><div class="h-s">${esc(roleOf(n.role).label)} · ${n.timeUnknown || n.undated ? "time unknown" : fmtDate(n.t, false)}</div></span><span class="h-gap">${prev ? `<b>${n.timeUnknown || prev.timeUnknown || n.undated || prev.undated ? "gap unknown" : `+${fmtDur(n.t - prev.t)}`}</b>${e ? esc(relOf(e.rel).label) : ""}${e?.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}` : `<b>${start}</b>`}</span></button>`;
-      })
-      .join("")}
-      ${c.clusters.length ? `<div class="sect label">${c.lookup ? "Monitored clusters / copy samples" : "Detected clusters"} <span>${c.clusters.length}</span></div>${c.clusters.map((cl) => `<div class="ev" style="--tc:${STATUS[cl.status].color}"><div class="by">${clusterShort(cl.status, !!c.lookup)} · ${esc(cl.label)}</div><p>${esc(cl.stat)}</p></div>`).join("")}` : ""}`;
-  }
-
-  private receipts(c: TraceCase) {
-    const short = (url: string) => {
-      try {
-        const u = new URL(url);
-        if (/(^|\.)bsky\.app$/.test(u.hostname)) return u.pathname.includes("/post/") ? "Bluesky post" : "Bluesky profile";
-        return `${u.hostname.replace(/^www\./, "")}${u.pathname.length > 1 ? " · " + (u.pathname.split("/").filter(Boolean).pop() ?? "").slice(0, 32) : ""}`;
-      } catch {
-        return url.slice(0, 48);
-      }
-    };
-    const link = (url: string) => (c.synthetic ? `<div class="nolink">${esc(short(url))} · simulated, no live link</div>` : `<a class="src" href="${esc(url)}" target="_blank" rel="noopener">${esc(short(url))} ↗</a>`);
-    const ev = (r: (typeof c.receipts)[0], i: number) => `<div class="ev t-${r.tool}" ${r.id != null ? `id="receipt-${r.id}"` : ""} style="animation-delay:${i * 45}ms"><div class="by t-${r.tool}">${r.id != null ? `Receipt #${r.id} · ` : ""}${esc(TOOL[r.tool].long)}</div><p>${esc(r.text)}</p>${r.endpoint ? `<div class="receipt-meta">${esc(r.endpoint)}${r.latencyMs != null ? ` · ${r.latencyMs} ms` : ""}${r.requestId ? ` · request ${esc(r.requestId)}` : ""}</div>` : ""}${r.url ? link(r.url) : ""}</div>`;
-    const pro = c.receipts.filter((r) => !r.against);
-    const con = c.receipts.filter((r) => r.against);
-    // `against` = points away from the verdict
-    const conTitle = c.status === "likely_organic" ? "Signs of coordination" : "Signs of organic spread";
-    // an abstention has nothing to "support": its evidence is what was weighed
-    const proTitle = c.findingsOnly || c.lookup ? "What we found" : c.status === "insufficient" ? "Evidence considered" : "Supports the verdict";
-    const selected = c.nodes.find((node) => node.id === this.g.selId);
-    const readings = c.lookup ? readingsOf(c.lookup) : [];
-    const cited = (r: LookupAssessment) => `<div class="sect label">Cited model reading${readings.length > 1 ? ` · ${esc(r.model)}` : ""} · not a verdict</div><p class="lookup-message">${esc([r.origin, r.corroboration, r.spread_pattern].filter(Boolean).join("\n"))}</p><div class="receipt-meta">${esc(r.model)} · ${(r.cites ?? []).map((id) => `#${id}`).join(", ")}</div>`;
-    const head = `${selected ? this.realData(selected) : c.lookup ? '<p class="lookup-message">Select a card to inspect its real data and source receipts.</p>' : ""}${this.spread(c)}${readings.map(cited).join("")}`;
-    const first = !head.trim();
-    return `${head}${pro.length ? `<div class="sect label"${first ? ' style="margin-top:0"' : ""}>${proTitle} <span>${pro.length}</span></div>${pro.map(ev).join("")}` : ""}
-      ${con.length ? `<div class="sect label"${pro.length || !first ? "" : ' style="margin-top:0"'}>${conTitle} <span>${con.length}</span></div>${con.map((r, i) => ev(r, i + pro.length)).join("")}` : ""}
-      ${c.wouldChange.length ? `<div class="sect label">What would change our mind</div>${c.wouldChange.map((w) => `<div class="change">${esc(w)}</div>`).join("")}` : ""}`;
+    return `${readings.slice(1).map((r, i) => block(r, i + 1, false)).join("")}${waiting}`;
   }
 
   private realData(node: TraceNode) {
     if (!node.realData) return "";
     return `<div class="sect label">${this.c?.mock ? "Mock data (fictional)" : "Real data"}</div>${node.realData.map((group) => `<section class="data-group"><h4>${esc(group.label)}</h4><dl>${group.facts.map((fact) => `<dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd>`).join("")}</dl><div class="receipt-meta">${group.receiptId != null ? `Receipt #${group.receiptId}` : "No receipt id returned"}</div>${httpUrl(group.url) ? `<a class="src" href="${esc(group.url!)}" target="_blank" rel="noopener noreferrer">Source ↗ ${esc(group.url!)}</a>` : ""}</section>`).join("")}${node.timeUnknown ? '<p class="lookup-message">Time unknown: this card is positioned at the submitted post’s time (or the lookup start) for layout only. This is not a publication timestamp.</p>' : ""}`;
-  }
-
-  private spread(c: TraceCase) {
-    if (!c.lookup) return "";
-    const spread = c.lookup.spread;
-    return `${spread ? `<section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd></dl></section>` : ""}`;
   }
 
   private detail(n: TraceNode) {
@@ -266,11 +198,11 @@ export class Panel {
       <button class="close" data-act="close" aria-label="Close">${sm(icon.close, 13)}</button>
       <div class="label" style="color:${roleOf(n.role).color}">${esc(roleOf(n.role).label)}</div>
       <div class="d-who">${cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: 42 })}<div class="who"><b>${esc(a.name)}</b>${a.handle !== a.name ? `<span>${esc(a.handle)}</span>` : ""}</div></div>
-      <p class="d-txt">${esc(n.text)}</p>
+      <p class="d-txt">${markRuns(n.text, n.textMatch)}</p>
       ${n.media?.note ? `<div class="media-note">${esc(n.media.note)}</div>` : ""}
       <div class="kv">
         ${n.undated ? "" : `<div><div class="k2">Posted</div><div class="v2">${n.timeUnknown ? "Time unknown" : fmtDate(n.t)}</div></div>`}
-        <div><div class="k2">Where</div><div class="v2">${PLATFORM[n.platform] ?? n.platform}</div></div>
+        <div><div class="k2">Where</div><div class="v2">${esc(PLATFORM[n.platform] ?? n.platform)}</div></div>
         ${a.ageDays != null ? `<div><div class="k2">Account age</div><div class="v2${fresh ? " warn" : ""}">${fmtDur(a.ageDays * 86400000)}</div></div>` : ""}
         ${a.followers != null ? `<div><div class="k2">Followers</div><div class="v2${a.followers < 20 ? " warn" : ""}">${fmtNum(a.followers)}</div></div>` : ""}
       </div>
@@ -284,7 +216,7 @@ export class Panel {
         ${shotOf[0] ? `<button class="btn" data-go="${esc(shotOf[0].to)}">Real post in the screenshot ${sm(icon.arrowR)}</button>` : ""}
         ${shownIn[0] ? `<button class="btn" data-go="${esc(shownIn[0].from)}">${sm(icon.arrowL)} Post with the screenshot</button>` : ""}
       </div>
-      ${n.url && !c.synthetic ? `<a class="d-src" href="${esc(n.url)}" target="_blank" rel="noopener">Open the original ↗</a>` : c.synthetic ? `<div class="nolink">Simulated post: no live link.</div>` : ""}
+      ${c.synthetic ? `<div class="nolink">Simulated post: no live link.</div>` : httpUrl(n.url) ? `<a class="d-src" href="${esc(n.url!)}" target="_blank" rel="noopener">Open the original ↗</a>` : ""}
     </section>`;
   }
 }

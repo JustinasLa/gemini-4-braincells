@@ -23,6 +23,9 @@ export interface ImageMatch {
    *  "upload" = they turn the submitted picture into this copy; null/absent = not stated (older servers).
    *  A reading convention, not a claim about which picture is older or who edited it. */
   changes_from?: "match" | "upload" | string | null;
+  /** a published change description taken back because a later date flipped its direction (post
+   *  lookups, rare): changes are then empty, which says nothing about the pictures */
+  changes_withdrawn?: boolean | null;
   change_kinds?: string[] | null;
   receipt_id?: number | null;
 }
@@ -93,15 +96,17 @@ export function imageTraceState(result: LookupResult) {
   const origin = matches.find((match) => match.id === result.image_origin_id && relationOf(match) !== "different" && !after(match));
   const groups = IMAGE_RELATIONS.map((relation) => ({ relation, matches: matches.filter((match) => match !== origin && relationOf(match) === relation) }));
   const busy = (step: typeof reverse) => step?.state === "pending" || step?.state === "running";
+  // step labels are past tense ("Copies compared"); a skipped or failed step needs a neutral name
+  const name = (step: NonNullable<typeof reverse>) => (step === reverse ? "Picture search" : "Copy comparison");
   return {
     // the server always sends image_matches ([] by default) and skips both steps for inputs with no
     // image: show the meme trace only when there is an image search to report on
     enabled: matches.length > 0 || [reverse, variations].some((step) => step && step.state !== "skipped") || (result.kind === "image" && !!reverse),
-    skipped: [reverse, variations].filter((step) => step?.state === "skipped").map((step) => `${step!.label}: skipped${step!.detail ? ` · ${step!.detail}` : ""}`),
+    skipped: [reverse, variations].filter((step) => step?.state === "skipped").map((step) => `${name(step!)}: skipped${step!.detail ? ` · ${step!.detail}` : ""}`),
     matches, origin, groups,
     different: matches.filter((match) => relationOf(match) === "different"),
     searching: busy(reverse), comparing: busy(variations),
-    failures: [reverse, variations].filter((step) => step?.state === "failed").map((step) => `${step!.label}: ${step!.detail || "This step failed; other trace results remain available."}`),
+    failures: [reverse, variations].filter((step) => step?.state === "failed").map((step) => `${name(step!)}: ${step!.detail || "This step failed; other trace results remain available."}`),
     noEarlier: !origin && reverse?.state !== "skipped" && (matches.length > 0 || reverse?.state === "done") && !busy(reverse) && reverse?.state !== "failed",
   };
 }

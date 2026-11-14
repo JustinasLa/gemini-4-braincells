@@ -113,6 +113,17 @@ def test_client_error_is_not_retried_and_carries_detail():
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("body", [b"<html>Bad gateway</html>", b"[]", b"null"])
+def test_200_without_a_json_object_is_an_error_not_an_empty_result(body):
+    # An empty hit list would be stored as "no web search results" evidence.
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body)
+
+    with pytest.raises(OxylabsError, match="no JSON object") as exc:
+        client_with(handler).search("q")
+    assert exc.value.status == 200
+
+
 def test_missing_key_fails_fast():
     with pytest.raises(ValueError):
         OxylabsClient("")

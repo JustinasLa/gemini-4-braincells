@@ -43,10 +43,10 @@ export const mockLookupResult: LookupResult = {
   readings: [],
   readings_disagree: true,
   steps: [
-    { id: "post", tool: "oxylabs", label: "Read the mock post", state: "done", detail: "2.9M fictional views", found: ["x:100"], started_at: started, ended_at: started },
-    { id: "copies_x", tool: "oxylabs", label: "Find mock copies", state: "done", detail: "Three same-text matches; one quote", found: ["x:99", "x:101", "x:102"], started_at: started, ended_at: started },
-    { id: "assess", tool: "nemotron", label: "Nemotron reads the receipts", state: "done", detail: "No monitored match; coordination abstains", found: [], started_at: started, ended_at: started },
-    { id: "second_reading", tool: "gemini", label: "Gemini's second reading", state: "done", detail: "Mock second reading", found: [], started_at: started, ended_at: started },
+    { id: "post", tool: "oxylabs", label: "Mock post read", state: "done", detail: "2.9M fictional views", found: ["x:100"], started_at: started, ended_at: started },
+    { id: "copies_x", tool: "oxylabs", label: "Mock copies found", state: "done", detail: "Three same-text matches; one quote", found: ["x:99", "x:101", "x:102"], started_at: started, ended_at: started },
+    { id: "assess", tool: "nemotron", label: "Evidence weighed", state: "done", detail: "No monitored match; coordination abstains", found: [], started_at: started, ended_at: started },
+    { id: "second_reading", tool: "gemini", label: "Second reading", state: "done", detail: "Mock second reading", found: [], started_at: started, ended_at: started },
   ],
   notes: ["DEVELOPMENT MOCK: every account, page and metric is fictional.", "Unknown times are positioned for layout only; no exact timestamp is inferred from a date hint."],
 };

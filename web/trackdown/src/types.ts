@@ -52,6 +52,7 @@ export interface TraceNode {
   role: Role;
   author: Author;
   text: string;
+  textMatch?: string[]; // parts of `text` to highlight: 3+ words in a row of an uploaded image's text
   media?: Media;
   url?: string;
   reposts?: number;

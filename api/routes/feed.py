@@ -60,10 +60,6 @@ def _window(c: ClusterSummary) -> str:
     return f"{start:%Y-%m-%d %H:%M}–{end:{end_fmt}} UTC"
 
 
-def _num(x: float | None, fmt: str) -> str | None:
-    return None if x is None else format(x, fmt)
-
-
 def entry_title(c: ClusterSummary) -> str:
     size = f"{c.size} accounts" if c.size else "Accounts"
     fired = f", {c.families_fired} signal families" if c.families_fired else ""
@@ -82,8 +78,8 @@ def entry_text(c: ClusterSummary) -> str:
         lines.append("Signals:")
         lines += [f"- {s.summary.strip()}" for s in sigs]
     facts = [
-        f"coordination score {_num(c.score, '.2f')}",
-        f"timing p-value {_num(c.p_value, '.3g')}" if c.p_value is not None else None,
+        f"coordination score {c.score:.2f}",
+        f"timing p-value {c.p_value:.3g}" if c.p_value is not None else None,
         f"{c.window_kind} window" if c.window_kind else None,
         _window(c),
     ]

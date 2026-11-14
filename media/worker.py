@@ -250,10 +250,6 @@ class MediaRun:
     skipped: int = 0  # unique media beyond max_media
     deferred: int = 0  # media skipped because it failed recently (retried after its backoff)
 
-    @property
-    def analyses(self) -> list[MediaAnalysis]:
-        return [f.analysis for f in self.findings]
-
     def evidence_rows(self) -> list[dict[str, Any]]:
         """Evidence rows for findings, failures, and any cross-image OCR template."""
         rows = [
@@ -294,10 +290,6 @@ class MediaRun:
         )
         template = ocr_template(self.findings)
         return rows + ([template] if template else [])
-
-    @property
-    def attempted(self) -> int:
-        return len(self.findings) + len(self.failures)
 
     @property
     def screenshot_failures(self) -> int:
@@ -528,13 +520,17 @@ class ClusterProgress:
 
     def record(self, cluster_id: int, updated_at: Any, run: MediaRun) -> None:
         if run.failures or run.deferred or run.screenshot_failures:
-            self._incomplete[cluster_id] = (updated_at, self._clock() + self.retry_s)
+            self.hold(cluster_id, updated_at)
         elif self.recheck_s and any(f.screenshot is not None for f in run.findings):
             self._incomplete[cluster_id] = (updated_at, self._clock() + self.recheck_s)
             self._read.pop(cluster_id, None)
         else:
             self._read[cluster_id] = updated_at
             self._incomplete.pop(cluster_id, None)
+
+    def hold(self, cluster_id: int, updated_at: Any) -> None:
+        """Leave the cluster out for `retry_s` (incomplete, or its read raised)."""
+        self._incomplete[cluster_id] = (updated_at, self._clock() + self.retry_s)
 
     def done(self) -> dict[int, Any]:
         """{cluster_id: updated_at} to exclude now."""

@@ -4,7 +4,8 @@ import type { ClusterSummary } from "./api";
 import { hashStr } from "./build";
 import { appendImageTrace, type ImageMatch } from "./imageTrace";
 
-type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id";
+// lookup/models.py Edge.tool and Receipt.tool
+type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id" | "tineye" | "yandex" | "fetch";
 export interface LookupPost {
   id: string;
   platform: "x" | "bluesky" | "web";
@@ -24,6 +25,8 @@ export interface LookupPost {
   media_urls: string[];
   receipt_id: number | null;
   verified?: boolean;
+  // an uploaded image's lookup: the parts of `text` that repeat 3+ words in a row of its text
+  caption_match?: string[];
 }
 export interface LookupAccount {
   platform: LookupPost["platform"];
@@ -57,6 +60,7 @@ export interface LookupPage {
   claims: string[];
   snippet: string | null;
   receipt_id: number | null;
+  caption_match?: string[]; // as on LookupPost, in the headline or snippet
 }
 export interface LookupMedia {
   media_url: string;
@@ -171,8 +175,8 @@ export class LookupError extends Error {
 }
 
 const TIMEOUT_MS = 150000;
-/** fallback polling interval when the event stream is unavailable (was 1500 ms) */
-export const POLL_MS = 600;
+/** fallback polling interval when the event stream is unavailable */
+const POLL_MS = 600;
 /** the server sends a snapshot as soon as the stream opens; none by then means a broken or buffered stream */
 const FIRST_SNAPSHOT_MS = 4000;
 /** a stream that stays silent this long is treated as stalled; polling takes over */
@@ -227,14 +231,14 @@ function streamLookup(id: string, emit: (raw: string, result: LookupResult) => v
 export type LookupRequest = string | Blob;
 export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 /** the server's cap; larger images are scaled down before upload */
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_SIDE = 2048;
 /** the uploaded image of an image lookup, served back while its job lives */
 export const uploadUrl = (id: string) => `/api/lookup/${encodeURIComponent(id)}/image`;
 
 /** A large photo becomes a JPEG of at most MAX_SIDE px: Nemotron reads it as well, and the upload
  * is faster. GIFs keep their bytes when they fit (the server reads the first frame). */
-export async function prepareImage(file: Blob): Promise<Blob> {
+async function prepareImage(file: Blob): Promise<Blob> {
   if (!IMAGE_TYPES.includes(file.type)) throw new LookupError("Upload a JPEG, PNG, WebP or GIF image.");
   if (file.size <= 2 * 1024 * 1024 && file.type !== "image/png") return file;
   let bitmap: ImageBitmap;
@@ -339,11 +343,11 @@ export async function startLookup(input: LookupRequest, onUpdate: (result: Looku
 /** the primary reading is in: the trace may look finished while a second reading still runs */
 export const readingReady = (result: LookupResult) => result.state !== "running"
   || result.steps.some((step) => step.id === "assess" && ["done", "failed", "skipped"].includes(step.state));
-/** every reading received so far, primary first (older servers send only `assessment`) */
 /** A case has a coordination verdict to reveal: every non-lookup case (simulated, historical, a
  *  monitored cluster), and a lookup only when it matched a monitored cluster. A lookup's
  *  "insufficient" is the absence of a call, not a verdict, so it gets no coin. */
 export const hasVerdict = (c: Pick<TraceCase, "lookup" | "status">) => !c.lookup || c.status !== "insufficient";
+/** every reading received so far, primary first (older servers send only `assessment`) */
 export const readingsOf = (result: LookupResult): LookupAssessment[] => result.readings?.length ? result.readings : result.assessment ? [result.assessment] : [];
 /** the readings differ (the server says so; older servers: compare their llm_reading) */
 export const readingsDisagree = (result: LookupResult) => result.readings_disagree ?? new Set(readingsOf(result).map((r) => r.llm_reading)).size > 1;
@@ -419,14 +423,15 @@ export function lookupCase(result: LookupResult): TraceCase {
       id: post.id, t: fallbackTime, timeUnknown: true, platform: "web", role: "submitted",
       author: { name: "Your upload", handle: "uploaded image", hue: hashStr(post.id) % 360 },
       text: post.text, url: undefined,
-      media: { kind: "photo", src: mediaSource, title: media[0]?.description || "Your uploaded image", note: media[0]?.description ?? undefined },
+      // no description line: the upload's matches are pictures, not text about it
+      media: { kind: "photo", src: mediaSource, title: media[0]?.description || "Your uploaded image" },
       flags: ["uploaded image · no time of its own", ...(media[0] && !post.text ? ["no text read in the image"] : [])],
       realData: realData.slice(1),
     };
     return {
       id: post.id, t: time ?? fallbackTime, timeUnknown: time == null, platform: post.platform, role,
       author: { name: post.author_name || account?.name || handle, handle, hue: hashStr(`${post.platform}:${handle}`) % 360, followers: account?.followers ?? undefined, ageDays: account?.age_days ?? undefined },
-      text: post.text, url: httpUrl(post.url), likes: metrics.likes ?? undefined, reposts: metrics.reposts ?? undefined,
+      text: post.text, textMatch: post.caption_match, url: httpUrl(post.url), likes: metrics.likes ?? undefined, reposts: metrics.reposts ?? undefined,
       media: mediaSource ? { kind: "photo", src: mediaSource, title: media[0]?.description || "Post media (source image)", note: media[0]?.description ?? undefined }
         : post.card ? { kind: "link", title: post.card.title || "Linked page", domain: post.card.domain ?? undefined } : undefined,
       flags: [
@@ -456,7 +461,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     nodes.push({
       id: page.id ?? page.url, t: time ?? fallbackTime, timeUnknown: time == null, platform: page.publisher ? "news" : "web", role: "source",
       author: { name: page.publisher || hostOf(page.url), handle: page.author || hostOf(page.url), hue: hashStr(page.url) % 360 },
-      text: [page.headline, page.snippet].filter(Boolean).join("\n"), url,
+      text: [page.headline, page.snippet].filter(Boolean).join("\n"), textMatch: page.caption_match, url,
       flags: time == null ? ["time unknown", ...(page.published_hint ? [`date hint: ${page.published_hint}`] : [])] : [...precision, ...(page.time_source === "search_hint" ? ["date from a search result, page not read"] : [])],
       realData: [{ label: "Page facts", url, receiptId: page.receipt_id, facts: facts({ Publisher: page.publisher, Author: page.author, "Published at (as returned)": page.published_at, "Parsed time (UTC)": page.time, "Time source": page.time_source, "Time uncertainty": unc ? `${Math.round(unc / 3600)} h window` : null, "Date hint (not an exact time)": page.published_hint, Headline: page.headline, Claims: page.claims.join("\n"), "Page role": page.role }) }],
     });

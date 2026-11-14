@@ -8,8 +8,8 @@ it is named; that file is authoritative if it changes. Measured accuracy is not 
 is computed by `eval/` and served live by `GET /api/metrics`.
 
 Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
-API are on `main` and running live. The evaluation harness (open PRs #9 and #10) is being
-integrated; the sections about them describe that code as it stands in review.
+API are on `main` and running live, and so is the evaluation harness (its results are at
+`/api/metrics`).
 
 ## What we detect
 
@@ -176,7 +176,7 @@ as reasons the cluster might be organic:
 | `established_accounts` | most members are over a year old with a real follower count |
 | `part_of_wider_crowd` | the items this cluster shares are also used by many accounts outside it |
 | `language_diversity` | members post in several languages |
-| `transparent_automation` | members openly share one custom handle domain (one declared operator, such as a feed service) and are not new |
+| `transparent_automation` | members openly share one custom handle domain (one declared operator, such as a feed service) and are not new. The domain is the registered one from the Public Suffix List (v1.9), so people with their own `name.co.uk` handles are not grouped |
 | `clock_aligned_posting` | shared posts cluster right after full or half hours, the pattern of independent schedulers |
 | `members_converse` | members reply to each other's posts: a conversation, not a broadcast (spam rings we reviewed had 0 such replies) |
 | `declared_automation` | the name or bio of most accounts over 90 days old says bot, feed or automated alerts; only accounts whose bio was loaded count |

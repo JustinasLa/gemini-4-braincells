@@ -57,6 +57,17 @@ def did_of(at_uri: str | None) -> str | None:
     return authority if authority.startswith("did:") else None
 
 
+def _list(value: object) -> list:
+    """A record field that should be an array; anything else (records can skip lexicon
+    validation, so any JSON can arrive) reads as empty."""
+    return value if isinstance(value, list) else []
+
+
+def _type(obj: dict) -> str:
+    t = obj.get("$type")
+    return t if isinstance(t, str) else ""
+
+
 def _blob_cid(blob: object) -> str | None:
     if not isinstance(blob, dict):
         return None
@@ -134,7 +145,7 @@ def _embed(record: dict, post: Post) -> None:
     embed = record.get("embed")
     if not isinstance(embed, dict):
         return
-    etype = embed.get("$type") or ""
+    etype = _type(embed)
     kind = etype.rsplit(".", 1)[-1] if etype.startswith("app.bsky.embed.") else None
     post.embed_kind = kind
     media = embed
@@ -144,9 +155,9 @@ def _embed(record: dict, post: Post) -> None:
         media = embed.get("media") if isinstance(embed.get("media"), dict) else {}
     elif kind == "record":
         post.quote_uri = _strong_ref_uri(embed.get("record"))
-    mtype = media.get("$type") or ""
+    mtype = _type(media)
     if mtype.endswith(".images"):
-        for img in media.get("images") or []:
+        for img in _list(media.get("images")):
             cid = _blob_cid(img.get("image")) if isinstance(img, dict) else None
             if cid:
                 post.media_hashes.append(cid)
@@ -163,13 +174,13 @@ def _embed(record: dict, post: Post) -> None:
 
 
 def _facets(record: dict, post: Post) -> None:
-    for facet in record.get("facets") or []:
+    for facet in _list(record.get("facets")):
         if not isinstance(facet, dict):
             continue
-        for feat in facet.get("features") or []:
+        for feat in _list(facet.get("features")):
             if not isinstance(feat, dict):
                 continue
-            ftype = feat.get("$type") or ""
+            ftype = _type(feat)
             if ftype.endswith("#link"):
                 u = normalize_url(clean(feat.get("uri")))
                 if u and u not in post.embed_urls:
@@ -240,7 +251,7 @@ def normalize(event: dict) -> Row | None:
 
     if collection == POST:
         text = clean(record.get("text"))
-        langs = [clean(x) for x in record.get("langs") or [] if isinstance(x, str)][:5] or None
+        langs = [clean(x) for x in _list(record.get("langs")) if isinstance(x, str)][:5] or None
         post = Post(
             uri=uri,
             cid=clean(commit.get("cid")),

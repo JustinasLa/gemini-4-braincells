@@ -2,6 +2,9 @@
 
 recall        recall on synthetic campaigns injected into recorded windows (eval/recall.py)
 copy-slices   keep recorded Jetstream hours (the recorder prunes after 24 h) (eval/slices.py)
+calibration   reliability of scores and verdicts on held-out injections (eval/calibration.py)
+errors        FP/FN report from the latest calibration run (eval/errors.py)
+audit-versions  read-only check that clusters and eval runs name a detector version
 labels        sample|serve|score: hand labels on live clusters -> precision, FPR, kappa
 organic       select|run: false-positive rate on organic hard cases (eval/organic.py)
 takedowns     share of flagged accounts Bluesky later takes down vs. random accounts

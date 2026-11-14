@@ -19,7 +19,8 @@ try {
   const { lookupCase } = await server.ssrLoadModule("/src/data/lookup.ts");
   const { mockLookupResult } = await server.ssrLoadModule("/src/data/mockLookup.ts");
   const { cardHtml } = await server.ssrLoadModule("/src/ui/card.ts");
-  const { isLineageEdge } = await server.ssrLoadModule("/src/ui/format.ts");
+  const formatMod = await server.ssrLoadModule("/src/ui/format.ts");
+  const { isLineageEdge } = formatMod;
   const { clusterCase } = await server.ssrLoadModule("/src/data/api.ts");
   const dump = process.argv.indexOf("--dump");
   if (dump > 0) writeFileSync(process.argv[dump + 1], JSON.stringify(mockLookupResult));
@@ -130,6 +131,42 @@ try {
     assert.ok(trace.edges.some((e) => e.rel === "variant"));
     assert.ok(!trace.edges.some((e) => e.rel === "variant" && isLineageEdge(e, trace.nodes.find((n) => n.id === e.from), trace.nodes.find((n) => n.id === e.to))));
     renderAll(lookupCase({ ...memeFixture("meme-blocked"), image_matches: [{ id: "img:bare" }], image_origin_id: "img:bare" }));
+  });
+
+  const { Panel } = await server.ssrLoadModule("/src/ui/panel.ts");
+  check("panel: a cluster's non-http source URLs never become links", () => {
+    const bad = "javascript:alert(1)";
+    const trace = clusterCase({ id: 8, status: "insufficient", score: 0.2, confidence: 0.2, synthetic: false, signals: [], analyst: null, members: [],
+      posts: [{ uri: "at://did:plc:fictional2/app.bsky.feed.post/1", did: "did:plc:fictional2", text: "a post", created_at: "2026-11-13T10:00:00Z", embed_urls: [], media_hashes: [], url: bad }],
+      evidence: [{ id: 2, kind: "source", summary: "a page", detail: {}, source_url: bad }] });
+    // the private render methods need only the case and a selection, not a DOM
+    const panel = Object.assign(Object.create(Panel.prototype), { c: trace, g: { selId: null } });
+    const html = trace.nodes.map((n) => panel.detail(n)).join("") + panel.receipts(trace);
+    assert.ok(trace.nodes.some((n) => n.url === bad), "fixture carries the unsafe URL");
+    assert.doesNotMatch(html, /href="javascript:/i);
+  });
+
+  const { fmtDur, fmtNum } = await server.ssrLoadModule("/src/ui/format.ts");
+  check("format: rounding never shows 60 s, 60 min or 1000k", () => {
+    assert.equal(fmtDur(59_700), "1 min");
+    assert.equal(fmtDur(59.7 * 60_000), "1 h");
+    assert.equal(fmtNum(999_700), "1M");
+    assert.equal(fmtNum(9_400), "9.4k");
+    assert.equal(fmtNum(42_000), "42k");
+  });
+
+  check("an upload's text hits highlight the 3+ caption words they share", () => {
+    const { markRuns } = formatMod;
+    assert.equal(markRuns("a <b> & c"), "a &lt;b&gt; &amp; c");
+    assert.equal(markRuns("so this is fine, this is fine", ["this is fine"]), 'so <mark class="caption-hit">this is fine</mark>, <mark class="caption-hit">this is fine</mark>');
+    assert.equal(markRuns("when the comets land", ["when the comets", "the comets land"]), '<mark class="caption-hit">when the comets</mark><mark class="caption-hit"> land</mark>');
+    const lookup = fixture();
+    const post = lookup.posts.find((p) => p.role !== "submitted");
+    post.text = "Look <here>: when the comets land, nobody tells you";
+    post.caption_match = ["when the comets land", "nobody tells you"];
+    const node = lookupCase(lookup).nodes.find((n) => n.id === post.id);
+    const html = cardHtml(node, false, 1);
+    assert.match(html, /Look &lt;here&gt;: <mark class="caption-hit">when the comets land<\/mark>, <mark class="caption-hit">nobody tells you<\/mark>/);
   });
 } finally {
   await server.close();

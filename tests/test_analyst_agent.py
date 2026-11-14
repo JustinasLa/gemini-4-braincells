@@ -182,6 +182,19 @@ def test_cache_is_shared_across_clusters_but_each_cluster_gets_its_own_row():
     assert b.records[0].cached and b.budget.web_calls == 0
 
 
+def test_cached_page_gets_each_clusters_own_sharing_counts():
+    from dataclasses import replace
+
+    web, cache = FakeWeb(), WebCache()
+    a = toolbox(replace(ctx(), size=5), web=web, cache=cache, sink=MemorySink(start_id=100))
+    b = toolbox(replace(ctx(), id=43, size=12), web=web, cache=cache, sink=MemorySink(start_id=200))
+    a.call("scrape_url", {"url": "https://news.example/story"})
+    b.call("scrape_url", {"url": "https://news.example/story"})
+    assert web.scrapes == ["https://news.example/story"]
+    eb = b.new_evidence[200]
+    assert eb.detail["cluster_accounts"] == 12 and "of 12 accounts" in eb.summary
+
+
 def test_already_stored_row_is_reused_without_oxylabs():
     web, sink = FakeWeb(), MemorySink(start_id=50)
     toolbox(web=web, sink=sink).call("scrape_url", {"url": "https://news.example/story"})
@@ -242,7 +255,7 @@ def test_forced_final_turn_at_turn_limit():
 def test_scrape_refuses_uncheckable_urls_even_if_listed():
     web = FakeWeb()
     box = toolbox(web=web)
-    box.allow_urls(["https://bsky.app/profile/x/post/1", "https://cdn.example/a.jpg"])
+    box._allow(["https://bsky.app/profile/x/post/1", "https://cdn.example/a.jpg"])
     for url in (
         "https://bsky.app/profile/x/post/1",
         "https://cdn.example/a.jpg",
@@ -339,3 +352,12 @@ def test_make_model_always_routes(monkeypatch):
         assert m.batch is not None
     finally:
         get_settings.cache_clear()
+
+
+def test_compare_table_handles_a_mode_where_every_run_failed():
+    from analyst.compare import summarize, table
+
+    runs = [{"model": "m", "mode": "agent", "cluster_id": 1, "json_valid": False, "latency_s": 1.0}]
+    assert "| agent | m | 0/1 | n/a | 0/1 | 0/1 | 1.0 / 1.0 | n/a | - | - |" in table(
+        {"summary": summarize(runs)}
+    )

@@ -52,6 +52,10 @@ Write a short, plain reading for a general audience:
   origin. Say "edited" and list observed changes, never "fake" or "deepfake"; cite receipt ids.
   An "edited" match with no listed changes differs only in pixels (a strong colour or
   brightness filter can do that): never present it alone as a change of content.
+  changes_from "match" means the changes turn that copy into the submitted picture; "upload"
+  means they turn the submitted picture into that copy. Neither says who copied whom or which
+  picture is older. changes_withdrawn true: a description was taken back, so its empty changes
+  say nothing about the content (not "pixels only").
 - spread_pattern: describe the copies: how many accounts, how fast, verbatim or quoted,
   established or new accounts. Facts only.
 - counter_evidence: reasons the spread may be ordinary (famous author, news event, people
@@ -74,8 +78,8 @@ Write a short, plain reading for a general audience:
   author whose words are quoted and replied to by established accounts leans organic.
 - kind "image": the input is an image the user uploaded (often a meme or a screenshot), not a
   post. The submitted post is that upload: it has no author or time, and its text is what
-  Nemotron read in it. Its origin is the earliest known copy (earliest_known_source_id), not
-  proof of who made it. Copies with similarity_to_submitted below 0.8 carry changed wording:
+  Nemotron read in it. Its origin is the earliest observed copy (earliest_observed_source_id),
+  not proof of who made it. Copies with similarity_to_submitted below 0.8 carry changed wording:
   call them possible variations. Pages found by the image's description are about it, not
   copies of it.
 
@@ -206,6 +210,8 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
                 "time_source": match.time_source,
                 "relation": match.relation,
                 "changes": match.changes[:4],
+                "changes_from": match.changes_from,
+                "changes_withdrawn": match.changes_withdrawn,
                 "receipt_id": match.receipt_id,
             }
             for match in r.image_matches[:12]
