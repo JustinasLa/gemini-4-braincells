@@ -7,7 +7,7 @@ function picture(caption: string, width = 480, height = 320, crop = false): stri
 }
 
 export function memeFixture(flag = "meme", origin = "http://localhost:3005"): LookupResult {
-  const submittedImage = `${origin}/meme/upload.svg`;
+  const submittedImage = `${origin}/__meme_mock__/upload.svg`;
   const base = (id: string, relation: string, overrides: ImageMatch = {}): ImageMatch => ({
     id, relation, engine: "tineye", image_url: picture("THE MOON IS OPEN"), thumb_url: picture("THE MOON IS OPEN", 240, 160),
     page_url: `https://archive.example/${id.replace(":", "-")}`, domain: "archive.example",

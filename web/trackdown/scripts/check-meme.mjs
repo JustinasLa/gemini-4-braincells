@@ -11,11 +11,35 @@ check("image matches flow through lookupCase with original styling and variant e
   assert.equal(trace.nodes.length, 7);
   assert.equal(trace.nodes.find((node) => node.id === "img:origin").role, "origin");
   assert.equal(trace.nodes.find((node) => node.id === "img:edited").role, "mutation");
-  assert.equal(trace.edges.length, 5);
+  assert.equal(trace.edges.length, 6);
   assert.ok(trace.edges.every((edge) => edge.from === "img:origin" && edge.rel === "variant"));
+  assert.ok(trace.edges.some((edge) => edge.to === fixture.subject_id), "the submission hangs off the image original");
+  assert.equal(trace.originId, "img:origin");
+  assert.ok(trace.nodes.find((node) => node.id === "img:origin").undated, "a crawl date is not shown as a publication time");
+  assert.ok(!trace.nodes.find((node) => node.id === "img:edited").undated, "a page date is");
   assert.ok(!trace.nodes.some((node) => node.id === "img:different"));
   assert.ok(!trace.steps.flatMap((step) => step.found).includes("img:different"));
   assert.ok(trace.steps[0].found.includes("img:edited"));
+});
+check("a post origin found by the lookup stays the origin; the image original is still linked", () => {
+  const withPost = structuredClone(fixture);
+  withPost.posts.push({ ...withPost.posts[0], id: "x:older", role: "origin", created_at: "2026-11-01T00:00:00Z", media_urls: [] });
+  withPost.origin_id = "x:older";
+  withPost.edges = [{ from: "x:older", to: fixture.subject_id, rel: "copy", tool: "oxylabs", note: null }];
+  const trace = api.lookupCase(withPost);
+  assert.equal(trace.originId, "x:older");
+  const into = trace.edges.filter((edge) => edge.to === fixture.subject_id);
+  assert.equal(into[0].rel, "copy", "post lineage keeps priority for the path to the origin");
+  assert.ok(into.some((edge) => edge.rel === "variant" && edge.from === "img:origin"));
+});
+check("an original published after the submitted post is not its origin; a later crawl date says nothing", () => {
+  const later = structuredClone(fixture);
+  const origin = later.image_matches.find((match) => match.id === "img:origin");
+  Object.assign(origin, { first_seen: "2026-11-20T00:00:00Z", time_source: "page" });
+  assert.equal(api.imageTraceState(later).origin, undefined);
+  assert.equal(api.lookupCase(later).originId, "");
+  origin.time_source = "crawl_date";
+  assert.equal(api.imageTraceState(later).origin?.id, "img:origin");
 });
 check("relation groups count matches, exclude original and different", () => {
   const state = api.imageTraceState(fixture);

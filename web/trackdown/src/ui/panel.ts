@@ -124,7 +124,7 @@ export class Panel {
     const nodes = new Map(c.nodes.map((n) => [n.id, n]));
     const sub = nodes.get(c.submittedId);
     const ori = nodes.get(c.originId);
-    const accounts = new Set(c.nodes.filter(inTrace).map((n) => n.author.handle)).size;
+    const accounts = new Set(c.nodes.filter((n) => inTrace(n) && !n.imageMatch).map((n) => n.author.handle)).size;
     const fresh = c.nodes.filter((n) => (n.author.ageDays ?? 999) < 30).length;
     const hops = Math.max(0, this.g.pathToOrigin(c.submittedId).length - 1);
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
