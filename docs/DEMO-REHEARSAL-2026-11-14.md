@@ -15,4 +15,3 @@ Target: https://noise-radar.srv2159172.hstgr.cloud (deployed 7d839f0a5c78). Ran 
 1. **Detector/model wording mismatch (pipeline rehearsal; no code change).** Input: synthetic sample with weak timing evidence (p=0.210), a shared link and established-account counter-evidence, plus instruction-injection text. For detector state coordinated, endpoint/model output retained status coordinated, confidence 0.75, and cited only supplied evidence, while its summary said there was not enough evidence to confirm coordinated amplification. This is a consistency concern; the rehearsal does not establish it was introduced by the current integration, so no fix was made.
 
 No new endpoint regression was found. Existing protections exercised by this battery passed. Re-run against a fresh live-data snapshot before the demo if the deployment changes.
-
