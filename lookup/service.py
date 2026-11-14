@@ -1063,6 +1063,8 @@ class Lookup:
                 if own_media:
                     texts.extend(a.extracted_text)
             found = []
+            # the longest line first: headers ("NETWORK & OPERATIONS", dates) make poor queries
+            texts = sorted(texts, key=lambda t: -len(t.split()))
             ocr = textsim.phrase(" ".join(texts), 10)
             if len(textsim.tokens(" ".join(texts))) < OCR_MIN_WORDS:
                 ocr = None
@@ -1220,6 +1222,11 @@ class Lookup:
     def _assess(self) -> None:
         if not self.deps.assessor:
             self.skip("assess", "Gemini is not configured on this server")
+            return
+        with self.lock:
+            empty = not self.result.posts and not self.result.pages
+        if empty:
+            self.skip("assess", "nothing was found to read")
             return
         with self.step("assess") as st:
             with self.lock:
