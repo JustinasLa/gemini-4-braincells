@@ -158,7 +158,6 @@ input:focus-visible { outline: none; }
   opacity: var(--card-op, 1); transition: opacity 0.35s, filter 0.35s, border-color 0.25s, box-shadow 0.25s;
   contain: layout style;
 }
-.card::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 2px; background: var(--rc); }
 .card.role-origin { --rc: var(--origin); border-color: rgba(228, 179, 106, 0.6); box-shadow: 0 0 50px -12px rgba(228, 179, 106, 0.45), 0 18px 40px -20px #000; }
 .card.role-mutation { --rc: var(--mutation); }
 .card.role-amplifier { --rc: var(--amplifier); }

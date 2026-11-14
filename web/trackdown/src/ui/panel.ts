@@ -110,19 +110,13 @@ export class Panel {
 
   private pendingHtml() {
     const failed = this.c?.lookup?.state === "failed";
-    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting live receipts"}</div><p class="lookup-message" ${failed ? 'role="alert"' : 'role="status"'}>${esc(failed ? this.c.lookup.error || "The lookup failed. No final verdict was issued." : "Posts, pages and receipts appear as they arrive. Coordination is not judged until the lookup finishes.")}</p><p class="lookup-message">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts. Select a card for its data.</p>${this.spread(this.c)}`;
+    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting live receipts"}</div><p class="lookup-message" ${failed ? 'role="alert"' : 'role="status"'}>${esc(failed ? this.c.lookup.error || "The lookup failed. No final verdict was issued." : "Posts, pages and receipts appear as they arrive. Coordination is not judged until the lookup finishes.")}</p><p class="lookup-message">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts. Select a card for its data.</p>`;
     return `<div class="pending"><div class="label">Tracing</div>
       <p>Walking back one copy at a time to the earliest version we can find, then measuring how it spread.</p></div>`;
   }
 
   private verdict(c: TraceCase) {
     const v = STATUS[c.status];
-    const nodes = new Map(c.nodes.map((n) => [n.id, n]));
-    const sub = nodes.get(c.submittedId);
-    const ori = nodes.get(c.originId);
-    const accounts = new Set(c.nodes.filter((n) => inTrace(n) && !n.imageMatch).map((n) => n.author.handle)).size;
-    const fresh = c.nodes.filter((n) => (n.author.ageDays ?? 999) < 30).length;
-    const hops = Math.max(0, this.g.pathToOrigin(c.submittedId).length - 1);
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
     const unscored = c.historical ? "Not scored" : "No call";
     const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
@@ -131,13 +125,6 @@ export class Panel {
       : c.historical
         ? `<div class="notice"><b>Historical record.</b> Written by hand from public history, not run through the detector. The verdict is our reading of it.</div>`
         : "";
-    const stats = hasChain(c)
-      ? `<div class="stats">
-        <div class="stat" data-tip="${esc(`<h4>Copies back</h4>Hops from the submitted post to the earliest copy we found.`)}"><div class="n">${hops}</div><div class="l">${hops === 1 ? "Copy back" : "Copies back"}</div></div>
-        <div class="stat" data-tip="${esc(`<h4>Age of the claim</h4><div class='row'><span>Earliest</span><b>${ori ? fmtDate(ori.t, false) : "–"}</b></div><div class='row'><span>Submitted</span><b>${sub ? fmtDate(sub.t, false) : "–"}</b></div>`)}"><div class="n">${sub && ori ? fmtDur(sub.t - ori.t) : "–"}</div><div class="l">Earliest → submitted</div></div>
-        <div class="stat" data-tip="${esc(`<h4>${c.historical ? "Hands" : "Accounts"}</h4><div class='row'><span>Distinct</span><b>${accounts}</b></div><div class='row'><span>Under 30 days old</span><b class='${fresh ? "neg" : ""}'>${fresh}</b></div>`)}"><div class="n">${accounts}</div><div class="l">${c.historical ? "Hands" : accounts === 1 ? "Account in trace" : "Accounts in trace"}</div></div>
-      </div>`
-      : "";
     const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>` : "";
     return `
       ${c.lookup ? factualFindings(c.lookup) : ""}
@@ -154,9 +141,7 @@ export class Panel {
         ${notice}
       </section>`}
       ${c.lookup ? `<div class="sect label">Model summary · collected evidence</div><p class="lookup-message">${esc(c.summary)}</p>` : ""}
-      ${stats}
-      ${replay}
-      ${this.spread(c)}`;
+      ${replay}`;
   }
 
   /** model readings of the receipts. They are inferences: the status always comes from `status`. */
@@ -174,18 +159,12 @@ export class Panel {
     };
     if (readings.length > 1 && readingsDisagree(lookup)) return `<div class="notice">The two readings differ. Both are shown; neither sets the status.</div>${readings.map((r, i) => block(r, i, true)).join("")}${waiting}`;
     // the primary reading's summary is the lead paragraph above
-    return `<div class="receipt-meta">Model reading by ${esc(readings[0].model)} · not a verdict</div>${readings.slice(1).map((r, i) => block(r, i + 1, false)).join("")}${waiting}`;
+    return `${readings.slice(1).map((r, i) => block(r, i + 1, false)).join("")}${waiting}`;
   }
 
   private realData(node: TraceNode) {
     if (!node.realData) return "";
     return `<div class="sect label">${this.c?.mock ? "Mock data (fictional)" : "Real data"}</div>${node.realData.map((group) => `<section class="data-group"><h4>${esc(group.label)}</h4><dl>${group.facts.map((fact) => `<dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd>`).join("")}</dl><div class="receipt-meta">${group.receiptId != null ? `Receipt #${group.receiptId}` : "No receipt id returned"}</div>${httpUrl(group.url) ? `<a class="src" href="${esc(group.url!)}" target="_blank" rel="noopener noreferrer">Source ↗ ${esc(group.url!)}</a>` : ""}</section>`).join("")}${node.timeUnknown ? '<p class="lookup-message">Time unknown: this card is positioned at the submitted post’s time (or the lookup start) for layout only. This is not a publication timestamp.</p>' : ""}`;
-  }
-
-  private spread(c: TraceCase) {
-    if (!c.lookup) return "";
-    const spread = c.lookup.spread;
-    return `${spread ? `<section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd></dl></section>` : ""}`;
   }
 
   private detail(n: TraceNode) {

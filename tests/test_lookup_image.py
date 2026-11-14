@@ -142,7 +142,7 @@ def test_uploaded_meme_keeps_hits_with_3_caption_words_in_a_row():
     assert reader.calls == [(JPEG, None)]  # the uploaded bytes, read once, no post text
     st = {s.id: s for s in r.steps}
     assert st["post"].state == st["author"].state == st["linked"].state == "skipped"
-    assert st["media"].label.startswith("Read the uploaded image")
+    assert st["media"].label == "Image read"
     assert st["media"].state == "done"
     subj = next(p for p in r.posts if p.id == r.subject_id)
     assert subj.role == "submitted" and subj.id.startswith("upload:")
