@@ -18,8 +18,9 @@ uv run pytest tests/test_signals.py
    chars), MinHash near-duplicate text, same media blob CID, same normalised link. Engagement: same
    liked / reposted / quoted post, same followed account. Keys used by more than
    `max_key_accounts` accounts (viral posts, big news links) are dropped: they can't tell
-   coordination from popularity. Tokens are words; in scripts written without spaces (Japanese,
-   Chinese, Thai) each character is a token (`textnorm.tokens`), so the 25-char minimum decides.
+   coordination from popularity. Tokens are words; in Japanese and Chinese (no spaces) each kana or
+   ideograph is a token (`textnorm.tokens`, v1.8), so the 25-char minimum decides. Thai, Lao,
+   Myanmar and Khmer keep whitespace tokens: `normalize_text` drops their vowel marks.
 3. **Graph** (`graph.py`): account-account edges weighted by rarity, `1/ln(1+n)` per shared key.
    An edge needs one shared content key or >= 3 shared engagement keys. Connected components;
    components over 50 accounts are split with seeded Leiden.
@@ -217,4 +218,8 @@ Earlier fixes from the same kind of review: weather feeds sharing a custom handl
 - Independent scheduled bots (clock, weather, news feeds) look synchronized; guards catch the
   ones that post on the hour or share a declared domain, not all.
 - Short texts (< 5 tokens) are ignored as content keys; copy-paste of one-liners isn't caught.
+- Japanese/Chinese posts get content keys since v1.8, but semantic (embedding) similarity still
+  counts words by spaces, so they are never embedded. Thai, Lao, Myanmar and Khmer are tokenised
+  on the fragments left after their vowel marks are removed. `POST /api/lookup` (Trackdown) still
+  needs 5 space-separated words of text; `POST /api/analyze` accepts 10+ CJK/Thai characters.
 - Identity signals depend on enrichment, which is limited per pass and only for suspicious groups.
