@@ -9,7 +9,7 @@ something is most likely just people reacting to the news, refuses to guess when
 thin, and publishes its own measured error rates.
 
 Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS): the site is Trackdown
-(paste a post, trace it; live clusters open from its Cases list or `/?cluster=<id>`). API health:
+(paste a post, trace it; `/?cluster=<id>` opens a live cluster). API health:
 [`/api/health`](https://noise-radar.srv2159172.hstgr.cloud/api/health), measured accuracy:
 [`/api/metrics`](https://noise-radar.srv2159172.hstgr.cloud/api/metrics).
 

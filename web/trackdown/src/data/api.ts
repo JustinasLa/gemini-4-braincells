@@ -47,15 +47,6 @@ async function getJson<T>(url: string, init?: RequestInit, ms = 6000): Promise<T
   }
 }
 
-export async function listLive(limit = 12): Promise<ClusterSummary[]> {
-  try {
-    const rows = await getJson<ClusterSummary[]>(`/api/clusters?limit=${limit}`);
-    return Array.isArray(rows) ? rows : [];
-  } catch {
-    return [];
-  }
-}
-
 const host = (u: string) => {
   try {
     return new URL(u).hostname;
