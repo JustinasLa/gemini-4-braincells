@@ -527,3 +527,123 @@ def test_a_parent_answer_for_another_post_is_not_the_parent():
     )
     job.run()
     assert not any(p.id in (f"x:{VG_ID}", "x:2121220535044460000") for p in job.result.posts)
+
+
+# ---------------------------------------------------------------- review round 5
+
+
+def _self_signed(tmp_path):
+    import datetime as dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    now = dt.datetime.now(dt.UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(minutes=5))
+        .not_valid_after(now + dt.timedelta(hours=1))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    cert_file, key_file = tmp_path / "cert.pem", tmp_path / "key.pem"
+    cert_file.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return cert_file, key_file
+
+
+def test_https_through_a_connect_proxy_is_cut_at_the_bound(tmp_path, monkeypatch):
+    """TLS through an HTTP CONNECT proxy opens its socket under "proxy.start_tls": a cancel
+    must reach it too, so the worker ends while the server still trickles headers."""
+    import socket
+    import ssl
+    import threading
+    import time as _time
+
+    cert_file, key_file = _self_signed(tmp_path)
+    stop = threading.Event()
+
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert_file, key_file)
+    origin = socket.socket()
+    origin.bind(("127.0.0.1", 0))
+    origin.listen(1)
+
+    def serve_origin():
+        raw, _ = origin.accept()
+        try:
+            conn = tls.wrap_socket(raw, server_side=True)
+            conn.recv(4096)
+            conn.sendall(b"HTTP/1.1 200 OK\r\n")
+            while not stop.is_set():
+                conn.sendall(b"X-Slow: a\r\n")
+                _time.sleep(0.3)
+        except (OSError, ssl.SSLError):
+            pass
+        finally:
+            raw.close()
+
+    proxy = socket.socket()
+    proxy.bind(("127.0.0.1", 0))
+    proxy.listen(1)
+
+    def pipe(a, b):
+        try:
+            while data := a.recv(65536):
+                b.sendall(data)
+        except OSError:
+            pass
+        finally:
+            for s in (a, b):
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+    def serve_proxy():
+        client, _ = proxy.accept()
+        head = b""
+        while b"\r\n\r\n" not in head:
+            head += client.recv(4096)
+        upstream = socket.create_connection(("127.0.0.1", origin.getsockname()[1]))
+        client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        threading.Thread(target=pipe, args=(client, upstream), daemon=True).start()
+        pipe(upstream, client)
+
+    for target in (serve_origin, serve_proxy):
+        threading.Thread(target=target, daemon=True).start()
+    monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{proxy.getsockname()[1]}")
+    monkeypatch.setenv("SSL_CERT_FILE", str(cert_file))
+    for var in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(var, raising=False)
+    c = FxTwitterClient(base_url=f"https://localhost:{origin.getsockname()[1]}")
+    t0 = _time.monotonic()
+    try:
+        with pytest.raises(FxTwitterError, match="not complete in time"):
+            c.status(VG_ID, deadline=_time.monotonic() + 0.8)
+        assert _time.monotonic() - t0 < 1.2
+        assert _workers_end(1.5)
+    finally:
+        stop.set()
+        origin.close()
+        proxy.close()
+
+
+def test_only_a_test_transport_can_be_injected():
+    with pytest.raises(TypeError):
+        FxTwitterClient(transport=httpx.HTTPTransport())

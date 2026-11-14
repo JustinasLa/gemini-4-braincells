@@ -140,11 +140,15 @@ class FxTwitterClient:
         *,
         base_url: str = BASE_URL,
         timeout_s: float = 8.0,
-        transport: httpx.BaseTransport | None = None,
+        transport: httpx.MockTransport | None = None,
     ):
+        # a real transport could hand a read a pooled keep-alive connection that opens no
+        # socket, which a cancel could then not reach: every real read gets a fresh one
+        if transport is not None and not isinstance(transport, httpx.MockTransport):
+            raise TypeError("FxTwitterClient takes only an httpx.MockTransport (tests)")
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
-        self._transport = transport  # tests: httpx.MockTransport
+        self._transport = transport
         self._local = threading.local()
 
     @property
@@ -289,7 +293,10 @@ class _Read:
             pass
 
     def _trace(self, name: str, info: dict) -> None:
-        if name in ("connection.connect_tcp.complete", "connection.start_tls.complete"):
+        # every socket the read opens or wraps in TLS: directly ("connection."), through an
+        # HTTP CONNECT proxy ("proxy.start_tls": TLS wrapping detaches the TCP socket recorded
+        # before, so the TLS one must be recorded too) or a SOCKS proxy ("socks.")
+        if name.endswith((".connect_tcp.complete", ".start_tls.complete")):
             stream = info.get("return_value")
             with self.lock:
                 if stream is not None:
