@@ -2,6 +2,7 @@ import "./styles.css";
 import rhinoUrl from "./assets/rhino-1515.webp";
 import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
+import qrcode from "qrcode-generator";
 import { analyze, liveCase } from "./data/api";
 import { simulatedCases } from "./data/cases";
 import { IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
@@ -24,7 +25,7 @@ document.querySelector("#app")!.innerHTML = `
     <a class="wordmark" href="/" aria-label="Shill or Chill: home">SHILL OR CHILL</a>
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
+      <span class="trace-wrap"><button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button><button class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span>
     </div>
   </header>
   <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
@@ -154,6 +155,7 @@ document.addEventListener("click", (e) => {
   if (!a || a.closest("#panel") || a.closest(".event")) return;
   const act = a.dataset.act;
   if (act === "trace") showHome();
+  if (act === "qr") showQr();
   if (act === "sheet") {
     app.classList.toggle("sheet-open");
     if (app.classList.contains("sheet-open")) setTimeout(() => $("#panel").querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(), 50);
@@ -452,6 +454,21 @@ async function showEvent(c: TraceCase, run: number) {
 // ---------------------------------------------------------------- home: the banner, one input, a few cases
 let homeEl: HTMLElement | null = null;
 let stopHomeBanner: (() => void) | null = null;
+// Phone hand-off: the site runs on a bare IP, so scan instead of typing it.
+function showQr() {
+  const url = location.href;
+  const qr = qrcode(0, "M");
+  qr.addData(url);
+  qr.make();
+  const dlg = document.createElement("dialog");
+  dlg.className = "qr-dialog";
+  dlg.setAttribute("aria-label", "Open this page on your phone");
+  dlg.innerHTML = `<div class="qr-code">${qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true })}</div><p class="qr-url">${esc(url)}</p><button class="btn" data-close>Close</button>`;
+  dlg.addEventListener("click", (e) => { if (e.target === dlg || (e.target as HTMLElement).closest("[data-close]")) dlg.close(); });
+  dlg.addEventListener("close", () => dlg.remove());
+  document.body.appendChild(dlg);
+  dlg.showModal();
+}
 function showHome() {
   cancelTrace();
   closeEvent();
