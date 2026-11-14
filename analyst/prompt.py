@@ -110,8 +110,7 @@ def fit_evidence(ctx: ClusterContext) -> ClusterContext:
 
 
 def _evidence_line(e: EvidenceItem) -> str:
-    if e.kind == "media":
-        return _media_line(e)
+    """A non-media item's line (media lines come from _media_line)."""
     d = e.detail
     if e.kind == "signal":
         tag = (
@@ -149,7 +148,7 @@ def build_prompt(ctx: ClusterContext, *, max_posts: int = 8, max_chars: int = 28
     )
     fitted = fit_evidence(ctx)  # idempotent: callers pass fit_evidence(ctx) to the guard too
     lines = [_fitted_line(item) for item in fitted.evidence]
-    if fitted.evidence_omitted or ctx.evidence_omitted:
+    if fitted.evidence_omitted:  # includes ctx.evidence_omitted
         lines.append(OMITTED)
     evidence = "\n".join(lines)
     return (

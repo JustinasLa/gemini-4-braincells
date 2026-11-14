@@ -295,9 +295,6 @@ class ToolBox:
             names |= WEB_TOOLS
         return [d for d in DECLARATIONS if d["name"] in names]
 
-    def allow_urls(self, urls: Iterable[str]) -> None:
-        self._allow(urls)
-
     def _allow(self, urls: Iterable[str]) -> None:
         for u in urls:
             if isinstance(u, str) and u.startswith(("http://", "https://")):

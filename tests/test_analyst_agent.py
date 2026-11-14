@@ -255,7 +255,7 @@ def test_forced_final_turn_at_turn_limit():
 def test_scrape_refuses_uncheckable_urls_even_if_listed():
     web = FakeWeb()
     box = toolbox(web=web)
-    box.allow_urls(["https://bsky.app/profile/x/post/1", "https://cdn.example/a.jpg"])
+    box._allow(["https://bsky.app/profile/x/post/1", "https://cdn.example/a.jpg"])
     for url in (
         "https://bsky.app/profile/x/post/1",
         "https://cdn.example/a.jpg",
