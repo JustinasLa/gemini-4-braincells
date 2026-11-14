@@ -69,6 +69,30 @@ check_media() {
 check_media
 version=$(get /version.txt 2>/dev/null | tr -d '\n') || version=unknown
 
+# Accuracy page (advisory): the replayed evals must be published for the detector the site runs.
+check_metrics() {
+  local metrics config
+  metrics=$(get /api/metrics 2>/dev/null) || return 0   # already counted as a failure above
+  config=$(git -C "$(dirname "$0")" show "$version:signals/config.py" 2>/dev/null) || config=
+  python3 -c 'import json, re, sys
+rows = json.loads(sys.argv[1])
+m = re.search(r"^VERSION = \"([^\"]+)\"", sys.argv[2], re.M)
+deployed = m.group(1) if m else None  # None: the deployed commit is not in this checkout
+replays = {"synthetic_campaigns", "organic_synth", "organic_live", "calibration"}
+rows = rows if isinstance(rows, list) else []
+got = {(r.get("details") or {}).get("detector_version") for r in rows if r.get("dataset") in replays}
+got = sorted(map(str, got))
+fix = "run deploy/publish-evals.sh from a checkout of the deployed commit"
+if not rows:
+    print(f"WARN /api/metrics is empty: the Accuracy page shows no numbers; {fix}")
+elif deployed and got != [deployed]:
+    print(f"WARN eval rows are for detector {got}, the site runs {deployed}; {fix}")
+else:
+    print(f"INFO metrics rows={len(rows)} replay detector={got} deployed={deployed}")
+' "$metrics" "$config"
+}
+check_metrics
+
 ts=$(date -u +%FT%TZ)
 if ((${#fail[@]})); then
   echo "$ts FAIL $url version=$version: ${fail[*]}"

@@ -742,8 +742,9 @@ def organic_guards(
     # Declared automation: most accounts say in their bio or name that they are a bot, a feed or
     # automated alerts, and they aren't new. Openly automated services (traffic, weather, news
     # feeds) post in sync by design; that is not a covert campaign.
-    aged_text = [a for a in known if a.age_days is not None and (a.description or a.display_name)]
-    if len(aged_text) >= cfg.min_cluster_size:
+    # Only accounts whose bio was fetched count (a bio not loaded yet is not "didn't say so").
+    aged_text = [a for a in known if a.age_days is not None and a.description is not None]
+    if len(aged_text) >= 3:
         declared = sorted(
             a.did
             for a in aged_text
@@ -756,10 +757,11 @@ def organic_guards(
                     "guard",
                     "declared_automation",
                     _r(len(declared) / len(aged_text)),
-                    f"{len(declared)} of {len(aged_text)} accounts say in their name or bio that "
+                    f"{len(declared)} of {len(aged_text)} accounts with a known bio say in their "
+                    "name or bio that "
                     "they are a bot, a feed or automated alerts, and are over 90 days old: an "
                     "openly automated service posts in sync by design",
-                    {"declared": len(declared), "with_bio_or_name": len(aged_text)},
+                    {"declared": len(declared), "with_known_bio": len(aged_text)},
                     dids=declared,
                     polarity="against",
                 )

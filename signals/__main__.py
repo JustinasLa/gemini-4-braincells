@@ -41,7 +41,16 @@ def run_once(
     enrich_budget: int = 400,
 ) -> dict:
     length = timedelta(seconds=cfg.windows[window_kind])
-    end = (end or datetime.now(UTC) - LAG_GUARD).replace(microsecond=0)
+    if end is None:
+        # Never look past what ingest has written: when ingest falls behind (e.g. a CPU-starved
+        # host), "now - 15 s" would cut a window whose last minutes aren't in the database yet.
+        end = datetime.now(UTC) - LAG_GUARD
+        row = conn.execute(
+            "SELECT last_event_at FROM ingest_state WHERE stream = 'jetstream'"
+        ).fetchone()
+        if row and row[0] and row[0] < end:
+            end = row[0]
+    end = end.replace(microsecond=0)
     start = end - length
     t0 = time.monotonic()
     wd = load_window(conn, start, end, cfg)

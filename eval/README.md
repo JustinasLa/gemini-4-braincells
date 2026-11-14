@@ -1,7 +1,10 @@
 # eval/: how often is the detector right?
 
 Every number the dashboard shows about our own accuracy comes from here, through `eval_runs`
-(`GET /api/metrics` serves the latest row per `dataset` + `split`).
+(`GET /api/metrics` serves the latest row per `dataset` + `split`). The rows on the public site
+are written by `deploy/publish-evals.sh` (top-level README, Deploy) on the detector the site runs,
+with `--base-rates` on for recall, organic and calibration so the identity test runs as live;
+the base rates used are stored in `details.base_rates` (calibration: `details.provenance.base_rates`).
 
 ```bash
 uv run python -m eval copy-slices                                # keep finished recorded hours
@@ -28,6 +31,7 @@ Organic false positives (`organic.py`, below):
 uv run python -m eval organic select   # pick live organic cases -> eval/fixtures/organic_live.json
 uv run python -m eval organic run      # print the report; no eval_runs rows
 uv run python -m eval organic run --write [--database-url URL]  # ...and write eval_runs rows
+uv run python -m eval organic run --base-rates signals/fixtures/attack_results_live_v15_20261113T2000Z.json  # identity test on, as live
 uv run pytest tests/test_eval_organic.py                          # offline; no DB, no network
 ```
 
@@ -197,6 +201,9 @@ count in `details`.
 
 ## Results
 
+The tables below are a dated record of earlier runs. The current numbers, for the detector the
+site runs, are the rows in [`/api/metrics`](https://noise-radar.srv2159172.hstgr.cloud/api/metrics).
+
 ### Recall on synthetic campaigns (`synthetic_campaigns`)
 
 Measured 2026-11-14 with detector v1.5 and the base rates Kirill measured live on 2026-11-13 20:00
@@ -240,6 +247,7 @@ What this says:
 ```bash
 uv run python -m eval calibration --split heldout --json-out /tmp/calibration.json
 uv run python -m eval calibration --split heldout --write  # configured DATABASE_URL
+uv run python -m eval calibration --split heldout --base-rates FILE  # identity test on, as live
 uv run python -m eval errors                              # latest calibration row, heldout
 uv run python -m eval errors --input /tmp/calibration.json --output eval/reports/latest-errors.md
 uv run python -m eval audit-versions                      # read-only, exit 1 on missing versions
