@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from lookup.urls import snowflake_time
 
@@ -40,6 +41,78 @@ _CARD_END = re.compile(
 )
 _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^)]*)\)")
 _TITLE = re.compile(r'^# (.+?) on X: "(.*)"\s*$', re.S)
+
+
+def unavailable_reason(md: str) -> str | None:
+    """Read X's explicit notices outside post items."""
+    notices = {
+        "This post is from a suspended account.": "suspended",
+        "Account suspended": "suspended",
+        "This post is from a protected account.": "protected",
+        "These posts are protected": "protected",
+        "You're unable to view this Post because this account owner limits "
+        "who can view their Posts.": "protected",
+        "We're unable to show this content": "unavailable",
+        "The content may be private, deleted or only available on the app.": "unavailable",
+        "Hmm...this page doesn't exist. Try searching for something else.": "unavailable",
+        "This account doesn't exist": "not_found",
+    }
+    in_item = False
+    in_post = False
+    for raw in md.splitlines():
+        if raw.startswith("* [![@"):
+            in_item = True
+            continue
+        if in_item:
+            if raw.startswith("  ") or not raw.strip():
+                continue
+            in_item = False
+        if _AVATAR.match(raw):
+            in_post = True
+        if in_post:
+            if not raw.startswith("#"):
+                continue
+            in_post = False
+        line = raw.strip().removeprefix("* ").lstrip("# ").replace("’", "'")
+        line = line.split(" [Learn more](", 1)[0]
+        if line == "This Post is from a suspended account.":
+            line = "This post is from a suspended account."
+        if line in notices:
+            return notices[line]
+    return None
+
+
+def page_unavailable_reason(md: str, url: str) -> str | None:
+    """X's notice for the page at `url` itself. A post page counts only when its own post is
+    missing (a reply from a suspended account says nothing about the post); a profile page only
+    from the "## " notice headings above its timeline (a timeline item can be another account's
+    tombstone, and the name and bio are the account's own words)."""
+    m = re.search(r"/status(?:es)?/(\d+)", urlsplit(url).path)
+    if m:
+        return None if parse_post_page(md, m.group(1)).main else unavailable_reason(md)
+    header = md.split("\n* ", 1)[0].splitlines()
+    return unavailable_reason("\n".join(ln for ln in header if ln.startswith("## ")))
+
+
+def unavailable_tag(reason: str) -> str:
+    """A few words for the verdict screen."""
+    return {
+        "suspended": "Account suspended",
+        "protected": "Protected account",
+        "unavailable": "Post not available",
+        "not_found": "Account doesn't exist",
+    }[reason]
+
+
+def unavailable_detail(reason: str) -> str:
+    """Plain wording for an unreadable X post."""
+    return {
+        "suspended": "X shows this post is from a suspended account",
+        "protected": "X shows this post is from a protected account "
+        "(only approved followers can see it)",
+        "unavailable": "X says this post isn't available (it may be private, deleted or app-only)",
+        "not_found": "X says this account doesn't exist",
+    }[reason]
 
 
 def parse_count(s: str | None) -> int | None:

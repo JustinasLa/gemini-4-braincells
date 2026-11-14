@@ -17,7 +17,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -38,7 +38,18 @@ from lookup.models import (
     Step,
 )
 from lookup.urls import X_STATUS_RE, Target, classify, domain, snowflake_time, x_post_url
-from lookup.xpage import PostPage, XItem, parse_post_page, parse_profile
+from lookup.xpage import (
+    PostPage,
+    XItem,
+    page_unavailable_reason,
+    parse_post_page,
+    parse_profile,
+    unavailable_detail,
+    unavailable_reason,
+    unavailable_tag,
+)
+from sources.links import X_HOSTS, url_variants
+from sources.oxylabs import OxylabsError
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +110,28 @@ _BSKY_POST = re.compile(r"https?://bsky\.app/profile/([^/\s?#]+)/post/([a-z0-9]+
 
 class BudgetExceeded(RuntimeError):
     """The lookup's time budget is used up: no new provider call starts."""
+
+
+class StepUnavailable(Exception):
+    """An expected condition that can be shown directly."""
+
+    def __init__(self, detail: str, state: Literal["failed", "done", "skipped"] = "failed"):
+        super().__init__(detail)
+        self.state = state
+
+
+def _error_detail(exc: Exception) -> str:
+    if isinstance(exc, StepUnavailable):
+        return str(exc)
+    if isinstance(exc, OxylabsError):
+        return "Oxylabs couldn't read the page" + (
+            f" (HTTP {exc.status})" if exc.status is not None else ""
+        )
+    if type(exc).__name__ == "NotVisionModelError":  # media.nemotron, imported lazily
+        return "the reply came from a model that isn't Nemotron Super VL; no reading kept"
+    if isinstance(exc, ValueError) and (m := re.search(r"finish_reason=(\w+)", str(exc))):
+        return f"the model returned no usable reading (finish_reason={m.group(1)})"
+    return "unexpected error (logged)"
 
 
 def _now() -> datetime:
@@ -207,6 +240,8 @@ class Lookup:
         self._upload_meme = False  # Nemotron typed the uploaded image a meme
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
+        self._unreadable = False  # the submitted post or page is an X tombstone
+        self._tomb_detail = ""
         self._pool: ThreadPoolExecutor | None = None
         # verify runs as candidates arrive (see _queue_verify), not after every other step
         self._v_futures: list[Future] = []
@@ -249,11 +284,16 @@ class Lookup:
                 st.detail = (st.detail + " · " if st.detail else "") + "time budget used up"
                 st.ended_at = _now()
             return
+        except StepUnavailable as exc:
+            with self.lock:
+                st.state, st.detail = exc.state, str(exc)
+                st.ended_at = _now()
+            return
         except Exception as exc:  # recorded, never fatal for the run
             log.warning("lookup %s step %s failed: %s", self.result.id, sid, exc, exc_info=True)
             with self.lock:
                 st.state = "failed"
-                st.detail = st.detail or f"{type(exc).__name__}: {str(exc)[:160]}"
+                st.detail = _error_detail(exc)
                 st.ended_at = _now()
             return
         with self.lock:
@@ -428,7 +468,7 @@ class Lookup:
             log.exception("lookup %s failed", self.result.id)
             with self.lock:
                 self.result.state = "failed"
-                self.result.error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                self.result.error = _error_detail(exc)
         finally:
             with self.lock:
                 self.result.finished_at = _now()
@@ -600,16 +640,26 @@ class Lookup:
             page: PostPage = parse_post_page(md, t.post_id)
             m = page.main
             if m is None:
-                rid = self.receipt(
+                reason = unavailable_reason(md)
+                detail = unavailable_detail(reason) if reason else "post not visible logged out"
+                self.receipt(
                     "oxylabs",
                     "/scrape",
-                    "X post page read, but the post was not "
+                    detail
+                    if reason
+                    else "X post page read, but the post was not "
                     "on it (deleted, protected or age-restricted)",
                     source_url=t.url,
                     call=call,
-                    ok=False,
+                    ok=bool(reason),
                 )
-                st.state, st.detail = "failed", "post not visible logged out"
+                st.state, st.detail = "done" if reason else "failed", detail
+                with self.lock:
+                    self.result.unreadable = (
+                        unavailable_tag(reason) if reason else "Post not readable"
+                    )
+                if reason:
+                    self._tombstone_note(detail)
                 self._subject_time = snowflake_time(t.post_id)
                 return
             counts = ", ".join(
@@ -696,8 +746,20 @@ class Lookup:
             url = f"https://x.com/{handle}"
             md, call = self._scrape_x(url)
             p = parse_profile(md, handle)
+            reason = page_unavailable_reason(md, url)
+            if reason in ("suspended", "not_found"):
+                detail = "account suspended" if reason == "suspended" else "account doesn't exist"
+                self.receipt(
+                    "oxylabs",
+                    "/scrape",
+                    f"X profile @{handle}: {detail}",
+                    source_url=url,
+                    call=call,
+                )
+                st.state, st.detail = "done", detail
+                return None
             if p.followers is None and p.joined is None:
-                raise RuntimeError("profile not readable logged out")
+                raise StepUnavailable("profile not readable logged out")
             per_day = None
             ids = sorted(int(it.status_id) for it in p.recent if it.status_id)
             if len(ids) >= 3:
@@ -707,7 +769,8 @@ class Lookup:
                 "oxylabs",
                 "/scrape",
                 f"X profile @{handle}: joined {p.joined or '?'}, "
-                f"{_fmt(p.followers)} followers, {_fmt(p.posts_count)} posts",
+                f"{_fmt(p.followers)} followers, {_fmt(p.posts_count)} posts"
+                + ("; posts are protected" if reason == "protected" else ""),
                 source_url=url,
                 call=call,
             )
@@ -746,7 +809,11 @@ class Lookup:
                 st.found = found
                 st.detail = (
                     f"joined {p.joined or '?'} · {_fmt(p.followers)} followers · "
-                    f"{len(p.recent)} recent posts"
+                    + (
+                        "posts are protected"
+                        if reason == "protected"
+                        else f"{len(p.recent)} recent posts"
+                    )
                     + (f" · ~{per_day}/day" if per_day is not None else "")
                 )
             return acct
@@ -789,14 +856,16 @@ class Lookup:
         t = self.target
         with self.step("post") as st:
             if not self.deps.bsky:
-                raise RuntimeError("Bluesky client not configured")
+                raise StepUnavailable("Bluesky client not configured")
             self._spend()
             th = self.deps.bsky.thread(
                 t.handle, t.post_id, depth=1, deadline=self._provider_deadline()
             )
             pv = th.get("post")
             if not pv:
-                raise RuntimeError("post not found (deleted or blocked)")
+                with self.lock:
+                    self.result.unreadable = "Post not found"
+                raise StepUnavailable("post not found (deleted or blocked)")
             rid = self.receipt(
                 "bluesky",
                 "getPostThread",
@@ -831,7 +900,7 @@ class Lookup:
     def _bsky_author(self, actor: str) -> None:
         with self.step("author") as st:
             if not self.deps.bsky:
-                raise RuntimeError("Bluesky client not configured")
+                raise StepUnavailable("Bluesky client not configured")
             self._spend()
             pr = self.deps.bsky.profile(actor, deadline=self._provider_deadline())
             created = parse_time(pr.get("createdAt"))
@@ -913,6 +982,50 @@ class Lookup:
         except httpx.HTTPError:
             return url
 
+    def _user_text(self) -> str | None:
+        return (self.result.input.text or "").strip() or None
+
+    def _tombstone_note(self, detail: str) -> None:
+        self._unreadable = True
+        self.note(
+            f"{detail}, so its text can't be read; "
+            + (
+                "copies are searched with the text you gave."
+                if self._user_text()
+                else "copies and spread were not searched."
+            )
+        )
+
+    def _input_tombstone(
+        self, short: str, final: str, reason: str, call: dict, publisher: str | None = None
+    ) -> str:
+        """The submitted link is an X tombstone: say so once, and let nothing read from the page
+        (its title is X's notice, not content) seed the searches. Returns the page id."""
+        detail = unavailable_detail(reason)
+        with self.lock:
+            self._tomb_detail = detail
+            self.result.unreadable = unavailable_tag(reason)
+            if not self._unreadable:
+                rid = self.receipt(
+                    "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final, call=call
+                )
+                self.add_page(
+                    Page(
+                        id="",
+                        url=short,
+                        final_url=final,
+                        role="linked",
+                        publisher=publisher,
+                        receipt_id=rid,
+                    )
+                )
+                self._tombstone_note(detail)
+            pg = next(p for p in self.result.pages if p.url == short or p.final_url == final)
+            pg.headline, pg.claims = None, []
+            self._subject_text, self._card_title = self._user_text(), None
+            self.result.subject_id = pg.id
+            return pg.id
+
     def _linked(self, url: str, is_input: bool) -> None:
         with self.step("linked") as st:
             short = url
@@ -922,43 +1035,77 @@ class Lookup:
                 url, deadline=self._provider_deadline(FACTS_CAP_S)
             )
             call = dict(self.deps.oxylabs.last_call)
+            if facts.unavailable:  # an X tombstone (e.g. behind t.co): its title isn't content
+                detail = unavailable_detail(facts.unavailable)
+                final = facts.final_url or url
+                if is_input:
+                    pid = self._input_tombstone(
+                        short, final, facts.unavailable, call, facts.publisher
+                    )
+                else:
+                    rid = self.receipt(
+                        "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final,
+                        call=call,
+                    )  # fmt: skip
+                    pid = self.add_page(
+                        Page(
+                            id="",
+                            url=short if short != url else url,
+                            final_url=final,
+                            role="linked",
+                            publisher=facts.publisher,
+                            receipt_id=rid,
+                        )
+                    ).id
+                    if self.result.subject_id:
+                        self.add_edge(pid, self.result.subject_id, "link", note="the post links it")
+                st.found = [pid]
+                st.detail = detail
+                return
             pub = facts.published_at
             ptime, punc = _page_time(pub)
-            rid = self.receipt(
-                "oxylabs",
-                "/scrape",
-                f"Linked page read: {facts.publisher or domain(facts.final_url)}"
-                f" — {facts.headline or 'no headline'}" + (f" (published {pub})" if pub else ""),
-                source_url=facts.final_url or url,
-                call=call,
-            )
-            pg = self.add_page(
-                Page(
-                    id="",
-                    url=short if short != url else url,
-                    final_url=facts.final_url or url,
-                    role="linked",
-                    publisher=facts.publisher,
-                    author=facts.author,
-                    published_at=pub,
-                    headline=facts.headline,
-                    claims=facts.claims,
-                    time=ptime,
-                    time_source="page" if ptime else None,
-                    time_uncertainty_s=punc,
-                    receipt_id=rid,
+            # one critical section: the quick read may already have found X's tombstone notice
+            # (the two reads can differ), and a confirmed tombstone must not be repopulated
+            with self.lock:
+                if is_input and self._unreadable:
+                    st.found = [self.result.subject_id] if self.result.subject_id else []
+                    st.detail = self._tomb_detail
+                    return
+                rid = self.receipt(
+                    "oxylabs",
+                    "/scrape",
+                    f"Linked page read: {facts.publisher or domain(facts.final_url)}"
+                    f" — {facts.headline or 'no headline'}"
+                    + (f" (published {pub})" if pub else ""),
+                    source_url=facts.final_url or url,
+                    call=call,
                 )
-            )
-            if is_input:
-                self._subject_text = self._subject_text or facts.headline
-                self._card_title = facts.headline or self._card_title
-                self._subject_time = ptime
-                with self.lock:
+                pg = self.add_page(
+                    Page(
+                        id="",
+                        url=short if short != url else url,
+                        final_url=facts.final_url or url,
+                        role="linked",
+                        publisher=facts.publisher,
+                        author=facts.author,
+                        published_at=pub,
+                        headline=facts.headline,
+                        claims=facts.claims,
+                        time=ptime,
+                        time_source="page" if ptime else None,
+                        time_uncertainty_s=punc,
+                        receipt_id=rid,
+                    )
+                )
+                if is_input:
+                    self._subject_text = self._subject_text or facts.headline
+                    self._card_title = facts.headline or self._card_title
+                    self._subject_time = ptime
                     self.result.subject_id = pg.id
-            elif self.result.subject_id:
-                self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
-            st.found = [pg.id]
-            st.detail = f"{facts.publisher or domain(facts.final_url)}: {facts.headline or '-'}"
+                elif self.result.subject_id:
+                    self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
+                st.found = [pg.id]
+                st.detail = f"{facts.publisher or domain(facts.final_url)}: {facts.headline or '-'}"
 
     def _page_text(self, url: str) -> None:
         """Quick first read of a submitted web page: its markdown's first heading. It starts
@@ -974,6 +1121,12 @@ class Lookup:
         except Exception as exc:
             log.info("lookup %s quick page read failed: %s", self.result.id, exc)
             return
+        final = (meta or {}).get("url") or url
+        if (x := next((u for u in (final, url) if domain(u) in X_HOSTS), None)) and (
+            reason := page_unavailable_reason(md, x)
+        ):  # an X tombstone: its "# Post" heading is X's notice, not the page's text
+            self._input_tombstone(short, final, reason, call)
+            return
         head = next(
             (
                 ln[2:].strip()
@@ -986,7 +1139,6 @@ class Lookup:
         if not head:
             return
         head = head[:300]
-        final = (meta or {}).get("url") or url
         # one critical section: the fact extraction (_linked) must not land between the check
         # and the add, or this quick read's receipt would replace the facts' (RLock: re-entrant)
         with self.lock:
@@ -1084,10 +1236,18 @@ class Lookup:
         )
         return pg.id
 
+    def _copies_skip_detail(self, short: str) -> str:
+        unread = self._unreadable or (self.result.kind == "x_post" and not self.result.subject_id)
+        if unread and not self._user_text():
+            return "the post's text couldn't be read"
+        return short
+
     def _copies_web(self) -> None:
         phrase = self._phrase()
         if not phrase:
-            self.skip("copies_web", "text too short for an exact-phrase search")
+            self.skip(
+                "copies_web", self._copies_skip_detail("text too short for an exact-phrase search")
+            )
             return
         with self.step("copies_web") as st:
             q = f'"{phrase}"'
@@ -1107,7 +1267,9 @@ class Lookup:
     def _copies_x(self) -> None:
         phrase = self._phrase()
         if not phrase:
-            self.skip("copies_x", "text too short for an exact-phrase search")
+            self.skip(
+                "copies_x", self._copies_skip_detail("text too short for an exact-phrase search")
+            )
             return
         with self.step("copies_x") as st:
             q = f'site:x.com "{phrase}"'
@@ -1378,7 +1540,12 @@ class Lookup:
     def _copies_bsky(self) -> None:
         phrase = textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
         if not phrase or not self.deps.bsky:
-            self.skip("copies_bsky", "text too short" if not phrase else "Bluesky not configured")
+            self.skip(
+                "copies_bsky",
+                self._copies_skip_detail("text too short")
+                if not phrase
+                else "Bluesky not configured",
+            )
             return
         with self.step("copies_bsky") as st:
             q = f'"{phrase}"'
@@ -1688,14 +1855,12 @@ class Lookup:
             self.skip("monitor", "database not configured")
             return
         with self.step("monitor") as st:
-            from signals.textnorm import normalize_url
-
             urls = {u for u in (self.result.input.url, self._card_url) if u}
             with self.lock:
                 urls |= {
                     pg.final_url for pg in self.result.pages if pg.role == "linked" and pg.final_url
                 }
-            variants = sorted({v for u in urls for v in (u, normalize_url(u)) if v})
+            variants = sorted({v for u in urls for v in url_variants(u)})
             phrase = textsim.phrase(self._subject_text)
             found: dict[int, Any] = {}
             why: dict[int, set[str]] = {}

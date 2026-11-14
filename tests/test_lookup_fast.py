@@ -232,7 +232,8 @@ def test_non_vl_model_stores_no_reading_in_a_lookup():
     job = _run(LookupInput(text=TEXT), _deps(assessor=na))
     r = job.result
     st = _steps(job)["assess"]
-    assert st.state == "failed" and "NotVisionModelError" in st.detail
+    assert st.state == "failed" and "isn't Nemotron Super VL" in st.detail
+    assert "Error" not in st.detail  # no exception class names in the UI
     assert r.assessment is None and r.readings == [] and not r.readings_disagree
     assert not any(rc.tool == "nemotron" for rc in r.receipts)
     assert _steps(job)["second_reading"].state == "skipped"

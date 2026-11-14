@@ -543,7 +543,7 @@ async function showEvent(c: TraceCase, run: number) {
   const el = document.createElement("div");
   el.className = "reveal";
   el.style.setProperty("--vc", v.css);
-  el.innerHTML = `<canvas></canvas><div class="center"><div class="coin-slot"></div><div class="vw${v.word.length > 8 ? " long" : ""}">${v.word.toUpperCase()}</div><div class="vt">${v.tag}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
+  el.innerHTML = `<canvas></canvas><div class="center"><div class="coin-slot"></div><div class="vw${v.word.length > 8 ? " long" : ""}">${v.word.toUpperCase()}</div><div class="vt">${esc(c.tag ?? v.tag)}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
   stage.appendChild(el);
   eventEl = el;
   let src: HTMLImageElement | undefined;

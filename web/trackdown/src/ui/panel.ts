@@ -142,7 +142,7 @@ export class Panel {
     const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>` : "";
     return `
       <section class="verdict" style="--vc:${v.css}">
-        <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : v.tag}${c.live ? " · live" : ""}</div></div></div>
+        <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : esc(c.tag ?? v.tag)}${c.live ? " · live" : ""}</div></div></div>
         <p class="vs">${esc(c.summary)}</p>
         ${this.readings(c)}
         ${c.lookup ? `<p class="lookup-message">${c.lookup.status === "matched" && c.lookup.clusters.length ? "Coordination status belongs to the matched monitored cluster, not to an individual account." : "Coordination: Can't tell. Copies and engagement are observations, not proof of coordination."}</p>` : ""}

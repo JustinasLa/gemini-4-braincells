@@ -6,6 +6,7 @@ Fixtures are fictional accounts in the shape Oxylabs returns for logged-out X pa
 import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -18,10 +19,17 @@ from lookup import textsim
 from lookup.assess import MAX_CALL_S, Assessor, _Draft, guard
 from lookup.jobs import JobStore, RateLimited, cache_key
 from lookup.models import LookupInput
-from lookup.service import Deps, Lookup, _x_title, snippet_time
+from lookup.service import Deps, Lookup, StepUnavailable, _x_title, snippet_time
 from lookup.urls import classify, snowflake_time
-from lookup.xpage import parse_count, parse_post_page, parse_profile
+from lookup.xpage import (
+    page_unavailable_reason,
+    parse_count,
+    parse_post_page,
+    parse_profile,
+    unavailable_reason,
+)
 from sources.models import PageFacts, SearchHit
+from sources.oxylabs import OxylabsError
 
 # 2121360054330986967 -> 2026-11-13 21:50:24.573 UTC (decoded from the id alone)
 SUBJ = "2121360054330986967"
@@ -778,6 +786,422 @@ def test_undated_scrape_still_merges_its_facts():
     )
 
 
+XPAGES = Path(__file__).parent / "fixtures" / "xpages"
+
+
+@pytest.mark.parametrize("path", sorted(XPAGES.glob("*_*.md")))
+def test_x_unavailable_fixture(path):
+    assert unavailable_reason(path.read_text()) == path.name.split("_")[1]
+
+
+@pytest.mark.parametrize("md", [POST_MD, QUOTE_MD, PROFILE_MD])
+def test_live_x_page_is_not_unavailable(md):
+    assert unavailable_reason(md) is None
+
+
+@pytest.mark.parametrize("md", [POST_MD, PROFILE_MD])
+def test_tombstone_sentence_inside_live_post_is_not_a_notice(md):
+    # Both the unindented main post and the indented timeline item are actual posts.
+    md = md.replace(TEXT, "This post is from a suspended account.")
+    md = md.replace("later post", "This post is from a suspended account.")
+    assert unavailable_reason(md) is None
+
+
+@pytest.mark.parametrize("apostrophe", ["'", "’"])
+def test_unknown_x_profile_notice(apostrophe):
+    assert unavailable_reason(f"## This account doesn{apostrophe}t exist") == "not_found"
+
+
+@pytest.mark.parametrize(
+    "md,reason",
+    [
+        ("* This Post is from a suspended account. [Learn more](https://help.x.com)", "suspended"),
+        (
+            "* You’re unable to view this Post because this account owner limits "
+            "who can view their Posts. [Learn more](https://help.x.com)",
+            "protected",
+        ),
+        ("## We’re unable to show this content", "unavailable"),
+    ],
+)
+def test_x_notice_alternate_forms(md, reason):
+    assert unavailable_reason(md) == reason
+
+
+@pytest.mark.parametrize(
+    "post_file,profile_file,handle,status_id,detail,author_detail",
+    [
+        (
+            "post_suspended_LeroyLovesUSA_796772863869075460.md",
+            "profile_suspended_LeroyLovesUSA.md",
+            "LeroyLovesUSA",
+            "796772863869075460",
+            "X shows this post is from a suspended account",
+            "account suspended",
+        ),
+        (
+            "post_protected_chrismessina_223115412.md",
+            "profile_protected_chrismessina.md",
+            "chrismessina",
+            "223115412",
+            "X shows this post is from a protected account (only approved followers can see it)",
+            "joined 2006-07 · 98.3K followers · posts are protected",
+        ),
+        (
+            "post_unavailable_JackPosobiec_860567072010620929.md",
+            None,
+            "JackPosobiec",
+            "860567072010620929",
+            "X says this post isn't available (it may be private, deleted or app-only)",
+            "joined 2009-06 · 252.6K followers · 2 recent posts",
+        ),
+        (
+            "post_unavailable_realDonaldTrump_869766994899468288.md",
+            None,
+            "realDonaldTrump",
+            "869766994899468288",
+            "X says this post isn't available (it may be private, deleted or app-only)",
+            "joined 2009-06 · 252.6K followers · 2 recent posts",
+        ),
+    ],
+)
+def test_lookup_x_tombstones(post_file, profile_file, handle, status_id, detail, author_detail):
+    class TombstoneOxylabs(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            self.calls.append(("scrape", url))
+            if "/status/" in url:
+                return (XPAGES / post_file).read_text(), {}
+            md = (
+                (XPAGES / profile_file).read_text()
+                if profile_file
+                else PROFILE_MD.replace("ada_example", handle).replace(r"ada\_example", handle)
+            )
+            return md, {}
+
+    deps = make_deps()
+    deps.oxylabs = TombstoneOxylabs()
+    job = Lookup(
+        "lk_tombstone", LookupInput(url=f"https://x.com/{handle}/status/{status_id}"), deps
+    )
+    job.run()
+    steps = {s.id: s for s in job.result.steps}
+    assert job.result.state == "done"
+    assert (steps["post"].state, steps["post"].detail) == ("done", detail)
+    assert (steps["author"].state, steps["author"].detail) == ("done", author_detail)
+    assert all("Error" not in s.detail for s in job.result.steps)
+    assert f"{detail}, so its text can't be read; copies and spread were not searched." in (
+        job.result.notes
+    )
+    assert job._subject_time == snowflake_time(status_id)
+    tag = {"suspended": "Account suspended", "protected": "Protected account"}
+    assert job.result.unreadable == tag.get(post_file.split("_")[1], "Post not available")
+    assert any(r.ok and r.summary == detail for r in job.result.receipts)
+    assert all(r.ok for r in job.result.receipts if r.source_url == f"https://x.com/{handle}")
+    for sid in ("copies_web", "copies_x", "copies_bsky"):
+        assert (steps[sid].state, steps[sid].detail) == (
+            "skipped",
+            "the post's text couldn't be read",
+        )
+    assert not [c for c in deps.oxylabs.calls if c[0] == "search"]
+
+
+@pytest.mark.parametrize(
+    "error,state,detail",
+    [
+        (
+            OxylabsError("retries exhausted", status=500),
+            "failed",
+            "Oxylabs couldn't read the page (HTTP 500)",
+        ),
+        (OxylabsError("transport failed"), "failed", "Oxylabs couldn't read the page"),
+        (RuntimeError("private internal detail"), "failed", "unexpected error (logged)"),
+        (
+            StepUnavailable("profile not readable logged out"),
+            "failed",
+            "profile not readable logged out",
+        ),
+        (StepUnavailable("account suspended", "done"), "done", "account suspended"),
+        (StepUnavailable("not configured", "skipped"), "skipped", "not configured"),
+    ],
+)
+def test_lookup_step_clean_errors(error, state, detail):
+    job = Lookup("lk_error", LookupInput(text=TEXT), make_deps())
+    with job.step("post") as st:
+        st.detail = "partly read"
+        raise error
+    assert (st.state, st.detail) == (state, detail)
+    assert st.ended_at is not None
+
+
+@pytest.mark.parametrize(
+    "md,state,detail",
+    [
+        ("## This account doesn’t exist", "done", "account doesn't exist"),
+        ("## Profile", "failed", "profile not readable logged out"),
+    ],
+)
+def test_lookup_unknown_or_unreadable_profile(md, state, detail):
+    class ProfileOxylabs(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            return md, {}
+
+    job = Lookup(
+        "lk_profile", LookupInput(url="https://x.com/missing"), Deps(oxylabs=ProfileOxylabs())
+    )
+    job.run()
+    st = job._step("author")
+    assert (st.state, st.detail) == (state, detail)
+    if state == "done":
+        assert any(
+            r.ok and r.summary == "X profile @missing: account doesn't exist"
+            for r in job.result.receipts
+        )
+
+
+def test_lookup_unrecognized_post_still_fails():
+    class EmptyOxylabs(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            return "## Post", {}
+
+    job = Lookup(
+        "lk_empty",
+        LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"),
+        Deps(oxylabs=EmptyOxylabs()),
+    )
+    job.run()
+    assert (job._step("post").state, job._step("post").detail) == (
+        "failed",
+        "post not visible logged out",
+    )
+    assert job._step("copies_web").detail == "the post's text couldn't be read"
+
+
+def test_lookup_short_read_text_keeps_short_skip_message():
+    job = Lookup(
+        "lk_short", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps()
+    )
+    job.result.subject_id = f"x:{SUBJ}"
+    job._subject_text = "Hello"
+    job._copies_web()
+    job._copies_x()
+    job._copies_bsky()
+    assert job._step("copies_web").detail == "text too short for an exact-phrase search"
+    assert job._step("copies_x").detail == "text too short for an exact-phrase search"
+    assert job._step("copies_bsky").detail == "text too short"
+
+
+def test_lookup_monitor_matches_twitter_link_from_x_input():
+    class AliasStore(FakeStore):
+        def clusters_for_url(self, urls):
+            return (
+                super().clusters_for_text("")
+                if f"https://twitter.com/ada_example/status/{SUBJ}" in urls
+                else []
+            )
+
+    @contextmanager
+    def store():
+        yield AliasStore()
+
+    job = Lookup(
+        "lk_alias",
+        LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"),
+        make_deps(store=store),
+    )
+    job._monitor()
+    assert job.result.status == "matched"
+    assert job.result.clusters[0]["match"] == ["link"]
+    assert job.result.clusters[0]["verdict_applies"]
+
+
+SUSPENDED_ITEM = (
+    "* This Post is from a suspended account. "
+    "[Learn more](https://help.x.com/rules-and-policies/notices-on-x)\n"
+)
+
+
+def test_suspended_reply_does_not_make_a_live_post_or_profile_unavailable():
+    # A live post with a reply (or a profile with a timeline item) from a suspended account.
+    post_md, profile_md = POST_MD + SUSPENDED_ITEM, PROFILE_MD + SUSPENDED_ITEM
+    assert unavailable_reason(post_md) == "suspended"  # the bare detector sees the notice
+    assert page_unavailable_reason(post_md, f"https://x.com/ada_example/status/{SUBJ}") is None
+    assert page_unavailable_reason(profile_md, "https://x.com/ada_example") is None
+    tomb = (XPAGES / "post_suspended_LeroyLovesUSA_796772863869075460.md").read_text()
+    url = "https://x.com/LeroyLovesUSA/status/796772863869075460"
+    assert page_unavailable_reason(tomb, url) == "suspended"
+    prof = (XPAGES / "profile_suspended_LeroyLovesUSA.md").read_text()
+    assert page_unavailable_reason(prof, "https://x.com/LeroyLovesUSA") == "suspended"
+
+
+def test_live_author_with_a_suspended_timeline_item_is_not_called_suspended():
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            md, meta = super().scrape_markdown(url, deadline)
+            return (md + SUSPENDED_ITEM if url.endswith("/ada_example") else md), meta
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    job = Lookup("lk_live", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    job.run()
+    author = next(s for s in job.result.steps if s.id == "author")
+    assert author.state == "done" and "suspended" not in author.detail
+    assert author.detail.startswith("joined ")
+
+
+def test_profile_bio_or_name_saying_suspended_is_not_a_notice():
+    for words in ("Account suspended", "These posts are protected"):
+        bio = PROFILE_MD.replace("Writer of fictional test fixtures.", words)
+        name = PROFILE_MD.replace("# Ada Example", f"# {words}")
+        for md in (bio, name):
+            assert page_unavailable_reason(md, "https://x.com/ada_example") is None
+    prot = (XPAGES / "profile_protected_chrismessina.md").read_text()
+    assert page_unavailable_reason(prot, "https://x.com/chrismessina") == "protected"
+
+
+def test_suspended_post_with_user_text_says_copies_use_that_text():
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            self.calls.append(("scrape", url))
+            if "/status/" in url:
+                name = "post_suspended_LeroyLovesUSA_796772863869075460.md"
+            else:
+                name = "profile_suspended_LeroyLovesUSA.md"
+            return (XPAGES / name).read_text(), {}
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    url = "https://x.com/LeroyLovesUSA/status/796772863869075460"
+    job = Lookup("lk_text", LookupInput(url=url, text=TEXT), deps)
+    job.run()
+    assert (
+        "X shows this post is from a suspended account, so its text can't be read; "
+        "copies are searched with the text you gave." in job.result.notes
+    )
+    steps = {s.id: s for s in job.result.steps}
+    assert steps["copies_web"].detail != "the post's text couldn't be read"
+
+
+def test_link_resolving_to_an_x_tombstone_is_not_read_as_content():
+    tomb = "https://x.com/realDonaldTrump/status/869766994899468288"
+
+    class Oxy(FakeOxylabs):
+        def scrape_facts(self, url, deadline=None):
+            self.calls.append(("facts", url))
+            return PageFacts(
+                url=url,
+                final_url=tomb,
+                http_status=404,
+                publisher="X",
+                headline="We're unable to show this content",
+                claims=["The page does not exist."],
+                unavailable="unavailable",
+            )
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    job = Lookup("lk_web_tomb", LookupInput(url="https://news.example/redirect"), deps)
+    job.run()
+    steps = {s.id: s for s in job.result.steps}
+    detail = "X says this post isn't available (it may be private, deleted or app-only)"
+    assert (steps["linked"].state, steps["linked"].detail) == ("done", detail)
+    assert not [c for c in deps.oxylabs.calls if c[0] == "search"]
+    assert all(p.headline is None and not p.claims for p in job.result.pages)
+    assert any(r.summary == f"Linked page read: {detail}" for r in job.result.receipts)
+    assert f"{detail}, so its text can't be read; copies and spread were not searched." in (
+        job.result.notes
+    )
+    for sid in ("copies_web", "copies_x"):
+        assert steps[sid].detail == "the post's text couldn't be read"
+
+
+TOMB_URL = "https://x.com/LeroyLovesUSA/status/796772863869075460"
+TOMB_DETAIL = "X shows this post is from a suspended account"
+
+
+def _race_lookup(order, facts):
+    """A web lookup whose link resolves to a suspended X post. `order` fixes which of the two
+    reads (`_page_text`'s markdown, `_linked`'s facts) is fully processed first: the other's
+    provider call waits until the first lookup method has returned."""
+    import threading
+
+    md = (XPAGES / "post_suspended_LeroyLovesUSA_796772863869075460.md").read_text()
+    page_done, linked_done = threading.Event(), threading.Event()
+    gates: list[bool] = []  # each gate's wait result, asserted here (lookup code catches errors)
+
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            self.calls.append(("scrape", url))
+            if order == "facts_first":
+                gates.append(linked_done.wait(5))
+            return md, {"url": TOMB_URL}
+
+        def scrape_facts(self, url, deadline=None):
+            self.calls.append(("facts", url))
+            if order != "facts_first":
+                gates.append(page_done.wait(5))
+            if facts is None:
+                raise OxylabsError("oxylabs /scrape failed (500)", status=500)
+            return facts(url)
+
+    class Ordered(Lookup):
+        def _page_text(self, url):
+            try:
+                super()._page_text(url)
+            finally:
+                page_done.set()
+
+        def _linked(self, url, is_input):
+            try:
+                super()._linked(url, is_input)
+            finally:
+                linked_done.set()
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    job = Ordered("lk_race", LookupInput(url="https://news.example/redirect"), deps)
+    job.run()
+    assert page_done.is_set() and linked_done.is_set()
+    assert gates == [True]  # the competing read really waited for the first one to finish
+    return job, deps
+
+
+def _assert_tombstone_kept(job, deps):
+    assert not [c for c in deps.oxylabs.calls if c[0] == "search"]
+    assert all(p.headline is None and not p.claims for p in job.result.pages)
+    assert job._subject_text is None and job._card_title is None
+    assert f"{TOMB_DETAIL}, so its text can't be read; copies and spread were not searched." in (
+        job.result.notes
+    )
+    assert [r.summary for r in job.result.receipts].count(f"Linked page read: {TOMB_DETAIL}") == 1
+    assert job.result.unreadable == "Account suspended"
+
+
+def _tomb_facts(url):
+    return PageFacts(url=url, final_url=TOMB_URL, headline="Post", unavailable="suspended")
+
+
+@pytest.mark.parametrize("order", ["page_text_first", "facts_first", "facts_fail"])
+def test_link_to_an_x_tombstone_never_seeds_searches_whatever_finishes_first(order):
+    job, deps = _race_lookup(order, None if order == "facts_fail" else _tomb_facts)
+    _assert_tombstone_kept(job, deps)
+    linked = next(s for s in job.result.steps if s.id == "linked")
+    if order == "facts_fail":
+        assert linked.detail == "Oxylabs couldn't read the page (HTTP 500)"
+    else:
+        assert (linked.state, linked.detail) == ("done", TOMB_DETAIL)
+
+
+def test_later_facts_without_the_notice_do_not_resurrect_a_confirmed_tombstone():
+    # The quick read saw X's notice; the facts read of the same URL came back without it.
+    def plain(url):
+        return PageFacts(url=url, final_url=TOMB_URL, headline="Post", claims=["Post content."])
+
+    job, deps = _race_lookup("page_text_first", plain)
+    _assert_tombstone_kept(job, deps)
+    linked = next(s for s in job.result.steps if s.id == "linked")
+    assert (linked.state, linked.detail) == ("done", TOMB_DETAIL)
+
+
 @pytest.mark.parametrize(
     ("text", "url"),
     [
@@ -822,3 +1246,21 @@ def test_api_handle_and_unspaced_text():
         assert c.post("/api/lookup", json={"text": "nytimes.com"}).status_code == 400
     finally:
         app.dependency_overrides.pop(lookup_route.get_jobs, None)
+
+
+def test_unreadable_is_set_only_when_the_submitted_post_cant_be_read():
+    job = Lookup("lk_ok", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps())
+    job.run()
+    assert job.result.unreadable is None
+
+    class NoPost(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            md, meta = super().scrape_markdown(url, deadline)
+            return ("## Post\n\nSomething went wrong." if "/status/" in url else md), meta
+
+    deps = make_deps()
+    deps.oxylabs = NoPost()
+    job = Lookup("lk_np", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    job.run()
+    assert job.result.unreadable == "Post not readable"
+    assert job.snapshot()["unreadable"] == "Post not readable"
