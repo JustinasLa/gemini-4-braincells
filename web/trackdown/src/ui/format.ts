@@ -80,6 +80,7 @@ export const roleOf = (role: string | undefined): (typeof ROLE)[Role] =>
   (role && Object.prototype.hasOwnProperty.call(ROLE, role) ? ROLE[role as Role] : undefined) ?? { label: "Post", color: "#8f8b84" };
 
 export const REL: Record<Relation, { label: string; dash: number[] }> = {
+  variant: { label: "image variation", dash: [3, 5] },
   repost: { label: "reposted", dash: [] },
   quote: { label: "quoted", dash: [] },
   copy: { label: "copied", dash: [6, 4] },
@@ -96,7 +97,7 @@ export const relOf = (rel: string | undefined): (typeof REL)[Relation] =>
 export const isMatchRel = (rel: string | undefined) => rel === "copy" || rel === "media";
 /** Relations that form the copy/spread tree (parent -> child). A screenshot link, or a rel this
  *  app does not know yet, is drawn but kept out of the chain, the path to the earliest copy and lineage. */
-const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites"]);
+const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites", "variant"]);
 export const isLineageRel = (rel: string | undefined) => rel != null && LINEAGE_RELS.has(rel);
 /** A lineage edge: a lineage rel between two posts that are both in the copy/spread tree. A post
  *  shown in a screenshot ("screenshotted") is never in it, even when another edge (a reply to it,

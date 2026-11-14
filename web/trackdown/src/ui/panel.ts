@@ -8,6 +8,7 @@ import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 import { coordinationNote, factualFindings } from "./findings";
+import { mountVariations } from "./variations";
 
 const LEAN: Record<string, string> = { organic_looking: "looks organic", copy_campaign_looking: "looks like a copy campaign", unclear: "unclear" };
 const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" height="${n}"`);
@@ -101,6 +102,7 @@ export class Panel {
     this.el.innerHTML = `<div class="panel-inner${quiet ? " quiet still" : ""}"><div class="win-head"><div class="tabs" role="tablist" aria-label="Result">${tabs
       .map(([id, label, n]) => `<button role="tab" id="tab-${id}" aria-controls="tabpanel" data-tab="${id}" aria-selected="${this.tab === id}" tabindex="${this.tab === id ? 0 : -1}" class="${this.tab === id ? "on" : ""}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`)
       .join("")}</div><button class="sheet-close mobile-only" data-act="sheet-close" aria-label="Close">${sm(icon.close, 14)}</button></div><div class="pane" role="tabpanel" id="tabpanel" aria-labelledby="tab-${this.tab}">${body}</div></div>`;
+    mountVariations(this.el, c, this.tab);
     const bar = this.el.querySelector<HTMLElement>(".conf .bar i");
     if (bar && quiet) bar.style.width = width; // no new fill animation on a live update
     else if (bar) requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = width)));

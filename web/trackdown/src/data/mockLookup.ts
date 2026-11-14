@@ -58,6 +58,8 @@ mockLookupResult.readings = [primary, second];
 
 /** Development mock of the live job: collect, primary reading, then a later second reading that disagrees. */
 export async function runMockLookup(onUpdate: (result: LookupResult) => void, signal: AbortSignal): Promise<LookupResult> {
+  const meme = new URLSearchParams(location.search).get("mockLookup");
+  if (meme?.startsWith("meme")) return (await import("./mockMeme")).runMemeMock(meme, onUpdate, signal);
   const last = mockLookupResult.steps.length; // phase `last` is the finished job
   for (let phase = 0; phase <= last; phase++) {
     if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
