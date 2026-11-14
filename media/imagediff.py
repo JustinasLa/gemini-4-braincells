@@ -107,14 +107,17 @@ _FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
 # since dropping a real edit would report "no change" (a stray clause is only cosmetic).
 _SUBJECT = (
     r"(?:(?:the|a|an|its|this|that)\s+)?"
-    r"(?:(?!(?:and|but|or|except|while|though|although|yet|instead|now|with|against|than)\b)"
+    # no conjunctions, relative clauses or edit words: "The added logo is the same." is an edit
+    r"(?:(?!(?:and|but|or|except|while|though|although|yet|instead|now|with|against|than"
+    r"|that|which|who|whose|where|added|removed|new|inserted|pasted|replaced|replacement"
+    r"|extra|another|second|copied|duplicated?)\b)"
     r"[\w'-]+\s+){1,6}"
 )
 _NO_CHANGE_FORMS = tuple(
     re.compile(form, re.I)
     for form in (
         rf"{_SUBJECT}(?:is|are|was|were|remains?|remained|stays?|stayed|looks?)\s+"
-        r"(?:unchanged|the\s+same|identical)\.?",
+        r"(?:unchanged|the\s+same)\.?",  # not "identical": an added copy can be identical
         rf"{_SUBJECT}(?:(?:did|does|has|have)\s+not|didn't|doesn't|hasn't|haven't)\s+changed?\.?",
         r"nothing(?:\s+else)?\s+(?:(?:has|was|is)\s+)?changed\.?",
         r"(?:there\s+(?:is|are|was|were)\s+)?no\s+(?:other\s+)?(?:visible\s+)?changes?"

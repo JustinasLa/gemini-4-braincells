@@ -1069,7 +1069,11 @@ def test_gif_walk_never_under_reports_pillow():
         ("Nothing changed except that the caption now reads 'Y' instead of 'X'.", True),
         ("The caption was rewritten against an unchanged background.", True),
         ("No change.", False),
-        ("The two images are identical.", False),
+        ("The two images are identical.", True),  # "identical" may describe an added copy
+        ("The added second logo is identical.", True),
+        ("The second logo that was added is identical.", True),
+        ("The new sticker is the same as the old one.", True),
+        ("The pasted logo looks the same.", True),
         # compound: kept by design (a false keep is cosmetic; a false drop reports no change)
         ("The caption is unchanged and no objects were added or removed.", True),
     ],
