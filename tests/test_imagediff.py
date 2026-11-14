@@ -127,7 +127,7 @@ def test_happy_path(images):
     assert result.model == RETURNED_MODEL
     assert isinstance(result.latency_ms, int) and result.latency_ms >= 0
     assert client.calls == len(client.requests) == 1
-    assert PROMPT_VERSION == "imagediff-v1"
+    assert PROMPT_VERSION == "imagediff-v2"
     assert DEFAULT_LAYOUT == "composite"
     assert len(CHANGE_KINDS) == 10
     with pytest.raises(FrozenInstanceError):
@@ -425,24 +425,35 @@ def test_composite_panels_share_height():
         layout="composite",
     )
     composite = sent_images(client)[0]
-    assert composite.size == (480 + 16 + 240, 240 + 40)
-    for vertical in (45, composite.height - 1):
+    assert composite.size == (480 + 16 + 240, 240)
+    for vertical in (0, composite.height - 1):
         assert composite.getpixel((200, vertical)) == (0, 0, 0)
         assert composite.getpixel((600, vertical))[2] > 240
 
 
-def test_composite_dimensions_and_labels():
+def test_composite_has_divider_and_no_labels():
+    # No drawn text: the "A: earlier" / "B: later" labels once leaked live as an edit.
     _, client = compare((image_bytes((2000, 400)), image_bytes((1000, 100))), layout="composite")
     composite = sent_images(client)[0]
     assert composite.width <= 2048 and composite.mode == "RGB"
-    left_width = 5 * (composite.height - 40)
-    left_label = composite.crop((0, 0, left_width, 40))
-    right_label = composite.crop((left_width + 16, 0, composite.width, 40))
-    assert left_label.convert("L").getextrema()[0] < 100
-    assert right_label.convert("L").getextrema()[0] < 100
-    assert (
-        composite.crop((0, 45, composite.width, composite.height)).getextrema() == ((255, 255),) * 3
-    )
+    left_width = 5 * composite.height
+    middle = composite.crop((left_width + 6, 0, left_width + 10, composite.height)).convert("L")
+    assert 120 <= middle.getextrema()[0] <= middle.getextrema()[1] <= 136  # the grey divider
+    for panel in (  # 8 px from the divider: JPEG rings at its edges
+        composite.crop((0, 0, left_width - 8, composite.height)),
+        composite.crop((left_width + 24, 0, composite.width, composite.height)),
+    ):
+        assert panel.getextrema() == ((255, 255),) * 3  # white inputs stay white: no text
+
+
+def test_prompt_names_panels_by_position(images):
+    import media.imagediff as imagediff
+
+    assert 'earlier" / "' not in imagediff.SYSTEM_PROMPT and "labels" not in imagediff.SYSTEM_PROMPT
+    assert "grey bar between the two panels" in imagediff.SYSTEM_PROMPT
+    _, client = compare(images, layout="composite")
+    text = client.requests[0]["messages"][1]["content"][0]["text"]
+    assert "left panel is A" in text and "right panel is B" in text
 
 
 @pytest.mark.parametrize("layout", ["pair", "composite"])
@@ -1193,30 +1204,6 @@ def test_real_rate_limiter_reserves_and_sleeps_within_budget(images):
 @pytest.mark.parametrize(
     "sentence",
     [
-        "The top label changed from 'A: earlier' to 'B: later'.",  # live, lk_a83a7c2ff47c2545
-        "The label changed from \u201cA: Earlier\u201d to \u201cB: later\u201d.",
-        'The text "B: later" was added at the top.',
-        "The top-left label 'A: earlier' was removed from the top left corner.",
-        "The label changed from \u2018A: earlier\u2019 to \u2018B: later\u2019.",
-    ],
-)
-@pytest.mark.parametrize("layout", ["composite", "pair"])
-def test_panel_label_changes_dropped_only_in_composite(images, sentence, layout):
-    payload = {
-        **FULL,
-        "changes": [sentence, *FULL["changes"]],
-        "kinds": ["caption_changed", "caption_changed"],
-    }
-    result, _ = compare(images, payload, layout=layout)
-    if layout == "composite":
-        assert result.changes == FULL["changes"] and result.kinds == ["caption_changed"]
-    else:  # no labels drawn: it is image text
-        assert result.changes[0] == sentence
-
-
-@pytest.mark.parametrize(
-    "sentence",
-    [
         "The caption changed from 'LATER' to 'NOW'.",
         "The caption changed from \u201cLater\u201d to \u201cTomorrow\u201d.",
         "The caption changed from 'Plan A: earlier start' to 'Plan B: later start'.",
@@ -1238,129 +1225,27 @@ def test_real_text_resembling_labels_is_kept(images, sentence):
     assert result.text_after == payload["text_after"]
 
 
+@pytest.mark.parametrize("layout", ["composite", "pair"])
 @pytest.mark.parametrize(
     "sentence",
     [
-        "In 'B: later', a sunflower inset was removed from the bottom right.",
-        "The top label changed from 'A: earlier' to 'B: later' and a hat was added.",
+        "The top label changed from 'A: earlier' to 'B: later'.",
         "The caption changed from 'A: earlier' to 'A: now'.",
-        "The text 'B: later' was added at the top and a hat was removed.",
-        "The label 'A: earlier' was removed along with the sunflower inset.",
-        "The red text 'B: later' was added at the top.",
+        "The text 'B: later' was added at the top.",
+        "The caption changed to 'A: earlier'.",
     ],
 )
-def test_label_quotes_alongside_real_edits_are_kept(images, sentence):
+def test_former_panel_label_text_is_image_text(images, sentence, layout):
+    # No labels are drawn any more, so text like the old labels is real image text: kept in
+    # both layouts, and transcriptions are never altered.
     payload = {
         **FULL,
         "changes": [sentence],
-        "kinds": ["other"],
-        "text_before": ["A: earlier"],
-        "text_after": ["A: now"],
-    }
-    result, _ = compare(images, payload, layout="composite")
-    assert result.changes == [sentence]
-    assert result.text_before == ["A: earlier"] and result.text_after == ["A: now"]
-
-
-@pytest.mark.parametrize("layout", ["composite", "pair"])
-def test_both_label_transcriptions_dropped_in_composite(images, layout):
-    payload = {
-        **FULL,
-        "text_before": ["A: earlier", "THEY SAID"],
-        "text_after": [" b : Later ", "WAS AN ACCIDENT"],
-    }
-    result, _ = compare(images, payload, layout=layout)
-    if layout == "composite":
-        assert result.text_before == ["THEY SAID"]
-        assert result.text_after == ["WAS AN ACCIDENT"]
-    else:
-        assert result.text_before == ["A: earlier", "THEY SAID"]
-
-
-@pytest.mark.parametrize(
-    ("before", "after"),
-    [
-        (["A: earlier"], ["A: now"]),  # one label alone may be real text
-        (["B: later"], ["A: earlier"]),  # labels on the wrong panels: not ours
-        (["A: later"], ["B: earlier"]),  # never drawn
-    ],
-)
-def test_label_like_transcriptions_kept_otherwise(images, before, after):
-    payload = {**FULL, "text_before": before, "text_after": after}
-    result, _ = compare(images, payload, layout="composite")
-    assert result.text_before == before and result.text_after == after
-
-
-@pytest.mark.parametrize(
-    "sentence",
-    [
-        "The label 'A: earlier' changed to 'B: later'.",
-        "The top label was replaced with 'B: later'.",
-        "The label text changed from 'A: earlier' to 'B: later'.",
-        "The labels were changed from 'A: earlier' to 'B: later'.",
-        "The panel label changed from 'A: earlier' to 'B: later'.",
-        "The top-left panel label 'A: earlier' was replaced with 'B: later' at the top left.",
-        "The text 'A: earlier' was replaced by 'B: later'.",
-        "The top label was replaced by 'B: later'.",
-    ],
-)
-def test_more_label_only_wordings_dropped(images, sentence):
-    payload = {
-        **FULL,
-        "changes": [sentence, *FULL["changes"]],
-        "kinds": ["caption_changed", "caption_changed"],
-    }
-    result, _ = compare(images, payload, layout="composite")
-    assert result.changes == FULL["changes"]
-
-
-@pytest.mark.parametrize(
-    "sentence",
-    [
-        "The caption changed from 'B: earlier' to 'A: later'.",  # never drawn
-        "The label 'A: earlier' changed to 'B: later' and a hat was added.",
-        "The top label was replaced with 'B: later' by a red sticker.",
-        "The top label was replaced by 'B: later' by a red sticker.",
-        "The caption changed to 'A: earlier'.",  # A's label as a destination: real text
-        "The caption changed from 'B: later' to 'A: earlier'.",  # wrong direction
-        "The text 'A: earlier' was added at the top.",  # A's label is never "added"
-        "The label 'B: later' was removed.",  # B's label is never "removed"
-    ],
-)
-def test_undrawn_or_compound_label_wordings_kept(images, sentence):
-    payload = {**FULL, "changes": [sentence], "kinds": ["caption_changed"]}
-    result, _ = compare(images, payload, layout="composite")
-    assert result.changes == [sentence]
-
-
-def test_panel_labels_single_source():
-    import media.imagediff as imagediff
-
-    assert imagediff._PANEL_LABELS == ("A: earlier", "B: later")
-    assert 'Ignore the "A: earlier" / "B: later" labels.' in imagediff.SYSTEM_PROMPT
-
-
-def test_label_cleanup_removes_one_overlay_each(images):
-    payload = {
-        **FULL,
-        "changes": ["The caption changed from 'A: earlier' to 'A: now'."],
         "kinds": ["caption_changed"],
-        "text_before": ["A: earlier", "A: earlier"],
+        "text_before": ["A: earlier", "THEY SAID"],
         "text_after": ["B: later", "A: now"],
     }
-    result, _ = compare(images, payload, layout="composite")
-    assert result.changes == payload["changes"]
-    assert result.text_before == ["A: earlier"] and result.text_after == ["A: now"]
-
-
-def test_caption_changed_to_a_label_text_is_kept(images):
-    payload = {
-        **FULL,
-        "changes": ["The caption changed to 'A: earlier'."],
-        "kinds": ["caption_changed"],
-        "text_before": ["SEE YOU SOON"],
-        "text_after": ["A: earlier"],
-    }
-    result, _ = compare(images, payload, layout="composite")
-    assert result.changes == payload["changes"] and result.kinds == ["caption_changed"]
-    assert result.text_after == ["A: earlier"]
+    result, _ = compare(images, payload, layout=layout)
+    assert result.changes == [sentence] and result.kinds == ["caption_changed"]
+    assert result.text_before == payload["text_before"]
+    assert result.text_after == payload["text_after"]
