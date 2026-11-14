@@ -154,9 +154,10 @@ def test_stored_media_reaches_api_and_dashboard(media_cases):
     finally:
         app.dependency_overrides.clear()
 
+    # The dashboard's Images card (mediaCard) must render the stored file and its spread.
     dashboard = (ROOT / "web/public/index.html").read_text()
-    # The media card (redesigned in #39) reads these fields of each media evidence row.
-    start = dashboard.index("e.kind === 'media'")
-    card = dashboard[start : dashboard.index('id="h-media"', start)]
-    assert "d.media_url" in card and "Show image" in card
-    assert "d.n_accounts" in card and "d.n_posts" in card
+    start = dashboard.index("function mediaCard(")
+    media_card = dashboard[start : dashboard.index("\n  }\n", start)]
+    assert "e.kind === 'media'" in media_card
+    assert '<img src="${esc(d.media_url)}"' in media_card
+    assert "d.n_accounts" in media_card and "d.n_posts" in media_card
