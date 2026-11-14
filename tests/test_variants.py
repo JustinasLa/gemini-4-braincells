@@ -6,7 +6,7 @@ from dataclasses import FrozenInstanceError
 import imagehash
 import numpy as np
 import pytest
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFile, ImageFont
 
 from media.variants import Fingerprint, Relation, fingerprint, relate
 
@@ -88,6 +88,21 @@ def test_each_input_is_decoded_once(picture, monkeypatch):
     opened.clear()
     assert relate(base, base).kind == "same"
     assert len(opened) == 1
+
+
+def test_png_pixels_are_decoded_once_before_exif(picture, monkeypatch):
+    original_load = ImageFile.ImageFile.load
+    decoded = []
+
+    def tracked_load(image, *args, **kwargs):
+        if image.tile:
+            decoded.append(image.format)
+        return original_load(image, *args, **kwargs)
+
+    base, other = _bytes(picture), _bytes(picture, compress_level=1)
+    monkeypatch.setattr(ImageFile.ImageFile, "load", tracked_load)
+    assert relate(base, other).kind == "resized"
+    assert decoded == ["PNG", "PNG"]
 
 
 @pytest.mark.parametrize("quality", [30, 40, 50, 60, 70, 80, 90, 95])
@@ -239,6 +254,98 @@ def test_small_caption_changes(texts, font_size):
     assert top <= changed_rows.mean() / image.height <= bottom
     assert right - left < 0.3 and bottom - top < 0.15
     _assert_note(result)
+
+
+@pytest.mark.parametrize(
+    "texts,font_size", [(("PRICE $10", "PRICE $18"), 32), (("VOTE A", "VOTE B"), 24)]
+)
+@pytest.mark.parametrize("image_format", ["PNG", "JPEG"])
+def test_equal_length_substitution(texts, font_size, image_format):
+    image = _picture(size=(601, 600))
+    first, second = image.copy(), image.copy()
+    for target, text in zip((first, second), texts, strict=True):
+        ImageDraw.Draw(target).text(
+            (20, 20),
+            text,
+            font=ImageFont.load_default(size=font_size),
+            fill="white",
+            stroke_width=1,
+            stroke_fill="black",
+        )
+    result = relate(_bytes(first), _bytes(second, image_format, quality=85))
+    assert result.kind == "edited", result
+    rows, columns = np.nonzero(np.any(np.asarray(first) != np.asarray(second), axis=2))
+    left, top, right, bottom = result.edited_region
+    assert left <= columns.mean() / first.width <= right
+    assert top <= rows.mean() / first.height <= bottom
+    assert right - left < 0.15 and bottom < 0.15
+    _assert_note(result)
+
+
+def test_coloured_logo_on_texture():
+    image = _picture(size=(600, 599))
+    variant = image.copy()
+    ImageDraw.Draw(variant).text(
+        (300, 299),
+        "AC",
+        font=ImageFont.load_default(size=32),
+        fill="lime",
+        stroke_width=1,
+        stroke_fill="black",
+    )
+    result = relate(_bytes(image), _bytes(variant))
+    assert result.kind == "edited", result
+    left, top, right, bottom = result.edited_region
+    assert left <= 0.53 <= right and top <= 0.53 <= bottom
+    assert right - left < 0.2 and bottom - top < 0.15
+    _assert_note(result)
+
+
+@pytest.mark.parametrize("trim", [2, 3])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("size", [(601, 600), (600, 450), (461, 600)])
+@pytest.mark.parametrize("image_format", ["PNG", "JPEG"])
+def test_thin_border_trim(trim, reverse, size, image_format):
+    image = _picture(size=size)
+    base = _bytes(image)
+    other = _bytes(
+        image.crop((trim, trim, image.width - trim, image.height - trim)), image_format, quality=50
+    )
+    result = relate(other, base) if reverse else relate(base, other)
+    assert result.kind == "resized", result
+    assert result.edited_region is None and result.crop_box is None
+    assert ("border added" if reverse else "border trimmed") in result.note
+    _assert_note(result)
+
+
+def test_caption_shift_by_one_pixel():
+    image = _picture(size=(601, 600))
+    other = image.copy()
+    other.paste(image.crop((0, 0, 600, 600)), (1, 0))
+    result = relate(_bytes(image), _bytes(other))
+    assert result.kind == "resized", result
+    assert result.edited_region is None and result.crop_box is None
+    assert "shifted by 1 pixel" in result.note
+    _assert_note(result)
+
+
+def test_shift_and_local_edit_in_base_coordinates():
+    image = _picture(size=(601, 600))
+    other = image.copy()
+    other.paste(image.crop((0, 0, 600, 600)), (1, 0))
+    ImageDraw.Draw(other).text(
+        (300, 299),
+        "AC",
+        font=ImageFont.load_default(size=32),
+        fill="lime",
+        stroke_width=1,
+        stroke_fill="black",
+    )
+    result = relate(_bytes(image), _bytes(other))
+    assert result.kind == "edited", result
+    left, top, right, bottom = result.edited_region
+    assert left <= 0.53 <= right and top <= 0.53 <= bottom
+    assert right - left < 0.2 and bottom - top < 0.15
 
 
 @pytest.mark.parametrize("image_format", ["PNG", "JPEG"])
@@ -412,15 +519,16 @@ def test_gif_first_frame(picture):
 
 
 @pytest.mark.parametrize("size", [(800, 600), (2048, 1536)])
-def test_exif_orientation(picture, size):
+@pytest.mark.parametrize("image_format", ["JPEG", "PNG"])
+def test_exif_orientation(picture, size, image_format):
     picture = picture.resize(size)
     rotated = picture.transpose(Image.Transpose.ROTATE_90)
     exif = Image.Exif()
     exif[274] = 6
-    data = _bytes(rotated, "JPEG", quality=90, exif=exif)
+    data = _bytes(rotated, image_format, quality=90, exif=exif)
     result = fingerprint(data)
     assert (result.width, result.height) == size
-    assert result.format == "JPEG"
+    assert result.format == image_format
     assert relate(_bytes(picture), data).kind == "resized"
 
 
@@ -487,15 +595,51 @@ def test_performance(image_format, progressive, size):
 
 def _assert_performance(base, other, expected, label):
     relate(base, other)
-    durations = []
+    durations, cpu_durations = [], []
     for _ in range(5):
         start = time.perf_counter()
+        cpu_start = time.process_time()
         result = relate(base, other)
+        cpu_durations.append(time.process_time() - cpu_start)
         durations.append(time.perf_counter() - start)
     assert result.kind == expected, result
     median = float(np.median(durations))
-    assert median < 0.300, durations
-    print(f"{label}: median of 5 = {median * 1000:.1f} ms")
+    cpu_median = float(np.median(cpu_durations))
+    assert cpu_median < 0.300, cpu_durations
+    print(f"{label}: median of 5 wall={median * 1000:.1f} ms CPU={cpu_median * 1000:.1f} ms")
+
+
+def _photo_texture(seed):
+    """Correlated luminance detail and low-frequency colour at photo contrast."""
+    random = np.random.default_rng(seed)
+    values = np.zeros((2048, 2048, 3), dtype=np.float32)
+    for side, weight in ((8, 0.45), (32, 0.25), (128, 0.2), (512, 0.1)):
+        shape = (side, side, 3) if side <= 32 else (side, side)
+        octave = Image.fromarray(random.integers(0, 256, shape, dtype=np.uint8)).convert("RGB")
+        values += np.asarray(octave.resize((2048, 2048), Image.Resampling.BICUBIC)) * weight
+    values = 127 + (values - values.mean()) * (45 / values.std())
+    return Image.fromarray(np.clip(values, 0, 255).astype(np.uint8))
+
+
+@pytest.mark.parametrize("edited", [False, True])
+def test_photo_like_png_performance(edited):
+    image = _photo_texture(7)
+    variant = image.copy() if edited else _photo_texture(42)
+    if edited:
+        ImageDraw.Draw(variant).text(
+            (100, 100),
+            "CHANGED MESSAGE",
+            font=_font(120),
+            fill="white",
+            stroke_width=3,
+            stroke_fill="black",
+        )
+    _assert_performance(
+        _bytes(image),
+        _bytes(variant),
+        "edited" if edited else "different",
+        f"2048px photo-like PNG edited={edited}",
+    )
 
 
 def test_tiny_vs_huge_performance(picture):

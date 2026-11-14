@@ -19,7 +19,7 @@ from typing import Literal
 import imagehash
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
-from scipy import ndimage, signal
+from scipy import fft, ndimage
 
 RelationKind = Literal["same", "resized", "cropped", "edited", "different", "unknown"]
 
@@ -31,6 +31,8 @@ _ALIGN_SIDE = 256
 _GRID_SIDE = 32
 # A 512-pixel, 64-block map resolves small text alongside coarse edits.
 _FINE_GRID_SIDE = 64
+_REGISTRATION_LIMIT = 0.015
+_RESIDUAL_SIGMA = 0.85
 # Below 16 original pixels per side, there is too little spatial evidence.
 _MIN_SIDE = 16
 # Less than two grayscale levels of deviation is effectively blank at this scale.
@@ -47,15 +49,18 @@ _ALIGN_MEDIAN = 0.24
 _TEXTURE_QUANTILE = 0.50
 # Two gray levels exclude blank background blocks from that alignment check.
 _TEXTURE_MIN_STD = 2.0
-# A .28 floor leaves headroom for coarse captioned-resize residuals (about .14).
+# Registered coarse noise peaks at .198; the smallest required text is .171
+# and is recovered by the fine map rather than weakening coarse components.
 _CHANGE_FLOOR = 0.28
+_FINE_CHANGE_FLOOR = 0.1375
 # A .18 margin above median residuals rejects global brightness/contrast shifts.
 _CHANGE_MARGIN = 0.18
+_FINE_CHANGE_MARGIN = 0.10
 # Three adjacent blocks reject noise unless a component contains a strong change.
 _MIN_COMPONENT = 3
-# On 9,504 captioned resizes (90..103%, three filters, JPEG q30..95),
-# shift-tolerant fine peaks stay below .37; small price edits exceed .69.
-# Twice the threshold (.56 minimum) separates them and anchors fine components.
+# Registered fine noise peaks at .270 versus .286 for the required text probes;
+# the .275 anchor keeps resize noise out. Some 16px photo edits peak at .063,
+# overlapping that noise, and are deliberately missed rather than false edits.
 _STRONG_CHANGE_FACTOR = 2.0
 # Forty percent admits localized edits but rejects most whole-picture changes.
 _MAX_EDIT_FRACTION = 0.40
@@ -110,10 +115,11 @@ def _decode(data: bytes) -> tuple[Image.Image, tuple[int, int], str | None]:
             source.seek(0)
             image_format = source.format
             size = source.size
+            source.draft("L", (_WORK_SIDE, _WORK_SIDE))
+            source.load()
             orientation = source.getexif().get(274, 1)
             if orientation in (5, 6, 7, 8):
                 size = size[::-1]
-            source.draft("L", (_WORK_SIDE, _WORK_SIDE))
             reduction = max(1, max(source.size) // _WORK_SIDE)
             working = source
             if source.mode.startswith("I;16") or source.mode in ("I", "F"):
@@ -131,10 +137,12 @@ def _decode(data: bytes) -> tuple[Image.Image, tuple[int, int], str | None]:
                 working = Image.alpha_composite(background, rgba)
             elif working.mode in ("CMYK", "YCbCr", "LAB"):
                 working = working.convert("RGB")
-            working = working.convert("L")
-            working.info.update(source.info)
+            elif working.mode in ("P", "1"):
+                working = working.convert("L")
             if reduction > 1:
                 working = working.reduce(reduction)
+            working = working.convert("L")
+            working.info.update(source.info)
             working = ImageOps.exif_transpose(working)
             working.thumbnail((_WORK_SIDE, _WORK_SIDE), Image.Resampling.LANCZOS)
             return working, size, image_format
@@ -166,43 +174,117 @@ def fingerprint(data: bytes) -> Fingerprint:
 
 
 def _gray(image: Image.Image, size: tuple[int, int]) -> np.ndarray:
-    return np.asarray(image.convert("L").resize(size, Image.Resampling.BILINEAR), dtype=np.float32)
+    return np.asarray(image.resize(size, Image.Resampling.BILINEAR), dtype=np.float32)
 
 
-def _blocks(
-    base: Image.Image,
-    other: Image.Image,
-    side: int = _ALIGN_SIDE,
-    grid: int = _GRID_SIDE,
-    *,
-    shift_tolerant: bool = False,
-) -> np.ndarray:
-    """Compare normalized luminance, optionally tolerating one-pixel edge shifts.
+def _warp(values: np.ndarray, scale: np.ndarray, offset: np.ndarray) -> np.ndarray:
+    return ndimage.affine_transform(
+        values, scale, offset=offset, order=1, mode="nearest", prefilter=False
+    )
 
-    The maximum of both range distances retains added or removed glyphs that
-    taking the minimum can erase.
+
+def _register(
+    first: np.ndarray, second: np.ndarray, aspect: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Phase initialization followed by robust subpixel translation/scale fitting.
+
+    Offsets sample OTHER in BASE's frame. Robust least squares prevents a small
+    caption from pulling the geometry; all reductions and FFTs are single-threaded.
+    Undo the known aspect normalization so a similarity in original coordinates
+    remains a similarity when fitted in the square working frame. The 1.5% range
+    covers three-pixel trims at 600px, not the existing 2% crops.
     """
-    first = _gray(base, (side, side))
-    second = _gray(other, (side, side))
+    side = first.shape[0]
+    window = np.outer(np.hanning(side), np.hanning(side))
+    first = ndimage.gaussian_filter(first, 0.8)
+    second = ndimage.gaussian_filter(second, 0.8)
     first = (first - first.mean()) / max(float(first.std()), _MIN_STD)
     second = (second - second.mean()) / max(float(second.std()), _MIN_STD)
-    difference = np.abs(first - second)
-    if shift_tolerant:
-        forward = np.maximum(
-            first - ndimage.maximum_filter(second, size=3),
-            ndimage.minimum_filter(second, size=3) - first,
+    cross = np.fft.rfft2(first * window) * np.conj(np.fft.rfft2(second * window))
+    correlation = np.fft.irfft2(cross / np.maximum(np.abs(cross), 1e-8), s=first.shape)
+    peak = np.array(np.unravel_index(np.argmax(correlation), correlation.shape))
+    shift = peak.astype(float)
+    for axis in range(2):
+        before, after = peak.copy(), peak.copy()
+        before[axis] = (before[axis] - 1) % side
+        after[axis] = (after[axis] + 1) % side
+        low, middle, high = (
+            correlation[tuple(before)],
+            correlation[tuple(peak)],
+            correlation[tuple(after)],
         )
-        reverse = np.maximum(
-            second - ndimage.maximum_filter(first, size=3),
-            ndimage.minimum_filter(first, size=3) - second,
+        denominator = low - 2 * middle + high
+        if abs(denominator) > 1e-8:
+            shift[axis] += float(np.clip(0.5 * (low - high) / denominator, -0.5, 0.5))
+    shift[shift > side / 2] -= side
+    offset = -np.clip(shift, -side * 0.04, side * 0.04)
+    scale = 1.0
+    rows, columns = np.indices(first.shape, dtype=np.float32)
+    center = (side - 1) / 2
+    axes = np.array((1 / np.sqrt(aspect), np.sqrt(aspect)))
+    offset += center * (1 - axes)
+    gradient_row, gradient_column = np.gradient(first)
+    jacobian = np.stack(
+        (
+            gradient_row,
+            gradient_column,
+            (gradient_row * (rows - center) + gradient_column * (columns - center)) / side,
         )
-        difference = np.maximum(0, np.maximum(forward, reverse))
-    cell = side // grid
+    )
+    interior = (rows >= 4) & (rows < side - 4) & (columns >= 4) & (columns < side - 4)
+    for _ in range(8):
+        dimensions = scale * axes
+        residual = _warp(second, dimensions, offset) - first
+        valid = interior & (rows * dimensions[0] + offset[0] >= 2)
+        valid &= rows * dimensions[0] + offset[0] < side - 2
+        valid &= columns * dimensions[1] + offset[1] >= 2
+        valid &= columns * dimensions[1] + offset[1] < side - 2
+        weights = valid * np.minimum(1, 0.08 / np.maximum(np.abs(residual), 1e-6))
+        normal = np.einsum("ihw,jhw,hw->ij", jacobian, jacobian, weights)
+        target = np.einsum("ihw,hw,hw->i", jacobian, residual, weights)
+        try:
+            update = np.linalg.solve(normal + np.eye(3) * 1e-6, target)
+        except np.linalg.LinAlgError:
+            break
+        scale_update = float(np.clip(update[2] / side, -0.005, 0.005))
+        scale -= scale_update
+        offset -= np.clip(update[:2], -1, 1) - center * scale_update * axes
+        if abs(scale - 1) > _REGISTRATION_LIMIT or np.max(np.abs(offset)) > side * 0.04:
+            break
+        if np.max(np.abs(update)) < 0.002:
+            break
+    return scale * axes, offset
+
+
+def _residual(
+    first: np.ndarray, second: np.ndarray, scale: np.ndarray, offset: np.ndarray
+) -> np.ndarray:
+    side = first.shape[0]
+    rows, columns = np.indices(first.shape, dtype=np.float32)
+    valid = (rows * scale[0] + offset[0] >= 0) & (rows * scale[0] + offset[0] <= side - 1)
+    valid &= (columns * scale[1] + offset[1] >= 0) & (columns * scale[1] + offset[1] <= side - 1)
+    valid = ndimage.binary_erosion(valid, iterations=3)
+    first = ndimage.gaussian_filter(first, _RESIDUAL_SIGMA)
+    second = ndimage.gaussian_filter(_warp(second, scale, offset), _RESIDUAL_SIGMA)
+    first = (first - first[valid].mean()) / max(float(first[valid].std()), _MIN_STD)
+    second = (second - second[valid].mean()) / max(float(second[valid].std()), _MIN_STD)
+    return np.where(valid, np.abs(first - second), 0)
+
+
+def _pool(difference: np.ndarray, grid: int) -> np.ndarray:
+    cell = difference.shape[0] // grid
     return difference.reshape(grid, cell, grid, cell).mean(axis=(1, 3))
 
 
+def _blocks(base: Image.Image, other: Image.Image) -> np.ndarray:
+    first, second = (_gray(image, (_ALIGN_SIDE, _ALIGN_SIDE)) for image in (base, other))
+    return _pool(_residual(first, second, np.ones(2), np.zeros(2)), _GRID_SIDE)
+
+
 def _changed_mask(blocks: np.ndarray, *, strong_only: bool = False) -> np.ndarray:
-    threshold = max(_CHANGE_FLOOR, float(np.median(blocks)) + _CHANGE_MARGIN)
+    floor = _FINE_CHANGE_FLOOR if strong_only else _CHANGE_FLOOR
+    margin = _FINE_CHANGE_MARGIN if strong_only else _CHANGE_MARGIN
+    threshold = max(floor, float(np.median(blocks)) + margin)
     labels, _ = ndimage.label(blocks > threshold, structure=np.ones((3, 3)))
     counts = np.bincount(labels.ravel())
     keep = (counts >= _MIN_COMPONENT) & (not strong_only)
@@ -223,10 +305,9 @@ def _mask_box(changed: np.ndarray) -> tuple[float, float, float, float] | None:
     )
 
 
-def _aligned(base: Image.Image, blocks: np.ndarray) -> bool:
+def _aligned(gray: np.ndarray, blocks: np.ndarray) -> bool:
     if float(np.median(blocks)) > _ALIGN_MEDIAN:
         return False
-    gray = _gray(base, (_ALIGN_SIDE, _ALIGN_SIDE))
     cell = _ALIGN_SIDE // _GRID_SIDE
     texture = gray.reshape(_GRID_SIDE, cell, _GRID_SIDE, cell).std(axis=(1, 3))
     informative = texture >= max(_TEXTURE_MIN_STD, float(np.quantile(texture, _TEXTURE_QUANTILE)))
@@ -265,8 +346,7 @@ def _edit_note(changed: np.ndarray) -> str:
     return f"Same picture with changes in {len(locations)} areas ({' and '.join(locations)})."
 
 
-def _window_sums(values: np.ndarray, height: int, width: int) -> np.ndarray:
-    integral = np.pad(values, ((1, 0), (1, 0))).cumsum(0).cumsum(1)
+def _window_sums(integral: np.ndarray, height: int, width: int) -> np.ndarray:
     return (
         integral[height:, width:]
         - integral[:-height, width:]
@@ -278,9 +358,18 @@ def _window_sums(values: np.ndarray, height: int, width: int) -> np.ndarray:
 def _crop_match(
     larger: Image.Image, smaller: Image.Image
 ) -> tuple[float, tuple[float, float, float, float]] | None:
+    """Reuse field statistics and its FFT across scales.
+
+    A field-sized circular convolution agrees with the linear convolution in
+    the valid interior; wrapped samples lie only in the discarded top/left rim.
+    """
     ratio = _SEARCH_SIDE / max(larger.size)
     width, height = (max(1, round(dimension * ratio)) for dimension in larger.size)
     field = _gray(larger, (width, height)).astype(np.float64)
+    integral = np.pad(field, ((1, 0), (1, 0))).cumsum(0).cumsum(1)
+    square_integral = np.pad(field * field, ((1, 0), (1, 0))).cumsum(0).cumsum(1)
+    fft_shape = tuple(fft.next_fast_len(dimension, real=True) for dimension in field.shape)
+    field_fft = fft.rfft2(field, s=fft_shape, workers=1)
     fit = min(width / smaller.width, height / smaller.height)
     best_score, best_scale, best_box = -1.0, 1.0, None
     visited = set()
@@ -301,10 +390,13 @@ def _crop_match(
             energy = float(np.square(template).sum())
             if energy < _MIN_STD**2 * template.size:
                 continue
-            sums = _window_sums(field, template_height, template_width)
-            squares = _window_sums(field * field, template_height, template_width)
+            sums = _window_sums(integral, template_height, template_width)
+            squares = _window_sums(square_integral, template_height, template_width)
             variance = np.maximum(squares - sums * sums / template.size, 0)
-            correlation = signal.fftconvolve(field, template[::-1, ::-1], mode="valid")
+            template_fft = fft.rfft2(template[::-1, ::-1], s=fft_shape, workers=1)
+            correlation = fft.irfft2(field_fft * template_fft, s=fft_shape, workers=1)[
+                template_height - 1 : height, template_width - 1 : width
+            ]
             denominator = np.sqrt(variance * energy)
             scores = np.divide(
                 correlation, denominator, out=np.zeros_like(correlation), where=denominator > 0
@@ -346,7 +438,7 @@ def relate(base: bytes, other: bytes) -> Relation:
     the base, in fractions of BASE, and are None when the other picture is larger.
     Crops can include a small localized edit. All boxes are left/top/right/bottom.
     """
-    identical = hashlib.sha256(base).digest() == hashlib.sha256(other).digest()
+    identical = base == other
     first, first_size, _ = _decode(base)
     if identical:
         return Relation("same", 0, None, None, "Identical image bytes.")
@@ -355,8 +447,8 @@ def relate(base: bytes, other: bytes) -> Relation:
     distance = int(first_hash - second_hash)
     if (
         min(*first_size, *second_size) < _MIN_SIDE
-        or np.asarray(first.convert("L")).std() < _MIN_STD
-        or np.asarray(second.convert("L")).std() < _MIN_STD
+        or np.asarray(first).std() < _MIN_STD
+        or np.asarray(second).std() < _MIN_STD
     ):
         return Relation(
             "unknown", distance, None, None, "Too little image detail to compare reliably."
@@ -364,22 +456,29 @@ def relate(base: bytes, other: bytes) -> Relation:
     aspect = (first_size[0] / first_size[1]) / (second_size[0] / second_size[1])
     deferred_edit = None
     aligned_correlation = None
-    if abs(aspect - 1) <= _ASPECT_TOLERANCE:
-        blocks = _blocks(first, second)
-        aligned = _aligned(first, blocks)
+    if abs(aspect - 1) <= _ASPECT_TOLERANCE and distance <= _EDIT_DISTANCE:
+        shared_size = (min(first.width, second.width), min(first.height, second.height))
+        first_fine, second_fine = (
+            _gray(image.resize(shared_size, Image.Resampling.LANCZOS), (_WORK_SIDE, _WORK_SIDE))
+            for image in (first, second)
+        )
+        first_coarse, second_coarse = (
+            values.reshape(_ALIGN_SIDE, 2, _ALIGN_SIDE, 2).mean(axis=(1, 3))
+            for values in (first_fine, second_fine)
+        )
+        dimensions, offset = _register(first_coarse, second_coarse, aspect)
+        scale = float(np.sqrt(dimensions.prod()))
+        difference = _residual(
+            first_fine, second_fine, dimensions, offset * 2 + (dimensions - 1) / 2
+        )
+        blocks = _pool(difference, _GRID_SIDE)
+        aligned = abs(scale - 1) <= _REGISTRATION_LIMIT and _aligned(first_coarse, blocks)
         region, fraction = None, 0.0
         if aligned:
             factor = _FINE_GRID_SIDE // _GRID_SIDE
             changed = _changed_mask(blocks).repeat(factor, axis=0).repeat(factor, axis=1)
-            shared_size = (min(first.width, second.width), min(first.height, second.height))
             changed |= _changed_mask(
-                _blocks(
-                    first.resize(shared_size, Image.Resampling.LANCZOS),
-                    second.resize(shared_size, Image.Resampling.LANCZOS),
-                    _WORK_SIDE,
-                    _FINE_GRID_SIDE,
-                    shift_tolerant=True,
-                ),
+                _pool(difference, _FINE_GRID_SIDE),
                 strong_only=True,
             )
             region, fraction = _mask_box(changed), float(changed.mean())
@@ -391,6 +490,20 @@ def relate(base: bytes, other: bytes) -> Relation:
                     f"Same picture, rescaled from {first_size[0]}x{first_size[1]} "
                     f"to {second_size[0]}x{second_size[1]}."
                 )
+            shift = (
+                (offset + (dimensions - 1) * (_ALIGN_SIDE - 1) / 2)
+                * np.array(first_size[::-1])
+                / _ALIGN_SIDE
+            )
+            if abs(scale - 1) > 0.003:
+                geometry = "a thin border trimmed" if scale > 1 else "a thin border added"
+                note = (
+                    f"Same picture, re-encoded at {second_size[0]}x{second_size[1]} "
+                    f"with {geometry}."
+                )
+            elif np.max(np.abs(shift)) > 0.5:
+                pixels = max(1, round(float(np.linalg.norm(shift))))
+                note = f"Same picture, shifted by {pixels} pixel{'s' if pixels != 1 else ''}."
             return Relation("resized", distance, None, None, note)
         if (
             aligned
