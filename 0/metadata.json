@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7CCC1MX9WPQ3MTD3FSQ9571",
+  "session_id": "f79877a1-e0d1-4f86-b02b-f52cfcaf7b69",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-14T06:37:01.481949657Z",
+  "branch": "dev/redeploy-sat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "tests/test_media_path.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "993df1a4fb03",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 32879,
+    "cache_read_tokens": 475098,
+    "output_tokens": 3013,
+    "api_call_count": 9
+  },
+  "session_token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 32879,
+    "cache_read_tokens": 475098,
+    "output_tokens": 3013,
+    "api_call_count": 9
+  },
+  "redaction": {
+    "replacements": 7,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 6,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 1,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}

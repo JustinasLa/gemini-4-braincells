@@ -1,0 +1,16 @@
+URGENT, approved by Justinas: production is broken. Fix it now.
+
+Context (checked 06:35 UTC Sat 14 Nov, read-only):
+- Prod https://noise-radar.srv2159172.hstgr.cloud runs fec5a63. The `ingest` container on the VPS is crash-looping since 05:53 UTC: `psycopg.errors.ProgramLimitExceeded: index row size 3496 exceeds maximum 2712 for index "posts_p2026111405_embed_urls_idx"`. /api/health ingest_lag_s was 2400+ and climbing; ~/noise-radar-health.log shows FAIL every 5 min.
+- The fix is Kirill's PR #41 (cd1ef5c, links capped at 1,000 chars, bad rows skipped), already on origin/main (4ac5d81 at the time). origin/main also carries undeployed #39 (dashboard redesign), #40 (Atom feed) and needs migrations 003 + 004 (the `migrate` one-shot service applies them).
+- VPS .env has GEMINI_MODEL=gemini-4-argon; PR #24 chose gemini-4-hydrogen. Justinas approved changing it.
+
+Do:
+1. Read the README "Deploy" section and deploy/deploy.sh. Deploy origin/main HEAD (git fetch first): `HOSTINGER_HOST=srv2159172.hstgr.cloud HOSTINGER_SSH_KEY=REDACTED CHECK_URL=https://noise-radar.srv2159172.hstgr.cloud deploy/deploy.sh` (SSH user is root; key exists only on this box, never print or copy it).
+2. In /opt/noise-radar/.env on the VPS set GEMINI_MODEL=gemini-4-hydrogen (edit only that line, never print other lines/secrets), then recreate the analyst (and anything else reading it) so it takes effect.
+3. Verify: migrate exited 0 with 003/004 applied, ingest stays Up and ingest_lag_s falls to near zero (watch a few minutes), deploy/check.sh passes from the team server, /version.txt shows the new sha, the new dashboard loads, /trackdown/ and /api/feed.atom respond. Check the analyst logs show gemini-4-hydrogen calls succeeding.
+4. Fix the failing test on main: tests/test_media_path.py::test_stored_media_reaches_api_and_dashboard broke when #39 changed dashboard strings. Fix the test to match the new dashboard (don't revert the dashboard), run the full pytest, open a PR from this branch and squash-merge it (AGENTS.md: keep Entire-Checkpoint trailers in the squash body). Pushing from the shared .git can fail on unreadable Entire objects; if so push from a fresh clone in ~/work.
+
+Other threads are working in parallel (prod /api/metrics fill, rehearsal-defect fixes #14-#20, submission texts) and will also merge to main. Deploy rule for everyone: only ever deploy fresh origin/main HEAD, never an older sha; deploy.sh holds a lock.
+
+When done: tick the URGENT item in /srv/junction-espoo/plan/WIN-CHECKLIST.md (and H items it settles, plus the "Pick the verdict model" line), add a line to /srv/junction-espoo/plan/DECISIONS.log (format as existing lines: `2026-11-14 HH:MM dev (Justinas, via agent): ...`), and report the deployed sha, ingest lag, and anything still wrong. Never copy plan/ files into git.
