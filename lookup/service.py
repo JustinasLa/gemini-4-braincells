@@ -58,7 +58,7 @@ STEPS = [
 ]
 VERBATIM = 0.8
 COPY_MIN = 0.5
-ASSESS_RESERVE_S = 25.0  # the last seconds of the budget are Gemini's
+ASSESS_RESERVE_S = 45.0  # the last seconds of the budget are Gemini's; a big reading can pass 30 s
 X_MIN_SIM = 0.35  # an X search hit sharing fewer words with the text is not about it
 OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message worth searching
 _REL_AGO = re.compile(r"^\s*(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", re.I)
@@ -1490,7 +1490,7 @@ class Lookup:
             self._spend(need_s=15, reserve_s=0)
             with self.lock:
                 snap = self.result.model_copy(deep=True)
-            a = self.deps.assessor.assess(snap)
+            a = self.deps.assessor.assess(snap, deadline=self.deadline)
             rid = self.receipt(
                 "gemini",
                 "generateContent",

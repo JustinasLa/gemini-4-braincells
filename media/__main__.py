@@ -39,20 +39,25 @@ def read_cluster(
         cache_lookup=lambda h: store.cached_analysis(conn, h),
         skip=backoff,
     )
-    for failure in run.failures:
-        if backoff is not None:
+    if backoff is not None:
+        for failure in run.failures:
             backoff.failed(failure.media_hash)
+        for f in run.findings:
+            if f.screenshot_status == "failed":  # analysis stored; read the screenshot later
+                backoff.failed(f.group.media_hash)
     changed = 0 if dry_run else persist_evidence(conn, cluster_id, run)
     if not dry_run:
         conn.commit()
     log.info(
-        "cluster %s: %d media posts, %d findings (%d cached), %d failed, %d over cap, "
-        "%d rows changed",
+        "cluster %s: %d media posts, %d findings (%d cached), %d failed, %d screenshots read as "
+        "posts, %d screenshot reads failed, %d over cap, %d rows changed",
         cluster_id,
         len(posts),
         len(run.findings),
         sum(f.cached for f in run.findings),
         len(run.failures),
+        sum(f.screenshot_status == "post" for f in run.findings),
+        run.screenshot_failures,
         run.skipped,
         changed,
     )

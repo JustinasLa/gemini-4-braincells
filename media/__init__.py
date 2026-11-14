@@ -11,6 +11,7 @@ from media.nemotron import (
     NemotronError,
     NotVisionModelError,
 )
+from media.screenshot import SCREENSHOT_PROMPT_VERSION, ScreenshotPost
 from media.worker import (
     ClusterMedia,
     MediaFailure,
@@ -32,6 +33,8 @@ __all__ = [
     "NemotronClient",
     "NemotronError",
     "NotVisionModelError",
+    "SCREENSHOT_PROMPT_VERSION",
+    "ScreenshotPost",
     "ClusterMedia",
     "MediaFailure",
     "MediaRun",
