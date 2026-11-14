@@ -217,6 +217,22 @@ def test_api_against_db(conn, cluster_id, monkeypatch):
 
         miss = c.post("/api/analyze", json={"handle": "nobody.example"}).json()
         assert miss["status"] == "insufficient"
+
+        for url in (  # a Bluesky post in the cluster, by DID, at:// URI or handle
+            "https://bsky.app/profile/did:plc:bot0/post/p0",
+            "at://did:plc:bot2/app.bsky.feed.post/p2",
+            "https://bsky.app/profile/BOT1.bsky.social/post/p1",
+        ):
+            res = c.post("/api/analyze", json={"url": url}).json()
+            assert res["status"] == "matched", url
+            assert [x["id"] for x in res["clusters"]] == [cluster_id]
+        other = c.post(  # not in a cluster, but its author is: context only
+            "/api/analyze", json={"url": "https://bsky.app/profile/bot1.bsky.social/post/nope"}
+        ).json()
+        assert other["status"] == "insufficient" and other["clusters"] == []
+        assert [x["id"] for x in other["author_clusters"]] == [cluster_id]
+        nul = c.post("/api/analyze", json={"text": "the water supply\u0000 was poisoned last night"})
+        assert nul.status_code == 200
     finally:
         app.dependency_overrides.clear()
         get_settings.cache_clear()

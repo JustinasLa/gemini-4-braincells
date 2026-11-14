@@ -46,9 +46,21 @@ class FakeStore:
         self.calls.append(("text", phrase))
         return []
 
+    def clusters_for_post(self, author, rkey):
+        self.calls.append(("post", (author, rkey)))
+        in_cluster = {("did:plc:abc", RKEY), ("alice.bsky.social", RKEY)}
+        return [summary(682)] if (author, rkey) in in_cluster else []
+
+
+RKEY = "3n27wevn47t2i"
+
 
 class FakeChecker:
-    def check(self, posts, stored=None):
+    def __init__(self, calls=None):
+        self.calls = calls if calls is not None else []
+
+    def check(self, posts, stored=None, **kw):
+        self.calls.append(("check", [p.embed_urls for p in posts]))
         return [
             SourceEvidence(
                 summary="found", detail={"key": "k"}, source_url="https://x.example", model="m"
@@ -60,7 +72,8 @@ class FakeChecker:
 def client():
     store = FakeStore()
     app.dependency_overrides[get_store] = lambda: store
-    app.dependency_overrides[get_checker] = lambda: FakeChecker()
+    checker = FakeChecker(store.calls)
+    app.dependency_overrides[get_checker] = lambda: checker
     yield TestClient(app), store
     app.dependency_overrides.clear()
 
@@ -145,6 +158,55 @@ def test_analyze_short_text_skips_web_search_and_cluster_lookup(client):
     assert body["web_findings"] == []
     assert any("too short" in n for n in body["notes"])
     assert not [call for call in store.calls if call[0] == "text"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://bsky.app/profile/did:plc:abc/post/{RKEY}",
+        f"at://did:plc:abc/app.bsky.feed.post/{RKEY}",
+        f"https://bsky.app/profile/alice.bsky.social/post/{RKEY}?ref=share",
+    ],
+)
+def test_analyze_bsky_post_in_cluster_is_matched(client, url):
+    c, store = client
+    body = c.post("/api/analyze", json={"url": url}).json()
+    assert body["status"] == "matched"
+    assert [x["id"] for x in body["clusters"]] == [682]
+    assert body["author_clusters"] == []
+    assert any(kind == "post" and arg[1] == RKEY for kind, arg in store.calls)
+    assert not [call for call in store.calls if call[0] == "check"]  # bsky links: no web check
+
+
+def test_analyze_bsky_post_not_in_cluster_gives_author_context_only(client):
+    c, store = client
+    url = "https://bsky.app/profile/bot.bsky.social/post/zzz"
+    body = c.post("/api/analyze", json={"url": url}).json()
+    assert body["status"] == "insufficient"
+    assert body["clusters"] == []
+    assert [x["id"] for x in body["author_clusters"]] == [2]
+    assert any("its author is a member of cluster #2" in n for n in body["notes"])
+    assert any("not evidence that this post" in n for n in body["notes"])
+    assert not any("live web check" in n.lower() for n in body["notes"])
+    assert ("handle", "bot.bsky.social") in store.calls
+    assert not [call for call in store.calls if call[0] == "check"]
+
+
+def test_analyze_bsky_profile_link_is_a_handle_lookup(client):
+    c, store = client
+    body = c.post("/api/analyze", json={"url": "https://bsky.app/profile/bot.bsky.social"}).json()
+    assert body["status"] == "matched"
+    assert body["clusters"][0]["id"] == 2
+    assert ("handle", "bot.bsky.social") in store.calls
+    assert not [call for call in store.calls if call[0] in ("check", "post")]
+
+
+def test_analyze_bsky_link_with_text_checks_only_the_text(client):
+    c, store = client
+    text = "five words here and then more words after it"
+    url = f"https://bsky.app/profile/did:plc:abc/post/{RKEY}"
+    c.post("/api/analyze", json={"url": url, "text": text})
+    assert ("check", [[]]) in store.calls  # the text is searched, the bsky link is not scraped
 
 
 def test_bsky_post_url():

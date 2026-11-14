@@ -133,5 +133,8 @@ class AnalyzeResponse(BaseModel):
     # "insufficient": not in our window; web findings below are weaker and are not a verdict.
     status: Literal["matched", "insufficient"]
     clusters: list[ClusterSummary] = Field(default_factory=list)
+    # Clusters the author of a submitted Bluesky post belongs to, when that post itself is in
+    # none of them. Context about the account only: not a verdict on the post, never "matched".
+    author_clusters: list[ClusterSummary] = Field(default_factory=list)
     web_findings: list[WebFinding] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
