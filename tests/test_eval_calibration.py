@@ -312,11 +312,9 @@ def test_latest_run_is_filtered_ordered_and_version_audit_is_readonly():
 
     def execute(sql, args=()):
         queries.append((sql, args))
-        row = (
-            (2, "calibration", "heldout", 1, {})
-            if "ORDER BY" in sql
-            else ((10, 0, 0) if "FROM clusters" in sql else (3, 0))
-        )
+        if "FROM eval_runs" in sql and "ORDER BY" not in sql:
+            return iter([("v1", None)] * 3)
+        row = (2, "calibration", "heldout", 1, {}) if "ORDER BY" in sql else (10, 0, 0)
         return SimpleNamespace(fetchone=lambda: row)
 
     conn = SimpleNamespace(execute=execute)
@@ -331,6 +329,39 @@ def test_latest_run_is_filtered_ordered_and_version_audit_is_readonly():
         "eval_runs_missing_version": 0,
     }
     assert all(sql.startswith("SELECT") for sql, _ in queries)
+
+
+@pytest.mark.parametrize(
+    "version, versions, missing",
+    [
+        ("v1", None, 0),
+        (None, {"v1": 3, "v2": 2}, 0),  # hand-label sample version counts
+        (None, ["v1", "v2"], 0),  # moderation evaluation version list
+        (" ", ["v1"], 0),
+        (None, None, 1),
+        ("", {}, 1),
+        (None, [], 1),
+        (None, ["v1", None], 1),
+        (None, ["v1", " "], 1),
+        (None, {"v1": 1, "null": 2}, 1),  # JSON serializes an unknown version key as "null"
+        (None, {" ": 1}, 1),
+        (None, {"v1": 0}, 1),
+        (None, {"v1": True}, 1),
+        (None, "v1", 1),
+        (3, None, 1),
+    ],
+)
+def test_version_audit_accepts_recorded_version_sets(version, versions, missing):
+    class Connection:
+        def execute(self, sql):
+            assert sql.startswith("SELECT")
+            if "FROM clusters" in sql:
+                return SimpleNamespace(fetchone=lambda: (0, 0, 0))
+            return iter([(version, versions)])
+
+    result = audit_versions(Connection())
+    assert result["eval_runs"] == 1
+    assert result["eval_runs_missing_version"] == missing
 
 
 def test_no_human_labels_are_fabricated(tmp_path):

@@ -3,7 +3,8 @@ import { hasVerdict, modelTool, readingsDisagree, readingsOf, type LookupAssessm
 import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
-import { esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, markRuns, roleOf, STATUS, TOOL } from "./format";
+import { esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, roleOf, STATUS, TOOL } from "./format";
+import { sharedTextHtml } from "./sharedText";
 import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
@@ -111,15 +112,16 @@ export class Panel {
 
   private pendingHtml() {
     const failed = this.c?.lookup?.state === "failed";
-    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting…"}</div>${failed ? `<p class="lookup-message" role="alert">${esc(this.c.lookup.error || "The lookup failed. No verdict.")}</p>` : ""}<p class="lookup-message" role="status">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts</p>`;
+    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "Mock · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting…"}</div>${failed ? `<p class="lookup-message" role="alert">${esc(this.c.lookup.error || "The lookup failed. No verdict.")}</p>` : ""}<p class="lookup-message" role="status">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts</p>`;
     return `<div class="pending"><div class="label">Tracing…</div></div>`;
   }
 
   private verdict(c: TraceCase) {
     const v = STATUS[c.status];
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
-    const unscored = c.historical ? "Not scored" : "No call";
-    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
+    const missingConfidence = c.live && c.scored === false && c.status !== "insufficient";
+    const unscored = c.historical ? "Not scored" : missingConfidence ? "Not recorded" : "No call";
+    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : missingConfidence ? "Detector confidence was not recorded for this verdict." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
     const notice = c.mock ? `<div class="notice"><b>Mock.</b> Fictional data; no live lookup.</div>` : c.synthetic
       ? `<div class="notice"><b>Simulated.</b> Fictional accounts; not a verdict on a real post.</div>`
       : c.historical
@@ -170,7 +172,7 @@ export class Panel {
 
   private realData(node: TraceNode) {
     if (!node.realData) return "";
-    return `<div class="sect label">${this.c?.mock ? "Mock data (fictional)" : "Real data"}</div>${node.realData.map((group) => `<section class="data-group"><h4>${esc(group.label)}</h4><dl>${group.facts.map((fact) => `<dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd>`).join("")}</dl><div class="receipt-meta">${group.receiptId != null ? `Receipt #${group.receiptId}` : "No receipt id returned"}</div>${httpUrl(group.url) ? `<a class="src" href="${esc(group.url!)}" target="_blank" rel="noopener noreferrer">Source ↗ ${esc(group.url!)}</a>` : ""}</section>`).join("")}${node.timeUnknown ? '<p class="lookup-message">Time unknown: this card is positioned at the submitted post’s time (or the lookup start) for layout only. This is not a publication timestamp.</p>' : ""}`;
+    return `<div class="sect label">${this.c?.mock ? "Mock data (fictional)" : "Real data"}</div>${node.realData.map((group) => `<section class="data-group"><h4>${esc(group.label)}</h4><dl>${group.facts.map((fact) => `<dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd>`).join("")}</dl><div class="receipt-meta">${group.receiptId != null ? `Receipt #${group.receiptId}` : "No receipt id returned"}</div>${httpUrl(group.url) ? `<a class="src" href="${esc(group.url!)}" target="_blank" rel="noopener noreferrer">Source ↗ ${esc(group.url!)}</a>` : ""}</section>`).join("")}`;
   }
 
   private detail(n: TraceNode) {
@@ -193,7 +195,7 @@ export class Panel {
       <button class="close" data-act="close" aria-label="Close">${sm(icon.close, 13)}</button>
       <div class="label" style="color:${roleOf(n.role).color}">${esc(roleOf(n.role).label)}</div>
       <div class="d-who">${cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: 42 })}<div class="who"><b>${esc(a.name)}</b>${a.handle !== a.name ? `<span>${esc(a.handle)}</span>` : ""}</div></div>
-      <p class="d-txt">${markRuns(n.text, n.textMatch)}</p>
+      <p class="d-txt">${sharedTextHtml(n, c)}</p>
       ${n.media?.note ? `<div class="media-note">${esc(n.media.note)}</div>` : ""}
       <div class="kv">
         ${n.undated ? "" : `<div><div class="k2">Posted</div><div class="v2">${n.timeUnknown ? "Time unknown" : fmtDate(n.t)}</div></div>`}

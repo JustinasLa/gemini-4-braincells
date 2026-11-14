@@ -1,8 +1,9 @@
 // Trackdown graph engine: DOM cards over canvas layers, custom force physics, inertial camera.
+import { sameTextKey } from "../data/shared";
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
-import { clusterShort, isLineageEdge, isMatchRel, MONO, relOf, ROLE, roleOf, SANS } from "../ui/format";
+import { clusterShort, isLineageEdge, isMatchRel, relOf, ROLE, SANS } from "../ui/format";
 
 
 
@@ -28,6 +29,9 @@ export interface VNode {
   tilt: number;
   last: string;
   drag: boolean;
+  /** posts with exactly the same text, oldest first: drawn as one fanned stack (null when alone) */
+  stack: VNode[] | null;
+  si: number; // place in the stack; 0 = the oldest, at the back
 }
 interface VEdge {
   e: TraceEdge;
@@ -207,7 +211,7 @@ export class Graph {
       }
       if (inSim != null && d.media) el.classList.add("matched");
       this.world.appendChild(el);
-      const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], aside: [], asideOf: null, tilt: 0, last: "", drag: false };
+      const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], aside: [], asideOf: null, tilt: 0, last: "", drag: false, stack: null, si: 0 };
       this.nodes.push(n);
       this.byId.set(d.id, n);
     }
@@ -215,6 +219,25 @@ export class Graph {
     for (const n of this.nodes) {
       n.w = n.el.offsetWidth;
       n.h = n.el.offsetHeight;
+    }
+    // posts that say exactly the same thing become one stack, like a hand of cards: each card sits a
+    // little lower than the one behind it, so every author's name strip stays readable
+    this.stacks = [];
+    const same = new Map<string, VNode[]>();
+    for (const n of this.nodes) {
+      const key = sameTextKey(n.d);
+      if (key) (same.get(`${n.compact ? "c" : "f"}|${key}`) ?? same.set(`${n.compact ? "c" : "f"}|${key}`, []).get(`${n.compact ? "c" : "f"}|${key}`)!).push(n);
+    }
+    for (const members of same.values()) {
+      if (members.length < 2) continue;
+      members.sort((a, b) => a.d.t - b.d.t);
+      members.forEach((n, i) => {
+        n.stack = members;
+        n.si = i;
+        n.el.classList.add("stacked");
+        n.el.style.setProperty("--sz", String(i));
+      });
+      this.stacks.push(members);
     }
     for (const e of c.edges) {
       const a = this.byId.get(e.from);
@@ -249,7 +272,8 @@ export class Graph {
    *  Bursts (posts < 2 min apart) become a time-ordered grid: columns left to right, so a
    *  31-account burst reads as one dense block instead of a 2000 px column. */
   private layoutTime() {
-    const sorted = [...this.nodes].sort((a, b) => a.d.t - b.d.t);
+    // a stack takes one place on the time axis, its oldest card's
+    const sorted = this.nodes.filter((n) => !n.si).sort((a, b) => a.d.t - b.d.t);
     const groups: VNode[][] = [];
     for (const n of sorted) {
       const g = groups[groups.length - 1];
@@ -271,7 +295,7 @@ export class Graph {
       if (gap > breakAt) this.timeBreaks.push({ x: x + dx / 2, gap });
       x += dx;
       const chips = g.filter((n) => n.compact).length;
-      if (g.length > 6 && chips >= g.length / 2) {
+      if (g.length > 6 && chips >= g.length / 2 && !g.some((n) => n.stack)) {
         const cols = Math.ceil(g.length / 8);
         const rows = Math.ceil(g.length / cols);
         const id = g[0].d.id;
@@ -295,6 +319,7 @@ export class Graph {
     // centre the axis on 0
     const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
     for (const n of this.nodes) n.tx -= mid;
+    for (const n of this.nodes) if (n.si) n.tx = n.stack![0].tx;
     for (const b of this.timeBreaks) b.x -= mid;
     this.timeMap = sorted.map((n) => [n.d.t, n.tx] as [number, number]);
     // keep the map monotonic for scrubbing
@@ -331,6 +356,11 @@ export class Graph {
       seen.add(n);
       const kids = [...n.children.filter((c) => c.parents[0] === n), ...n.aside.filter((c) => c.asideOf === n && tucked(c))].sort((a, b) => a.d.t - b.d.t);
       if (!kids.length) {
+        // a card further up a stack takes no slot of its own: it is placed with its stack below
+        if (n.si) {
+          n.py = slot;
+          return n.py;
+        }
         const gr = this.grid.get(n);
         if (gr) {
           const RH = 90;
@@ -343,7 +373,7 @@ export class Graph {
           n.py = top + gr.row * RH + RH / 2;
           return n.py;
         }
-        const gap = n.compact ? 90 : n.h + 40;
+        const gap = (n.compact ? 90 : n.h + 40) + (n.stack ? (n.stack.length - 1) * this.fan(n.stack) : 0);
         n.py = slot + gap / 2;
         slot += gap;
         return n.py;
@@ -357,6 +387,32 @@ export class Graph {
     this.nodes.filter((n) => !seen.has(n)).sort((a, b) => a.d.t - b.d.t).forEach(visit);
     const mid = slot / 2;
     for (const n of this.nodes) n.py -= mid;
+    for (const s of this.stacks) {
+      const step = this.fan(s);
+      const top = s[0].py - (s[0].h + (s.length - 1) * step) / 2;
+      for (const n of s) n.py = top + n.si * step + n.h / 2;
+    }
+  }
+  stacks: VNode[][] = [];
+  /** how far each card of a stack sits below the one behind it: its name strip, less in a tall stack */
+  private fan(stack: VNode[]): number {
+    return Math.max(22, Math.min(stack[0].compact ? 34 : 46, 320 / (stack.length - 1)));
+  }
+  /** A stack moves as one: its cards keep their places whatever pushed or dragged one of them. */
+  private holdStacks() {
+    for (const s of this.stacks) {
+      const shown = s.filter((n) => n.vis);
+      if (shown.length < 2) continue;
+      const step = this.fan(s);
+      const top = (n: VNode) => n.y - n.h / 2 - n.si * step;
+      const held = shown.find((n) => n.drag);
+      const x = held ? held.x : shown.reduce((sum, n) => sum + n.x, 0) / shown.length;
+      const y = held ? top(held) : shown.reduce((sum, n) => sum + top(n), 0) / shown.length;
+      for (const n of shown) {
+        n.x = x;
+        n.y = y + n.si * step + n.h / 2;
+      }
+    }
   }
 
   reheat(a = 0.6) {
@@ -396,14 +452,21 @@ export class Graph {
       if (want) {
         n.born = now;
         n.el.style.display = "";
+        const mate = n.stack?.find((m) => m !== n && m.vis);
+        if (mate) {
+          // a card joining its stack appears in its place there, not flying in from its parent
+          n.x = mate.x;
+          n.y = mate.y - mate.h / 2 + (n.si - mate.si) * this.fan(n.stack!) + n.h / 2;
+          n.vx = n.vy = 0;
+        }
         if (!instant) {
-          const src = (from && this.byId.get(from)) || n.parents.find((p) => p.vis) || n.children.find((c) => c.vis) || n.aside.find((c) => c.vis);
+          const src = mate ? null : (from && this.byId.get(from)) || n.parents.find((p) => p.vis) || n.children.find((c) => c.vis) || n.aside.find((c) => c.vis);
           if (src) {
             n.x = src.x + (Math.random() - 0.5) * 30;
             n.y = src.y + (Math.random() - 0.5) * 30;
             n.vx = (n.tx - n.x) * 0.06;
             n.vy = (n.py - n.y) * 0.06;
-          } else {
+          } else if (!mate) {
             n.x = n.tx;
             n.y = n.py;
           }
@@ -435,6 +498,7 @@ export class Graph {
       const p = ns[i];
       for (let j = i + 1; j < ns.length; j++) {
         const q = ns[j];
+        if (p.stack && p.stack === q.stack) continue; // cards of one stack overlap on purpose
         let dx = q.x - p.x;
         let dy = q.y - p.y;
         let d2 = dx * dx + dy * dy;
@@ -479,6 +543,7 @@ export class Graph {
         const p = ns[i];
         for (let j = i + 1; j < ns.length; j++) {
           const q = ns[j];
+          if (p.stack && p.stack === q.stack) continue;
           const ox = (p.w + q.w) / 2 + pad - Math.abs(q.x - p.x);
           if (ox <= 0) continue;
           const oy = (p.h + q.h) / 2 + pad - Math.abs(q.y - p.y);
@@ -524,6 +589,7 @@ export class Graph {
         else n.x += l < r ? -l * 0.5 : r * 0.5;
       }
     }
+    this.holdStacks();
     this.alpha += (this.alphaTarget - this.alpha) * (silent ? 0.03 : 0.012);
   }
 
@@ -628,6 +694,7 @@ export class Graph {
     const far = this.cardOpacity < 0.5;
     let best: VNode | null = null;
     let bestD = Infinity;
+    let bestZ = -Infinity;
     for (let i = this.nodes.length - 1; i >= 0; i--) {
       const n = this.nodes[i];
       if (!n.vis) continue;
@@ -637,7 +704,15 @@ export class Graph {
           best = n;
           bestD = d;
         }
-      } else if (Math.abs(p.x - n.x) <= n.w / 2 && Math.abs(p.y - n.y) <= n.h / 2) return n;
+      } else if (Math.abs(p.x - n.x) <= n.w / 2 && Math.abs(p.y - n.y) <= n.h / 2) {
+        // Match .card's z-index in styles.css: stacks front selected/dragged cards,
+        // then newer members. Reverse iteration breaks equal-layer ties by DOM order.
+        const z = n.stack ? (n.drag || this.selId === n.d.id ? 60 : n.si + 1) : n.drag ? 5 : 0;
+        if (z > bestZ) {
+          best = n;
+          bestZ = z;
+        }
+      }
     }
     return best;
   }
@@ -1019,10 +1094,10 @@ export class Graph {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
         // a score tag half under a card reads as a glitch: skip it
-        const text = e.e.label ?? (e.e.sim != null ? e.e.sim.toFixed(2) : "CITES");
-        const cap = !e.e.label && e.e.sim != null ? relOf(e.e.rel).label.toUpperCase() : "";
+        const text = e.e.label ?? (e.e.sim != null ? e.e.sim.toFixed(2) : "Cites");
+        const cap = !e.e.label && e.e.sim != null ? relOf(e.e.rel).label : "";
         const fs = 10.5 / Math.max(k, 0.65);
-        c.font = `600 ${fs}px ${MONO}`;
+        c.font = `600 ${fs}px ${SANS}`;
         const pw = c.measureText(text + cap).width + fs * 2;
         const ph = fs * 1.7;
         const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + pw / 2 && Math.abs(n.y - my) < n.h / 2 + ph / 2);
@@ -1138,7 +1213,7 @@ export class Graph {
         c.moveTo(g.x - w / 2, g.y - h / 2);
         c.lineTo(g.x + w / 2, g.y + h / 2);
         c.stroke();
-        c.font = `600 ${11 / Math.sqrt(k)}px ${MONO}`;
+        c.font = `600 ${11 / Math.sqrt(k)}px ${SANS}`;
         c.fillStyle = C.shill;
         c.textAlign = "left";
         c.fillText(g.label, g.x - w / 2, g.y - h / 2 - 6);
@@ -1148,7 +1223,7 @@ export class Graph {
     this.ghosts = this.ghosts.filter((g) => now - g.start < g.dur);
   }
 
-  /** machine-vision lock-on: corner brackets close in on the card, crosshair sweeps, label */
+  /** machine-vision lock-on: corner brackets close in on the card, crosshair sweeps */
   private drawOver(now: number) {
     const c = this.octx;
     const k = this.k;
@@ -1192,39 +1267,24 @@ export class Graph {
       c.lineTo(sx, this.H);
       c.stroke();
       c.setLineDash([]);
-      // label
-      c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
-      c.font = `600 11px ${MONO}`;
-      const label = roleOf(n.d.role).label.toUpperCase();
-      const tw = c.measureText(label).width + 12;
-      c.fillStyle = r.color;
-      c.fillRect(sx - hw, sy - hh - 20, tw, 16);
-      c.fillStyle = "#050506";
-      c.textAlign = "left";
-      c.textBaseline = "middle";
-      c.fillText(label, sx - hw + 6, sy - hh - 12);
-      c.textBaseline = "alphabetic";
     }
     c.globalAlpha = 1;
     this.rings = this.rings.filter((r) => now - r.start < r.dur);
   }
 
-  /** score tag on a link: dark plate, coloured border, value + small caption */
+  /** Link score and caption on a neutral backing for readability. */
   private pill(c: CanvasRenderingContext2D, x: number, y: number, text: string, col: string, cap = "") {
     const k = this.k;
     const fs = 10.5 / Math.max(k, 0.65);
-    c.font = `600 ${fs}px ${MONO}`;
+    c.font = `600 ${fs}px ${SANS}`;
     const w1 = c.measureText(text).width;
-    c.font = `600 ${fs * 0.72}px ${MONO}`;
+    c.font = `600 ${fs * 0.72}px ${SANS}`;
     const w2 = cap ? c.measureText(cap).width + fs * 0.6 : 0;
     const w = w1 + w2 + fs * 1.1;
     const h = fs * 1.7;
     c.save();
     c.fillStyle = "rgba(6,6,8,0.92)";
     c.fillRect(x - w / 2, y - h / 2, w, h);
-    c.strokeStyle = col;
-    c.lineWidth = 1 / k;
-    c.strokeRect(x - w / 2, y - h / 2, w, h);
     c.textBaseline = "middle";
     c.textAlign = "left";
     let tx = x - w / 2 + fs * 0.55;
@@ -1233,7 +1293,7 @@ export class Graph {
       c.fillText(cap, tx, y + fs * 0.05);
       tx += w2;
     }
-    c.font = `600 ${fs}px ${MONO}`;
+    c.font = `600 ${fs}px ${SANS}`;
     c.fillStyle = col;
     c.fillText(text, tx, y + fs * 0.05);
     c.restore();
@@ -1316,9 +1376,9 @@ export class Graph {
     c.stroke();
     // tab label on the top edge, like a detector's class + score
     const fs = 11 / k; // constant on screen: the verdict label must never become microtype
-    c.font = `600 ${fs}px ${MONO}`;
+    c.font = `600 ${fs}px ${SANS}`;
     // the tab never runs past its box: drop detail from the right until it fits
-    const parts = [clusterShort(cl.status, !!this.case?.lookup).toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
+    const parts = [clusterShort(cl.status, !!this.case?.lookup), ...cl.stat.split(" · ")];
     let label = parts.join(" · ");
     while (parts.length > 2 && c.measureText(label).width + fs * 1.2 > x1 - x0) { // always keep verdict + count
       parts.pop();
@@ -1353,10 +1413,10 @@ export class Graph {
     c.save();
     for (const t of this.pendingTabs) {
       c.globalAlpha = 1;
-      c.fillStyle = t.col;
+      c.fillStyle = "rgba(6,6,8,0.92)";
       c.fillRect(t.x - 1 / this.k, t.y, t.w, t.h);
-      c.font = `600 ${t.fs}px ${MONO}`;
-      c.fillStyle = "#050506";
+      c.font = `600 ${t.fs}px ${SANS}`;
+      c.fillStyle = t.col;
       c.textAlign = "left";
       c.textBaseline = "middle";
       c.fillText(t.label, t.x + t.fs * 0.6, t.y + t.h / 2 + t.fs * 0.05);

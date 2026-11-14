@@ -365,6 +365,26 @@ def test_bsky_target_forms():
     assert bsky_target("https://example.com/profile/x/post/y") is None
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://bsky.app/profile/bot%00.bsky.social",
+        "https://bsky.app/profile/bot%00.bsky.social/post/rk",
+        "at://did:plc:bot%00",
+        "at://did:plc:bot%00/app.bsky.feed.post/rk",
+    ],
+)
+def test_analyze_rejects_percent_encoded_nul_in_bsky_author(client, url):
+    c, store = client
+    response = c.post("/api/analyze", json={"url": url})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "insufficient"
+    assert any("not looked up" in note for note in body["notes"])
+    # Request validation runs before URL decoding: never send decoded NUL to PostgreSQL.
+    assert not [call for call in store.calls if call[0] in ("handle", "post", "check")]
+
+
 def test_bsky_post_url():
     assert (
         bsky_post_url("at://did:plc:x/app.bsky.feed.post/abc")

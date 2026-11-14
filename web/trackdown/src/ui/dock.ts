@@ -1,6 +1,6 @@
 // Timeline dock (scrubber + replay), time ruler and minimap.
 import type { Graph, VNode } from "../engine/graph";
-import { esc, fmtClock, fmtDate, fmtDur, fmtShort, MONO, roleOf } from "./format";
+import { esc, fmtClock, fmtDate, fmtDur, fmtShort, MONO, roleOf, SANS } from "./format";
 import { icon } from "./icons";
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -456,7 +456,7 @@ export class Dock {
     }
 
     // ---- flags for the two posts the story hangs on
-    c.font = `600 9px ${MONO}`;
+    c.font = `600 10px ${SANS}`;
     c.textBaseline = "alphabetic";
     const flagTaken: [number, number][] = [];
     const flag = (id: string, text: string, col: string) => {
@@ -474,8 +474,8 @@ export class Dock {
       c.fillRect(at.x - 0.5, flagY + 2, 1, Math.max(0, at.top - flagY - 3));
       c.globalAlpha = 1;
     };
-    flag(g.case.submittedId, "SUBMITTED", ON_BLACK.submitted);
-    if (g.case.originId !== g.case.submittedId) flag(g.case.originId, "EARLIEST", ON_BLACK.origin);
+    flag(g.case.submittedId, "Submitted", ON_BLACK.submitted);
+    if (g.case.originId !== g.case.submittedId) flag(g.case.originId, "Earliest", ON_BLACK.origin);
 
     // ---- hover ghost line
     if (this.hoverX != null && !this.hoverCol && !this.dragging) {
@@ -527,7 +527,7 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   c.clearRect(0, 0, w, h);
   if (g.mode !== "timeline" || !g.case) return;
   const ns = g.nodes.filter((n) => n.vis && !n.d.undated).sort((a, b) => a.tx - b.tx);
-  c.font = `600 11px ${MONO}`;
+  c.font = `600 11px ${SANS}`;
   c.textBaseline = "middle";
   c.textAlign = "left";
   let lastX = -1e9;
@@ -546,13 +546,13 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     const newDay = !firstDone || new Date(n.d.t).toDateString() !== new Date(lastT).toDateString();
     const label = newDay ? fmtDate(n.d.t, false) : fmtClock(n.d.t).slice(0, 5);
     if (label === lastLabel) continue;
-    if (s.x + 5 + c.measureText(label.toUpperCase()).width > w - 6) continue; // never clip at the edge
+    if (s.x + 5 + c.measureText(label).width > w - 6) continue; // never clip at the edge
     lastLabel = label;
     c.fillStyle = "rgba(255,255,255,0.6)";
     c.fillRect(s.x, h - 12, 1, 12);
     c.fillStyle = "#f2efe9";
-    c.fillText(label.toUpperCase(), s.x + 5, h / 2 - 1);
-    drawn.push([s.x, s.x + 5 + c.measureText(label.toUpperCase()).width]);
+    c.fillText(label, s.x + 5, h / 2 - 1);
+    drawn.push([s.x, s.x + 5 + c.measureText(label).width]);
     lastX = s.x;
     lastT = n.d.t;
     firstDone = true;
@@ -570,21 +570,16 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     if (!drawn.some(([a]) => a > from && a < s.x) || !drawn.some(([a]) => a > s.x && a < next)) continue;
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
     const label = `${fmtDur(b.gap)} gap`;
-    c.font = `600 10px ${MONO}`;
-    const up = label.toUpperCase();
-    const tw = c.measureText(up).width + 16;
+    c.font = `600 10px ${SANS}`;
+    const tw = c.measureText(label).width + 16;
     if (s.x - tw / 2 < 2 || s.x + tw / 2 > w - 2) continue;
     if (drawn.some(([a, b]) => s.x + tw / 2 + 6 > a && s.x - tw / 2 - 6 < b)) continue;
     lastPill = s.x;
     c.fillStyle = "#050506";
     c.fillRect(s.x - tw / 2, h / 2 - 10, tw, 18);
-    c.setLineDash([3, 3]);
-    c.strokeStyle = "rgba(255,255,255,0.55)";
-    c.strokeRect(s.x - tw / 2 + 0.5, h / 2 - 9.5, tw - 1, 17);
-    c.setLineDash([]);
     c.fillStyle = "#f2efe9";
-    c.fillText(up, s.x, h / 2);
-    c.font = `600 11px ${MONO}`;
+    c.fillText(label, s.x, h / 2);
+    c.font = `600 11px ${SANS}`;
   }
 }
 

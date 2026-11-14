@@ -3,8 +3,10 @@ stored cluster says which settings produced it (clusters.detector_version)."""
 
 from dataclasses import asdict, dataclass, field
 
-VERSION = "v1.9"  # v1.9: transparent_automation groups handles by the registered domain
-# (Public Suffix List), so unrelated people under co.uk / com.br are not "one operator" (#110)
+VERSION = "v1.10"  # v1.10: language_diversity counts only for accounts that aren't new
+# (a 12-language campaign on fresh accounts evaded it, Gemini red team v2); communities are split
+# from 30 accounts, not 50 (a ring hidden in a crowd sharing its link stayed one cluster).
+# v1.9: PSL operator domain (#110)
 
 
 @dataclass(frozen=True)
@@ -26,7 +28,9 @@ class DetectorConfig:
     min_engagement_shared: int = 3  # distinct co-engaged subjects (likes/reposts/quotes/follows)
     min_cluster_size: int = 4
     max_cluster_size: int = 500
-    leiden_above: int = 50  # components bigger than this are split into communities
+    # Components bigger than this are split into communities. 30, not 50, since v1.10: a ring of 12
+    # new accounts sharing a link with 24 real people stayed one 36-account cluster (red team v2).
+    leiden_above: int = 30
     leiden_resolution: float = 1.0
     seed: int = 1729
 

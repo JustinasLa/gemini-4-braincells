@@ -153,6 +153,9 @@ def normalize_url(url: str | None) -> str | None:
         port = parts.port
     except ValueError:
         return None
+    # hostname omits IPv6 brackets; the URL authority needs them, including before a port.
+    if ":" in host:
+        host = f"[{host}]"
     if port and port not in (80, 443):
         host = f"{host}:{port}"
     query = [

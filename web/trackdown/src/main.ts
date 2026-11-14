@@ -22,6 +22,7 @@ import { comparisonSource } from "./ui/compare";
 import { initMemeTrace } from "./ui/variations";
 import { mountStory } from "./ui/story";
 import { mountSwarmPage, mountSwarmWall, swarmHref } from "./ui/swarm";
+import { PANEL_MIN, clampPanel, panelMax, parseSaved, stepPanel } from "./ui/panelwidth";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -32,7 +33,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <button class=btn id=judge-menu aria-expanded=false>Explore</button>
-      <span class=trace-wrap><button class=btn solid data-act=trace aria-label=New trace>${icon.search}<span class=lbl>New trace</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
+      <span class=trace-wrap><button class=btn solid data-act=trace aria-label="Search">${icon.search}<span class=lbl>Search</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
     </div>
   </header>
   <nav id="judge-links" hidden style="position:fixed;z-index:1000;top:58px;right:12px;background:#171717;padding:16px;gap:16px;flex-direction:column"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=methodology">Methodology &amp; limits</a><a href="?view=judge">Try a post</a></nav>
@@ -40,11 +41,11 @@ document.querySelector("#app")!.innerHTML = `
     <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
     <div class="term hidden" id="console" data-ui></div>
-    <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
+    <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>Skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
       <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
-      <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
+      <div class="minimap" id="minimap"><span class="mm-title label">Map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
     <div class="empty-stage" id="empty" data-ui hidden><h2>No chain of posts to draw</h2><p>The detector grouped this live cluster by how its accounts behaved, not by copied posts we can lay out. The verdict and the evidence are in the panel.</p></div>
@@ -52,6 +53,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="vignette"></div>
   </main>
   <aside class="panel" id="panel"></aside>
+  <div class="panel-grip" id="panel-grip" role="separator" aria-orientation="vertical" aria-controls="panel" aria-label="Resize panel" tabindex="0" title="Drag to resize · double-click to reset"></div>
 </div>`;
 
 const app = $(".app");
@@ -91,6 +93,78 @@ phoneMq.addEventListener("change", () => {
 });
 const stage = $("#stage");
 const g = new Graph(stage);
+
+// ---------------------------------------------------------------- panel width: drag the grip on its left edge
+{
+  const grip = $("#panel-grip");
+  const KEY = "trackdown.panelW";
+  // `want` is the width the user chose; what's applied is that, clamped to the current window
+  let want: number | null = null;
+  const apply = () => {
+    const max = panelMax(innerWidth);
+    grip.setAttribute("aria-valuemax", String(max));
+    if (want == null) {
+      app.style.removeProperty("--panel-w");
+      grip.setAttribute("aria-valuenow", String(Math.round(parseFloat(getComputedStyle(app).getPropertyValue("--panel-w")) || 400)));
+    } else {
+      const w = clampPanel(want, innerWidth);
+      app.style.setProperty("--panel-w", `${w}px`);
+      grip.setAttribute("aria-valuenow", String(w));
+    }
+  };
+  const current = () => clampPanel(want ?? (parseFloat(getComputedStyle(app).getPropertyValue("--panel-w")) || 400), innerWidth);
+  const save = () => {
+    try {
+      want == null ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, String(want));
+    } catch {}
+  };
+  try {
+    want = parseSaved(localStorage.getItem(KEY));
+  } catch {}
+  grip.setAttribute("aria-valuemin", String(PANEL_MIN));
+  apply();
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    app.classList.add("resizing");
+    const startX = e.clientX;
+    const startW = current();
+    const move = (ev: PointerEvent) => {
+      want = clampPanel(startW + (startX - ev.clientX), innerWidth);
+      apply();
+    };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      grip.removeEventListener("lostpointercapture", up);
+      app.classList.remove("resizing");
+      save();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+    grip.addEventListener("lostpointercapture", up);
+  });
+  grip.addEventListener("dblclick", () => {
+    want = null;
+    apply();
+    save();
+  });
+  grip.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") return;
+    e.stopPropagation(); // the grip's keys are its own, never a graph or playback shortcut
+    const w = stepPanel(current(), e.key, e.shiftKey, innerWidth);
+    if (w == null) return;
+    e.preventDefault();
+    want = w;
+    apply();
+    save();
+  });
+  // a smaller window squeezes the panel; the chosen width comes back when the window grows again
+  addEventListener("resize", apply);
+}
 (window as unknown as { __g: Graph }).__g = g;
 const panel = new Panel($("#panel"), g);
 const dock = new Dock($("#dock"), g);
@@ -143,7 +217,7 @@ function setInsets() {
 }
 
 // ---------------------------------------------------------------- header
-/** The header chip: the verdict when there is one; for a lookup without one, the image finding
+/** The mobile summary: the verdict when there is one; for a lookup without one, the image finding
  *  (or no chip at all), never "Can't tell". */
 function chipOf(c: TraceCase): { short: string; css: string } | null {
   if (hasVerdict(c)) return STATUS[c.status];
@@ -155,12 +229,12 @@ function renderResources(c: TraceCase) {
   story.update(c, storyPreview && c.lookup && storyPreview.lookup === c.lookup.id ? storyPreview.url : undefined);
   const v = chipOf(c);
   $("#title").textContent = c.title;
-  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
-  $("#badges").innerHTML = tag; // the simulated / historical tag only: the answer is in the result, not a header chip
+  const tag = c.mock ? '<span class="tag sim">Mock · fictional data</span>' : c.synthetic ? '<span class="tag sim">Simulated</span>' : c.historical ? '<span class="tag hist">Historical record</span>' : "";
+  $("#badges").innerHTML = tag;
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
   peek.style.setProperty("--vc", v?.css ?? "var(--unsure)");
-  peek.innerHTML = `${v ? `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>` : ""}<span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
+  peek.innerHTML = `${v ? `<span class="vchip" style="--vc:${v.css}">${esc(v.short)}</span>` : ""}<span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
   const empty = !hasChain(c) && !c.findingsOnly && !c.lookup; // a link lookup draws what it collected
   if (empty) app.dataset.empty = "";
   else delete app.dataset.empty;
@@ -282,7 +356,7 @@ function cancelTrace() {
 }
 function consoleHead(state: "run" | "done", c: TraceCase) {
   const mode = c.synthetic ? "--simulated" : c.historical ? "--archive" : "";
-  return `<div class="term-head"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="file">trackdown.sh ${mode}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "skip" : "close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
+  return `<div class="term-head"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="file">trackdown.sh ${mode}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "Skip" : "Close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
 }
 const statusEl = $("#status");
 statusEl.addEventListener("click", (e) => {
@@ -295,7 +369,7 @@ function setStatus(tool: keyof typeof TOOL | null, text: string) {
   statusEl.classList.toggle("on", !!text);
   statusEl.inert = !text; // a hidden status line must not hold a focus stop
   const tl = $(".st-tool", statusEl);
-  tl.className = `st-tool t-${tool ?? "detector"}`;
+  tl.className = "st-tool";
   tl.textContent = tool ? TOOL[tool].label : "";
   $(".st-txt", statusEl).textContent = text;
 }
@@ -482,7 +556,7 @@ async function showEvent(c: TraceCase, r: Reveal) {
   el.className = "reveal";
   el.style.setProperty("--vc", r.css);
   const slot = r.image ? `<img class="meme-slot" alt="The submitted picture" src="${esc(r.image)}" referrerpolicy="no-referrer" draggable="false">` : "";
-  el.innerHTML = `<canvas></canvas><div class="center">${slot}<div class="vw${r.word.length > 8 ? " long" : ""}">${esc(r.word.toUpperCase())}</div><div class="vt">${esc(r.tag)}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
+  el.innerHTML = `<canvas></canvas><div class="center">${slot}<div class="vw${r.word.length > 8 ? " long" : ""}">${esc(r.word.toUpperCase())}</div><div class="vt">${esc(r.tag)}</div></div><span class="tap label">Click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
   el.querySelector(".meme-slot")?.addEventListener("error", (e) => (e.target as HTMLElement).remove());
   stage.appendChild(el);
   eventEl = el;
@@ -528,14 +602,14 @@ function showHome() {
   const cases = simulatedCases();
   const sims = cases.filter((c) => !c.historical);
   const hist = cases.filter((c) => c.historical);
-  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical</em>' : ""}</button>`;
+  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}">${esc(c.title)}${c.historical ? ' <em>Historical record</em>' : ""}</button>`;
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Drop a meme. Find the original and what changed.</p>
-      <form class="home-form"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Drop a meme or paste a link" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><span class="trace-wrap"><button class="btn solid" type="submit">Trace</button><button type="button" class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span></form>
+      <form class="home-form"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Drop a meme or paste a link" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to search" /></label><span class="trace-wrap"><button class="btn solid" type="submit">Search</button><button type="button" class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span></form>
       <details class="home-ex"><summary class="label">Simulated examples</summary>${[...sims, ...hist].map(caseBtn).join("")}</details>
     </div>
     <span class="credit">Botticelli, c. 1485</span>`;
@@ -549,7 +623,7 @@ function showHome() {
   // Do not summon the on-screen keyboard just because the home screen opened.
   // Desktop keeps the quick keyboard workflow; touch users can choose the field when ready.
   if (!matchMedia("(pointer: coarse)").matches) setTimeout(() => input.focus(), 400);
-  // a pasted image sits in the search box until Trace (or Enter) sends it
+  // a pasted image sits in the search box until Search (or Enter) sends it
   const q = $<HTMLElement>(".home-q", homeEl);
   const att = $<HTMLElement>(".home-att", homeEl);
   const placeholder = input.placeholder;
@@ -762,7 +836,7 @@ async function startTrace(raw: LookupRequest, mock = false) {
     };
     const rows = trace.steps.map((step, i) => ["done", "running", "failed"].includes(step.state ?? "pending") ? row(step, i) : "").join("") + folded("pending", "queued") + folded("skipped", "skipped");
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
-    consoleEl.innerHTML = `<div class="term-head">${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
+    consoleEl.innerHTML = `<div class="term-head">${mock ? `<span class="file">Mock · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">Hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
     trace.steps.forEach((step, i) => shownSteps.add(stepKey(step, i)));
     if (ready && result.state === "running") settle(trace);

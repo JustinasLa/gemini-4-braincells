@@ -41,14 +41,14 @@ class Target:
 
 
 def snowflake_time(status_id: str | int) -> datetime | None:
-    """Creation time encoded in an X post id, or None for pre-2010 (non-snowflake) ids."""
+    """Creation time encoded in an X post id, or None for invalid/pre-snowflake ids."""
     try:
         n = int(status_id)
-    except (TypeError, ValueError):
+        if n < MIN_SNOWFLAKE:
+            return None
+        return datetime.fromtimestamp(((n >> 22) + TWITTER_EPOCH_MS) / 1000, UTC)
+    except (TypeError, ValueError, OverflowError, OSError):
         return None
-    if n < MIN_SNOWFLAKE:
-        return None
-    return datetime.fromtimestamp(((n >> 22) + TWITTER_EPOCH_MS) / 1000, UTC)
 
 
 def x_post_url(handle: str, status_id: str) -> str:
@@ -56,12 +56,15 @@ def x_post_url(handle: str, status_id: str) -> str:
 
 
 def classify(raw: str) -> Target | None:
-    """None when `raw` is not an http(s) URL."""
+    """None when `raw` is not a parseable http(s) URL."""
     raw = raw.strip()
     if not re.match(r"^https?://", raw, re.I):
         return None
-    parts = urlsplit(raw)
-    host = (parts.hostname or "").lower()
+    try:
+        parts = urlsplit(raw)
+        host = (parts.hostname or "").lower()
+    except ValueError:  # malformed brackets or an invalid Unicode authority
+        return None
     if not host or "." not in host:
         return None
     segs = [s for s in parts.path.split("/") if s]
@@ -87,5 +90,8 @@ def classify(raw: str) -> Target | None:
 def domain(url: str | None) -> str | None:
     if not url:
         return None
-    host = (urlsplit(url).hostname or "").lower()
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return None
     return host.removeprefix("www.") or None

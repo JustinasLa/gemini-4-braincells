@@ -182,6 +182,79 @@ def test_cache_is_shared_across_clusters_but_each_cluster_gets_its_own_row():
     assert b.records[0].cached and b.budget.web_calls == 0
 
 
+@pytest.mark.parametrize("value,ttl", [(["hit"], 60), (None, 10)])
+def test_cache_expiry_releases_results(monkeypatch, value, ttl):
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 100)
+    cache = WebCache(ttl_s=60, failure_ttl_s=10)
+    cache.put("query", value)
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 100 + ttl - 1)
+    assert cache.get("query") == (True, value)
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 100 + ttl)
+    assert cache.get("query") == (False, None)
+    assert "query" not in cache._data
+
+
+def test_cache_put_releases_expired_results_without_revisiting_their_keys(monkeypatch):
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 100)
+    cache = WebCache(ttl_s=60, failure_ttl_s=10)
+    cache.put("success", ["hit"])
+    cache.put("failure", None)
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 110)
+    cache.put("new", ["new hit"])
+    assert set(cache._data) == {"success", "new"}
+    assert cache.get("success") == (True, ["hit"])
+
+
+def test_cache_capacity_bounds_unique_queries_even_before_expiry(monkeypatch):
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 100)
+    cache = WebCache()
+    for i in range(1100):
+        cache.put(f"query:{i}", [i])
+    assert len(cache._data) == 1024
+    assert cache.get("query:0") == (False, None)
+    assert cache.get("query:1099") == (True, [1099])
+
+
+def test_cache_replacing_a_key_does_not_evict_another_result():
+    cache = WebCache(max_entries=2)
+    cache.put("first", ["old"])
+    cache.put("second", None)
+    cache.put("first", ["updated"])
+    assert cache.get("second") == (True, None)
+    cache.put("third", ["new"])
+    assert cache.get("second") == (False, None)
+    assert cache.get("first") == (True, ["updated"])
+    assert cache.get("third") == (True, ["new"])
+
+
+def test_expired_cache_gets_are_safe_across_model_comparison_threads(monkeypatch):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    class SlowReads(dict):
+        def get(self, key):
+            hit = super().get(key)
+            time.sleep(0.01)  # make concurrent readers overlap before deleting expired data
+            return hit
+
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 100)
+    cache = WebCache(ttl_s=1)
+    cache.put("expired", ["hit"])
+    cache._data = SlowReads(cache._data)
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 102)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        assert list(pool.map(cache.get, ["expired"] * 8)) == [(False, None)] * 8
+
+
+def test_cache_capacity_is_safe_across_concurrent_insertions():
+    from concurrent.futures import ThreadPoolExecutor
+
+    cache = WebCache(max_entries=8)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda key: cache.put(str(key), [key]), range(1000)))
+    assert len(cache._data) == 8
+
+
 def test_cached_page_gets_each_clusters_own_sharing_counts():
     from dataclasses import replace
 

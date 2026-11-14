@@ -96,7 +96,7 @@ creates an edge. This is the first organic guard, and it is structural.
 Accounts are nodes. Two accounts get an edge when they share at least one content key, or several
 engagement keys (`min_engagement_shared`). Each shared key adds weight `1/ln(1+n)`, where `n` is how
 many accounts used it, so rare shared items count more than common ones. Clusters are the connected
-components; very large components are split into communities with seeded Leiden. Clusters smaller
+components; components over 30 accounts are split into communities with seeded Leiden (50 before v1.10, which let a ring hide inside a crowd sharing its link). Clusters smaller
 than `min_cluster_size` are ignored, and so are Leiden communities larger than `max_cluster_size`
 (`signals/graph.py`).
 
@@ -175,7 +175,7 @@ as reasons the cluster might be organic:
 |---|---|
 | `established_accounts` | most members are over a year old with a real follower count |
 | `part_of_wider_crowd` | the items this cluster shares are also used by many accounts outside it |
-| `language_diversity` | members post in several languages |
+| `language_diversity` | members post in several languages. Since v1.10 it counts only for the share of accounts that aren't new: a translator makes a 12-language campaign easy, so many languages argue for independent people only when the accounts have a past |
 | `transparent_automation` | members openly share one custom handle domain (one declared operator, such as a feed service) and are not new. The domain is the registered one from the Public Suffix List (v1.9), so people with their own `name.co.uk` handles are not grouped |
 | `clock_aligned_posting` | shared posts cluster right after full or half hours, the pattern of independent schedulers |
 | `members_converse` | members reply to each other's posts: a conversation, not a broadcast (spam rings we reviewed had 0 such replies) |

@@ -8,13 +8,14 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
 
 from lookup.bsky import BlueskyClient
-from lookup.receipts import Budget, ReceiptDeps, ScreenshotPost, ShotTimeUp
+from lookup.receipts import Budget, ReceiptDeps, ScreenshotPost, ShotTimeUp, find_original
 from lookup.receipts_bsky import find_bsky, normalise_handle, search_words
 
 FIX = Path(__file__).parent / "fixtures" / "receipts"
@@ -237,6 +238,48 @@ def test_provider_errors_never_raise():
     assert len(sink.rows) == 3
     assert all(r["ok"] is False and "ConnectError" in r["summary"] for r in sink.rows)
     assert all(r["call"]["status"] is None for r in sink.rows)
+
+
+@pytest.mark.parametrize(
+    "failed_method, endpoint", [(RESOLVE, "resolveHandle"), (FEED, "getAuthorFeed")]
+)
+@pytest.mark.parametrize("has_match", [False, True])
+@pytest.mark.parametrize(
+    "error_body",
+    [{"error": "InvalidRequest", "message": "Invalid request parameters"}, [], None, "not JSON"],
+)
+def test_bad_request_is_a_failure_not_a_missing_account(
+    failed_method, endpoint, has_match, error_body
+):
+    def handler(request):
+        method = request.url.path.rsplit("/", 1)[-1]
+        if method == failed_method:
+            if isinstance(error_body, str):
+                return httpx.Response(400, text=error_body)
+            return httpx.Response(400, json=error_body)
+        if not has_match and method in (SEARCH, FEED):
+            return httpx.Response(200, json={"posts": [], "feed": []})
+        status, fixture = OK[method]
+        return httpx.Response(status, json=fx(fixture))
+
+    sink = Sink()
+    client = BlueskyClient(transport=httpx.MockTransport(handler))
+    try:
+        rec = find_original(
+            shot(),
+            ReceiptDeps(receipt=sink, bsky=client, anchor=datetime(2026, 11, 14, tzinfo=UTC)),
+            Budget.seconds(10),
+        )
+    finally:
+        client.close()
+    assert sink.by(endpoint)["ok"] is False
+    assert "HTTP 400" in sink.by(endpoint)["summary"]
+    assert rec.label == ("matches" if has_match else "unchecked")
+    if has_match:
+        assert rec.original_id == f"at://{ADA_DID}/app.bsky.feed.post/3lfictional0001"
+        assert sink.rows[rec.original_receipt_id - 1]["endpoint"] == "searchPosts"
+    else:
+        assert rec.original_id is None
 
 
 def test_no_words_skips_search():

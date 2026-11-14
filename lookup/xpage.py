@@ -130,7 +130,7 @@ def parse_count(s: str | None) -> int | None:
     mult = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}.get(s[-1:], 1)
     try:
         return int(round(float(s[:-1] if mult > 1 else s) * mult))
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
 
 

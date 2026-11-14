@@ -463,6 +463,31 @@ def test_reader_skips_a_non_object_frame_and_keeps_reading(monkeypatch):
     assert q.get_nowait()[1]["did"] == "did:plc:x"
 
 
+@pytest.mark.parametrize("time_us", [True, 0, -1, 4_102_444_800_000_000, 10**30, 10**400])
+def test_reader_invalid_timestamp_cannot_change_cursor_or_recording(monkeypatch, tmp_path, time_us):
+    import json
+    from urllib.parse import parse_qs, urlsplit
+
+    from ingest.recorder import Recorder, read_events, recorded_files
+
+    good = {"did": DID, "time_us": T_US, "kind": "account"}
+    bad = {**good, "time_us": time_us}
+    frames = [json.dumps(good), json.dumps(bad)]
+    consumer, q, reader, hosts = _reader(monkeypatch, [frames])
+    reader.recorder = Recorder(tmp_path)
+
+    reader.run()
+
+    assert hosts == ["h1"]
+    assert reader.cursor_us == T_US
+    params = parse_qs(urlsplit(reader.url("h2")).query)
+    assert params["cursor"] == [str(T_US - consumer.REWIND_US)]
+    assert [ev for _, ev in read_events(recorded_files(tmp_path))] == [good]
+    # The writer still receives both events and applies its normal malformed-event handling.
+    assert [q.get_nowait()[1], q.get_nowait()[1]] == [good, bad]
+    assert q.get_nowait() is consumer.STOP
+
+
 def test_write_loop_survives_an_event_the_normaliser_cannot_read(monkeypatch):
     import queue
 

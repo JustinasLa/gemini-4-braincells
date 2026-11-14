@@ -102,10 +102,17 @@ function origin(family: Family, members: Map<string, FamilyMember>): string {
 
 function spread(trace: TraceCase & { lookup: LookupResult }): string {
   if (trace.lookup.state === "running") return "";
-  // a group we watch is the lookup's own answer: it always shows
-  if (hasVerdict(trace)) return `<p class="st-call" style="--vc:${STATUS[trace.status].css}"><b>${esc(STATUS[trace.status].word)}</b> ${esc(STATUS[trace.status].tag)}, in a group we watch</p>`;
-  // with a swarm report the strip below answers who is pushing the picture: no "No campaign found" over it
-  return trace.lookup.swarm ? "" : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
+  // with a swarm report the strip below answers who is pushing the picture: no "No campaign found" over it.
+  // A group we watch is the lookup's own answer and always shows.
+  if (!hasVerdict(trace)) return trace.lookup.swarm ? "" : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
+  // the watched group whose posts carry this text: the same one the verdict was taken from
+  const applying = trace.lookup.clusters.filter((cluster) => cluster.verdict_applies);
+  const hit = applying.find((cluster) => cluster.status === trace.status) ?? applying[0];
+  const v = STATUS[trace.status];
+  const what = trace.status === "coordinated" && hit?.size ? `${hit.size} accounts pushing this text` : v.tag;
+  return hit
+    ? `<a class="st-call st-hit" href="/?cluster=${encodeURIComponent(String(hit.id))}" style="--vc:${v.css}"><b>${esc(v.word)}</b> ${esc(what)}<span>See the group →</span></a>`
+    : `<p class="st-call" style="--vc:${v.css}"><b>${esc(v.word)}</b> ${esc(v.tag)}</p>`;
 }
 
 /** What a picture trace found, worked out once for the result page and for the map's panel. */
@@ -158,7 +165,7 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
         ${words.length ? `<p class="st-words">${words.map((word) => `<q>${esc(word)}</q>`).join("")}</p>` : ""}
         ${facts.length ? `<dl class="st-facts">${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
         ${running ? progress(lookup) : spread(trace)}
-        <div class="st-actions"><button class="btn solid" type="button" data-act="trace">New trace</button><button class="btn" type="button" data-story-view="map">Map</button></div>
+        <div class="st-actions"><button class="btn solid" type="button" data-act="trace">Search</button><button class="btn" type="button" data-story-view="map">Map</button></div>
       </div>
     </section>
     ${lookup.swarm && !running ? swarmStrip(lookup.swarm, { live: lookup.swarm_live?.id }) : ""}

@@ -9,10 +9,11 @@ max_lag=${MAX_LAG_S:-300}
 fail=()
 get() { curl -fsS --max-time 20 "$url$1"; }
 
-health=$(get /api/health) || fail+=("/api/health unreachable")
-if [[ -n ${health:-} ]]; then
+if health=$(get /api/health); then
   python3 -c 'import json,sys; h=json.loads(sys.argv[1]); lag=h.get("ingest_lag_s"); sys.exit(0 if h.get("ok") and lag is not None and lag < float(sys.argv[2]) else 1)' \
     "$health" "$max_lag" || fail+=("health not ok: $health")
+else
+  fail+=("/api/health unreachable")
 fi
 for path in /api/clusters?limit=1 /api/metrics /; do
   get "$path" >/dev/null || fail+=("$path failed")
