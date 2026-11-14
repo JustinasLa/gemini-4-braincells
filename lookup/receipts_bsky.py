@@ -2,7 +2,8 @@
 
 Three public AppView calls run in parallel, each clamped to the check's budget:
 
-- `resolveHandle`  the handle -> its DID (a 400 means no account has that handle now);
+- `resolveHandle`  the handle -> its DID (an explicit missing-handle answer means no account
+                   has that handle now);
 - `searchPosts`    `from:<handle> <the screenshot's words>` (unquoted, so a lightly edited
                    text still hits);
 - `getAuthorFeed`  the author's recent posts, for when search misses (the search index lags
@@ -112,8 +113,19 @@ def _err(e: BaseException) -> str:
     return type(e).__name__
 
 
-def _status(e: BaseException | None) -> int | None:
-    return e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
+def _missing_account(e: BaseException, message: str) -> bool:
+    """Only an explicit missing-account response is an answer; other 400s are failures."""
+    if not isinstance(e, httpx.HTTPStatusError) or e.response.status_code != 400:
+        return False
+    try:
+        body = e.response.json()
+    except ValueError:
+        return False
+    return (
+        isinstance(body, dict)
+        and body.get("error") == "InvalidRequest"
+        and body.get("message") == message
+    )
 
 
 def _candidate(pv: dict, rid: int | None, source: str) -> Candidate:
@@ -247,7 +259,7 @@ def _collect(handle: str, live: list[_Call], deps: ReceiptDeps) -> list[Candidat
         if unanswered(c):
             record(c, f"Bluesky handle {at} not resolved: no answer within the time budget", False)
         elif c.error is not None:
-            if _status(c.error) == 400:
+            if _missing_account(c.error, "Unable to resolve handle"):
                 handle_gone = True
                 # an answer, not a failure: no account has this handle now
                 record(c, f"Bluesky handle {at} not found on Bluesky (no account has it now)", True)
@@ -287,13 +299,9 @@ def _collect(handle: str, live: list[_Call], deps: ReceiptDeps) -> list[Candidat
             if unanswered(c):
                 record(c, f"Bluesky author feed of {at}: no answer within the time budget", False)
             elif c.error is not None:
-                why = (
-                    "profile not found (HTTP 400)"
-                    if _status(c.error) == 400
-                    else f"failed: {_err(c.error)}"
-                )
-                # HTTP 400 is the AppView's answer "no such profile", not a failed fetch
-                record(c, f"Bluesky author feed of {at} {why}", _status(c.error) == 400)
+                missing = _missing_account(c.error, "Profile not found")
+                why = "profile not found (HTTP 400)" if missing else f"failed: {_err(c.error)}"
+                record(c, f"Bluesky author feed of {at} {why}", missing)
             else:
                 items = [f for f in c.result or [] if (f.get("post") or {}).get("uri")]
                 own, reposts = [], 0
