@@ -161,7 +161,7 @@ _LABEL_ONLY = tuple(
     re.compile(form, re.I)
     for form in (
         rf"(?:the\s+)?{_MOD}{_LNOUN}{_WHERE}\s+{_AUX}{_SWAP}\s+from\s+{_LQ_A}\s+to\s+{_LQ_B}\.?",
-        rf"(?:the\s+)?{_MOD}{_LNOUN}(?:\s+{_LQ_A})?{_WHERE}\s+{_AUX}{_SWAP}\s+(?:to|with)\s+"
+        rf"(?:the\s+)?{_MOD}{_LNOUN}(?:\s+{_LQ_A})?{_WHERE}\s+{_AUX}{_SWAP}\s+(?:to|with|by)\s+"
         rf"{_LQ_B}{_WHERE}\.?",
         rf"(?:the|an?)\s+{_MOD}{_LNOUN}\s+{_LQ_B}{_WHERE}\s+(?:was|were|has\s+been)\s+added"
         rf"{_WHERE}\.?",
