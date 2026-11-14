@@ -48,8 +48,10 @@ Write a short, plain reading for a general audience:
   media_provenance_cites. Call a search-only match a lead, not verified provenance. If no
   attribution was read, leave this null. Attribution is not an exact-image comparison.
 - image_matches: crawl_date is when an engine first saw the picture, not its publication
-  date; it is at least that old and may be older. image_origin_id is separate from the text
-  origin. Say "edited" and list observed changes, never "fake" or "deepfake"; cite receipt ids.
+  date; it is at least that old and may be older. snowflake is the exact time of the X post
+  the match is on (from its id); page is the date printed on the matched page.
+  image_origin_id is separate from the text origin. Say "edited" and list observed changes,
+  never "fake" or "deepfake"; cite receipt ids.
   An "edited" match with no listed changes differs only in pixels (a strong colour or
   brightness filter can do that): never present it alone as a change of content.
   changes_from "match" means the changes turn that copy into the submitted picture; "upload"
@@ -215,6 +217,7 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
                 "page_url": match.page_url,
                 "first_seen": match.first_seen,
                 "time_source": match.time_source,
+                "time_receipt_id": match.time_receipt_id,
                 "relation": match.relation,
                 "changes": match.changes[:4],
                 "changes_from": match.changes_from,
