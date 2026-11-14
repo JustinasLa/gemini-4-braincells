@@ -1,10 +1,11 @@
 # PUBLIC_DOMAIN=example.com gets automatic HTTPS. Unset, it serves plain HTTP on :80.
 {
 	servers {
-		# On the VPS, Traefik (Docker bridge, private address) is the only client and sets
-		# X-Forwarded-For to the visitor; trust it so the API's per-visitor lookup limit sees
-		# the visitor, not Traefik. Requests from public addresses get their XFF replaced.
-		trusted_proxies static private_ranges
+		# Whose X-Forwarded-For to keep. Default: nobody (Caddy then sets it to the peer, so a
+		# client can't spoof it). On the VPS, Traefik (Docker bridge, private address) is the only
+		# client and sets XFF to the visitor: docker-compose.hostinger.yml sets
+		# CADDY_TRUSTED_PROXIES=private_ranges so the API's per-visitor lookup limit sees the visitor.
+		trusted_proxies static {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
 	}
 }
 

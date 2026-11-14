@@ -246,7 +246,7 @@ class FakeOxylabs:
         self.calls = []
         self.last_call = {"request_id": "r1", "latency_ms": 5}
 
-    def scrape_markdown(self, url):
+    def scrape_markdown(self, url, deadline=None):
         self.calls.append(("scrape", url))
         if url.endswith(SUBJ):
             return POST_MD, {}
@@ -256,11 +256,11 @@ class FakeOxylabs:
             return PROFILE_MD, {}
         raise RuntimeError("not found")
 
-    def scrape_facts(self, url):
+    def scrape_facts(self, url, deadline=None):
         self.calls.append(("facts", url))
         return PageFacts(url=url, final_url=url, publisher="Example News", headline="Comets")
 
-    def search(self, query, max_results=10):
+    def search(self, query, max_results=10, deadline=None):
         self.calls.append(("search", query))
         if query.startswith("site:x.com"):
             return [
@@ -475,7 +475,7 @@ def test_snippet_does_not_overwrite_verified_post():
     assert p.verified and p.text == "read" and p.role == "mention"
 
 
-def test_date_only_page_is_not_an_earlier_origin():
+def test_only_pages_dated_on_the_page_can_be_the_origin():
     from lookup.models import Page, Post
 
     job = _job()
@@ -490,28 +490,61 @@ def test_date_only_page_is_not_an_earlier_origin():
         )
     )
     job.result.subject_id = "x:2"
+    day = 86400
+    # a search snippet says Nov 1: not read, so not the origin
+    job.add_page(
+        Page(
+            id="",
+            url="https://s.example/",
+            role="reference",
+            time_source="search_hint",
+            time=datetime(2026, 11, 1, tzinfo=UTC),
+            time_uncertainty_s=day,
+        )
+    )
+    # read on the page, but date-only on the same day: may be later than the post
     job.add_page(
         Page(
             id="",
             url="https://a.example/",
             role="reference",
+            time_source="page",
             time=datetime(2026, 11, 13, tzinfo=UTC),
-            time_uncertainty_s=86400,
+            time_uncertainty_s=day,
         )
     )
     job._finish_graph()
-    assert job.result.origin_id == "x:2"  # the page may be later the same day
+    assert job.result.origin_id == "x:2"
+    # read on the page, the whole day before: really earlier
     job.add_page(
         Page(
             id="",
             url="https://b.example/",
             role="reference",
+            time_source="page",
             time=datetime(2026, 11, 12, tzinfo=UTC),
-            time_uncertainty_s=86400,
+            time_uncertainty_s=day,
         )
     )
     job._finish_graph()
-    assert job.result.origin_id == "page:2"  # the whole day before: really earlier
+    assert job.result.origin_id == "page:3"
+
+
+def test_older_snippet_page_is_read_before_it_can_be_origin():
+    job = Lookup("lk_v", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps())
+    job.run()
+    # the web search hit ("1 hour ago") is not older than the post, so it isn't scraped
+    assert not any(c[0] == "facts" for c in job.deps.oxylabs.calls)
+
+
+def test_finished_result_is_frozen():
+    from lookup.models import Post
+
+    job = _job()
+    job.run()
+    before = job.snapshot()
+    job.add_post(Post(id="x:late", platform="x", role="copy", verified=True))
+    assert job.snapshot() == before  # a worker that outlived the budget can't change it
 
 
 class AccountOnlyStore(FakeStore):
@@ -542,7 +575,7 @@ def test_quote_of_another_post_is_attributed_to_it():
     md = QUOTE_MD.replace(f"/ada_example/status/{SUBJ})", f"/ada_example/status/{other})")
     job = Lookup("lk_q", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps())
     job.result.subject_id = f"x:{SUBJ}"
-    job.deps.oxylabs.scrape_markdown = lambda url: (md, {})
+    job.deps.oxylabs.scrape_markdown = lambda url, deadline=None: (md, {})
     job._verify_x(
         Post(
             id=f"x:{COPY}",

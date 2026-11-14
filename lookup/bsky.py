@@ -51,6 +51,9 @@ class BlueskyClient:
     def _get(self, method: str, params: dict) -> dict:
         started = time.monotonic()
         res = self._http.get(f"/{method}", params=params)
+        if res.status_code in (502, 503, 504):  # the public AppView blips now and then: once more
+            time.sleep(0.5)
+            res = self._http.get(f"/{method}", params=params)
         self.last_call = {
             "endpoint": method,
             "status": res.status_code,

@@ -43,7 +43,22 @@ def make_deps() -> Deps:
         try:
             from media.nemotron import NemotronClient
 
-            nemotron = NemotronClient.from_settings(s)
+            # the lookup has a time budget: one attempt, bounded wait (the worker retries more)
+            key, base, model = (
+                (s.verda_inference_key, s.verda_base_url, s.verda_model)
+                if s.verda_inference_key
+                else (s.nvidia_api_key, s.nvidia_base_url, s.nvidia_media_model)
+            )
+            nemotron = NemotronClient(
+                key,
+                base_url=base,
+                model=model,
+                rpm=s.media_rpm,
+                max_tokens=s.media_max_tokens,
+                reasoning=s.media_reasoning,
+                timeout_s=45,
+                max_retries=1,
+            )
         except Exception as exc:  # optional: a lookup without media reading still works
             log.warning("lookup: Nemotron unavailable: %s", exc)
     if s.lookup_gemini and s.gemini_api_key:

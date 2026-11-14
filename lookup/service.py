@@ -165,10 +165,15 @@ class Lookup:
         self._card_title: str | None = None
         self._media_urls: list[str] = []
         self._bsky_handles: set[str] = set()
+        self._final: dict | None = None
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
+        """Live view while running; once finished, the frozen final result (late workers that
+        outlived the time budget can't change what clients saw as done)."""
         with self.lock:
+            if self._final is not None:
+                return self._final
             return self.result.model_dump(mode="json", by_alias=True)
 
     def _step(self, sid: str) -> Step:
@@ -307,6 +312,10 @@ class Lookup:
     def _left(self) -> float:
         return max(1.0, self.deadline - time.monotonic())
 
+    def _provider_deadline(self) -> float:
+        """Absolute (monotonic) end for a provider call made now: Gemini's reserve stays free."""
+        return self.deadline - ASSESS_RESERVE_S
+
     def _spend(self, need_s: float = 3.0, reserve_s: float = ASSESS_RESERVE_S) -> None:
         """Gate before every paid or slow provider call; keeps time back for Gemini's reading."""
         if time.monotonic() + need_s + reserve_s > self.deadline:
@@ -330,6 +339,7 @@ class Lookup:
                     if st.state in ("pending", "running"):
                         st.state = "skipped" if st.state == "pending" else "failed"
                         st.detail = st.detail or "time budget used up"
+                self._final = self.result.model_dump(mode="json", by_alias=True)
 
     def _run(self) -> None:
         t, kind = self.target, self.result.kind
@@ -412,7 +422,7 @@ class Lookup:
     # ---------------------------------------------------------------- X
     def _scrape_x(self, url: str) -> tuple[str, dict]:
         self._spend()
-        md, _meta = self.deps.oxylabs.scrape_markdown(url)
+        md, _meta = self.deps.oxylabs.scrape_markdown(url, deadline=self._provider_deadline())
         return md, dict(self.deps.oxylabs.last_call)
 
     def _x_post_from_item(
@@ -705,8 +715,9 @@ class Lookup:
             )
             feed = []
             try:
+                self._spend()
                 feed = self.deps.bsky.author_feed(actor, limit=20)
-            except httpx.HTTPError:
+            except (httpx.HTTPError, BudgetExceeded):
                 pass
             feed = [pv for pv in feed if (pv.get("author") or {}).get("did") == pr.get("did")]
             times = sorted(
@@ -736,8 +747,12 @@ class Lookup:
             self._bsky_handles.add(pr.get("handle") or actor)
             found = []
             me = (pr.get("did"), pr.get("handle"))
-            own = [pv for pv in feed if (pv.get("author") or {}).get("did") in me
-                   or (pv.get("author") or {}).get("handle") in me]  # fmt: skip
+            own = [
+                pv
+                for pv in feed
+                if (pv.get("author") or {}).get("did") in me
+                or (pv.get("author") or {}).get("handle") in me
+            ]
             for pv in own[:10]:  # the feed also lists reposts of other people's posts
                 rp = self.add_post(self._bsky_post_obj(pv, "author_recent", None, rid))
                 found.append(rp.id)
@@ -768,7 +783,7 @@ class Lookup:
             short = url
             url = self._resolve(url)
             self._spend()
-            facts = self.deps.oxylabs.scrape_facts(url)
+            facts = self.deps.oxylabs.scrape_facts(url, deadline=self._provider_deadline())
             call = dict(self.deps.oxylabs.last_call)
             pub = facts.published_at
             ptime, punc = _page_time(pub)
@@ -811,7 +826,7 @@ class Lookup:
     # ---------------------------------------------------------------- searches
     def _search(self, query: str, n: int = 10):
         self._spend()
-        hits = self.deps.oxylabs.search(query, max_results=n)
+        hits = self.deps.oxylabs.search(query, max_results=n, deadline=self._provider_deadline())
         return hits, dict(self.deps.oxylabs.last_call)
 
     def _phrase(self) -> str | None:
@@ -930,14 +945,16 @@ class Lookup:
                 and (p.similarity or 0) >= X_MIN_SIM
                 and p.id != self.result.subject_id
             ]
-        if not ref or not cands:
+        pages = self._older_page_candidates()
+        if not ref or not (cands or pages):
             self.skip("verify", "no candidate copies to read")
             return
         with self.step("verify") as st:
             cands.sort(key=lambda p: -(p.similarity or 0))
             cands = cands[: self.deps.verify_max]
-            with ThreadPoolExecutor(max_workers=6) as pool:
-                list(pool.map(lambda p: self._safe_verify(p, ref), cands, timeout=self._left()))
+            jobs = [lambda p=p: self._safe_verify(p, ref) for p in cands]
+            jobs += [lambda pg=pg: self._safe_verify_page(pg) for pg in pages]
+            self._run_bounded(jobs, workers=6)
             # who are the copiers? read a few profiles (account age, followers)
             with self.lock:
                 copiers = list(
@@ -950,8 +967,7 @@ class Lookup:
                         and p.author_handle
                     )
                 )[: self.deps.profiles_max]
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                list(pool.map(self._safe_x_author, copiers, timeout=self._left()))
+            self._run_bounded([lambda h=h: self._safe_x_author(h) for h in copiers], workers=4)
             ids = {p.id for p in cands}
             with self.lock:
                 kinds = [p.role for p in self.result.posts if p.id in ids]
@@ -967,6 +983,68 @@ class Lookup:
                 f" · {kinds.count('reply')} replies"
                 + (f" · {unread} more candidates not read" if unread else "")
             )
+
+    def _run_bounded(self, jobs: list, workers: int) -> None:
+        """Run jobs in parallel until the provider deadline; never wait past it."""
+        if not jobs:
+            return
+        pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lookup-v")
+        try:
+            futures = [pool.submit(j) for j in jobs]
+            wait(futures, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+    def _older_page_candidates(self, n: int = 2) -> list[Page]:
+        """Search-hit pages carrying the text whose date hint is before every post: read them,
+        because a snippet's date is not the page's own (they can't be the origin unread)."""
+        with self.lock:
+            first = min(
+                (
+                    p.created_at
+                    for p in self.result.posts
+                    if p.created_at and p.verified and p.role in ("submitted", "copy", "bluesky")
+                ),
+                default=self._subject_time,
+            )
+            if first is None:
+                return []
+            pages = [
+                pg
+                for pg in self.result.pages
+                if pg.role == "reference"
+                and pg.time_source == "search_hint"
+                and pg.time
+                and pg.time < first
+            ]
+        return sorted(pages, key=lambda pg: pg.time)[:n]
+
+    def _safe_verify_page(self, pg: Page) -> None:
+        try:
+            self._spend()
+            facts = self.deps.oxylabs.scrape_facts(pg.url, deadline=self._provider_deadline())
+            call = dict(self.deps.oxylabs.last_call)
+        except Exception as exc:
+            log.info("verify page %s failed: %s", pg.url, exc)
+            return
+        t, unc = _page_time(facts.published_at)
+        rid = self.receipt(
+            "oxylabs",
+            "/scrape",
+            f"Older page read: {facts.publisher or domain(facts.final_url)}"
+            + (f", published {facts.published_at}" if facts.published_at else ", no date found"),
+            source_url=facts.final_url or pg.url,
+            call=call,
+        )
+        with self.lock:
+            pg.final_url = facts.final_url or pg.url
+            pg.publisher = facts.publisher or pg.publisher
+            pg.author = facts.author or pg.author
+            pg.published_at = facts.published_at
+            pg.claims = facts.claims or pg.claims
+            pg.receipt_id = rid
+            if t is not None:
+                pg.time, pg.time_source, pg.time_uncertainty_s = t, "page", unc
 
     def _safe_verify(self, p: Post, reference: str) -> None:
         try:
@@ -1130,7 +1208,7 @@ class Lookup:
                 if data is None:
                     continue
                 h = hashlib.sha256(data).hexdigest()
-                self._spend(10)
+                self._spend(45)  # one bounded Nemotron attempt
                 started = time.monotonic()
                 a = self.deps.nemotron.analyze(
                     MediaInput(media_hash=f"lookup:{h}", mime_type=mime, data=data, url=url),
@@ -1176,8 +1254,10 @@ class Lookup:
             if ocr and ocr_as_text:
                 # the post is the image: its text is what the copy searches look for
                 self._subject_text = " ".join(texts)
-                self.note("The post has no text of its own; the searches use the text Nemotron "
-                          "read inside its image.")  # fmt: skip
+                self.note(
+                    "The post has no text of its own; the searches use the text Nemotron "
+                    "read inside its image."
+                )
                 ocr = None
             if ocr and textsim.similarity(ocr, self._subject_text, truncated=True) < VERBATIM:
                 # the image's own text, searched like the post text: where does it circulate?
@@ -1274,7 +1354,7 @@ class Lookup:
                 self.result.clusters = rows
                 if applies:
                     self.result.status = "matched"
-            if found and not applies:
+            if set(found) - applies:
                 self.note(
                     "Some accounts in this lookup also appear in monitored clusters about other "
                     "content. That is context about those accounts, not a verdict on this link."
@@ -1316,8 +1396,9 @@ class Lookup:
                 (
                     pg
                     for pg in self.result.pages
-                    if pg.role == "reference"
+                    if pg.role in ("reference", "linked")
                     and pg.time
+                    and pg.time_source == "page"  # read from the page, not a search snippet
                     and pg.time_uncertainty_s is not None
                     and origin_t
                     and latest(pg) < origin_t - timedelta(minutes=5)
@@ -1326,9 +1407,19 @@ class Lookup:
             )
             if older:
                 origin_id = older[0].id
-                if carriers:
+                if carriers and older[0].role == "linked":
                     self.add_edge(
-                        origin_id, carriers[0].id, "cites", note="older page with the same text"
+                        origin_id,
+                        carriers[0].id,
+                        "link",
+                        note="the post links it; the page is older",
+                    )
+                elif carriers:
+                    self.add_edge(
+                        origin_id,
+                        carriers[0].id,
+                        "cites",
+                        note="older page with the same text (date read on the page)",
                     )
             self.result.origin_id = origin_id
             if carriers and carriers[0].role == "copy" and carriers[0].id == origin_id:

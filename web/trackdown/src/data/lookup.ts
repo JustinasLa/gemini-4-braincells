@@ -49,6 +49,7 @@ export interface LookupPage {
   published_hint: string | null;
   time?: string | null;
   time_source?: "page" | "search_hint" | null;
+  time_uncertainty_s?: number | null; // the true time lies in [time, time + this]
   headline: string | null;
   claims: string[];
   snippet: string | null;
@@ -214,14 +215,18 @@ export function lookupCase(result: LookupResult): TraceCase {
     };
   });
   for (const page of result.pages) {
-    const time = timeOf(page.time ?? null) ?? (page.published_at?.includes("T") ? timeOf(page.published_at) : undefined);
+    const start = timeOf(page.time ?? null) ?? (page.published_at?.includes("T") ? timeOf(page.published_at) : undefined);
+    const unc = page.time_uncertainty_s ?? (start != null && page.time_source === "search_hint" ? 86400 : 0);
+    // place an uncertain time in the middle of its range, and say how uncertain it is
+    const time = start == null ? undefined : start + (unc * 1000) / 2;
+    const precision = start == null ? [] : unc >= 86400 ? [`date only: ${new Date(start).toISOString().slice(0, 10)}, time unknown`] : unc > 0 ? [`time ±${Math.max(1, Math.round(unc / 7200))} h${page.time_source === "search_hint" ? " (search hint)" : ""}`] : [];
     const url = httpUrl(page.final_url) ?? httpUrl(page.url);
     nodes.push({
       id: page.id ?? page.url, t: time ?? fallbackTime, timeUnknown: time == null, platform: page.publisher ? "news" : "web", role: "source",
       author: { name: page.publisher || hostOf(page.url), handle: page.author || hostOf(page.url), hue: hashStr(page.url) % 360 },
       text: [page.headline, page.snippet].filter(Boolean).join("\n"), url,
-      flags: time == null ? ["time unknown", ...(page.published_hint ? [`date hint: ${page.published_hint}`] : [])] : [],
-      realData: [{ label: "Page facts", url, receiptId: page.receipt_id, facts: facts({ Publisher: page.publisher, Author: page.author, "Published at (as returned)": page.published_at, "Parsed time (UTC)": page.time, "Time source": page.time_source, "Date hint (not an exact time)": page.published_hint, Headline: page.headline, Claims: page.claims.join("\n"), "Page role": page.role }) }],
+      flags: time == null ? ["time unknown", ...(page.published_hint ? [`date hint: ${page.published_hint}`] : [])] : [...precision, ...(page.time_source === "search_hint" ? ["date from a search result, page not read"] : [])],
+      realData: [{ label: "Page facts", url, receiptId: page.receipt_id, facts: facts({ Publisher: page.publisher, Author: page.author, "Published at (as returned)": page.published_at, "Parsed time (UTC)": page.time, "Time source": page.time_source, "Time uncertainty": unc ? `${Math.round(unc / 3600)} h window` : null, "Date hint (not an exact time)": page.published_hint, Headline: page.headline, Claims: page.claims.join("\n"), "Page role": page.role }) }],
     });
   }
   const nodeIds = new Set(nodes.map((node) => node.id));

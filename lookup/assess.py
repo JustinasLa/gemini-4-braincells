@@ -28,6 +28,9 @@ Write a short, plain reading for a general audience:
   quoting rather than copying, old accounts), or reasons it may not be.
 - would_change: what new facts would change the reading.
 - cites: the receipt ids your statements rest on. Cite only ids that appear in the input.
+- monitored_clusters: only clusters with verdict_applies=true are about this link or text;
+  report their detector_status as the monitor's verdict. Clusters with verdict_applies=false
+  only contain an account seen here: mention them as context, never as a verdict on this link.
 - llm_reading: "organic_looking", "copy_campaign_looking" or "unclear". This is your reading,
   shown as such; it is NOT the verdict. Many accounts posting the same words in minutes, new or
   templated accounts, and no organic explanation lean to copy_campaign_looking; a well-known
@@ -81,7 +84,15 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
         "media": [m.model_dump(exclude_none=True, exclude={"latency_ms"}) for m in r.media],
         "spread": r.spread.model_dump(mode="json") if r.spread else None,
         "monitored_clusters": [
-            {"id": c.get("id"), "detector_status": c.get("status"), "score": c.get("score")}
+            {
+                "id": c.get("id"),
+                "detector_status": c.get("status"),
+                "score": c.get("score"),
+                "matched_by": c.get("match"),
+                # true: the cluster shared this link or text, its verdict applies to it.
+                # false: it only contains an account seen here; context about that account.
+                "verdict_applies": c.get("verdict_applies"),
+            }
             for c in r.clusters
         ],
         "receipts": [
@@ -94,12 +105,16 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
 
 
 class Assessor:
-    def __init__(self, api_key: str, model: str, *, cap=None):
+    def __init__(self, api_key: str, model: str, *, cap=None, timeout_s: float = 30.0):
         from google import genai
+        from google.genai import types
 
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set")
-        self._client = genai.Client(api_key=api_key)
+        # bounded: the lookup keeps only a short reserve of its time budget for this call
+        self._client = genai.Client(
+            api_key=api_key, http_options=types.HttpOptions(timeout=int(timeout_s * 1000))
+        )
         if cap is not None:
             self._client = cap.wrap(self._client)
         self.model = model
