@@ -9,6 +9,7 @@ import logging
 import math
 import re
 import time
+import warnings
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast, get_args
 
@@ -62,7 +63,11 @@ _FORBIDDEN = re.compile(
     re.I,
 )
 # Our own edited_region marker, reported back as an edit (seen live in pair layout).
-_MARKER = re.compile(r"\bred\b[^.]*\b(box|outline|border|frame|rectangle|rectangular)\b", re.I)
+_MARKER = re.compile(
+    r"\bred\s+(?:(?:thin|rectangular|square)\s+)*(?:box|outline|border|frame|rectangle)\b", re.I
+)
+_MAX_SIDE = 1024  # each input is downscaled to this before it is sent
+_MAX_PIXELS = 24_000_000  # larger inputs are refused before decoding (decompression bombs)
 _RETRY_MIN_S = 3.0  # retry a 5xx only when at least this much of timeout_s is left
 SYSTEM_PROMPT = f"""Compare A (earlier/original) with B (later/variant). Prompt: {PROMPT_VERSION}.
 Return only JSON: text_before, text_after, changes, kinds, content_flags, confidence.
@@ -130,29 +135,38 @@ class ImageDiff:
 
 
 def _image(data: bytes) -> Image.Image:
-    with Image.open(io.BytesIO(data)) as source:
-        source.seek(0)
-        image = ImageOps.exif_transpose(source).convert("RGBA")
-    image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", Image.DecompressionBombWarning)
+        with Image.open(io.BytesIO(data)) as source:
+            if source.width * source.height > _MAX_PIXELS:
+                raise ValueError(f"image too large: {source.width}x{source.height}")
+            source.seek(0)
+            source.draft("RGB", (_MAX_SIDE, _MAX_SIDE))  # JPEG: decode at a reduced scale
+            image = ImageOps.exif_transpose(source)
+    if image.mode not in ("RGB", "RGBA", "L"):  # palette/1-bit resize badly; flatten first
+        image = image.convert("RGBA")
+    image.thumbnail((_MAX_SIDE, _MAX_SIDE), Image.Resampling.LANCZOS)
+    image = image.convert("RGBA")
     background = Image.new("RGB", image.size, "white")
     background.paste(image, mask=image.getchannel("A"))
     return background
 
 
-def _mark(image: Image.Image, region: tuple[float, float, float, float] | None) -> None:
+def _mark(image: Image.Image, region: tuple[float, float, float, float] | None) -> bool:
+    """Draw the edited_region box on ``image``; False (nothing drawn) for a bad region."""
     if region is None:
-        return
+        return False
     try:
         if len(region) != 4 or any(isinstance(value, bool) for value in region):
-            return
+            return False
         values = [float(value) for value in region]
         if not all(math.isfinite(value) for value in values):
-            return
+            return False
         left, top, right, bottom = [min(1.0, max(0.0, value)) for value in values]
     except (TypeError, ValueError, OverflowError):
-        return
+        return False
     if left >= right or top >= bottom:
-        return
+        return False
     box = (
         left * (image.width - 1),
         top * (image.height - 1),
@@ -160,6 +174,7 @@ def _mark(image: Image.Image, region: tuple[float, float, float, float] | None) 
         bottom * (image.height - 1),
     )
     ImageDraw.Draw(image).rectangle(box, outline="red", width=max(2, image.height // 200))
+    return True
 
 
 def _composite(original: Image.Image, variant: Image.Image) -> Image.Image:
@@ -245,26 +260,31 @@ def describe_changes(
     layout: Literal["pair", "composite"] = DEFAULT_LAYOUT,
     max_tokens: int = 2048,
 ) -> ImageDiff | None:
-    """One attempt with a per-request timeout; malformed media/replies never break lookup."""
-    started, response, media_hash, attempt = None, None, "", 1
+    """One bounded call (``timeout_s`` covers everything); never raises into the lookup."""
+    entered = time.monotonic()
+    started, response, media_hash, attempt, model = None, None, "", 1, "unknown"
     try:
+        model = str(client.model)
         if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("timeout_s must be positive and finite")
+        deadline = entered + timeout_s
         if layout not in ("pair", "composite"):
             raise ValueError("unknown image layout")
         media_hash = hashlib.sha256(original + variant).hexdigest()[:16]
         earlier, later = _image(original), _image(variant)
-        _mark(later, edited_region)
+        marked = _mark(later, edited_region)
         images = [earlier, later] if layout == "pair" else [_composite(earlier, later)]
         text = (
             "The first image is A (earlier/original); the second is B (later/variant)."
             if layout == "pair"
             else "The left panel is A (earlier/original); the right panel is B (later/variant)."
         )
-        text += (
-            " Any red box only marks where a pixel comparison saw a difference; it is not "
-            "part of the image, so never report it. Return the comparison JSON."
-        )
+        if marked:
+            text += (
+                " The red box on B only marks where a pixel comparison saw a difference; it is"
+                " not part of the image, so never report it."
+            )
+        text += " Return the comparison JSON."
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -273,10 +293,14 @@ def describe_changes(
             },
         ]
         # Same-package private access: _complete's retry loop cannot honour a lookup budget.
-        client._limiter.wait()
-        deadline = time.monotonic() + timeout_s
+        limiter = client._limiter
+        if getattr(limiter, "_next", 0.0) - time.monotonic() >= deadline - time.monotonic():
+            raise TimeoutError("rate limiter wait exceeds the time budget")
+        limiter.wait()
         for attempt in (1, 2):
             started = time.monotonic()
+            if deadline - started <= 0:
+                raise TimeoutError("time budget spent before the request")
             client.calls += 1
             try:
                 response = client._client.chat.completions.create(
@@ -284,7 +308,7 @@ def describe_changes(
                     messages=messages,
                     temperature=0.1,
                     max_tokens=max_tokens,
-                    timeout=max(0.1, deadline - started),
+                    timeout=deadline - started,
                     response_format={
                         "type": "json_schema",
                         "json_schema": {"name": "image_diff", "schema": _SCHEMA},
@@ -302,7 +326,7 @@ def describe_changes(
                 ):
                     raise
                 log_call_attempt(
-                    model=client.model,
+                    model=model,
                     media_hash=media_hash,
                     started=started,
                     attempt=attempt,
@@ -315,23 +339,14 @@ def describe_changes(
         if not response.choices:
             raise ValueError("image comparison returned no choices")
         choice = response.choices[0]
-        payload = parse_content(
-            choice.message.content, truncated=getattr(choice, "finish_reason", None) == "length"
-        )
-        if getattr(choice, "finish_reason", None) == "length" and not any(
-            _strings(payload.get(key))
-            for key in ("changes", "text_before", "text_after", "content_flags")
-        ):
-            content = choice.message.content
-            if isinstance(content, list):
-                content = "".join(
-                    part.get("text", "") for part in content if isinstance(part, dict)
-                )
-            if not re.search(r'"changes"\s*:\s*\[\s*\]', content):
-                raise ValueError("truncated comparison has no usable fields")
-        result = _normalise(payload, response.model, marked=edited_region is not None)
+        # A reply is ~100 tokens; one cut at max_tokens is a loop, and a repaired cut could
+        # lose an unfinished content_flags (the adult/graphic guard), so it is not used.
+        if getattr(choice, "finish_reason", None) == "length":
+            raise ValueError("comparison cut off at max_tokens")
+        payload = parse_content(choice.message.content)
+        result = _normalise(payload, response.model, marked=marked)
         latency = log_call_attempt(
-            model=client.model,
+            model=model,
             media_hash=media_hash,
             started=started,
             response=response,
@@ -341,15 +356,27 @@ def describe_changes(
         return replace(result, latency_ms=latency)
     except Exception as exc:
         if started is not None:
-            log_call_attempt(
-                model=client.model,
-                media_hash=media_hash,
-                started=started,
-                response=response,
-                attempt=attempt,
-                outcome=type(exc).__name__,
-                error_type=type(exc).__name__,
-                task="imagediff",
-            )
+            _log_failure(model, media_hash, started, response, attempt, type(exc).__name__)
         log.warning("image comparison unavailable: %s: %.300s", type(exc).__name__, exc)
         return None
+
+
+def _log_failure(
+    model: str, media_hash: str, started: float, response: Any, attempt: int, error: str
+) -> None:
+    """Best effort: a malformed response must not make the failure log raise."""
+    for resp in (response, None) if response is not None else (None,):
+        try:
+            log_call_attempt(
+                model=model,
+                media_hash=media_hash,
+                started=started,
+                response=resp,
+                attempt=attempt,
+                outcome=error,
+                error_type=error,
+                task="imagediff",
+            )
+            return
+        except Exception:
+            continue

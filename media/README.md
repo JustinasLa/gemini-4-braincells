@@ -191,18 +191,20 @@ variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, fro
 `caption_changed`, `text_added`, `text_removed`, `element_added`, `element_removed`,
 `face_changed`, `cropped`, `recolored`, `watermark`, `other`), `text_before` / `text_after`
 (legible text in each), `confidence`, `model` (as the response returned it), `latency_ms`. No
-visible change gives `changes == []`. It returns None, never raises, on bad image bytes, timeout,
-an API error, a non-Super-VL response or an unusable reply.
+visible change gives `changes == []`. It returns None, never raises, on bad image bytes, an image
+over 24 MP, timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
+could lose an unfinished `content_flags`) or an unusable reply.
 
-- **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`), one
-  attempt bounded by `timeout_s`; a bare 5xx gets one retry if at least 3 s of the budget is
-  left. Each attempt is logged by `log_call_attempt` with `task=imagediff`, and the Super VL check
+- **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`).
+  `timeout_s` bounds the whole call from entry: image decoding, the rate-limiter wait (skipped,
+  returning None, if it would not fit) and the request, which gets only what is left. A bare 5xx
+  gets one retry if at least 3 s of the budget is left. Each attempt is logged by `log_call_attempt` with `task=imagediff`, and the Super VL check
   applies. It calls the OpenAI client directly, not `NemotronClient._complete`, whose 4-try
   backoff cannot keep to a lookup's budget.
 - **Layout:** Verda accepts two images per request, so both were measured. The default is one
   composite image: both scaled to one height, labelled "A: earlier" / "B: later", at most 2048 px
-  wide. `edited_region` (fractions of the variant) draws a red box on B. A sentence about a red
-  box is dropped when we drew one.
+  wide. `edited_region` (fractions of the variant) draws a red box on B; only then is the model told
+  about the box, and a "red box/outline/border/frame" sentence is dropped as our own marker.
 - **Wording:** describes the media, never names a person. A sentence with deepfake, fake, real,
   authentic, genuine, bot, shill, troll or propaganda is dropped with its kind. Adult or graphic
   media (model flag or the shared `safe_description` word list) gives exactly "Adult content." or

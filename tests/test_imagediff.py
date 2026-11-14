@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import logging
+import time
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -338,18 +339,18 @@ def test_no_choices(images):
 
 
 @pytest.mark.parametrize(
-    ("content", "usable"),
+    "content",
     [
-        ('{"changes": ["A hat was added"], "confidence":', True),
-        ('{"changes": [], "confidence":', True),
-        ('{"confidence":', False),
-        ('{"changes": [', False),
-        ('{"changes": ["unfinished', False),
+        '{"changes": ["A hat was added"], "confidence":',
+        '{"changes": [], "confidence":',
+        '{"changes": ["An exposed wound was added."], "content_flags": ["graphic"',
+        json.dumps(FULL),  # even complete JSON: a cut reply is a malfunction
     ],
 )
-def test_truncated_content(images, content, usable):
+def test_truncated_reply_is_never_used(images, content):
+    """A repaired cut could drop an unfinished content_flags, i.e. the safety guard."""
     client = FakeClient(response(content, finish="length"))
-    assert (describe_changes(client, *images, timeout_s=2) is not None) is usable
+    assert describe_changes(client, *images, timeout_s=2) is None
 
 
 @pytest.mark.parametrize("layout", ["pair", "composite"])
@@ -366,8 +367,17 @@ def test_request_contract(images, layout):
     assert set(schema["json_schema"]["schema"]["required"]) == set(FULL)
     assert len(sent_images(client)) == (2 if layout == "pair" else 1)
     text = request["messages"][1]["content"][0]["text"]
-    assert "pixel comparison" in text and "not part of the image" in text
+    assert "red box" not in text  # no edited_region: the model is not told about a box
     assert "earlier/original" in text and "later/variant" in text
+
+
+@pytest.mark.parametrize(
+    ("region", "told"), [((0.2, 0.2, 0.8, 0.8), True), ((0.5, 0.5, 0.5, 0.7), False)]
+)
+def test_marker_note_only_when_box_drawn(images, region, told):
+    _, client = compare(images, edited_region=region)
+    text = client.requests[0]["messages"][1]["content"][0]["text"]
+    assert ("red box" in text and "not part of the image" in text) is told
 
 
 def test_default_layout(images):
@@ -545,15 +555,100 @@ def test_server_error_not_retried_without_budget(images):
     assert client.calls == 1
 
 
-@pytest.mark.parametrize("region", [None, (0.1, 0.1, 0.5, 0.5)])
-def test_marker_box_change_dropped_only_when_marked(images, region):
+@pytest.mark.parametrize(
+    ("region", "drawn"),
+    [
+        (None, False),
+        ((0.1, 0.1, 0.5, 0.5), True),
+        ((0.5, 0.5, 0.5, 0.5), False),
+        ((float("nan"), 0, 1, 1), False),
+    ],
+)
+def test_marker_box_change_dropped_only_when_drawn(images, region, drawn):
     payload = {
         **FULL,
         "changes": ["A red rectangular outline was added around the caption.", *FULL["changes"]],
         "kinds": ["element_added", "caption_changed"],
     }
     result, _ = compare(images, payload, edited_region=region)
-    if region is None:
-        assert result.kinds == ["element_added", "caption_changed"]
-    else:
+    if drawn:
         assert result.changes == FULL["changes"] and result.kinds == ["caption_changed"]
+    else:
+        assert result.kinds == ["element_added", "caption_changed"]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    ["A red hat was added inside a blue frame.", "The red car near the border was removed."],
+)
+def test_marker_guard_keeps_other_red_edits(images, sentence):
+    payload = {**FULL, "changes": [sentence], "kinds": ["element_added"]}
+    result, _ = compare(images, payload, edited_region=(0.1, 0.1, 0.5, 0.5))
+    assert result.changes == [sentence]
+
+
+def test_budget_covers_limiter_wait(images):
+    """timeout_s starts at the call: a limiter wait that would use it up means no request."""
+    client = FakeClient(response(json.dumps(FULL)))
+    client._limiter._next = time.monotonic() + 5
+    assert describe_changes(client, *images, timeout_s=1) is None
+    assert client.requests == [] and client.calls == 0
+    client._limiter.wait.assert_not_called()
+
+
+def test_request_timeout_is_what_is_left(images, monkeypatch):
+    import media.imagediff as imagediff
+
+    real = imagediff._image
+
+    def slow_image(data):
+        time.sleep(0.2)
+        return real(data)
+
+    monkeypatch.setattr(imagediff, "_image", slow_image)
+    _, client = compare(images)  # timeout_s=2.5, about 0.4 s spent decoding
+    assert 1.5 < client.requests[0]["timeout"] < 2.2
+
+
+def test_spent_budget_makes_no_request(images, monkeypatch):
+    import media.imagediff as imagediff
+
+    real = imagediff._image
+
+    def slow_image(data):
+        time.sleep(0.06)
+        return real(data)
+
+    monkeypatch.setattr(imagediff, "_image", slow_image)
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, *images, timeout_s=0.1) is None
+    assert client.requests == []
+
+
+def test_client_without_model_returns_none(images):
+    client = FakeClient(response(json.dumps(FULL)))
+    del client.model
+    assert describe_changes(client, *images, timeout_s=2) is None
+
+
+def test_malformed_choices_do_not_break_failure_log(images, caplog):
+    bad = SimpleNamespace(model=RETURNED_MODEL, choices={"invalid": 1}, usage=None)
+    client = FakeClient(bad)
+    assert describe_changes(client, *images, timeout_s=2) is None
+    records = call_records(caplog)
+    assert len(records) == 1 and records[0]["outcome"] == "KeyError"
+
+
+def test_oversized_image_refused_before_decoding(images):
+    buffer = io.BytesIO()
+    Image.new("1", (6000, 5000)).save(buffer, format="PNG")  # 30 MP, a few KB compressed
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, buffer.getvalue(), images[1], timeout_s=2) is None
+    assert client.requests == []
+
+
+def test_large_jpeg_is_drafted_down(images):
+    buffer = io.BytesIO()
+    Image.new("RGB", (4000, 3000), "gray").save(buffer, format="JPEG")
+    _, client = compare((buffer.getvalue(), images[1]), layout="pair")
+    assert max(sent_images(client)[0].size) <= 1024
