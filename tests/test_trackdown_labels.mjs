@@ -15,7 +15,7 @@ const { cardHtml } = await import(`data:text/javascript;base64,${Buffer.from(out
 
 const { outputFiles: imageFiles } = await build({
   stdin: {
-    contents: 'export * from "./src/data/imageTrace.ts"; export { lookupCase } from "./src/data/lookup.ts"; export { memeFixture } from "./src/data/mockMeme.ts";',
+    contents: 'export * from "./src/data/imageTrace.ts"; export { lookupCase } from "./src/data/lookup.ts"; export { memeFixture } from "./src/data/mockMeme.ts"; export { memberDate } from "./src/data/family.ts";',
     resolveDir: fileURLToPath(new URL("../web/trackdown/", import.meta.url)),
     loader: "ts",
   },
@@ -24,7 +24,7 @@ const { outputFiles: imageFiles } = await build({
   platform: "node",
   format: "esm",
 });
-const { firstSeenLabel, latestImageTime, imageTraceState, memeFinding, lookupCase, memeFixture } = await import(
+const { firstSeenLabel, latestImageTime, imageTraceState, memeFinding, lookupCase, memeFixture, memberDate } = await import(
   `data:text/javascript;base64,${Buffer.from(imageFiles[0].text).toString("base64")}`
 );
 
@@ -91,7 +91,7 @@ test("date-only pages need their entire day to precede the submitted post", () =
     assert.equal(trace.originId, ordered ? node.id : "");
     assert.equal(trace.edges.find((edge) => edge.to === result.subject_id).rel, ordered ? "media" : "variant");
     assert.equal(node.undated, false, "a page has a publication date even when its clock time is uncertain");
-    assert.deepEqual(node.flags, [`page dated ${date}`]);
+    assert.deepEqual(node.flags, [`page dated ${date}`, "date only, time unknown"]);
     assert.equal(node.realData[0].facts[0].value, `page dated ${date}`);
     assert.ok(cardHtml(node, false, 1).includes(`page dated ${date}`));
     if (ordered) {
@@ -193,4 +193,19 @@ test("a copy whose date window overlaps the post is not called later", () => {
   const after = imageLookup({ time_source: "page", first_seen: "2026-11-16T00:00:00Z", time_uncertainty_s: 86400 });
   after.image_origin_id = null;
   assert.match(memeFinding(after).sentence, /1 later copy found/);
+});
+
+test("a zoneless page time is placed and posted at its printed time, flagged as uncertain", () => {
+  const result = imageLookup({ time_source: "page", first_seen: "2012-05-05T20:00:00Z", time_uncertainty_s: 100800 });
+  const node = matchNode(lookupCase(result));
+  assert.equal(new Date(node.t).toISOString(), "2012-05-06T10:00:00.000Z");
+  assert.deepEqual(node.flags, ["page dated 2012-05-06", "time ±14 h"]);
+  const dateOnly = matchNode(lookupCase(imageLookup({ time_source: "page", first_seen: "2012-05-06T00:00:00Z", time_uncertainty_s: 86400 })));
+  assert.deepEqual(dateOnly.flags, ["page dated 2012-05-06", "date only, time unknown"]);
+  assert.equal(new Date(dateOnly.t).toISOString().slice(0, 10), "2012-05-06");
+});
+
+test("family members show a page date's printed day", () => {
+  assert.equal(memberDate({ first_seen: "2012-05-05T20:00:00Z", time_source: "page", time_uncertainty_s: 100800 }), "by 6 May 2012");
+  assert.equal(memberDate({ first_seen: "2008-04-22T00:00:00Z", time_source: "crawl_date" }), "by 22 Apr 2008");
 });

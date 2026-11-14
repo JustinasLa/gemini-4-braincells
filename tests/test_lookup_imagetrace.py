@@ -1961,3 +1961,15 @@ def test_a_zoneless_page_clock_time_is_shown_on_its_printed_day():
         )
         == "2012-05-06"
     )
+
+
+def test_the_reading_brief_carries_a_page_dates_window():
+    page = "https://blog.example/post"
+    job = job_for(
+        Searches([dated_hit("a", page=page, when=OLD)]),
+        oxylabs=PageSources({page: "2006-05-06T10:00:00"}),
+    )
+    run_trace(job)
+    entry = next(m for m in json.loads(brief(job.result))["image_matches"] if m["page_url"] == page)
+    assert entry["time_source"] == "page" and entry["time_uncertainty_s"] == 100800.0
+    assert entry["time_receipt_id"]

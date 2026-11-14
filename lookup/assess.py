@@ -49,7 +49,9 @@ Write a short, plain reading for a general audience:
   attribution was read, leave this null. Attribution is not an exact-image comparison.
 - image_matches: crawl_date is when an engine first saw the picture, not its publication
   date; it is at least that old and may be older. snowflake is the exact time of the X post
-  the match is on (from its id); page is the date printed on the matched page.
+  the match is on (from its id); page is the date printed on the matched page: first_seen is
+  the earliest moment it can mean and time_uncertainty_s the window after it (86400: that whole
+  day; 100800: a printed clock time with no zone, 14 h either side of first_seen + 14 h).
   image_origin_id is separate from the text origin. Say "edited" and list observed changes,
   never "fake" or "deepfake"; cite receipt ids.
   An "edited" match with no listed changes differs only in pixels (a strong colour or
@@ -217,6 +219,7 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
                 "page_url": match.page_url,
                 "first_seen": match.first_seen,
                 "time_source": match.time_source,
+                "time_uncertainty_s": match.time_uncertainty_s,
                 "time_receipt_id": match.time_receipt_id,
                 "relation": match.relation,
                 "changes": match.changes[:4],

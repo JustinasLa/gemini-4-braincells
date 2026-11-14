@@ -64,15 +64,26 @@ export function changeDirection(match: ImageMatch): { heading: string; lead: str
   if (match.changes_from === "upload") return { heading: "Your picture → this copy", lead: "From this picture to that copy, as a model reads it:" };
   return { heading: "", lead: "What changed, as a model reads it:" };
 }
-/** The date a page prints: the middle of its window (the server stores a date-only page as that day,
- *  and a clock time without a zone as that time minus 14 h with 28 h of uncertainty), not its lower edge. */
-const pageDate = (match: ImageMatch, time: number) => new Date(time + (match.time_uncertainty_s ?? 0) * 500).toISOString().slice(0, 10);
+/** Where a match's time is shown and placed: a page date in the middle of its window (the server
+ *  stores a date-only page as that day's midnight + 24 h, and a clock time without a zone as that time
+ *  minus 14 h + 28 h), so the printed day and time, not the window's lower edge. As lookup.ts places
+ *  pages. Comparisons keep the window's edges (imageTime, latestImageTime). */
+export const shownImageTime = (match: ImageMatch) => {
+  const time = imageTime(match);
+  return time == null || match.time_source !== "page" ? time : time + (match.time_uncertainty_s ?? 0) * 500;
+};
+/** how uncertain a page date's shown time is, as lookup.ts says it for pages */
+export const pagePrecision = (match: ImageMatch): string[] => {
+  const unc = match.time_source === "page" && imageTime(match) != null ? match.time_uncertainty_s ?? 0 : 0;
+  return unc >= 86400 && unc < 2 * 86400 && Date.parse(match.first_seen!) % 86_400_000 === 0 ? ["date only, time unknown"] : unc > 0 ? [`time ±${Math.max(1, Math.round(unc / 7200))} h`] : [];
+};
+const pageDate = (match: ImageMatch) => new Date(shownImageTime(match)!).toISOString().slice(0, 10);
 export function firstSeenLabel(match: ImageMatch): string {
   const time = imageTime(match);
   if (time == null) return "date unknown";
   const date = new Date(time).toISOString().slice(0, 10);
   if (match.time_source === "crawl_date") return `first seen by TinEye on ${date} · upper bound, not a publish date`;
-  if (match.time_source === "page") return `page dated ${pageDate(match, time)}`;
+  if (match.time_source === "page") return `page dated ${pageDate(match)}`;
   return `time from post id · ${new Date(time).toISOString().replace("T", " ").replace(".000Z", " UTC")}`;
 }
 
@@ -135,7 +146,7 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
   const anchor = submitted?.t ?? Date.parse(trace.lookup.started_at);
   const existing = new Set(trace.nodes.map((node) => node.id));
   const nodes: TraceNode[] = state.matches.filter((match) => relationOf(match) !== "different" && !existing.has(match.id)).map((match) => ({
-    id: match.id, t: imageTime(match) ?? (Number.isFinite(anchor) ? anchor : 0),
+    id: match.id, t: shownImageTime(match) ?? (Number.isFinite(anchor) ? anchor : 0),
     // a TinEye crawl date places the card but is no publication time: undated keeps it off "Posted", gaps and the ruler
     timeUnknown: imageTime(match) == null, undated: imageTime(match) == null || match.time_source === "crawl_date",
     platform: match.engine === "x_replies" ? "x" : "web", role: match === state.origin ? "origin" : ["edited", "template"].includes(relationOf(match)) ? "mutation" : "source",
@@ -143,7 +154,7 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
     text: match.relation_note || `${humanLabel(relationOf(match))} image copy`,
     url: pageUrl(match.page_url), imageMatch: match,
     media: { kind: "photo", src: imageUrl(match.thumb_url) ?? imageUrl(match.image_url), title: imageAlt(match) },
-    flags: [firstSeenLabel(match)],
+    flags: [firstSeenLabel(match), ...pagePrecision(match)],
     realData: [
       { label: "Image search match", url: pageUrl(match.page_url), receiptId: match.receipt_id, facts: [{ label: "Image date", value: firstSeenLabel(match) }, { label: "Relation", value: relationOf(match) }, { label: "Engine", value: engineLabel(match) }] },
       ...(match.time_receipt_id != null ? [{ label: "Image date", url: pageUrl(match.page_url), receiptId: match.time_receipt_id, facts: [{ label: "Image date", value: firstSeenLabel(match) }] }] : []),
@@ -205,7 +216,7 @@ const shortDate = (match: ImageMatch) => {
   if (time == null) return "date unknown";
   const date = new Date(time).toISOString().slice(0, 10);
   // a tag: the post-id time's date (exact; the card and panel give the full time)
-  return match.time_source === "crawl_date" ? `seen by ${date}` : match.time_source === "page" ? `page dated ${pageDate(match, time)}` : date;
+  return match.time_source === "crawl_date" ? `seen by ${date}` : match.time_source === "page" ? `page dated ${pageDate(match)}` : date;
 };
 
 /** What the image search says the submitted picture is, from facts the lookup returned. Never a
