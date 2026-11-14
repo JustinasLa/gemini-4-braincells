@@ -27,13 +27,13 @@ function boxes(match: ImageMatch, side: "upload" | "match"): string {
   }).join("");
 }
 
-function changesHtml(trace: TraceCase, match: ImageMatch): string {
+export function changesHtml(trace: TraceCase, match: ImageMatch): string {
   const changes = (match.changes ?? []).filter((change) => typeof change === "string");
   const kinds = [...new Set((match.change_kinds ?? []).filter((kind) => typeof kind === "string"))]; // one chip per kind
   const step = trace.lookup?.steps.find((candidate) => candidate.id === "variations");
   const pending = step?.state === "pending" || step?.state === "running";
   const direction = changeDirection(match).heading;
-  return `<h3>What changed${direction ? ` <small class="meme-direction">${esc(direction)}</small>` : ""}</h3>${pending ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}${changes.length ? `<ul>${changes.map((change) => `<li>${esc(change)}</li>`).join("")}</ul>` : !pending ? '<p class="meme-note">No change description returned.</p>' : ""}<div class="meme-kind-chips">${kinds.map((kind) => `<span>${esc(humanLabel(kind))}</span>`).join("")}</div><p class="meme-honesty">Changes are Nemotron’s model reading of the two images, not verified facts.</p>`;
+  return `<h3>What changed${direction ? ` <small class="meme-direction">${esc(direction)}</small>` : ""}</h3>${pending ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}${changes.length ? `<ul>${changes.map((change) => `<li>${esc(change)}</li>`).join("")}</ul>` : match.changes_withdrawn ? '<p class="meme-note">Description withdrawn (a later date changed its direction).</p>' : !pending ? '<p class="meme-note">No change description returned.</p>' : ""}<div class="meme-kind-chips">${kinds.map((kind) => `<span>${esc(humanLabel(kind))}</span>`).join("")}</div><p class="meme-honesty">Changes are Nemotron’s model reading of the two images, not verified facts.</p>`;
 }
 
 const titleText = (match: ImageMatch) => {

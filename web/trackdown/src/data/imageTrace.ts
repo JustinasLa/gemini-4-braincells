@@ -23,6 +23,9 @@ export interface ImageMatch {
    *  "upload" = they turn the submitted picture into this copy; null/absent = not stated (older servers).
    *  A reading convention, not a claim about which picture is older or who edited it. */
   changes_from?: "match" | "upload" | string | null;
+  /** a published change description taken back because a later date flipped its direction (post
+   *  lookups, rare): changes are then empty, which says nothing about the pictures */
+  changes_withdrawn?: boolean | null;
   change_kinds?: string[] | null;
   receipt_id?: number | null;
 }
