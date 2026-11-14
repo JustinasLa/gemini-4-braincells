@@ -352,3 +352,12 @@ def test_make_model_always_routes(monkeypatch):
         assert m.batch is not None
     finally:
         get_settings.cache_clear()
+
+
+def test_compare_table_handles_a_mode_where_every_run_failed():
+    from analyst.compare import summarize, table
+
+    runs = [{"model": "m", "mode": "agent", "cluster_id": 1, "json_valid": False, "latency_s": 1.0}]
+    assert "| agent | m | 0/1 | n/a | 0/1 | 0/1 | 1.0 / 1.0 | n/a | - | - |" in table(
+        {"summary": summarize(runs)}
+    )
