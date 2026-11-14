@@ -30,6 +30,16 @@ def bsky_url(uri: str) -> str | None:
     return None
 
 
+# clusters.p_value is REAL (float4): anything below ~1.2e-38 underflows and Postgres rejects
+# the row ("value out of range: underflow"), which used to fail a whole 1-hour pass. The column
+# stores at most this resolution; the exact p stays in clusters.signals (null_model.combined).
+P_VALUE_FLOOR = 1e-30
+
+
+def _real_p(p: float | None) -> float | None:
+    return None if p is None else max(float(p), P_VALUE_FLOOR)
+
+
 def worth_storing(c: ClusterScore, cfg: DetectorConfig, min_store_score: float) -> bool:
     """Store every coordinated cluster, and any other cluster where at least one family looked
     suspicious (those are the abstentions and organic look-alikes worth showing). Clusters where
@@ -153,7 +163,7 @@ def _store_one(
         c.score,
         c.confidence,
         c.status,
-        c.p_value,
+        _real_p(c.p_value),
         len(c.families_fired),
         cfg.version,
         window_kind,

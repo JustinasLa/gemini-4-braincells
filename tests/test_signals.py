@@ -476,3 +476,11 @@ def test_wider_crowd_guard_text_matches_its_score():
         "on average only 10% of the accounts sharing these items in the window are in this "
         "cluster (a wider crowd is doing the same thing)"
     )
+
+
+def test_tiny_p_values_fit_the_real_column():
+    from signals.store import P_VALUE_FLOOR, _real_p
+
+    assert _real_p(8.82e-61) == P_VALUE_FLOOR > 1.2e-38  # float4 can hold it
+    assert _real_p(0.004) == 0.004
+    assert _real_p(None) is None
