@@ -256,6 +256,9 @@
     .method li { margin: 7px 0; }
     .method li strong { color: var(--text); font-weight: 600; }
     .method a { color: var(--text); }
+    .method-link { margin-top: 10px; font-size: 13px; }
+    .method-link a { color: var(--text-2); text-underline-offset: 3px; }
+    .method-link a:hover { color: var(--text); }
     .steps { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 24px; }
     .step { border-top: 2px solid var(--line-2); padding-top: 14px; }
     .step .label { color: var(--cv); }
@@ -315,7 +318,7 @@
     <nav class="nav" aria-label="Main">
       <a href="#/" data-nav="monitor">Monitor</a>
       <a href="#/accuracy" data-nav="accuracy">Accuracy</a>
-      <a href="#/method" data-nav="method">Method</a>
+      <a href="#/method" data-nav="method">Methodology</a>
     </nav>
     <div class="top-right">
       <div class="live" id="live" role="status"><span class="dot"></span><span class="txt">Connecting…</span></div>
@@ -383,7 +386,7 @@
 
   // ---------- data
   const api = async (path) => {
-    const r = await fetch(path, { headers: { accept: 'application/json' } });
+    const r = await fetch(path, { cache: 'no-store', headers: { accept: 'application/json' } });
     const body = await r.json().catch(() => null);
     if (!r.ok) throw new Error((body && body.detail) || `The server answered ${r.status}`);
     return body;
@@ -455,6 +458,7 @@
         <div>
           <h1>Coordinated amplification on Bluesky, caught live.</h1>
           <p>Shill or Chill groups accounts that act together, tests their timing against chance and says “can’t tell” when the evidence is thin. Every call opens to its receipts.</p>
+          <p class="method-link"><a href="#/method">Read the methodology and limits &rarr;</a></p>
         </div>
         <div class="trace">
           <form id="trace" role="search" aria-label="Trace a post or link">
@@ -501,7 +505,7 @@
     const opText = !op ? 'not reviewed by Gemini' : op.stale ? 'Gemini reviewed an earlier call' : op.agrees ? 'Gemini agrees' : `Gemini says ${word(op.call).toLowerCase()}`;
     return `<a class="row" href="#/cluster/${Number(c.id)}" aria-label="${esc(`${word(c.status)}: ${headline(c)}. ${size} accounts, coordination ${fix2(c.score)}, ${opText}, ${ago(c.window_end)}.`)}">
       <span class="c-st">${chip(c.status)}</span>
-      <span class="c-main"><span class="headline">${esc(headline(c))}${c.synthetic ? '<span class="tag">Test data</span>' : ''}</span><span class="sub">${esc(sub)}</span></span>
+      <span class="c-main"><span class="headline">${esc(headline(c))}${c.synthetic ? '<span class="tag">Synthetic test data</span>' : ''}</span><span class="sub">${esc(sub)}</span></span>
       <span class="c-acc r num">${size}</span>
       <span class="c-score meter"><span class="num">${fix2(c.score)}</span><span class="bar"><i style="width:${clamp01(c.score) * 100}%"></i></span></span>
       <span class="c-op">${opCell}</span>
@@ -545,7 +549,7 @@
     app.innerHTML = `
       <a class="back" href="#/">← All clusters</a>
       <section class="detail-head">
-        <div>${chip(c.status, 'lg')}${c.synthetic ? '<span class="tag">Test data</span>' : ''}</div>
+        <div>${chip(c.status, 'lg')}${c.synthetic ? '<span class="tag">Synthetic test data</span>' : ''}</div>
         <h1>${esc(headline(c, signals))}</h1>
         <div class="facts num"><span>Cluster #${Number(c.id)}</span><span>${plural(c.size || 0, 'account')}</span><span>Tracked ${esc(span)}</span>${win ? `<span>Latest window ${esc(win)}</span>` : c.window_kind ? `<span>Scored in ${esc(WINDOW[c.window_kind] || c.window_kind)}</span>` : ''}${sig.detector_version ? `<span>Detector ${esc(sig.detector_version)}</span>` : ''}</div>
       </section>
