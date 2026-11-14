@@ -101,6 +101,15 @@ input:focus-visible { outline: none; }
 .vchip { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px; font: 600 11px/1 var(--mono); letter-spacing: 0.14em; color: var(--vc); border: 1px solid var(--vc); white-space: nowrap; }
 .vchip::before { content: ""; width: 6px; height: 6px; background: var(--vc); }
 .top-actions { display: flex; align-items: center; gap: 10px; }
+.trace-wrap { position: relative; display: inline-flex; }
+.qr-btn { position: absolute; top: -7px; right: -7px; z-index: 1; width: 18px; height: 14px; display: grid; place-items: center; font: 600 7.5px/1 var(--mono); letter-spacing: 0.04em; color: var(--text-2); background: var(--black); border: 1px solid var(--line-3); }
+.qr-btn:hover, .qr-btn:focus-visible { color: var(--text); border-color: var(--text-2); }
+.qr-dialog { margin: auto; padding: 18px; background: #08080a; color: var(--text); border: 1px solid var(--line-2); display: grid; justify-items: center; gap: 12px; max-width: calc(100vw - 32px); }
+.qr-dialog:not([open]) { display: none; }
+.qr-dialog::backdrop { background: rgba(0, 0, 0, 0.7); }
+.qr-code { width: min(260px, 70vw); background: #fff; }
+.qr-code svg { display: block; width: 100%; height: auto; }
+.qr-url { margin: 0; max-width: min(260px, 70vw); font: 400 11px/1.4 var(--mono); color: var(--text-3); word-break: break-all; text-align: center; }
 .btn {
   height: 36px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
   font: 700 11px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;
