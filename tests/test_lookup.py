@@ -597,3 +597,98 @@ def test_time_budget_stops_provider_calls():
     job.run()
     assert job.result.state == "done"
     assert deps.oxylabs.calls == []  # nothing started after the budget was gone
+
+
+def test_linked_origin_gets_no_invented_edge_to_an_older_copy():
+    from lookup.models import Page, Post
+
+    job = _job()
+    t13 = datetime(2026, 11, 13, 21, 50, tzinfo=UTC)
+    job.add_post(
+        Post(id="x:2", platform="x", role="submitted", verified=True, text=TEXT, created_at=t13)
+    )
+    job.add_post(
+        Post(
+            id="x:1",
+            platform="x",
+            role="copy",
+            verified=True,
+            text=TEXT,
+            similarity=1.0,
+            created_at=datetime(2026, 11, 13, 20, 0, tzinfo=UTC),
+        )
+    )
+    job.result.subject_id = "x:2"
+    pg = job.add_page(
+        Page(
+            id="",
+            url="https://news.example/a",
+            role="linked",
+            time_source="page",
+            time=datetime(2026, 11, 13, 9, 0, tzinfo=UTC),
+            time_uncertainty_s=0,
+        )
+    )
+    job.add_edge(pg.id, "x:2", "link")  # what _linked records: B links it
+    job._finish_graph()
+    assert job.result.origin_id == pg.id
+    assert not any(e.from_ == pg.id and e.to == "x:1" for e in job.result.edges)
+
+
+def test_scraped_page_facts_win_over_an_earlier_snippet():
+    from lookup.models import Page
+
+    job = _job()
+    job.add_page(
+        Page(
+            id="",
+            url="https://news.example/a",
+            role="coverage",
+            time_source="search_hint",
+            time=datetime(2026, 11, 13, tzinfo=UTC),
+            time_uncertainty_s=86400,
+        )
+    )
+    job.add_page(
+        Page(
+            id="",
+            url="https://news.example/a",
+            role="linked",
+            publisher="Example",
+            published_at="2026-11-13T09:00:00Z",
+            time_source="page",
+            time=datetime(2026, 11, 13, 9, tzinfo=UTC),
+            time_uncertainty_s=0,
+            receipt_id=4,
+        )
+    )
+    (pg,) = job.result.pages
+    assert (pg.id, pg.role, pg.publisher, pg.time_source, pg.receipt_id) == (
+        "page:1",
+        "linked",
+        "Example",
+        "page",
+        4,
+    )
+
+
+def test_bluesky_retry_never_starts_after_the_deadline():
+    import time as _time
+
+    import httpx
+
+    from lookup.bsky import BlueskyClient, BlueskyTimeUp
+
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(503)
+
+    c = BlueskyClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(BlueskyTimeUp):
+        c.search("q", deadline=_time.monotonic() - 1)
+    assert calls == []
+    with pytest.raises((httpx.HTTPStatusError, BlueskyTimeUp)):
+        c.search("q", deadline=_time.monotonic() + 1.2)  # first try ok, retry would be late
+    assert len(calls) == 1

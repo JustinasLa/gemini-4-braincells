@@ -219,7 +219,11 @@ export function lookupCase(result: LookupResult): TraceCase {
     const unc = page.time_uncertainty_s ?? (start != null && page.time_source === "search_hint" ? 86400 : 0);
     // place an uncertain time in the middle of its range, and say how uncertain it is
     const time = start == null ? undefined : start + (unc * 1000) / 2;
-    const precision = start == null ? [] : unc >= 86400 ? [`date only: ${new Date(start).toISOString().slice(0, 10)}, time unknown`] : unc > 0 ? [`time ±${Math.max(1, Math.round(unc / 7200))} h${page.time_source === "search_hint" ? " (search hint)" : ""}`] : [];
+    // "date only" just for a real calendar date read on the page; other windows as midpoint ± half
+    const dateOnly = start != null && page.time_source === "page" && !!page.published_at && page.published_at.trim().length <= 10;
+    const half = unc / 2;
+    const hint = page.time_source === "search_hint" ? " (search hint)" : "";
+    const precision = start == null ? [] : dateOnly ? [`date only: ${page.published_at!.trim()}, time unknown`] : half >= 2 * 86400 ? [`time ±${Math.round(half / 86400)} days${hint}`] : half > 0 ? [`time ±${Math.max(1, Math.round(half / 3600))} h${hint}`] : [];
     const url = httpUrl(page.final_url) ?? httpUrl(page.url);
     nodes.push({
       id: page.id ?? page.url, t: time ?? fallbackTime, timeUnknown: time == null, platform: page.publisher ? "news" : "web", role: "source",

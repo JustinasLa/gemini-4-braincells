@@ -29,6 +29,10 @@ def parse_time(s: str | None) -> datetime | None:
         return None
 
 
+class BlueskyTimeUp(RuntimeError):
+    """The caller's deadline passed before a request could start."""
+
+
 class BlueskyClient:
     def __init__(
         self,
@@ -44,16 +48,29 @@ class BlueskyClient:
             headers={"user-agent": "shill-or-chill-lookup/1.0"},
         )
         self.last_call: dict[str, Any] = {}
+        self._timeout_s = timeout_s
 
     def close(self) -> None:
         self._http.close()
 
-    def _get(self, method: str, params: dict) -> dict:
+    def _get(self, method: str, params: dict, deadline: float | None = None) -> dict:
+        """One AppView call; `deadline` (time.monotonic()) clamps each attempt and stops the
+        retry once it has passed."""
+
+        def attempt() -> httpx.Response:
+            timeout = None
+            if deadline is not None:
+                left = deadline - time.monotonic()
+                if left <= 1:
+                    raise BlueskyTimeUp(f"bluesky {method}: time budget used up")
+                timeout = min(self._timeout_s, left)
+            return self._http.get(f"/{method}", params=params, timeout=timeout or self._timeout_s)
+
         started = time.monotonic()
-        res = self._http.get(f"/{method}", params=params)
+        res = attempt()
         if res.status_code in (502, 503, 504):  # the public AppView blips now and then: once more
             time.sleep(0.5)
-            res = self._http.get(f"/{method}", params=params)
+            res = attempt()
         self.last_call = {
             "endpoint": method,
             "status": res.status_code,
@@ -68,29 +85,30 @@ class BlueskyClient:
         res.raise_for_status()
         return res.json()
 
-    def resolve_did(self, actor: str) -> str:
+    def resolve_did(self, actor: str, deadline: float | None = None) -> str:
         if actor.startswith("did:"):
             return actor
-        return self._get("com.atproto.identity.resolveHandle", {"handle": actor})["did"]
+        return self._get("com.atproto.identity.resolveHandle", {"handle": actor}, deadline)["did"]
 
-    def thread(self, actor: str, rkey: str, depth: int = 1) -> dict:
-        did = self.resolve_did(actor)
+    def thread(self, actor: str, rkey: str, depth: int = 1, deadline: float | None = None) -> dict:
+        did = self.resolve_did(actor, deadline)
         uri = f"at://{did}/app.bsky.feed.post/{rkey}"
         return self._get(
-            "app.bsky.feed.getPostThread", {"uri": uri, "depth": depth, "parentHeight": 3}
+            "app.bsky.feed.getPostThread", {"uri": uri, "depth": depth, "parentHeight": 3}, deadline
         )["thread"]
 
-    def profile(self, actor: str) -> dict:
-        return self._get("app.bsky.actor.getProfile", {"actor": actor})
+    def profile(self, actor: str, deadline: float | None = None) -> dict:
+        return self._get("app.bsky.actor.getProfile", {"actor": actor}, deadline)
 
-    def author_feed(self, actor: str, limit: int = 20) -> list[dict]:
+    def author_feed(self, actor: str, limit: int = 20, deadline: float | None = None) -> list[dict]:
         data = self._get(
             "app.bsky.feed.getAuthorFeed",
             {"actor": actor, "limit": limit, "filter": "posts_no_replies"},
+            deadline,
         )
         return [f["post"] for f in data.get("feed", []) if "post" in f]
 
-    def search(self, q: str, limit: int = 25) -> list[dict]:
+    def search(self, q: str, limit: int = 25, deadline: float | None = None) -> list[dict]:
         return self._get(
-            "app.bsky.feed.searchPosts", {"q": q, "limit": limit, "sort": "latest"}
+            "app.bsky.feed.searchPosts", {"q": q, "limit": limit, "sort": "latest"}, deadline
         ).get("posts", [])

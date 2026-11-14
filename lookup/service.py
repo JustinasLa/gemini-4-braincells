@@ -22,7 +22,7 @@ from typing import Any
 import httpx
 
 from lookup import textsim
-from lookup.bsky import BlueskyClient, parse_time, post_url
+from lookup.bsky import BlueskyClient, BlueskyTimeUp, parse_time, post_url
 from lookup.models import (
     Account,
     Card,
@@ -186,7 +186,7 @@ class Lookup:
             st.state, st.started_at = "running", _now()
         try:
             yield st
-        except BudgetExceeded:
+        except (BudgetExceeded, BlueskyTimeUp):
             with self.lock:
                 st.state = "skipped" if not st.found else "done"
                 st.detail = (st.detail + " · " if st.detail else "") + "time budget used up"
@@ -272,6 +272,30 @@ class Lookup:
                 if old.url == pg.url or (pg.final_url and old.final_url == pg.final_url):
                     if pg.role == "linked":
                         old.role = "linked"
+                    if pg.time_source == "page" or (
+                        pg.receipt_id and not old.publisher and pg.publisher
+                    ):
+                        # the page was read: its own facts beat a search snippet's
+                        for f in (
+                            "final_url",
+                            "publisher",
+                            "author",
+                            "published_at",
+                            "headline",
+                            "time",
+                            "time_source",
+                            "time_uncertainty_s",
+                            "receipt_id",
+                        ):
+                            val = getattr(pg, f)
+                            if val is not None:
+                                setattr(old, f, val)
+                        if pg.claims:
+                            old.claims = pg.claims
+                    elif pg.role == "linked" and pg.receipt_id:
+                        old.publisher = old.publisher or pg.publisher
+                        old.headline = pg.headline or old.headline
+                        old.receipt_id = pg.receipt_id
                     return old
             pg.id = f"page:{len(self.result.pages) + 1}"
             self.result.pages.append(pg)
@@ -660,7 +684,9 @@ class Lookup:
             if not self.deps.bsky:
                 raise RuntimeError("Bluesky client not configured")
             self._spend()
-            th = self.deps.bsky.thread(t.handle, t.post_id, depth=1)
+            th = self.deps.bsky.thread(
+                t.handle, t.post_id, depth=1, deadline=self._provider_deadline()
+            )
             pv = th.get("post")
             if not pv:
                 raise RuntimeError("post not found (deleted or blocked)")
@@ -700,7 +726,7 @@ class Lookup:
             if not self.deps.bsky:
                 raise RuntimeError("Bluesky client not configured")
             self._spend()
-            pr = self.deps.bsky.profile(actor)
+            pr = self.deps.bsky.profile(actor, deadline=self._provider_deadline())
             created = parse_time(pr.get("createdAt"))
             ref = self._subject_time or _now()
             rid = self.receipt(
@@ -716,8 +742,10 @@ class Lookup:
             feed = []
             try:
                 self._spend()
-                feed = self.deps.bsky.author_feed(actor, limit=20)
-            except (httpx.HTTPError, BudgetExceeded):
+                feed = self.deps.bsky.author_feed(
+                    actor, limit=20, deadline=self._provider_deadline()
+                )
+            except (httpx.HTTPError, BudgetExceeded, BlueskyTimeUp):
                 pass
             feed = [pv for pv in feed if (pv.get("author") or {}).get("did") == pr.get("did")]
             times = sorted(
@@ -1136,7 +1164,7 @@ class Lookup:
         with self.step("copies_bsky") as st:
             q = f'"{phrase}"'
             self._spend()
-            posts = self.deps.bsky.search(q, limit=25)
+            posts = self.deps.bsky.search(q, limit=25, deadline=self._provider_deadline())
             rid = self.receipt(
                 "bluesky",
                 "searchPosts",
@@ -1407,14 +1435,9 @@ class Lookup:
             )
             if older:
                 origin_id = older[0].id
-                if carriers and older[0].role == "linked":
-                    self.add_edge(
-                        origin_id,
-                        carriers[0].id,
-                        "link",
-                        note="the post links it; the page is older",
-                    )
-                elif carriers:
+                # a linked origin already has its edge to the post that links it (_linked);
+                # an older copy of the text did not necessarily link it
+                if carriers and older[0].role != "linked":
                     self.add_edge(
                         origin_id,
                         carriers[0].id,
