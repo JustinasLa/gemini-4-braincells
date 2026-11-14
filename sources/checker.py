@@ -10,8 +10,8 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from lookup.urls import classify
-from lookup.xpage import unavailable_detail
-from sources.links import claim_phrase, domain, top_links
+from lookup.xpage import unavailable_detail, unavailable_reason
+from sources.links import X_HOSTS, claim_phrase, domain, top_links
 from sources.models import ClusterPost, PageFacts, SearchHit, SourceEvidence
 from sources.oxylabs import OxylabsError
 
@@ -65,7 +65,11 @@ class SourceChecker:
             key = f"page:{url}"
             if key in stored:  # scraped in an earlier pass: reuse its headline, don't re-scrape
                 headline = stored[key].get("headline")
+                final_url = stored[key].get("final_url") or url
                 unavailable = stored[key].get("unavailable")
+                if "unavailable" not in stored[key] and headline and _is_x(final_url, url):
+                    # stored before tombstones were recognised: X's notice may be the headline
+                    unavailable = unavailable_reason(f"## {headline}")
             else:
                 facts = self._cached(f"scrape:{url}", lambda u=url: self._client.scrape_facts(u))
                 if facts is None:
@@ -75,9 +79,14 @@ class SourceChecker:
                 else:
                     out.append(_page_evidence(key, facts, shared_by, n_accounts))
                 headline = facts.headline
+                final_url = facts.final_url
                 unavailable = facts.unavailable
             if unavailable == "suspended":
-                target = classify(url)
+                # the resolved page names the account (a t.co link doesn't); the input as fallback
+                target = next(
+                    (t for u in (final_url, url) if (t := classify(u)) and t.kind.startswith("x_")),
+                    None,
+                )
                 if target and target.kind in ("x_post", "x_profile") and target.handle:
                     handle_key = f"search:handle:{target.handle.lower()}"
                     if not any(i.detail["key"] == handle_key for i in out):
@@ -121,6 +130,10 @@ class SourceChecker:
             return None
         self._cache[key] = (now + self._ttl, value)
         return value
+
+
+def _is_x(*urls: str) -> bool:
+    return any(domain(u) in X_HOSTS for u in urls if u)
 
 
 def _page_evidence(

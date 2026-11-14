@@ -545,7 +545,12 @@ class Lookup:
                 st.state, st.detail = "done" if reason else "failed", detail
                 if reason:
                     self.note(
-                        f"{detail}, so its text can't be read; copies and spread were not searched."
+                        f"{detail}, so its text can't be read; "
+                        + (
+                            "copies are searched with the text you gave."
+                            if self._subject_text
+                            else "copies and spread were not searched."
+                        )
                     )
                 self._subject_time = snowflake_time(t.post_id)
                 return
@@ -982,7 +987,7 @@ class Lookup:
         return pg.id
 
     def _copies_skip_detail(self, short: str) -> str:
-        if self.result.kind == "x_post" and not self.result.subject_id:
+        if self.result.kind == "x_post" and not self.result.subject_id and not self._subject_text:
             return "the post's text couldn't be read"
         return short
 

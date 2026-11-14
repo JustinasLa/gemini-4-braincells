@@ -85,11 +85,13 @@ def unavailable_reason(md: str) -> str | None:
 def page_unavailable_reason(md: str, url: str) -> str | None:
     """X's notice for the page at `url` itself. A post page counts only when its own post is
     missing (a reply from a suspended account says nothing about the post); a profile page only
-    from the header above its timeline (a timeline item can be another account's tombstone)."""
+    from the "## " notice headings above its timeline (a timeline item can be another account's
+    tombstone, and the name and bio are the account's own words)."""
     m = re.search(r"/status(?:es)?/(\d+)", urlsplit(url).path)
     if m:
         return None if parse_post_page(md, m.group(1)).main else unavailable_reason(md)
-    return unavailable_reason(md.split("\n* ", 1)[0])
+    header = md.split("\n* ", 1)[0].splitlines()
+    return unavailable_reason("\n".join(ln for ln in header if ln.startswith("## ")))
 
 
 def unavailable_detail(reason: str) -> str:

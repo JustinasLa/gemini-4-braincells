@@ -985,3 +985,36 @@ def test_live_author_with_a_suspended_timeline_item_is_not_called_suspended():
     author = next(s for s in job.result.steps if s.id == "author")
     assert author.state == "done" and "suspended" not in author.detail
     assert author.detail.startswith("joined ")
+
+
+def test_profile_bio_or_name_saying_suspended_is_not_a_notice():
+    for words in ("Account suspended", "These posts are protected"):
+        bio = PROFILE_MD.replace("Writer of fictional test fixtures.", words)
+        name = PROFILE_MD.replace("# Ada Example", f"# {words}")
+        for md in (bio, name):
+            assert page_unavailable_reason(md, "https://x.com/ada_example") is None
+    prot = (XPAGES / "profile_protected_chrismessina.md").read_text()
+    assert page_unavailable_reason(prot, "https://x.com/chrismessina") == "protected"
+
+
+def test_suspended_post_with_user_text_says_copies_use_that_text():
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            self.calls.append(("scrape", url))
+            if "/status/" in url:
+                name = "post_suspended_LeroyLovesUSA_796772863869075460.md"
+            else:
+                name = "profile_suspended_LeroyLovesUSA.md"
+            return (XPAGES / name).read_text(), {}
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    url = "https://x.com/LeroyLovesUSA/status/796772863869075460"
+    job = Lookup("lk_text", LookupInput(url=url, text=TEXT), deps)
+    job.run()
+    assert (
+        "X shows this post is from a suspended account, so its text can't be read; "
+        "copies are searched with the text you gave." in job.result.notes
+    )
+    steps = {s.id: s for s in job.result.steps}
+    assert steps["copies_web"].detail != "the post's text couldn't be read"

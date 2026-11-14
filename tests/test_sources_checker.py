@@ -279,3 +279,37 @@ def test_url_variants_leave_other_hosts_alone():
         "https://example.com/a",
     ]
     assert url_variants("https://x.com.example.com/a") == ["https://x.com.example.com/a"]
+
+
+def test_legacy_stored_x_tombstone_headline_is_not_searched():
+    # Stored before PageFacts.unavailable existed: no "unavailable" key, X's notice as headline.
+    url = "https://x.com/realDonaldTrump/status/869766994899468288"
+    key = f"page:{url}"
+    legacy = {"key": key, "final_url": url, "headline": "We're unable to show this content"}
+    client = FakeClient()
+    SourceChecker(client).check([ClusterPost(did="d", embed_urls=[url])], stored={key: legacy})
+    assert client.searches == [] and client.scrapes == []
+
+
+def test_legacy_stored_x_page_with_a_real_headline_is_still_searched():
+    url = "https://x.com/jack/status/20"
+    key = f"page:{url}"
+    legacy = {"key": key, "final_url": url, "headline": 'jack on X: "just setting up my twttr"'}
+    client = FakeClient()
+    SourceChecker(client).check([ClusterPost(did="d", embed_urls=[url])], stored={key: legacy})
+    assert client.searches == ['"jack on X: "just setting up my twttr""']
+
+
+def test_suspended_account_behind_a_short_link_gets_the_handle_search():
+    class Short(FakeClient):
+        def scrape_facts(self, url):
+            return PageFacts(
+                url=url,
+                final_url="https://x.com/TEN_GOP/status/788098438915297280",
+                unavailable="suspended",
+                headline="Post",
+            )
+
+    client = Short()
+    SourceChecker(client).check([ClusterPost(did="d", embed_urls=["https://t.co/abc"])], adhoc=True)
+    assert client.searches == ['"TEN_GOP"']
