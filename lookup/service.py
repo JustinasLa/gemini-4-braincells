@@ -1793,6 +1793,7 @@ class Lookup:
             self.skip("media", "Nemotron is not configured on this server")
             return
         with self.step("media") as st:
+            own_http = self.deps.http is None
             http = self.deps.http or httpx.Client(timeout=20, follow_redirects=False)
             # only the platforms' own image CDNs are downloaded (an upload is already here)
             urls = [
@@ -1812,6 +1813,8 @@ class Lookup:
                 with self.lock:
                     closed.set()
                 mp.shutdown(wait=False, cancel_futures=True)
+                if own_http:  # a read left behind fails on the closed client; it can't publish
+                    http.close()
             late = BudgetExceeded("time budget used up")
             reads = [f.result() if f.done() and not f.cancelled() else late for f in futures]
             texts, read = [], 0
@@ -1930,12 +1933,12 @@ class Lookup:
                 "not a vision-language model."
             )
             return None
-        if a.media_type == "screenshot" and "/card_img/" not in url:
-            with self.lock:  # the "screenshot" step reads it as a post (bytes None: cached)
-                self._shots.append((url, h, mime, data))
         with self.lock:  # one critical section with `closed`: a late reading is never shown
             if closed.is_set():
                 return BudgetExceeded("the image reading came after the time budget")
+            if a.media_type == "screenshot" and "/card_img/" not in url:
+                # the "screenshot" step reads it as a post (bytes None: cached)
+                self._shots.append((url, h, mime, data))
             rid = self.receipt(
                 "nemotron",
                 "chat.completions",
