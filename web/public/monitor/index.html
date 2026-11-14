@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#050506">
-  <meta name="description" content="Noise Radar detects coordinated amplification on Bluesky, shows the evidence behind every call and publishes its own error rates.">
-  <title>Noise Radar</title>
+  <meta name="description" content="Shill or Chill detects coordinated amplification on Bluesky, shows the evidence behind every call and publishes its own error rates.">
+  <title>Shill or Chill</title>
   <link rel="icon" href="/coin/favicon.png">
-  <link rel="alternate" type="application/atom+xml" title="Noise Radar: new coordinated clusters" href="/api/feed.atom">
+  <link rel="alternate" type="application/atom+xml" title="Shill or Chill: new coordinated clusters" href="/api/feed.atom">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Michroma&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -316,7 +316,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="wordmark" href="#/" aria-label="Noise Radar: live monitor">NOISE RADAR</a>
+    <a class="wordmark" href="#/" aria-label="Shill or Chill: live monitor">SHILL OR CHILL</a>
     <nav class="nav" aria-label="Main">
       <a href="#/" data-nav="monitor">Monitor</a>
       <a href="#/accuracy" data-nav="accuracy">Accuracy</a>
@@ -430,9 +430,9 @@ import { mediaEvidenceItems, renderMediaEvidence } from "../media-evidence.mjs";
       if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
     if (page === 'cluster' && /^\d+$/.test(arg || '')) return showCluster(Number(arg));
-    if (page === 'accuracy') { document.title = 'Accuracy · Noise Radar'; return renderAccuracy(); }
-    if (page === 'method') { document.title = 'Method · Noise Radar'; return renderMethod(); }
-    document.title = 'Noise Radar · Live monitor';
+    if (page === 'accuracy') { document.title = 'Accuracy · Shill or Chill'; return renderAccuracy(); }
+    if (page === 'method') { document.title = 'Method · Shill or Chill'; return renderMethod(); }
+    document.title = 'Shill or Chill · Live monitor';
     return renderMonitor();
   }
   window.addEventListener('hashchange', () => { route(); window.scrollTo(0, 0); app.focus({ preventScroll: true }); });
@@ -460,7 +460,7 @@ import { mediaEvidenceItems, renderMediaEvidence } from "../media-evidence.mjs";
       <section class="page-head">
         <div>
           <h1>Coordinated amplification on Bluesky, caught live.</h1>
-          <p>Noise Radar groups accounts that act together, tests their timing against chance and says “can’t tell” when the evidence is thin. Every call opens to its receipts.</p>
+          <p>Shill or Chill groups accounts that act together, tests their timing against chance and says “can’t tell” when the evidence is thin. Every call opens to its receipts.</p>
         </div>
         <div class="trace">
           <form id="trace" role="search" aria-label="Trace a post or link">
@@ -468,7 +468,7 @@ import { mediaEvidenceItems, renderMediaEvidence } from "../media-evidence.mjs";
             <input class="field" id="trace-input" name="q" placeholder="Paste a post, a link or an @handle" autocomplete="off" maxlength="2000">
             <button class="btn solid" type="submit">Trace it</button>
           </form>
-          <p>Opens Trackdown, Noise Radar’s tracing view: where a post came from and whether its spread was coordinated.</p>
+          <p>Opens Trackdown, Shill or Chill’s tracing view: where a post came from and whether its spread was coordinated.</p>
         </div>
       </section>
       <div class="filters">
@@ -522,7 +522,7 @@ import { mediaEvidenceItems, renderMediaEvidence } from "../media-evidence.mjs";
   const openClusterId = () => { const m = location.hash.match(/^#\/?cluster\/(\d+)$/); return m ? Number(m[1]) : null; };
   oneCol.addEventListener('change', () => { const c = state.details.get(openClusterId()); if (c) renderCluster(c); });
   async function showCluster(id) {
-    document.title = `Cluster #${id} · Noise Radar`;
+    document.title = `Cluster #${id} · Shill or Chill`;
     const cached = state.details.get(id);
     if (cached) renderCluster(cached);
     else app.innerHTML = `<a class="back" href="#/">← All clusters</a><div class="card state">Loading cluster #${id}…</div>`;
@@ -835,7 +835,7 @@ import { mediaEvidenceItems, renderMediaEvidence } from "../media-evidence.mjs";
   // ---------- method
   function renderMethod() {
     app.innerHTML = `<div class="method">
-      <section class="page-head" style="margin-bottom:28px"><div><h1>How a call is made</h1><p>Noise Radar judges behaviour, not opinions. It never decides whether a post is true, popular or acceptable, only whether the accounts behind it acted together.</p></div></section>
+      <section class="page-head" style="margin-bottom:28px"><div><h1>How a call is made</h1><p>Shill or Chill judges behaviour, not opinions. It never decides whether a post is true, popular or acceptable, only whether the accounts behind it acted together.</p></div></section>
       <div class="steps">
         <div class="step"><span class="label">01 · Group</span><h3>Find accounts acting together</h3><p>The live Bluesky stream is cut into time windows. Accounts that share the same links, text, images or engagement form a cluster.</p></div>
         <div class="step"><span class="label">02 · Test</span><h3>Check four signal families</h3><p>Content, timing, network and identity. Timing is compared with the same accounts’ activity shuffled in time.</p></div>
@@ -863,7 +863,7 @@ import { mediaEvidenceItems, renderMediaEvidence } from "../media-evidence.mjs";
           <li>A cluster is evidence of coordinated behaviour, not proof of who is behind it or why.</li>
         </ul>
         <h2>Data</h2>
-        <p>Read-only: Noise Radar reads the public Bluesky stream and never posts, follows or reports. Posts and profiles are shown only to explain a cluster.</p>
+        <p>Read-only: Shill or Chill reads the public Bluesky stream and never posts, follows or reports. Posts and profiles are shown only to explain a cluster.</p>
       </div>
     </div>`;
   }

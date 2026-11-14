@@ -7,12 +7,14 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Protocol
 
 from api.store import bsky_post_url
 from media import store
 from media.blobs import BlobFetchError
 from media.nemotron import MediaAnalysis, MediaInput, NemotronError, NotVisionModelError
+from media.screenshot import SCREENSHOT_PROMPT_VERSION, ScreenshotPost
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +70,19 @@ def group_media(posts: list[ClusterMedia]) -> list[MediaGroup]:
     )
 
 
+# Platform names for the screenshot sentence in Finding.summary() (other/unknown: generic).
+_PLATFORM_LABELS = {
+    "x": "an X",
+    "bluesky": "a Bluesky",
+    "threads": "a Threads",
+    "facebook": "a Facebook",
+    "instagram": "an Instagram",
+    "tiktok": "a TikTok",
+}
+# screenshot_status values that a cache hit reuses without a new screenshot read.
+_SCREENSHOT_FINAL = ("post", "not_post", "skipped_adult")
+
+
 @dataclass
 class Finding:
     group: MediaGroup
@@ -75,6 +90,14 @@ class Finding:
     media_kind: str
     media_url: str
     cached: bool
+    screenshot: ScreenshotPost | None = None
+    # post | not_post | failed | skipped_adult; None = not a screenshot (or not read)
+    screenshot_status: str | None = None
+    screenshot_error: str | None = None
+
+    @property
+    def is_screenshot(self) -> bool:
+        return self.analysis.media_type == "screenshot"
 
     def summary(self) -> str:
         a, g = self.analysis, self.group
@@ -87,6 +110,8 @@ class Finding:
             out += f' Text in image: "{text[:200]}{"…" if len(text) > 200 else ""}"'
         if a.manipulation_cues:
             out += f" Context cues: {'; '.join(a.manipulation_cues[:2])}."
+        if self.screenshot is not None:
+            out += _screenshot_sentence(self.screenshot)
         return out
 
     def detail(self) -> dict[str, Any]:
@@ -102,10 +127,36 @@ class Finding:
             "n_posts": len(self.group.post_uris),
             "n_accounts": len(self.group.dids),
             "cached": self.cached,
+            **self._screenshot_detail(),
         }
+
+    def _screenshot_detail(self) -> dict[str, Any]:
+        if not self.is_screenshot:
+            return {}
+        out = {
+            "screenshot": self.screenshot.to_detail() if self.screenshot else None,
+            "screenshot_status": self.screenshot_status,
+        }
+        if self.screenshot_status is not None:  # which screenshot prompt made this status
+            out["screenshot_prompt_version"] = SCREENSHOT_PROMPT_VERSION
+        if self.screenshot_status == "failed":
+            out["screenshot_error"] = self.screenshot_error
+        return out
 
     def source_url(self) -> str | None:
         return next((u for u in map(bsky_post_url, self.group.post_uris) if u), None)
+
+
+def _screenshot_sentence(post: ScreenshotPost) -> str:
+    """Describes the screenshot, never the people in it."""
+    platform = _PLATFORM_LABELS.get(post.platform, "a social-media")
+    who = f"@{post.handle}" if post.handle else ""
+    if not who and post.display_name:
+        who = f'"{post.display_name}"'
+    out = f" Reads as a screenshot of {platform} post{f' shown as from {who}' if who else ''}."
+    if post.ui_oddities:
+        out += f" Screenshot cues: {'; '.join(post.ui_oddities[:2])}."
+    return out
 
 
 TEMPLATE_KEY = "ocr-template"  # detail.media_hash of the cluster's cross-image template row
@@ -248,9 +299,16 @@ class MediaRun:
     def attempted(self) -> int:
         return len(self.findings) + len(self.failures)
 
+    @property
+    def screenshot_failures(self) -> int:
+        """Findings whose analysis is stored but whose screenshot read failed (retried later)."""
+        return sum(f.screenshot_status == "failed" for f in self.findings)
+
 
 class MediaClient(Protocol):
     def analyze(self, media: MediaInput, *, context: str | None = None) -> MediaAnalysis: ...
+
+    def read_screenshot(self, media: MediaInput) -> ScreenshotPost | None: ...
 
 
 class Fetcher(Protocol):
@@ -270,7 +328,8 @@ def process_cluster_media(
 
     A blob shared by many posts is read once. `cache_lookup(hash)` returns a stored detail (any
     cluster) to reuse instead of calling the model. `skip(hash)` defers hashes that failed
-    recently. NotVisionModelError is never swallowed.
+    recently. Media typed "screenshot" also gets `client.read_screenshot` (once; a cached row
+    whose screenshot read failed is read again). NotVisionModelError is never swallowed.
     """
     if max_media < 1:
         raise ValueError("max_media must be positive")
@@ -295,27 +354,24 @@ def process_cluster_media(
                     group.media_hash,
                 )
             else:
-                run.findings.append(
-                    Finding(
-                        group,
-                        analysis,
-                        stored.get("media_kind", "image"),
-                        stored.get("media_url", ""),
-                        cached=True,
-                    )
+                finding = Finding(
+                    group,
+                    analysis,
+                    stored.get("media_kind", "image"),
+                    stored.get("media_url", ""),
+                    cached=True,
                 )
+                if finding.is_screenshot:
+                    reused = _stored_screenshot(stored)
+                    if reused is not None:
+                        finding.screenshot, finding.screenshot_status = reused
+                    else:  # failed or never read: fetch again, but only for the screenshot read
+                        _read_screenshot(finding, client, partial(_media_input, fetcher, group))
+                run.findings.append(finding)
                 continue
         try:
-            blob = fetcher.fetch(
-                did=first.did,
-                cid=group.media_hash,
-                pds_host=first.pds_host,
-                embed_kind=first.embed_kind,
-            )
-            analysis = client.analyze(
-                MediaInput(group.media_hash, blob.mime_type, data=blob.data, source_uri=blob.url),
-                context=first.text,
-            )
+            fetched = _media_input(fetcher, group)
+            analysis = client.analyze(fetched.input, context=first.text)
         except NotVisionModelError:
             raise
         except (BlobFetchError, NemotronError) as exc:
@@ -338,9 +394,78 @@ def process_cluster_media(
                 exc,
             )
             continue
-        media_kind = getattr(blob, "media_kind", "image")
-        run.findings.append(Finding(group, analysis, media_kind, blob.url, cached=False))
+        finding = Finding(group, analysis, fetched.media_kind, fetched.url, cached=False)
+        _read_screenshot(finding, client, fetched)
+        run.findings.append(finding)
     return run
+
+
+@dataclass(frozen=True, slots=True)
+class _Fetched:
+    input: MediaInput
+    media_kind: str
+    url: str
+
+
+def _media_input(fetcher: Fetcher, group: MediaGroup) -> _Fetched:
+    first = group.posts[0]
+    blob = fetcher.fetch(
+        did=first.did, cid=group.media_hash, pds_host=first.pds_host, embed_kind=first.embed_kind
+    )
+    media = MediaInput(group.media_hash, blob.mime_type, data=blob.data, source_uri=blob.url)
+    return _Fetched(media, getattr(blob, "media_kind", "image"), blob.url)
+
+
+def _stored_screenshot(stored: dict[str, Any]) -> tuple[ScreenshotPost | None, str] | None:
+    """(post, status) from a stored screenshot row when it can be reused, else None (re-read)."""
+    status, shot = stored.get("screenshot_status"), stored.get("screenshot")
+    if status not in _SCREENSHOT_FINAL:
+        return None
+    if stored.get("screenshot_prompt_version") != SCREENSHOT_PROMPT_VERSION:
+        return None  # read by an older screenshot prompt (or before this key existed)
+    if status != "post":
+        return None, status
+    if not isinstance(shot, dict) or shot.get("prompt_version") != SCREENSHOT_PROMPT_VERSION:
+        return None
+    try:
+        return ScreenshotPost.from_detail(shot), status
+    except TypeError:  # a stored read missing contract fields: read it again
+        return None
+
+
+def _read_screenshot(
+    finding: Finding, client: MediaClient, media: _Fetched | Callable[[], _Fetched]
+) -> None:
+    """Second Nemotron call for screenshots: read the post shown as fields (media/screenshot.py).
+
+    `media` is the fetched blob, or a callable that fetches it (cache hits fetch only here).
+    Adult-flagged screenshots are never sent. A failed read keeps the main analysis and marks the
+    finding `failed`, so the cluster is retried; NotVisionModelError is never swallowed.
+    """
+    if not finding.is_screenshot:
+        return
+    if "adult" in finding.analysis.content_flags:
+        finding.screenshot_status = "skipped_adult"
+        return
+    read = getattr(client, "read_screenshot", None)
+    if read is None:
+        return
+    try:
+        post = read((media() if callable(media) else media).input)
+    except NotVisionModelError:
+        raise
+    except (BlobFetchError, NemotronError) as exc:
+        finding.screenshot, finding.screenshot_status = None, "failed"
+        finding.screenshot_error = str(exc)
+        log.warning(
+            "screenshot read failed cluster_id=%d hash=%s error=%s",
+            finding.group.posts[0].cluster_id,
+            finding.group.media_hash,
+            exc,
+        )
+        return
+    finding.screenshot, finding.screenshot_status = post, "post" if post else "not_post"
+    finding.screenshot_error = None
 
 
 def persist_evidence(conn, cluster_id: int, run: MediaRun) -> int:
@@ -390,7 +515,8 @@ class ClusterProgress:
     """Which clusters the worker can leave out of the next candidate query.
 
     Fully read: until signals changes the cluster (new updated_at). Incomplete (failed or
-    deferred media): held back for `retry_s`, so they can't fill every batch and starve others.
+    deferred media, or a failed screenshot read): held back for `retry_s`, so they can't fill
+    every batch and starve others.
     """
 
     def __init__(self, retry_s: float = 300, clock=time.monotonic):
@@ -399,7 +525,7 @@ class ClusterProgress:
         self._incomplete: dict[int, tuple[Any, float]] = {}
 
     def record(self, cluster_id: int, updated_at: Any, run: MediaRun) -> None:
-        if run.failures or run.deferred:
+        if run.failures or run.deferred or run.screenshot_failures:
             self._incomplete[cluster_id] = (updated_at, self._clock() + self.retry_s)
         else:
             self._read[cluster_id] = updated_at
