@@ -156,5 +156,5 @@ def test_stored_media_reaches_api_and_dashboard(media_cases):
 
     dashboard = (ROOT / "web/public/index.html").read_text()
     assert "detail.media_url" in dashboard
-    assert "Open media ↗" in dashboard
+    assert "Open media &rarr;" in dashboard
     assert "detail.n_accounts" in dashboard and "detail.n_posts" in dashboard
