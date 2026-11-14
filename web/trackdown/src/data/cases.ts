@@ -248,7 +248,7 @@ function tapWater(): TraceCase {
     nodes: b.nodes,
     edges: b.edges,
     clusters,
-    summary: "A 2021 satire headline lost its label on a forum, got its masthead cropped in 2024, then 31 days-old accounts posted it in 94 seconds.",
+    summary: "A 2021 satire headline lost its label on a forum, got its masthead cropped in 2024, then 31 accounts, all only days old, posted it within 94 seconds.",
     receipts: [
       { tool: "detector", text: "31 accounts posted the same image and text within 94 s. Timing permutation test: 0 of 500 shuffled worlds were this synchronized (p < 0.002)." },
       { tool: "detector", text: "Median account age 5 days, median 6 followers. 29 of 31 accounts never posted before tonight." },

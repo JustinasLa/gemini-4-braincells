@@ -248,7 +248,8 @@ export class Graph {
     const COLW = 252; // chip width 218 + a clear gutter
     for (const g of groups) {
       const gap = g[0].d.t - prevT;
-      const dx = gap <= 0 ? 0 : Math.min(40 * Math.log2(1 + gap / 60000), 280 + 18 * Math.log2(1 + gap / 86400000));
+      // at least ~170 px between moments, so a few posts minutes apart read left to right, not as a column
+      const dx = gap <= 0 ? 0 : Math.max(170, Math.min(40 * Math.log2(1 + gap / 60000), 280 + 18 * Math.log2(1 + gap / 86400000)));
       if (gap > breakAt) this.timeBreaks.push({ x: x + dx / 2, gap });
       x += dx;
       const chips = g.filter((n) => n.compact).length;
@@ -266,7 +267,7 @@ export class Graph {
       } else {
         // small groups: still ordered by real time (seconds apart read as distance), never one column
         g.forEach((n, i) => {
-          if (i) x += Math.max(14, 90 * Math.log2(1 + (n.d.t - g[i - 1].d.t) / 10000));
+          if (i) x += Math.max(170, 90 * Math.log2(1 + (n.d.t - g[i - 1].d.t) / 10000));
           n.tx = x;
           xs.push(n.tx);
         });
@@ -312,7 +313,7 @@ export class Graph {
       if (!kids.length) {
         const gr = this.grid.get(n);
         if (gr) {
-          const RH = 76;
+          const RH = 84;
           let top = gridTop.get(gr.id);
           if (top == null) {
             top = slot;
@@ -322,7 +323,7 @@ export class Graph {
           n.py = top + gr.row * RH + RH / 2;
           return n.py;
         }
-        const gap = n.compact ? 76 : n.h + 40;
+        const gap = n.compact ? 84 : n.h + 40;
         n.py = slot + gap / 2;
         slot += gap;
         return n.py;
@@ -495,6 +496,33 @@ export class Graph {
             q.x += s * wq * 2 * 0.5;
           }
         }
+      }
+    }
+    // a cluster box means "these are members": keep everyone else outside it
+    for (const cl of this.case?.clusters ?? []) {
+      const ms = cl.members.map((id) => this.byId.get(id)).filter((n): n is VNode => !!n && n.vis);
+      if (ms.length < 3) continue;
+      const inCl = new Set(ms);
+      const gap = 26 + 24;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const m of ms) {
+        x0 = Math.min(x0, m.x - m.w / 2);
+        x1 = Math.max(x1, m.x + m.w / 2);
+        y0 = Math.min(y0, m.y - m.h / 2);
+        y1 = Math.max(y1, m.y + m.h / 2);
+      }
+      for (const n of ns) {
+        if (inCl.has(n) || n.drag) continue;
+        const l = n.x + n.w / 2 - (x0 - gap);
+        const r = x1 + gap - (n.x - n.w / 2);
+        const t = n.y + n.h / 2 - (y0 - gap);
+        const b = y1 + gap - (n.y - n.h / 2);
+        if (l <= 0 || r <= 0 || t <= 0 || b <= 0) continue;
+        // in the timeline x is time, so prefer moving up or down
+        const vert = Math.min(t, b);
+        const horiz = Math.min(l, r) * (tl ? 3 : 1);
+        if (vert <= horiz) n.y += t < b ? -t * 0.5 : b * 0.5;
+        else n.x += l < r ? -l * 0.5 : r * 0.5;
       }
     }
     this.alpha += (this.alphaTarget - this.alpha) * (silent ? 0.03 : 0.012);
@@ -841,8 +869,8 @@ export class Graph {
     const k = this.k;
     const ox = this.W / 2 - this.cx * k;
     const oy = this.H / 2 - this.cy * k;
-    // semantic zoom: until a card's text is readable (~0.8x) it is drawn as a labelled marker
-    const op = clamp((k - 0.66) / 0.14, 0, 1);
+    // semantic zoom: until a card's smallest text renders at ~11px (~0.9x) it is a labelled marker
+    const op = clamp((k - 0.74) / 0.08, 0, 1); // short crossfade: half-faded cards let lines show through
     if (Math.abs(op - this.cardOpacity) > 0.001) {
       this.cardOpacity = op;
       this.world.style.setProperty("--card-op", op.toFixed(3));
@@ -936,7 +964,7 @@ export class Graph {
     }
     // territories
     this.clusterTabs = [];
-    if (this.case) this.case.clusters.forEach((cl) => this.drawHull(c, cl, now));
+    if (this.case) this.case.clusters.forEach((cl) => this.drawHull(c, cl, now, op));
     // links
     const hl = this.hl;
     c.lineCap = "round";
@@ -944,7 +972,7 @@ export class Graph {
       if (!e.a.vis || !e.b.vis) continue;
       // in map mode the cluster hull stands for its members: no spokes to every dot
       // (they come back on hover/selection and once cards are readable)
-      if (op < 0.5 && e.b.compact && e.b.d.cluster && !(hl && hl.has(e.a.d.id) && hl.has(e.b.d.id))) continue;
+      if (op < 1 && e.b.compact && e.b.d.cluster && !(hl && hl.has(e.a.d.id) && hl.has(e.b.d.id))) continue;
       const pts = this.edgePts(e, op);
       const prog = clamp((now - e.born) / 650, 0, 1);
       const on = hl ? hl.has(e.a.d.id) && hl.has(e.b.d.id) : false;
@@ -1018,7 +1046,9 @@ export class Graph {
       if (k > 0.45 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on)) {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
-        this.pill(c, mx, my, e.e.sim != null ? e.e.sim.toFixed(2) : "CITES", e.e.sim != null ? C.cv : "#5b8fe6", e.e.sim != null ? REL[e.e.rel].label.toUpperCase() : "");
+        // a score tag half under a card reads as a glitch: skip it
+        const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + 40 && Math.abs(n.y - my) < n.h / 2 + 12);
+        if (!covered) this.pill(c, mx, my, e.e.sim != null ? e.e.sim.toFixed(2) : "CITES", e.e.sim != null ? C.cv : "#5b8fe6", e.e.sim != null ? REL[e.e.rel].label.toUpperCase() : "");
       }
     }
     // far zoom: cities on the map
@@ -1251,16 +1281,20 @@ export class Graph {
 
   /** A cluster is drawn as one big detection box around its members, labelled like the
    *  machine-vision boxes in the Junction banner: name + numbers on a solid tab. */
-  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number) {
+  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number, op = 1) {
     const ms = cl.members.map((id) => this.byId.get(id)!).filter((n) => n && n.vis);
     if (ms.length < 3) return;
-    const pad = 26;
+    // wrap what is drawn: card bounds when cards show, marker bounds on the map (blended by op)
+    const pad = lerp(14 / this.k, 26, op);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of ms) {
-      x0 = Math.min(x0, n.x - n.w / 2 - pad);
-      x1 = Math.max(x1, n.x + n.w / 2 + pad);
-      y0 = Math.min(y0, n.y - n.h / 2 - pad);
-      y1 = Math.max(y1, n.y + n.h / 2 + pad);
+      const m = this.markerR(n) * 1.3;
+      const hw = lerp(m, n.w / 2, op);
+      const hh = lerp(m, n.h / 2, op);
+      x0 = Math.min(x0, n.x - hw - pad);
+      x1 = Math.max(x1, n.x + hw + pad);
+      y0 = Math.min(y0, n.y - hh - pad);
+      y1 = Math.max(y1, n.y + hh + pad);
     }
     const col = cl.status === "coordinated" ? this.colors.shill : cl.status === "likely_organic" ? this.colors.chill : this.colors.unsure;
     const k = this.k;
@@ -1288,7 +1322,7 @@ export class Graph {
     // the tab never runs past its box: drop detail from the right until it fits
     const parts = [STATUS[cl.status].short, ...cl.stat.split(" · ")].map((x) => x.toUpperCase());
     let label = parts.join(" · ");
-    while (parts.length > 1 && c.measureText(label).width + fs * 1.2 > x1 - x0) {
+    while (parts.length > 2 && c.measureText(label).width + fs * 1.2 > x1 - x0) { // always keep verdict + count
       parts.pop();
       label = parts.join(" · ");
     }
@@ -1296,12 +1330,15 @@ export class Graph {
     const h = fs * 1.9;
     c.globalAlpha = 1;
     c.fillStyle = col;
-    c.fillRect(x0 - 1 / k, y0 - h, w, h);
-    this.clusterTabs.push({ x0, y0: y0 - h, x1: x0 + w, y1: y0 });
+    // slide the tab right so it stays readable while any of the box is on screen
+    const viewL = (0 - this.W / 2) / k + this.cx + 8 / k;
+    const tx = clamp(viewL, x0, Math.max(x0, x1 - w));
+    c.fillRect(tx - 1 / k, y0 - h, w, h);
+    this.clusterTabs.push({ x0: tx, y0: y0 - h, x1: tx + w, y1: y0 });
     c.fillStyle = "#050506";
     c.textAlign = "left";
     c.textBaseline = "middle";
-    c.fillText(label, x0 + fs * 0.6, y0 - h / 2 + fs * 0.05);
+    c.fillText(label, tx + fs * 0.6, y0 - h / 2 + fs * 0.05);
     c.restore();
   }
 

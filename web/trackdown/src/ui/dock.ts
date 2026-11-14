@@ -31,13 +31,14 @@ export class Dock {
   playing = false;
   speed = 1;
   private dragging = false;
+  private slider!: HTMLInputElement;
   private last = 0;
   onScrub: () => void = () => {};
   constructor(el: HTMLElement, g: Graph) {
     this.g = g;
     this.el = el;
     el.innerHTML = `<div class="dock-left"><button class="play" aria-label="Play">${icon.play}</button><div class="clock"><div class="d">–</div><div class="rel">–</div></div></div>
-      <div class="scrub"><canvas></canvas></div>
+      <div class="scrub"><canvas></canvas><input class="scrub-range" type="range" min="0" max="1000" step="1" value="1000" aria-label="Timeline position" /></div>
       <div class="dock-right"><button class="speed" data-speed>1×</button><button class="speed" data-end title="Show everything">All</button></div>`;
     this.canvas = el.querySelector("canvas")!;
     this.playBtn = el.querySelector(".play")!;
@@ -49,6 +50,12 @@ export class Dock {
     };
     el.querySelector<HTMLButtonElement>("[data-end]")!.onclick = () => this.showAll();
     const scrub = el.querySelector<HTMLElement>(".scrub")!;
+    // keyboard access to the same scrubbing (the canvas handles the pointer)
+    this.slider = el.querySelector<HTMLInputElement>(".scrub-range")!;
+    this.slider.addEventListener("input", () => {
+      this.pause();
+      this.seek(Number(this.slider.value) / 1000);
+    });
     const at = (e: PointerEvent) => {
       const r = scrub.getBoundingClientRect();
       this.seek(clamp((e.clientX - r.left - 8) / (r.width - 16), 0, 1));
@@ -236,7 +243,12 @@ export class Dock {
       const d = this.clock.querySelector(".d")!;
       const rel = this.clock.querySelector(".rel")!;
       const txt = `${fmtDate(t, false)} ${fmtClock(t)}`;
-      if (d.textContent !== txt) d.textContent = txt;
+      if (d.textContent !== txt) {
+        d.textContent = txt;
+        this.slider.setAttribute("aria-valuetext", txt);
+      }
+      const v = String(Math.round(this.u * 1000));
+      if (this.slider.value !== v && document.activeElement !== this.slider) this.slider.value = v;
       const r2 = t - first < 1000 ? "At the earliest copy" : `Playhead: ${fmtDur(t - first)} after the earliest copy`;
       if (rel.textContent !== r2) rel.textContent = r2;
     }
@@ -286,10 +298,12 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     const s = g.toScreen(b.x, 0);
     const from = prevBreak;
     prevBreak = s.x;
-    // "2.8 yr later" only reads right if the date it counts from is visible
-    if (!drawn.some(([a]) => a > from && a < s.x)) continue;
+    const bi = g.timeBreaks.indexOf(b);
+    const next = bi + 1 < g.timeBreaks.length ? g.toScreen(g.timeBreaks[bi + 1].x, 0).x : 1e9;
+    // a gap pill only reads right between two visible dates
+    if (!drawn.some(([a]) => a > from && a < s.x) || !drawn.some(([a]) => a > s.x && a < next)) continue;
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
-    const label = `${fmtDur(b.gap)} later`;
+    const label = `${fmtDur(b.gap)} gap`;
     c.font = '600 10px "JetBrains Mono", monospace';
     const up = label.toUpperCase();
     const tw = c.measureText(up).width + 16;

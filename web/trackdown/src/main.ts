@@ -11,7 +11,7 @@ import { flipInto, preloadCoin, wait } from "./ui/coin";
 import { thumbStyle } from "./ui/crop";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDate, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
@@ -30,13 +30,14 @@ document.querySelector("#app")!.innerHTML = `
     </div>
   </header>
   <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
-  <main class="stage" id="stage">
+  <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
+    <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
     <div class="term hidden" id="console" data-ui></div>
-    <div class="status" id="status" data-ui><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
+    <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Map and key" title="Map and key (M)">${icon.web2}</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
@@ -49,8 +50,9 @@ document.querySelector("#app")!.innerHTML = `
 
 const app = $(".app");
 // Closed drawers must not take keyboard focus; keep inert + aria-expanded in sync with the classes.
+const phoneMq = matchMedia("(max-width: 860px)"); // the CSS breakpoint
 const syncDrawers = () => {
-  const phone = innerWidth < 860;
+  const phone = phoneMq.matches;
   const rail = $(".rail");
   const pnl = $("#panel");
   rail.inert = !app.classList.contains("rail-open");
@@ -59,7 +61,11 @@ const syncDrawers = () => {
   document.querySelector("#peek")?.setAttribute("aria-expanded", String(app.classList.contains("sheet-open")));
 };
 new MutationObserver(syncDrawers).observe(app, { attributes: true, attributeFilter: ["class"] });
-addEventListener("resize", syncDrawers);
+phoneMq.addEventListener("change", () => {
+  syncDrawers();
+  setInsets();
+  if (current) setTimeout(() => (g.selId ? g.focus(g.selId, Math.max(g.k, 0.9), 600) : g.fit(undefined, 600)), 500);
+});
 const stage = $("#stage");
 const g = new Graph(stage);
 (window as unknown as { __g: Graph }).__g = g;
@@ -90,10 +96,15 @@ function setPhase(p: Phase) {
   app.dataset.phase = p;
   app.classList.toggle("panel-open", p === "done");
   if (p !== "done") app.classList.remove("rail-open");
-  // phones stack the verdict bar and a two-row dock at the bottom
-  g.insets.bottom = p === "done" ? (innerWidth < 860 ? 196 : 112) : 64;
-  g.insets.right = innerWidth < 860 ? 24 : 72;
+  setInsets();
   if (p === "done") setTimeout(() => g.fit(undefined, 900), 650);
+}
+
+/** camera insets follow the layout: phones stack the verdict bar and a two-row dock at the bottom */
+function setInsets() {
+  const phone = phoneMq.matches;
+  g.insets.bottom = app.dataset.phase === "done" ? (phone ? 196 : 112) : 64;
+  g.insets.right = phone ? 24 : 72;
 }
 
 // ---------------------------------------------------------------- header
@@ -148,7 +159,7 @@ function renderRail() {
   const sims = simulatedCases();
   const live = liveRows
     .map(
-      (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(2)}"></span>
+      (r) => `<button class="cat-item live" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(2)}"></span>
       <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster #${r.id}</span>
       <span class="meta">${r.size ?? "?"} accounts</span></button>`,
     )
@@ -212,13 +223,16 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
   if (z === "tools") app.classList.toggle("tools");
+  stage.querySelector('[data-z="tools"]')!.setAttribute("aria-expanded", String(app.classList.contains("tools")));
 });
 
 // ---------------------------------------------------------------- graph events
 g.onSelect = (id) => {
   panel.showFolio(!!id);
   g.setHighlight(id ? g.lineage(id) : null);
-  if (id && innerWidth < 860) app.classList.add("sheet-open");
+  if (id && phoneMq.matches) app.classList.add("sheet-open");
+  const n = id ? current?.nodes.find((x) => x.id === id) : null;
+  $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated ? "" : `, ${fmtDate(n.t)}`}` : "";
 };
 g.onHover = (id) => {
   if (tracing) return;
