@@ -1,0 +1,142 @@
+https://x.com/lookner/status/2121381335956615658
+https://x.com/StephenKing/status/2121360054330986967?a=oCbKz98XSEplQNNa2O0&s=19
+
+Only start working once all threads on t3 are settled.
+You are allowed to use multiple threads, subagents if needed, use codex where possible too, both astra and sol since I am literally not using any usage atm and I have plenty.
+Both of these posts are related. I want to go to sleep, your goal is set up the entire lookup through X and other webs through oxylabs so that a user can input a link and get actual real life data / history to see and analise. I wont be able to answer questions when you are working so if you have any ask now or dont at all.
+
+---
+
+When this(oxylabs stuff) is done and implemented. Make sure that nemotron is also fully implemented, same usage and model rules as previous prompt
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A45df6cf9-de02-4640-9f07-ea3a04f4ffa3%3Adelegate-task%3Aac0aaecf-cf2d-472a-824e-3a166489bda7 (Sol: Nemotron completeness audit (read-only)) [completed]:
+## 1. Current state
+
+**Audit: November 14, 2026, approximately 01:49–01:54 EET. No edits, commits, pushes, deployments or restarts performed.**
+
+**Bottom line: the Super VL implementation exists and its endpoint works, but Nemotron is not currently running or visible on the public production site.**
+
+- **Origin/main — `501a4de4cd78`:** candidate-only media worker, image/video-thumbnail fetching, hash caching, retries/backoff, `media-v3`, and cross-image OCR-template evidence are implemented. Compose includes a `media` service. [media/worker.py:227](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/worker.py:227), [media/worker.py:117](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/worker.py:117), [deploy/docker-compose.yml:124](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/deploy/docker-compose.yml:124).
+- **API/Gemini integration exists:** cluster detail returns media evidence; Gemini receives its **summary and source URL**, not the complete OCR/cue structure. New media evidence makes a cluster eligible for a refreshed verdict. [api/store.py:127](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/api/store.py:127), [analyst/prompt.py:31](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/analyst/prompt.py:31), [analyst/store.py:98](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/analyst/store.py:98).
+- **Production:** `/current` and public `/version.txt` both report **`e0f72a2dbf66`**. Running: db, ingest, signals, api, sources, analyst, caddy. **No running or stopped media container.** Both `VERDA_INFERENCE_KEY` and `NVIDIA_API_KEY` have nonempty assignments; values were not displayed.
+- **Production evidence:** **0 media rows; latest `created_at` = NULL.** Checked all 50 returned cluster details: none contained media evidence.
+- **Public dashboard:** production and origin/main’s served `web/public/index.html` remain the health placeholder. Trackdown source exists on origin/main, but that alone does not publish it: Caddy mounts `web/public`. [web/public/index.html:14](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/public/index.html:14), [deploy/docker-compose.yml:95](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/deploy/docker-compose.yml:95).
+- **Endpoint verified, exactly two requests:** `/models` returned `nemotron-3.5-super-vl`, root **`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`**. A synthetic red-image inference returned that VL model ID and correctly answered “red”: **6,900 ms; 290 prompt + 10 completion tokens**. This proves the team endpoint works—not production integration.
+
+### What is NOT on origin/main
+
+- Valtteri’s committed dashboard/media display work, notably **`06d1873`**; local main also contains unpublished proof/provenance changes **`8fa65f6` / `721d259`**, failure-evidence persistence, and **`5fddc0d`** media-path tests. The dashboard displays OCR, model/prompt attribution, source links and template matches. [local-main web/public/index.html:133](/srv/junction-espoo/gemini-4-braincells/web/public/index.html:133).
+- Valtteri’s **uncommitted** changes add explicit complete/pending/failed/malformed handling, safe links/errors, API normalization, cache validation, and the new renderer/tests. [api/schemas.py:80](/srv/junction-espoo/gemini-4-braincells.worktrees/valtteri-media-evidence-dashboard/api/schemas.py:80), [media-evidence.mjs:150](/srv/junction-espoo/gemini-4-braincells.worktrees/valtteri-media-evidence-dashboard/web/public/media-evidence.mjs:150).
+- **Integration warning:** local main `2d1eafe`’s net diff against origin/main deletes `web/trackdown/`. Do not push/deploy that tree blindly. Older Nemotron commit hashes appearing in its unpushed log do **not** mean the worker is absent from origin/main; much of that content already landed through different history.
+
+## 2. Ranked gaps and fixes
+
+| Impact | Gap → concrete fix | Owner |
+|---|---|---|
+| **P0 — working solution** | Production predates media integration. Deploy a reviewed integrated SHA using `HOSTINGER_HOST=hostinger CHECK_URL=https://noise-radar.srv2159172.hstgr.cloud deploy/deploy.sh <sha>`. Accept only after worker logs show actual VL responses and a public cluster detail contains successful media evidence. | **Justinas/dev** |
+| **P0 — visible demo** | Served root is a placeholder. Integrate Valtteri’s renderer **without losing Trackdown**, choose the actual demo route, and build/stage that UI into the directory Caddy serves. Deployment currently ships committed files via `git archive`; it does not build Trackdown. [deploy/deploy.sh:26](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/deploy/deploy.sh:26) | **Valtteri + Justinas/dev** |
+| **P1 — integration readiness** | Tests are not all green. Origin media tests: **44 passed, 3 DB tests skipped**. Local-main path tests: **1 passed, 1 failed**, because an HTML-string assertion expects `Open media ↗`. Pending renderer: **4 passed, 2 failed**. Add `"missing"` to `MEDIA_STATES`; reconcile the attribution test with the supported `detail.model` fallback. Re-run `node --test tests/test_dashboard_media.mjs` and the focused Python tests. [renderer:1](/srv/junction-espoo/gemini-4-braincells.worktrees/valtteri-media-evidence-dashboard/web/public/media-evidence.mjs:1), [renderer:191](/srv/junction-espoo/gemini-4-braincells.worktrees/valtteri-media-evidence-dashboard/web/public/media-evidence.mjs:191), [path test:159](/srv/junction-espoo/gemini-4-braincells/tests/test_media_path.py:159) | **Valtteri** |
+| **P1 — meaningful/core use** | Team checklist’s Nemotron-derived similarity signal is absent. Existing `duplicate_media` uses raw blob hashes, **not Nemotron output**. Feed deterministic OCR-template matches into a separately identified content feature, retain independent coordination checks, and evaluate false positives. Explanation-only use can still be meaningful; detector integration is the stronger team-plan commitment. [signals/keys.py:101](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/signals/keys.py:101), [signals/score.py:102](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/signals/score.py:102) | **Valtteri + signals owner; dev evaluates** |
+| **P1 — evidence-backed explanation** | Gemini sees media summaries, but OCR is truncated to 200 characters in those summaries; structured template/OCR evidence is omitted. Add a media-specific formatter containing model, relevant OCR, reuse counts and caveats; verify a real verdict cites its media evidence ID. [media/worker.py:74](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/worker.py:74), [analyst/prompt.py:43](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/analyst/prompt.py:43) | **Temuulen** |
+| **P1 — honest submission** | Development numbers exist, but are not OCR accuracy or coordination error rates. Preserve the external sample/results and annotate their provenance; add human-labelled OCR/template correctness and benign-reuse cases. Explicitly include v3 when rerunning: `python -m media.compare run <sample> --variants v1,v2,v2-noreason,v3 --out <outside-repo-results>`. Default variants omit v3. [compare.py:250](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/compare.py:250) | **Justinas/dev + Valtteri** |
+| **P2 — every-call logging** | Worker successes log model/latency/tokens, but failed attempts omit latency; comparison calls bypass that logger, omit prompt-token counts, and reduce exceptions to their type. Add one consistent per-attempt record, including elapsed time and nullable usage on failures. [nemotron.py:316](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/nemotron.py:316), [compare.py:145](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/compare.py:145) | **Valtteri; dev retains eval records** |
+| **P2 — acceptance checks** | Existing deploy check accepts a placeholder and does not check media progress. Add media-worker readiness and a known demo cluster’s successful evidence/model attribution. Also strengthen model validation: currently `is_vl_model` accepts any ID containing a `vl` token, not specifically Super 3.5. [deploy/check.sh:17](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/deploy/check.sh:17), [nemotron.py:135](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/nemotron.py:135) | **Justinas/dev; Valtteri for model guard** |
+
+The skipped DB tests deliberately recreate their schema; I did **not** run them against production. [test_media_db.py:23](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/tests/test_media_db.py:23).
+
+## 3. Product-fitting ways to make Nemotron central
+
+*Rough implementation estimates, excluding review/deployment:*
+
+- **Media-aware submitted-link lookup — 2–4 hours for Bluesky; additional extraction work for X.** Resolve attached images, use the existing cached VL reader, and return visibly attributed OCR/media evidence. Current `/api/analyze` performs cluster/web lookup without invoking media analysis. **Valtteri + Temuulen.** [api/routes/analyze.py:43](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/api/routes/analyze.py:43)
+- **Screenshot-to-circulation search — 1–2 hours after media lookup.** Use distinctive OCR phrases in Oxylabs searches; show matching source URLs and distinguish textual matches from proven image reuse. **Valtteri extracts; Temuulen searches/serves.**
+- **OCR-template detector feature — 2–4 hours plus evaluation.** Reuse the existing Jaccard ≥0.5 matcher across distinct files/accounts, producing a traceable feature rather than letting an LLM declare coordination. **Valtteri + signals owner; dev evaluates.**
+- **Gemini media citations — approximately 1 hour.** Lowest-effort improvement: carry full relevant media evidence into the explanation and demonstrate a genuine citation. **Temuulen.**
+
+## 4. Submission facts: available and missing
+
+**Already documented** in [media/README.md:65](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/README.md:65):
+
+- Model/task: Super VL reads candidate-cluster images and **video thumbnails**, extracting descriptions, OCR and cautious context/reuse cues. Different image files can be linked through shared OCR templates—value beyond exact hashes.
+- Sample: **30 selected items, 18 live candidate clusters, 27 downloadable**, recorded November 14 at 00:24 EET.
+- **v1:** 700-token budget; 18 null-content replies, 23 truncations; mean completion/reasoning **672/640 tokens**.
+- **v2:** 4096-token budget, public-evidence rules, fixed vocabularies and tolerant parsing; zero nulls/truncations, OCR present in 18 items, four descriptions matching the explicit-word detector.
+- **v3 / `media-v3`:** adult-content instruction plus code guard; zero nulls/truncations, OCR present in 18 items, zero descriptions matching that detector; ten adult flags; mean completion/reasoning **1164/1011 tokens**.
+- Reasoning-off experiment: one truncation, OCR present in 17 items; documented latency differences are explicitly confounded by shared-endpoint conditions.
+
+**Still needed:** final four-part submission text; a deployed, publicly visible example and media-citing verdict; traceable raw benchmark artifacts; independently labelled quality/error measurements. Resolve the README’s sample breakdown too: its listed **13 images + 13 videos + 2 quote-media posts totals 28, not 30**. Finally, the harness’s “valid JSON” metric means tolerant parsing plus a nonempty description—not full schema validation—and “OCR found” means nonempty extraction, not correct transcription. [compare.py:161](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/compare.py:161), [compare.py:184](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/media/compare.py:184).
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A45df6cf9-de02-4640-9f07-ea3a04f4ffa3%3Adelegate-task%3Ad2ff344d-e506-4a99-a369-cbb41cae8fb5 (Astra: Trackdown real link lookup UI) [completed]:
+Implemented and shipped in the requested worktree. **No commits, pushes, branch changes, or secret reads.**
+
+**Changed files**
+- Data/model: [lookup.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/data/lookup.ts), [mockLookup.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/data/mockLookup.ts), [api.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/data/api.ts), [types.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/types.ts).
+- UI: [main.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/main.ts), [panel.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/ui/panel.ts), [card.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/ui/card.ts), [format.ts](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/ui/format.ts), [styles.css](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/styles.css).
+- Deployment/docs: [package.json](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/package.json), [ship.mjs](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/scripts/ship.mjs), [README.md](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/README.md), [Caddyfile](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/deploy/Caddyfile), dashboard [index.html](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/public/index.html), and generated [Trackdown build](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/public/trackdown/).
+
+**Behavior and verification**
+- Polls every 1.5 seconds, capped at 150 seconds. Steps, cards and receipts update progressively; selection is preserved. The coin appears only after `done`.
+- Mock browser run confirmed **0 → 1 → 5 cards**, running/done transitions, and no premature coin. Verified 429 stops without fallback; 503 tries analyze, then clearly labelled simulation.
+- Both real deep-link lookups completed: **Lookner: 23 cards, 16 edges; Stephen King: 28 cards, 21 edges.** Metrics, author/media facts and source links rendered; both coordination verdicts remained insufficient.
+- `npm install`, TypeScript build, and final `npm run ship` passed. Caddy redirect, app-specific fallback, assets and coin files passed HTTP checks. Production excludes the mock fixture. Test tabs and servers are stopped.
+
+**Integration notes**
+- The backend permits null metrics/handles and supplies canonical page IDs/parsed times; these are handled. With multiple monitored matches, the first supplies the headline status; all remain visible.
+- **Dashboard caveat:** this checkout contains only a placeholder—no “Ask the monitor” form. Added the requested nav/helper links minimally; the helper encodes an existing URL input’s value when present. Place that helper inside the teammate’s form when merging their dashboard.
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A45df6cf9-de02-4640-9f07-ea3a04f4ffa3%3Adelegate-task%3Aadb33f80-c1c0-4a00-8874-8a6b08cbccd3 (Astra: Nemotron evidence into Gemini + logging + checks) [completed]:
+Implemented on `dev/nemotron-core`; worktree is clean.
+
+**Commits**
+- `4f8c4aa` — feat(analyst): expose bounded Nemotron evidence in verdict prompts
+- `d2f284e` — fix(media): audit every attempt and require Nemotron Super VL
+- `b83b55f` — fix(deploy): validate Trackdown HTML and report media coverage
+
+**Changes**
+- Gemini receives bounded OCR, model provenance, cues, counts, and template tokens. Tests confirm media citations pass the guard.
+- Shared per-attempt logging covers successes, retries, and failures; comparison results retain prompt tokens. Strict validation requires Nemotron + Super + VL.
+- Deployment checks require Trackdown HTML and report advisory media coverage, with jq/Python regression tests.
+- README documents both integration paths and explicitly corrects the incomplete 28-versus-30 tally without inventing missing categories.
+
+**Validation**
+- Full suite: **299 passed, 8 skipped** because scratch database URLs were unset.
+- Ruff check/format, Bash syntax, and Git whitespace checks passed.
+- All commits have the requested co-author trailer; prohibited directories remain untouched.
+
+**Handoff notes**
+- Fetch required the authorized existing-ref fallback. Missing worktree metadata was restored and locked against pruning.
+- Entire Trail creation unexpectedly attempted publication, but failed; remote verification confirms the branch was **not published**. Entire also lacked session state, so no checkpoint trailers were generated.
+- No PR, merge, deployment, or live model calls. The original frozen sample was unavailable, so its complete media-type breakdown remains unverified.
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A45df6cf9-de02-4640-9f07-ea3a04f4ffa3%3Adelegate-task%3A6994dda5-713b-46fe-a3cb-98f1213a37ba (Sol review r1: dev/lookup link lookup) [completed]:
+**Found must-fix correctness and honesty issues** at `10e257e`, ranked below.
+
+1. **Must-fix — fabricated engagement counts.** [`lookup/xpage.py:189`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/xpage.py:189): positional assignment cannot identify which zero-count slots disappeared. Reproduction: a likes-only `35K` tail becomes **35,000 reposts**, likes unknown. Preserve ambiguous counts as unknown, or extract labeled metrics rather than guessing their positions.
+
+2. **Must-fix — unverified search hits become copies and origins.** [`lookup/service.py:789`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/service.py:789): web-only hits, candidates beyond `verify_max`, and failed verification retain `role="copy"`. `_finish_graph` includes them in spread and origin selection. Reproduced an unverified hit becoming the origin. Keep these as candidates; exclude them from confirmed copy statistics until verified.
+
+3. **Must-fix — unrelated account membership supplies the link’s verdict.** [`lookup/service.py:1144`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/service.py:1144), [`data/lookup.ts:232`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/web/trackdown/src/data/lookup.ts:232): a discovered copier’s membership in an unrelated coordinated cluster produces `matched`, then the frontend inherits that cluster’s verdict. Return match provenance; handle-only matches should be contextual evidence, not a verdict on this link.
+
+4. **Must-fix — late snippets overwrite verified evidence.** [`lookup/service.py:215`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/service.py:215): `old.role == "mention"` permits replacement regardless of verification quality. Reproduced a verified mention becoming an unverified copy after a later search hit. Make verified evidence dominate snippets independently of role.
+
+5. **Must-fix — monitor checks race their inputs.** [`lookup/service.py:351`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/service.py:351): `_monitor` runs alongside Bluesky discovery and linked-page resolution. Reproduced a completed lookup with a matching handle discovered afterward but never checked. Run monitoring after those producers finish, or reconcile newly discovered keys before finalization.
+
+6. **Must-fix — quote edges name the wrong source.** [`lookup/service.py:921`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/service.py:921): matching quoted text is enough to draw a quote edge from the submitted post, even when `quoted_id` identifies another post. Reproduced this misattribution. Connect to the actual quoted ID; text similarity alone establishes no quote relationship to the submission.
+
+7. **Must-fix — date-only hints establish false chronology.** [`lookup/service.py:1180`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/service.py:1180): a search date becomes midnight and can outrank a same-day X post as “origin.” Reproduced this with `Nov 13, 2026` versus a 21:50 post; the page could actually be later. Represent date precision and require non-overlapping time ranges before asserting precedence.
+
+8. **Must-fix — the time budget does not stop work or spending.** [`lookup/service.py:333`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/service.py:333): timed `wait` calls do not terminate workers; executor exit waits for them, downstream work still starts, and assessment has no deadline gate. Reproduced downstream calls starting after expiry. Check deadlines before scheduling/calling providers, bound request timeouts, and cancel queued work.
+
+9. **Must-fix — deployed per-client limiting collapses visitors together.** [`api/routes/lookup.py:84`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/api/routes/lookup.py:84), [`deploy/Caddyfile:5`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/deploy/Caddyfile:5): Caddy has no trusted-proxy configuration. Its default ignores incoming forwarded headers, so behind Traefik the limiter sees the proxy IP: ten distinct lookups can block everyone. Configure a narrowly trusted, sanitized proxy chain and derive client identity from it. citeturn878393view1
+
+10. **Must-fix — escaped avatar handles look like missing posts.** [`lookup/xpage.py:20`](/srv/junction-espoo/gemini-4-braincells.worktrees/dev-lookup/lookup/xpage.py:20): changing the fixture’s avatar label to `@ada\_example` makes `page.main` disappear. Normalize Markdown escapes in handle labels before matching; add escaped-label fixtures.
+
+**Validation:** lookup tests **11 passed**; full suite **267 passed, 8 skipped**; TypeScript `--noEmit` passed. `.env` loading was disabled. No edits, build output, paid calls, or deployments. No confirmed SSRF or XSS found in the inspected paths.
