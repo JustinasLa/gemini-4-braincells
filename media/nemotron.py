@@ -123,11 +123,31 @@ class MediaAnalysis:
 
     def evidence_detail(self) -> dict[str, Any]:
         """JSON-ready detail for the shared ``evidence`` table."""
-        return asdict(self)
+        return {**asdict(self), "status": "complete"}
 
     @classmethod
     def from_detail(cls, detail: dict[str, Any]) -> MediaAnalysis:
         """Rebuild from a stored ``evidence.detail`` (the media-hash cache)."""
+        if not isinstance(detail, dict) or detail.get("status") not in (None, "complete"):
+            raise ValueError("stored media analysis is not complete")
+        required_strings = ("media_hash", "description", "model")
+        if any(
+            not isinstance(detail.get(key), str) or not detail[key].strip()
+            for key in required_strings
+        ):
+            raise ValueError("stored media analysis is missing required text")
+        for key in ("extracted_text", "reuse_cues", "manipulation_cues"):
+            value = detail.get(key)
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise ValueError("stored media analysis has malformed text lists")
+        confidence = detail.get("confidence")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+            raise ValueError("stored media analysis has malformed confidence")
+        if not 0 <= confidence <= 1:
+            raise ValueError("stored media analysis has out-of-range confidence")
+        latency = detail.get("latency_ms")
+        if isinstance(latency, bool) or not isinstance(latency, int) or latency < 0:
+            raise ValueError("stored media analysis has malformed latency")
         names = cls.__dataclass_fields__.keys()
         return cls(**{k: detail[k] for k in names if k in detail})
 

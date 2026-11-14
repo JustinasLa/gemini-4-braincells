@@ -72,7 +72,13 @@ def stored_media(conn: psycopg.Connection, cluster_id: int) -> dict[str, dict[st
         "SELECT id, detail FROM evidence WHERE cluster_id = %s AND kind = 'media'",
         (cluster_id,),
     ).fetchall()
-    return {r["detail"]["media_hash"]: r for r in rows if r["detail"].get("media_hash")}
+    stored = {}
+    for row in rows:
+        detail = row.get("detail")
+        media_hash = detail.get("media_hash") if isinstance(detail, dict) else None
+        if isinstance(media_hash, str) and media_hash.strip():
+            stored[media_hash] = row
+    return stored
 
 
 def cached_analysis(conn: psycopg.Connection, media_hash: str) -> dict[str, Any] | None:
@@ -80,7 +86,19 @@ def cached_analysis(conn: psycopg.Connection, media_hash: str) -> dict[str, Any]
     row = conn.execute(
         """
         SELECT detail FROM evidence
-        WHERE kind = 'media' AND detail->>'media_hash' = %s AND detail->>'prompt_version' = %s
+        WHERE kind = 'media'
+          AND detail->>'media_hash' = %s
+          AND detail->>'prompt_version' = %s
+          AND coalesce(detail->>'status', 'complete') = 'complete'
+          AND jsonb_typeof(detail) = 'object'
+          AND jsonb_typeof(detail->'description') = 'string'
+          AND nullif(btrim(detail->>'description'), '') IS NOT NULL
+          AND jsonb_typeof(detail->'extracted_text') = 'array'
+          AND jsonb_typeof(detail->'reuse_cues') = 'array'
+          AND jsonb_typeof(detail->'manipulation_cues') = 'array'
+          AND jsonb_typeof(detail->'confidence') = 'number'
+          AND jsonb_typeof(detail->'latency_ms') = 'number'
+          AND jsonb_typeof(detail->'model') = 'string'
         ORDER BY id DESC LIMIT 1
         """,
         (media_hash, PROMPT_VERSION),

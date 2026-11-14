@@ -299,6 +299,16 @@ Since 2026-11-13 (late) `status` is always the detector's status; the model's ow
 calls (model id, latency, tokens, cost). Details in `analyst/README.md`.
 Each run appends a new row; readers take the latest.
 
+**Media evidence** (`evidence.kind=media`, written by `media/`): one row per `(cluster_id, media_hash)`;
+`media_hash` is the Bluesky blob CID, while the OCR-template row uses the reserved key
+`ocr-template` and lists its input CIDs in `detail.media_hashes`. Successful rows carry
+`detail.status=complete`, the Nemotron description/OCR fields, `model`, `created_at`, the source post
+URL, and a safe-to-link `detail.media_url` when available. Failed work is stored as
+`detail.status=failed` with a safe `error_code` and `stage`, never the raw provider error. The API
+normalizes old successful rows and malformed detail objects explicitly. The dashboard labels
+observed CIDs without a result as pending; that label means no stored result exists yet, not that a
+worker is currently active. Media evidence explains the detector's status and never changes it.
+
 **Source evidence** (`evidence.kind=source`, written by `sources/`, upserted by `detail.key`):
 `detail.type` is `linked_page` (Oxylabs `/scrape` AI extraction: `publisher, author, published_at,
 headline, claims, shared_by_accounts, http_status`) or `web_search` (Oxylabs `/search` for the
