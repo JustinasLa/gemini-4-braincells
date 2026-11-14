@@ -75,7 +75,8 @@ export const shownImageTime = (match: ImageMatch) => {
 /** how uncertain a page date's shown time is, as lookup.ts says it for pages */
 export const pagePrecision = (match: ImageMatch): string[] => {
   const unc = match.time_source === "page" && imageTime(match) != null ? match.time_uncertainty_s ?? 0 : 0;
-  return unc >= 86400 && unc < 2 * 86400 && Date.parse(match.first_seen!) % 86_400_000 === 0 ? ["date only, time unknown"] : unc > 0 ? [`time ±${Math.max(1, Math.round(unc / 7200))} h`] : [];
+  // by the window alone: a zoneless 14:00 also starts at midnight (14:00 - 14 h) but has 28 h
+  return unc === 86400 ? ["date only, time unknown"] : unc > 0 ? [`time ±${Math.max(1, Math.round(unc / 7200))} h`] : [];
 };
 const pageDate = (match: ImageMatch) => new Date(shownImageTime(match)!).toISOString().slice(0, 10);
 export function firstSeenLabel(match: ImageMatch): string {

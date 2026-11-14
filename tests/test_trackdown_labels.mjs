@@ -203,6 +203,10 @@ test("a zoneless page time is placed and posted at its printed time, flagged as 
   const dateOnly = matchNode(lookupCase(imageLookup({ time_source: "page", first_seen: "2012-05-06T00:00:00Z", time_uncertainty_s: 86400 })));
   assert.deepEqual(dateOnly.flags, ["page dated 2012-05-06", "date only, time unknown"]);
   assert.equal(new Date(dateOnly.t).toISOString().slice(0, 10), "2012-05-06");
+  // a zoneless 14:00 starts at midnight too (14:00 - 14 h), but it is a printed clock time
+  const twoPm = matchNode(lookupCase(imageLookup({ time_source: "page", first_seen: "2026-11-06T00:00:00Z", time_uncertainty_s: 100800 })));
+  assert.deepEqual(twoPm.flags, ["page dated 2026-11-06", "time ±14 h"]);
+  assert.equal(new Date(twoPm.t).toISOString(), "2026-11-06T14:00:00.000Z");
 });
 
 test("family members show a page date's printed day", () => {
