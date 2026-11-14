@@ -37,7 +37,7 @@ var Zs=Object.defineProperty;var Qs=(t,e,s)=>e in t?Zs(t,e,{enumerable:!0,config
     ${a&&a!=="pending"?`<div class="meme-finding" style="--vc:${a.color}"><div class="label">What the image search found · not a coordination call</div><div class="meme-finding-word">${_(a.word.toUpperCase())}</div><p>${_(a.sentence)}</p></div>`:""}
     <h3>Original <small>earliest match found</small></h3>
     ${n.searching?'<p class="meme-scanning" role="status">Searching for earlier copies…</p>':""}
-    ${r?`${l(r.id,ie(r),Se(r))}<p class="meme-note">Earliest match returned, not proof of the first publication or authorship.</p>`:n.noEarlier?'<p class="meme-empty">No earlier copy found</p>':n.searching?"":'<p class="meme-note">No original established.</p>'}
+    ${r?`${l(r.id,ie(r),Se(r))}<p class="meme-note">Earliest match returned, not proof of the first publication or authorship.</p>`:n.noEarlier?`<p class="meme-empty">${o?"No unedited copy of this picture found. The matches below are edited versions or could not be compared.":"No earlier copy found"}</p>`:n.searching?"":'<p class="meme-note">No original established.</p>'}
     ${n.failures.map(h=>`<p class="meme-failure" role="status">${_(h)}</p>`).join("")}
     ${n.skipped.map(h=>`<p class="meme-note">${_(h)}</p>`).join("")}
     <h3>Variations <span class="meme-count">${o}</span></h3>

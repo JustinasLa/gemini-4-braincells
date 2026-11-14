@@ -40,7 +40,7 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
     ${finding && finding !== "pending" ? `<div class="meme-finding" style="--vc:${finding.color}"><div class="label">What the image search found · not a coordination call</div><div class="meme-finding-word">${esc(finding.word.toUpperCase())}</div><p>${esc(finding.sentence)}</p></div>` : ""}
     <h3>Original <small>earliest match found</small></h3>
     ${state.searching ? '<p class="meme-scanning" role="status">Searching for earlier copies…</p>' : ""}
-    ${original ? `${button(original.id, domainOf(original), firstSeenLabel(original))}<p class="meme-note">Earliest match returned, not proof of the first publication or authorship.</p>` : state.noEarlier ? '<p class="meme-empty">No earlier copy found</p>' : !state.searching ? '<p class="meme-note">No original established.</p>' : ""}
+    ${original ? `${button(original.id, domainOf(original), firstSeenLabel(original))}<p class="meme-note">Earliest match returned, not proof of the first publication or authorship.</p>` : state.noEarlier ? `<p class="meme-empty">${count ? "No unedited copy of this picture found. The matches below are edited versions or could not be compared." : "No earlier copy found"}</p>` : !state.searching ? '<p class="meme-note">No original established.</p>' : ""}
     ${state.failures.map((failure) => `<p class="meme-failure" role="status">${esc(failure)}</p>`).join("")}
     ${state.skipped.map((note) => `<p class="meme-note">${esc(note)}</p>`).join("")}
     <h3>Variations <span class="meme-count">${count}</span></h3>
