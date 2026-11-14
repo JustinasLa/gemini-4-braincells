@@ -7,7 +7,7 @@ import re
 import socket
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from urllib.parse import urljoin
@@ -22,7 +22,9 @@ DOWNLOAD_BYTES = 8 * 1024 * 1024
 DIFF_S = 20.0
 DIFF_NEED_S = DIFF_S + 3.0
 MISSING = "variation matching is not installed on this server"
-_UNSUITABLE = re.compile(r"\b(?:deepfake\w*|fake\w*|manipulat\w*)\b", re.I)
+_UNSUITABLE = re.compile(
+    r"\b(?:deepfakes?|fake[ds]?|manipulated|manipulation|doctored|doctoring)\b", re.I
+)
 
 
 def _wording(text: str) -> str:
@@ -34,7 +36,9 @@ def _pinned_url(raw: str) -> tuple[httpx.URL, str, str]:
     url = httpx.URL(raw)
     if url.scheme not in ("http", "https") or not url.host or url.userinfo or "%" in url.host:
         raise ValueError("image address is not permitted")
-    port = url.port or (443 if url.scheme == "https" else 80)
+    port = 443 if url.scheme == "https" else 80
+    if url.port is not None and url.port != port:
+        raise ValueError("image port is not permitted")
     addresses = socket.getaddrinfo(url.host, port, type=socket.SOCK_STREAM)
     ips = [ipaddress.ip_address(item[4][0]) for item in addresses]
     if not ips or any(not ip.is_global or ip.is_multicast or ip.is_reserved for ip in ips):
@@ -82,6 +86,10 @@ class Trace:
         self.closed = threading.Event()
         self.query_url = ""
         self.future: Future | None = None
+        self.matches: dict[str, ImageMatch] = {}
+        self.aliases: dict[str, str] = {}
+        self.priorities: dict[str, tuple] = {}
+        self.next_match = 1
 
     def _active(self) -> bool:
         return (
@@ -95,7 +103,11 @@ class Trace:
             if not self._active():
                 return
             step = self.job._step(sid)
-            step.state, step.detail, step.found = state, detail, list(found)
+            step.state, step.detail, step.found = (
+                state,
+                _wording(detail) if detail else detail,
+                list(found),
+            )
             if state == "running":
                 step.started_at = datetime.now(UTC)
             else:
@@ -106,7 +118,7 @@ class Trace:
             if not self._active():
                 return None
             self.job._spend(need_s)
-            return self.job.receipt(tool, endpoint, summary, source_url=url, ok=False)
+            return self.job.receipt(tool, endpoint, _wording(summary), source_url=url, ok=False)
 
     def _complete(self, rid, summary, *, ok=True, call=None, source_url=None, latency_ms=None):
         with self.job.lock:
@@ -127,12 +139,97 @@ class Trace:
 
     def _publish_match(self, match):
         with self.job.lock:
-            if self._active():
-                self.job.result.image_matches = [
-                    match if old.id == match.id else old
-                    for old in self.job.result.image_matches
-                    if old.id != match.id or match.relation != "different"
-                ]
+            if self._active() and match.id in self.matches:
+                fields = {
+                    "relation",
+                    "distance",
+                    "crop_box",
+                    "edited_region",
+                    "relation_note",
+                    "changes",
+                    "change_kinds",
+                    "receipt_id",
+                }
+                self.matches[match.id] = self.matches[match.id].model_copy(
+                    update=match.model_dump(include=fields)
+                )
+                self._sync_matches()
+
+    def _sync_matches(self):
+        self.job.result.image_matches = [
+            self.matches[mid]
+            for mid in sorted(self.matches, key=self.priorities.__getitem__)
+            if self.matches[mid].relation != "different"
+        ]
+
+    def _accept(self, result, rid):
+        added = []
+        with self.job.lock:
+            if not self._active():
+                return added
+            for hit in sorted(result.hits, key=self._priority):
+                urls = [url for url in (hit.image_url, hit.thumb_url) if url]
+                mid = next((self.aliases[url] for url in urls if url in self.aliases), None)
+                if mid is not None:
+                    match = self.matches[mid].model_copy(deep=True)
+                    for field in ("page_url", "domain", "thumb_url", "width", "height"):
+                        if getattr(match, field) is None:
+                            setattr(match, field, getattr(hit, field))
+                    if (
+                        hit.first_seen
+                        and hit.time_source
+                        and (not match.first_seen or hit.first_seen < match.first_seen)
+                    ):
+                        match.first_seen, match.time_source = hit.first_seen, hit.time_source
+                        match.engine = hit.engine
+                    elif not match.first_seen and hit.engine == "tineye":
+                        match.engine = hit.engine
+                    self.matches[mid] = match
+                    self.priorities[mid] = self._priority(
+                        match, min(self.priorities[mid][2], hit.rank)
+                    )
+                else:
+                    cap = max(0, self.job.deps.image_matches_max)
+                    if not cap:
+                        continue
+                    if len(self.matches) >= cap:
+                        worst = max(self.matches, key=self.priorities.__getitem__)
+                        if self._priority(hit) >= self.priorities[worst]:
+                            continue
+                        del self.matches[worst]
+                        del self.priorities[worst]
+                        self.aliases = {
+                            url: old for url, old in self.aliases.items() if old != worst
+                        }
+                    mid = f"img:{self.next_match}"
+                    self.next_match += 1
+                    match = ImageMatch(
+                        id=mid,
+                        image_url=hit.image_url,
+                        thumb_url=hit.thumb_url,
+                        page_url=hit.page_url,
+                        domain=hit.domain,
+                        engine=hit.engine,
+                        first_seen=hit.first_seen,
+                        time_source=hit.time_source,
+                        width=hit.width,
+                        height=hit.height,
+                        receipt_id=rid,
+                    )
+                    self.matches[mid] = match
+                    self.priorities[mid] = self._priority(hit)
+                    added.append(match)
+                self.aliases.update(dict.fromkeys(urls, mid))
+            self._sync_matches()
+        return added
+
+    @staticmethod
+    def _priority(match, rank=None):
+        return (
+            match.engine != "tineye",
+            match.first_seen or datetime.max.replace(tzinfo=UTC),
+            match.rank if rank is None else rank,
+        )
 
     @staticmethod
     def _comparison_summary(match):
@@ -143,29 +240,17 @@ class Trace:
                 summary += " (crawl date, not publication)"
         return summary
 
-    def _parallel(self, function, items, workers):
-        pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="image-trace")
-        futures = []
-        try:
-            futures = [pool.submit(function, item) for item in items]
-            wait(futures, timeout=max(0.0, self.job._provider_deadline() - time.monotonic()))
-            results = []
-            for future in futures:
-                if future.done() and not future.cancelled():
-                    try:
-                        result = future.result()
-                    except Exception:
-                        continue
-                    if result is not None:
-                        results.append(result)
-            return results
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
-
     def _search(self, engine_view):
         engine, sites = engine_view
         label = "TinEye" if engine == "tineye" else "Yandex sites" if sites else "Yandex imageview"
-        rid = self._receipt(engine, "/scrape", f"{label}: search completion not confirmed", None)
+        request_url = (
+            reverse_image.tineye_url(self.query_url)
+            if engine == "tineye"
+            else reverse_image.yandex_url(self.query_url, sites=sites)
+        )
+        rid = self._receipt(
+            engine, "/scrape", f"{label}: search completion not confirmed", request_url
+        )
         if rid is None:
             return None
         try:
@@ -194,7 +279,13 @@ class Trace:
             self._complete(rid, summary, call=result.call, source_url=result.request_url)
             return result, rid
         except Exception:
-            self._complete(rid, f"{label}: search unavailable", ok=False)
+            self._complete(
+                rid,
+                f"{label}: search unavailable",
+                ok=False,
+                source_url=request_url,
+                call=dict(self.job.deps.oxylabs.last_call),
+            )
             return None
 
     def _download(self, raw):
@@ -344,92 +435,98 @@ class Trace:
     def _run(self):
         self.job._spend()
         self._step("reverse_image", "running")
-        results = self._parallel(
-            self._search, [("tineye", False), ("yandex", False), ("yandex", True)], 3
-        )
-        candidates = [(hit, rid) for result, rid in results for hit in result.hits]
-        candidates.sort(
-            key=lambda pair: (
-                pair[0].engine != "tineye",
-                pair[0].first_seen or datetime.max.replace(tzinfo=UTC),
-                pair[0].rank,
-            )
-        )
-        seen, matches = set(), []
-        for hit, rid in candidates:
-            urls = {url for url in (hit.image_url, hit.thumb_url) if url}
-            if seen & urls or len(matches) >= max(0, self.job.deps.image_matches_max):
-                continue
-            seen.update(urls)
-            matches.append(
-                ImageMatch(
-                    id=f"img:{len(matches) + 1}",
-                    image_url=hit.image_url,
-                    thumb_url=hit.thumb_url,
-                    page_url=hit.page_url,
-                    domain=hit.domain,
-                    engine=hit.engine,
-                    first_seen=hit.first_seen,
-                    time_source=hit.time_source,
-                    width=hit.width,
-                    height=hit.height,
-                    receipt_id=rid,
-                )
-            )
-        with self.job.lock:
-            if not self._active():
-                return
-            self.job.result.image_matches = matches
-        self._step(
-            "reverse_image",
-            "done" if results else "failed",
-            f"{len(results)}/3 searches answered; {len(matches)} candidate images",
-            [match.id for match in matches],
-        )
-        if not matches:
-            self._step("variations", "skipped", "No candidate images to compare")
-            return
-        try:
-            relate = self.job.deps.relate or import_module("media.variants").relate
-            describe = (
-                self.job.deps.describe_changes or import_module("media.imagediff").describe_changes
-            )
-        except ImportError:
-            self._step("variations", "skipped", MISSING)
-            return
-        self._step("variations", "running")
+        searches = ThreadPoolExecutor(max_workers=3, thread_name_prefix="image-trace-search")
+        comparisons = ThreadPoolExecutor(max_workers=8, thread_name_prefix="image-trace-compare")
+        descriptions = ThreadPoolExecutor(max_workers=4, thread_name_prefix="image-trace-diff")
+        pending = {}
+        answered = finished = diffs_started = diffs_done = 0
+        initialized = False
+        skip = None
+        waiting = []
         base = self.job._upload
-        if base is None:
-            fetched = self._download(self.query_url)
-            if fetched is not None:
-                base, _rid = fetched
-        if base is None:
-            self._step("variations", "skipped", "The submitted image could not be downloaded")
+        try:
+            for engine_view in (("tineye", False), ("yandex", False), ("yandex", True)):
+                pending[searches.submit(self._search, engine_view)] = "search"
+            while pending and self._active():
+                done, _ = wait(
+                    pending,
+                    timeout=max(0.0, self.job._provider_deadline() - time.monotonic()),
+                    return_when=FIRST_COMPLETED,
+                )
+                for future in [future for future in pending if future in done]:
+                    stage = pending.pop(future)
+                    try:
+                        value = future.result()
+                    except Exception:
+                        value = None
+                    if stage == "search":
+                        finished += 1
+                        if value is not None:
+                            answered += 1
+                            waiting.extend(self._accept(*value))
+                        self._step(
+                            "reverse_image",
+                            ("done" if answered else "failed") if finished == 3 else "running",
+                            f"{answered}/3 searches answered; {len(self.matches)} candidate images",
+                            self.matches,
+                        )
+                        if waiting and not initialized:
+                            initialized = True
+                            try:
+                                relate = (
+                                    self.job.deps.relate or import_module("media.variants").relate
+                                )
+                                describe = (
+                                    self.job.deps.describe_changes
+                                    or import_module("media.imagediff").describe_changes
+                                )
+                            except ImportError:
+                                skip = MISSING
+                            if not skip:
+                                self._step("variations", "running")
+                                if base is None:
+                                    pending[comparisons.submit(self._download, self.query_url)] = (
+                                        "base"
+                                    )
+                    elif stage == "base":
+                        if value is None:
+                            skip = "The submitted image could not be downloaded"
+                        else:
+                            base, _rid = value
+                    elif stage == "compare" and value is not None:
+                        match, data = value
+                        if (
+                            data is not None
+                            and match.id in self.matches
+                            and match.relation in ("edited", "cropped")
+                            and self.job.deps.nemotron
+                            and diffs_started < max(0, self.job.deps.image_diffs_max)
+                            and self._active()
+                        ):
+                            diffs_started += 1
+                            item = (self.matches[match.id], data, base, describe)
+                            pending[descriptions.submit(self._diff, item)] = "diff"
+                    elif stage == "diff" and value is not None:
+                        diffs_done += 1
+                    if base is not None and not skip and self._active():
+                        for match in waiting:
+                            if match.id in self.matches:
+                                pending[
+                                    comparisons.submit(self._compare, (match, base, relate))
+                                ] = "compare"
+                        waiting.clear()
+        finally:
+            for pool in (searches, comparisons, descriptions):
+                pool.shutdown(wait=False, cancel_futures=True)
+        if skip or not initialized:
+            self._step("variations", "skipped", skip or "No candidate images to compare")
             return
-        compared = self._parallel(self._compare, [(match, base, relate) for match in matches], 8)
-        by_id = {match.id: match for match, _data in compared}
-        matches = [by_id.get(match.id, match) for match in matches]
-        matches = [match for match in matches if match.relation != "different"]
-        with self.job.lock:
-            if not self._active():
-                return
-            self.job.result.image_matches = matches
-        edits = [
-            (match, data, base, describe)
-            for match, data in compared
-            if data is not None and match.relation in ("edited", "cropped")
-        ][: max(0, self.job.deps.image_diffs_max)]
-        diffs = self._parallel(self._diff, edits, 4) if self.job.deps.nemotron else []
-        by_id = {match.id: match for match in diffs}
-        with self.job.lock:
-            if not self._active():
-                return
-            self.job.result.image_matches = [by_id.get(match.id, match) for match in matches]
+        matches = self.job.result.image_matches
         known = sum(match.relation != "unknown" for match in matches)
         self._step(
             "variations",
             "done",
-            f"{known} images compared; {len(diffs)} change descriptions",
+            f"{known} images compared; {diffs_done} change descriptions",
             [match.id for match in matches],
         )
 

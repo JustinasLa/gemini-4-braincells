@@ -10,7 +10,9 @@ import threading
 import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -21,6 +23,8 @@ from lookup.assess import brief
 from lookup.models import ImageMatch, ImageRef, LookupInput, Post
 from lookup.service import Deps, Lookup
 from media.nemotron import MediaAnalysis
+from sources import reverse_image
+from sources.oxylabs import OxylabsError
 from sources.reverse_image import ImageHit, ReverseResult
 
 
@@ -360,6 +364,11 @@ def test_missing_variants_retains_unknown_reverse_results(monkeypatch, module):
         "http://224.0.0.1/image",
         "file:///etc/passwd",
         "https://user:password@images.example/image",
+        "http://example.com:2375/version",
+        "http://images.example:443/image",
+        "https://images.example:80/image",
+        "https://images.example:8443/image",
+        "http://images.example:0/image",
     ],
 )
 def test_ssrf_refused_without_a_request(url):
@@ -371,13 +380,21 @@ def test_ssrf_refused_without_a_request(url):
     assert job.result.receipts and not job.result.receipts[-1].ok
 
 
-def test_redirect_to_private_address_is_refused_and_receipted():
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "http://10.0.0.1/secret",
+        "http://example.com:2375/version",
+        "https://images.example:8443/image",
+    ],
+)
+def test_redirect_to_private_address_or_odd_port_is_refused_and_receipted(destination):
     requests = []
 
     def redirect(request):
         requests.append(request)
         return httpx.Response(
-            302, headers={"location": "http://10.0.0.1/secret", "set-cookie": "session=private"}
+            302, headers={"location": destination, "set-cookie": "session=private"}
         )
 
     job = job_for(image_transport=httpx.MockTransport(redirect))
@@ -528,12 +545,17 @@ def test_caps_on_matches_diffs_and_assessment():
 def test_all_generated_wording_is_cautious():
     def unsafe_relation(base, other):
         relation = relate(base, other)
-        relation.note = "fake, faked, manipulated or DEEPFAKE"
+        relation.note = (
+            "fake, FAKED, fakes, deepfake, DEEPFAKES, manipulated, "
+            "manipulation, doctored, DOCTORING"
+        )
         return relation
 
     def unsafe_diff(*args, **kwargs):
         diff = describe(*args, **kwargs)
-        diff.changes = ["Fake caption, manipulated face, deepfake background"]
+        diff.changes = [
+            "Fake caption, manipulated face, deepfake background, DOCTORED sky, doctoring"
+        ]
         return diff
 
     job = job_for(relate=unsafe_relation, describe_changes=unsafe_diff)
@@ -545,7 +567,14 @@ def test_all_generated_wording_is_cautious():
         + [match.relation_note for match in job.result.image_matches]
         + [change for match in job.result.image_matches for change in match.changes]
     )
-    assert not re.search(r"\b(?:fake\w*|deepfake\w*|manipulat\w*)\b", text, re.I)
+    assert not re.search(
+        r"\b(?:fake[ds]?|deepfakes?|manipulated|manipulation|doctored|doctoring)\b", text, re.I
+    )
+    assert "edited sky" in text
+    assert (
+        imagetrace._wording("The doctored image; Doctor Who; fakeout")
+        == "The edited image; Doctor Who; fakeout"
+    )
 
 
 def test_dns_mixed_public_private_answers_refused(monkeypatch):
@@ -561,10 +590,11 @@ def test_dns_mixed_public_private_answers_refused(monkeypatch):
         imagetrace._pinned_url("https://images.example/test")
 
 
-def test_public_download_pins_dns_answer():
-    pinned, host, sni = imagetrace._pinned_url("https://images.example:8443/test")
-    assert str(pinned) == "https://93.184.216.34:8443/test"
-    assert host == "images.example:8443" and sni == "images.example"
+@pytest.mark.parametrize("scheme,port", [("http", 80), ("https", 443)])
+def test_public_download_pins_dns_answer(scheme, port):
+    pinned, host, sni = imagetrace._pinned_url(f"{scheme}://images.example:{port}/test")
+    assert str(pinned) == f"{scheme}://93.184.216.34/test"
+    assert host == "images.example" and sni == "images.example"
 
 
 def test_new_result_contract_serializes_boxes_as_arrays():
@@ -720,3 +750,208 @@ def test_compressed_http_body_is_refused_before_decompression():
     )
     assert imagetrace.Trace(job)._download("https://images.example/compressed") is None
     assert not job.result.receipts[-1].ok
+
+
+def test_fast_yandex_is_published_and_compared_while_tineye_exhausts_13_second_budget():
+    compared = threading.Event()
+    observed = []
+    searches = Searches()
+
+    def slow(client, url, *, deadline):
+        observed.append(compared.wait(timeout=1))
+        threading.Event().wait(max(0, deadline - time.monotonic()))
+        raise TimeoutError("provider deadline")
+
+    def compare(base, data):
+        compared.set()
+        return relate(base, data)
+
+    searches.tineye = slow
+    job = job_for(searches, relate=compare, time_budget_s=13.1)
+    run_trace(job)
+    assert observed == [True]
+    assert len(job.result.image_matches) == 1
+    assert job.result.image_matches[0].engine == "yandex"
+    assert job.result.image_matches[0].relation == "same"
+    assert len([receipt for receipt in job.result.receipts if receipt.tool == "fetch"]) == 1
+    assert sum(receipt.tool == "yandex" and receipt.ok for receipt in job.result.receipts) == 2
+
+
+def test_later_tineye_adds_dated_origin_after_yandex_is_compared():
+    compared = threading.Event()
+    searches = Searches([hit("dated.png")])
+    original = searches.tineye
+
+    def later(*args, **kwargs):
+        assert compared.wait(timeout=2)
+        return original(*args, **kwargs)
+
+    def compare(base, data):
+        compared.set()
+        return relate(base, data)
+
+    searches.tineye = later
+    job = job_for(searches, relate=compare, image_matches_max=1)
+    run_trace(job)
+    assert len(job.result.image_matches) == 1
+    origin = job.result.image_matches[0]
+    assert origin.engine == "tineye" and origin.first_seen == OLD
+    assert origin.relation == "same" and job.result.image_origin_id == origin.id
+    assert len([receipt for receipt in job.result.receipts if receipt.tool == "fetch"]) == 2
+
+
+class FixtureSources(TextSources):
+    def __init__(self, name="disaster", failure=None, view_downloaded=None):
+        self.name = name
+        self.failure = failure
+        self.view_downloaded = view_downloaded
+        self.local = threading.local()
+
+    @property
+    def last_call(self):
+        return getattr(self.local, "call", {})
+
+    def scrape_markdown(self, url, *, deadline=None):
+        parsed = httpx.URL(url)
+        engine = (
+            "tineye"
+            if parsed.host == "tineye.com"
+            else ("yandex_sites" if parsed.params.get("cbir_page") == "sites" else "yandex")
+        )
+        self.local.call = {
+            "request_id": f"fixture-{engine}",
+            "latency_ms": 11,
+            "cached": True,
+            "fetched_at": RECENT,
+        }
+        if self.failure == "http":
+            raise OxylabsError("upstream error")
+        if self.failure == "parse":
+            return "## Please confirm you are not a robot", {}
+        if engine == "yandex_sites" and self.view_downloaded is not None:
+            assert self.view_downloaded.wait(timeout=2)
+        suffix = "json" if engine == "tineye" else "md"
+        path = (
+            Path(__file__).parent / "fixtures" / "reverse_image" / f"{engine}_{self.name}.{suffix}"
+        )
+        return path.read_text(encoding="utf-8"), {}
+
+
+@pytest.mark.parametrize("failure", ["http", "parse"])
+def test_failed_real_engine_calls_keep_url_and_cached_client_provenance(failure):
+    job = job_for(
+        oxylabs=FixtureSources(failure=failure),
+        search_tineye=None,
+        search_yandex=None,
+    )
+    trace = run_trace(job)
+    receipts = job.result.receipts
+    assert len(receipts) == 3
+    assert {receipt.source_url for receipt in receipts} == {
+        reverse_image.tineye_url(trace.query_url),
+        reverse_image.yandex_url(trace.query_url),
+        reverse_image.yandex_url(trace.query_url, sites=True),
+    }
+    assert {receipt.request_id for receipt in receipts} == {
+        "fixture-tineye",
+        "fixture-yandex",
+        "fixture-yandex_sites",
+    }
+    assert all(not receipt.ok and receipt.cached for receipt in receipts)
+    assert all(receipt.latency_ms == 11 and receipt.at == RECENT for receipt in receipts)
+    assert all(receipt.summary.endswith("search unavailable") for receipt in receipts)
+
+
+def test_duplicate_enrichment_at_cap_survives_inflight_comparison():
+    job = job_for(image_matches_max=1)
+    trace = imagetrace.Trace(job)
+    first = replace(
+        hit(engine="yandex", when=None),
+        page_url=None,
+        domain=None,
+        width=None,
+        height=None,
+    )
+    original = trace._accept(result("yandex", "query", [first]), 1)[0]
+    site = replace(
+        first,
+        page_url="https://article.example/story",
+        domain="article.example",
+        thumb_url="https://thumb.example/image",
+        width=500,
+        height=375,
+    )
+    assert trace._accept(result("yandex", "query", [site]), 2) == []
+    dated = replace(site, engine="tineye", first_seen=RECENT, time_source="crawl_date")
+    trace._accept(result("tineye", "query", [dated]), 3)
+    trace._accept(result("tineye", "query", [replace(dated, first_seen=OLD)]), 4)
+    trace._accept(result("yandex", "query", [first]), 5)
+    trace._publish_match(original.model_copy(update={"relation": "same"}))
+    enriched = job.result.image_matches[0]
+    assert len(job.result.image_matches) == 1 and enriched.id == original.id
+    assert enriched.page_url == site.page_url and enriched.domain == site.domain
+    assert enriched.thumb_url == site.thumb_url and (enriched.width, enriched.height) == (500, 375)
+    assert enriched.first_seen == OLD and enriched.time_source == "crawl_date"
+    assert enriched.engine == "tineye" and enriched.relation == "same"
+
+
+@pytest.mark.parametrize("kind", ["same", "resized"])
+@pytest.mark.parametrize("name,total,count", [("disaster", 17200, 38), ("imgflip", 16540, 42)])
+def test_captured_fixtures_through_real_search_into_lookup_origins_and_receipts(
+    name, total, count, kind
+):
+    downloaded = threading.Event() if name == "disaster" else None
+
+    def fetch(request):
+        if downloaded is not None and request.headers["host"] == "pochemuha.ru":
+            downloaded.set()
+        return transport(request)
+
+    def compare(base, data):
+        relation = relate(base, data)
+        relation.kind = kind
+        return relation
+
+    job = job_for(
+        oxylabs=FixtureSources(name, view_downloaded=downloaded),
+        search_tineye=None,
+        search_yandex=None,
+        relate=compare,
+        image_transport=httpx.MockTransport(fetch),
+        image_matches_max=100,
+    )
+    job.run()
+    assert job.result.state == "done", job.result.error
+    matches = job.result.image_matches
+    assert len(matches) == count
+    origin = next(match for match in matches if match.id == job.result.image_origin_id)
+    assert origin.image_url == "http://static.zooomr.com/images/592360_8ca5f7f005_s.jpg"
+    assert origin.page_url == "http://www.zooomr.com/people/americangirl/"
+    assert origin.first_seen == OLD and origin.time_source == "crawl_date"
+    assert origin.engine == "tineye" and origin.relation == kind
+    if name == "disaster":
+        copies = [match for match in matches if match.domain == "pochemuha.ru"]
+        assert len(copies) == 1 and downloaded.is_set()
+        assert copies[0].page_url == "https://pochemuha.ru/zagadochnye-podzhogi-na-ferme-uilli"
+        assert copies[0].relation == kind
+    receipts = job.result.receipts
+    engine_receipts = [receipt for receipt in receipts if receipt.tool in ("tineye", "yandex")]
+    assert len(engine_receipts) == 3
+    assert all(
+        receipt.ok and receipt.cached and receipt.request_id and receipt.source_url
+        for receipt in engine_receipts
+    )
+    summaries = {receipt.summary for receipt in engine_receipts}
+    assert (
+        f"TinEye: {total:,} matches, earliest crawl 2008-04-22 "
+        "(when the engine first saw it, not a publish date)" in summaries
+    )
+    assert {"Yandex imageview: 18 matches", "Yandex sites: 20 matches"} <= summaries
+    fetch_receipts = [receipt for receipt in receipts if receipt.tool == "fetch"]
+    assert len(fetch_receipts) == count
+    assert len(engine_receipts) + len(fetch_receipts) == count + 3
+    assert all(
+        receipt.ok and f"comparison with the upload: {kind}" in receipt.summary
+        for receipt in fetch_receipts
+    )
+    assert any("tineye first seen 2008-04-22" in receipt.summary for receipt in fetch_receipts)
