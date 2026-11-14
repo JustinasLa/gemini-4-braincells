@@ -1423,3 +1423,53 @@ def test_diff_direction_for_a_post_follows_provable_order(first_seen, match_firs
         time_source="crawl_date" if first_seen else None,
     )
     assert trace._match_is_older(match) is match_first
+
+
+def test_a_date_arriving_during_the_reading_never_mislabels_the_direction():
+    """Sol: Yandex lists a copy undated, a diff starts (post's picture first), then TinEye's
+    2008 crawl for the same copy proves it predates the post. The sentences describe the old
+    direction, so they must not be published under either label."""
+    started, release = threading.Event(), threading.Event()
+
+    def slow(client, original, variant, *, timeout_s):
+        started.set()
+        assert release.wait(timeout=3)
+        return SimpleNamespace(
+            changes=["A caption was added"], kinds=["text_added"], latency_ms=4, model="m"
+        )
+
+    job = job_for(describe_changes=slow)
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    undated = replace(hit("edited.png", engine="yandex", when=None), page_url=None)
+    [match] = trace._accept(result("yandex", "query", [undated]), 1)
+    trace.admitted.add(match.id)
+    trace._publish_match(match.model_copy(update={"relation": "edited"}))
+    worker = threading.Thread(target=trace._diff, args=((match, EDITED, BASE, slow),))
+    worker.start()
+    assert started.wait(timeout=3)
+    trace._accept(
+        result(
+            "tineye",
+            "query",
+            [replace(undated, engine="tineye", first_seen=OLD, time_source="crawl_date")],
+        ),
+        2,
+    )
+    release.set()
+    worker.join(timeout=3)
+    published = trace.matches[match.id]
+    assert published.first_seen == OLD
+    assert published.changes == [] and published.changes_from is None
+    receipt = job.result.receipts[-1]
+    assert not receipt.ok and "changed which picture it starts from" in receipt.summary

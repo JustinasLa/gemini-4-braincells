@@ -185,10 +185,14 @@ ImageMatch {
 ```
 
 `changes_from` says which way to read `changes` (media.imagediff reads one picture as the
-earlier one). `"match"`: the changes turn this copy into the submitted picture; for an upload
-always, since a copy already on the web predates it. `"upload"`: they turn the submitted
-picture (the upload or the post's image) into this copy; for a post, unless the copy's
-first-seen upper bound proves it existed before the post. Neither claims who copied whom.
+starting point). `"match"`: the changes turn this copy into the submitted picture.
+`"upload"`: they turn the submitted picture (the upload or the post's image) into this copy.
+For an upload it is always `"match"`: a comparison convention, not a chronology (when someone
+uploads a picture says nothing about when it was made or edited). For a post it is `"match"`
+only when the copy's first-seen upper bound proves it existed before the post, judged on the
+copy's latest dates; a description whose direction a late-arriving date flipped is not shown.
+Neither value says who copied whom or which picture was made first; show the direction with
+the sentences (e.g. "This copy → your picture").
 
 `change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
 `element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.

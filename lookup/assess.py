@@ -53,7 +53,8 @@ Write a short, plain reading for a general audience:
   An "edited" match with no listed changes differs only in pixels (a strong colour or
   brightness filter can do that): never present it alone as a change of content.
   changes_from "match" means the changes turn that copy into the submitted picture; "upload"
-  means they turn the submitted picture into that copy. Neither says who copied whom.
+  means they turn the submitted picture into that copy. Neither says who copied whom or which
+  picture is older.
 - spread_pattern: describe the copies: how many accounts, how fast, verbatim or quoted,
   established or new accounts. Facts only.
 - counter_evidence: reasons the spread may be ordinary (famous author, news event, people

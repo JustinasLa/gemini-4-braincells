@@ -497,13 +497,16 @@ class Trace:
         return match, None
 
     def _match_is_older(self, match) -> bool:
-        """Which side media.imagediff should read as the earlier one ("original"). An upload is
-        newer than any copy already on the web, so the copy comes first. For a post, a copy
-        comes first only when its first-seen upper bound proves it existed before the post;
-        otherwise the post's picture does. Who derived from whom is never claimed."""
+        """Which side media.imagediff reads as "original" (`match` is read from self.matches, so a
+        date that arrived later counts). A comparison convention, not a chronology: for an
+        upload the changes read from the copy to the upload (when someone uploads a picture says
+        nothing about when it was made or edited). For a post, the copy goes first only when its
+        first-seen upper bound proves it existed before the post; otherwise the post's picture
+        does. Neither says who copied whom or which picture was made first."""
         if self.job._upload is not None:
             return True
         with self.job.lock:
+            match = self.matches.get(match.id, match)
             subject = next(
                 (p for p in self.job.result.posts if p.id == self.job.result.subject_id), None
             )
@@ -536,6 +539,17 @@ class Trace:
             )
             if diff is None:
                 self._complete(rid, "Image change description unavailable", ok=False)
+                return None
+            if self._match_is_older(match) != older:
+                # a first-seen date arrived while Nemotron read the pair and flipped the order:
+                # its sentences describe the other direction, so they are not shown
+                self._complete(
+                    rid,
+                    "Image change description not shown: the copy's date arrived during the "
+                    "reading and changed which picture it starts from",
+                    ok=False,
+                    latency_ms=diff.latency_ms,
+                )
                 return None
             updated = match.model_copy(deep=True)
             updated.changes = [_wording(change) for change in diff.changes]
