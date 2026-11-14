@@ -13,11 +13,11 @@ import re
 import threading
 import time
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -38,7 +38,18 @@ from lookup.models import (
     Step,
 )
 from lookup.urls import X_STATUS_RE, Target, classify, domain, snowflake_time, x_post_url
-from lookup.xpage import PostPage, XItem, parse_post_page, parse_profile
+from lookup.xpage import (
+    PostPage,
+    XItem,
+    page_unavailable_reason,
+    parse_post_page,
+    parse_profile,
+    unavailable_detail,
+    unavailable_reason,
+    unavailable_tag,
+)
+from sources.links import X_HOSTS, url_variants
+from sources.oxylabs import OxylabsError
 
 log = logging.getLogger(__name__)
 
@@ -52,15 +63,36 @@ STEPS = [
     ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
     ("coverage", "oxylabs", "Find coverage of the story"),
     ("media", "nemotron", "Read the images with Nemotron VL"),
-    ("verify", "oxylabs", "Read source pages and candidate copies"),
+    ("screenshot", "nemotron", "Find the real post a screenshot shows"),
+    ("verify", "oxylabs", "Read source pages and candidate copies on their own pages"),
     ("monitor", "detector", "Check the clusters we monitor"),
-    ("assess", "gemini", "Gemini reads the receipts"),
+    ("assess", "nemotron", "Nemotron reads the receipts"),
+    ("second_reading", "gemini", "Gemini's second reading"),
 ]
 VERBATIM = 0.8
 COPY_MIN = 0.5
-ASSESS_RESERVE_S = 25.0  # the last seconds of the budget are Gemini's
+ASSESS_RESERVE_S = 10.0  # the last seconds of the budget are the primary (Nemotron) reading's
 X_MIN_SIM = 0.35  # an X search hit sharing fewer words with the text is not about it
 OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message worth searching
+UPLOAD = "upload:"  # media_urls entry of an uploaded image: its bytes are in the job, not a CDN
+# an uploaded image's own step labels: there is no post, the image is the input
+IMAGE_LABELS = {
+    "media": "Read the uploaded image with Nemotron VL",
+    "copies_web": "Search the web for the text in the image",
+    "copies_x": "Search X for the text in the image",
+    "copies_bsky": "Find the text in the image on Bluesky",
+    "coverage": "Find pages about the image (meme pages, coverage)",
+    "verify": "Read source pages and candidate copies",
+}
+# Per-call caps (s) on Oxylabs, from the 2026-11-14 measurement (lookup/README.md): /scrape p50
+# 3.6 s, p90 7.2 s, one hang of 34 s; AI fact extraction up to 11.6 s; /search p90 2.6 s. A call
+# that hangs ends here instead of holding the reading until the whole budget is gone.
+SEARCH_CAP_S = 10.0
+PAGE_CAP_S = 15.0  # X post/profile pages (markdown)
+FACTS_CAP_S = 20.0  # /scrape with AI extraction
+IMAGE_DOWNLOAD_S = 10.0  # an image from the platform CDN
+IMAGE_CALL_S = 20.0  # the lookup's Nemotron image client: one attempt, this timeout, no limiter
+IMAGE_NEED_S = IMAGE_CALL_S + 3.0  # an image call starts only if it ends before the reserve
 _REL_AGO = re.compile(r"^\s*(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", re.I)
 _REL_UNIT = {
     "second": 1,
@@ -79,6 +111,28 @@ _BSKY_POST = re.compile(r"https?://bsky\.app/profile/([^/\s?#]+)/post/([a-z0-9]+
 
 class BudgetExceeded(RuntimeError):
     """The lookup's time budget is used up: no new provider call starts."""
+
+
+class StepUnavailable(Exception):
+    """An expected condition that can be shown directly."""
+
+    def __init__(self, detail: str, state: Literal["failed", "done", "skipped"] = "failed"):
+        super().__init__(detail)
+        self.state = state
+
+
+def _error_detail(exc: Exception) -> str:
+    if isinstance(exc, StepUnavailable):
+        return str(exc)
+    if isinstance(exc, OxylabsError):
+        return "Oxylabs couldn't read the page" + (
+            f" (HTTP {exc.status})" if exc.status is not None else ""
+        )
+    if type(exc).__name__ == "NotVisionModelError":  # media.nemotron, imported lazily
+        return "the reply came from a model that isn't Nemotron Super VL; no reading kept"
+    if isinstance(exc, ValueError) and (m := re.search(r"finish_reason=(\w+)", str(exc))):
+        return f"the model returned no usable reading (finish_reason={m.group(1)})"
+    return "unexpected error (logged)"
 
 
 def _now() -> datetime:
@@ -136,37 +190,68 @@ class Deps:
     bsky: BlueskyClient | None = None
     store: Callable[[], Any] | None = None  # context manager factory yielding api.store.Store
     nemotron: Any = None  # media.nemotron.NemotronClient
-    assessor: Any = None  # lookup.assess.Assessor
+    assessor: Any = None  # primary reading: lookup.assess.NemotronAssessor (or Assessor)
+    second_assessor: Any = None  # optional slower second reading: lookup.assess.Assessor (Gemini)
     http: httpx.Client | None = None  # media downloads
+    media_cache: Any = None  # image hash -> MediaAnalysis, shared across lookups (lookup/cache.py)
+    media_urls: Any = None  # image URL -> hash, so a known image is not downloaded again
     verify_max: int = 8
     source_pages_max: int = 3
     profiles_max: int = 4
     replies_max: int = 8
     media_max: int = 2
-    time_budget_s: float = 150.0
+    time_budget_s: float = 60.0
+    # cap (s) on each read of a candidate copy or older page; Oxylabs /scrape p90 is ~7 s, and
+    # the reading waits for the slowest of these reads
+    verify_read_s: float = 8.0
+    second_reading_s: float = 45.0  # the second reading's own bound; it never delays the first
+    workers: int = 16
 
 
 class Lookup:
-    def __init__(self, job_id: str, inp: LookupInput, deps: Deps):
+    def __init__(self, job_id: str, inp: LookupInput, deps: Deps, image: bytes | None = None):
+        """`image`: the uploaded image's bytes when `inp.image` describes an upload."""
         self.deps = deps
         self.lock = threading.RLock()
-        self.target: Target | None = classify(inp.url) if inp.url else None
-        kind = self.target.kind if self.target else "text"
+        if inp.image is not None and image is None:
+            raise ValueError("an image lookup needs the image bytes")
+        self._upload: bytes | None = image if inp.image is not None else None
+        self.target: Target | None = classify(inp.url) if inp.url and not self._upload else None
+        kind = "image" if self._upload else self.target.kind if self.target else "text"
+        labels = IMAGE_LABELS if kind == "image" else {}
         self.result = LookupResult(
             id=job_id,
             input=inp,
             kind=kind,
             started_at=_now(),
-            steps=[Step(id=s, tool=t, label=lbl) for s, t, lbl in STEPS],
+            steps=[Step(id=s, tool=t, label=labels.get(s, lbl)) for s, t, lbl in STEPS],
         )
         self.deadline = time.monotonic() + deps.time_budget_s
         self._subject_text: str | None = (inp.text or "").strip() or None
-        self._subject_time: datetime | None = None
+        # an X post's time is in its id: known before its page is read (author age uses it)
+        self._subject_time: datetime | None = (
+            snowflake_time(self.target.post_id)
+            if self.target and self.target.kind == "x_post" and self.target.post_id
+            else None
+        )
         self._card_url: str | None = None
         self._card_title: str | None = None
         self._media_urls: list[str] = []
+        # an uploaded image with too little text for an exact search: what to look for instead
+        self._image_query: str | None = None
+        self._upload_meme = False  # Nemotron typed the uploaded image a meme
+        self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
+        self._unreadable = False  # the submitted post or page is an X tombstone
+        self._tomb_detail = ""
+        self._pool: ThreadPoolExecutor | None = None
+        # verify runs as candidates arrive (see _queue_verify), not after every other step
+        self._v_futures: list[Future] = []
+        self._v_posts: list[str] = []  # candidate X posts queued for their own page
+        self._v_profiles: set[str] = set()  # copier profiles queued
+        self._v_pages: list[str] = []  # older-looking pages queued for their own date
+        self._v_read = 0  # candidate copy pages that came back (read, whatever they showed)
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
@@ -176,6 +261,15 @@ class Lookup:
             if self._final is not None:
                 return self._final
             return self.result.model_dump(mode="json", by_alias=True)
+
+    @property
+    def upload(self) -> tuple[bytes, str] | None:
+        """The uploaded image (bytes, MIME type), served back by GET /api/lookup/{id}/image."""
+        img = self.result.input.image
+        return (self._upload, img.mime) if self._upload is not None and img else None
+
+    def upload_url(self) -> str:
+        return f"/api/lookup/{self.result.id}/image"
 
     def _step(self, sid: str) -> Step:
         return next(s for s in self.result.steps if s.id == sid)
@@ -193,11 +287,16 @@ class Lookup:
                 st.detail = (st.detail + " · " if st.detail else "") + "time budget used up"
                 st.ended_at = _now()
             return
+        except StepUnavailable as exc:
+            with self.lock:
+                st.state, st.detail = exc.state, str(exc)
+                st.ended_at = _now()
+            return
         except Exception as exc:  # recorded, never fatal for the run
             log.warning("lookup %s step %s failed: %s", self.result.id, sid, exc, exc_info=True)
             with self.lock:
                 st.state = "failed"
-                st.detail = st.detail or f"{type(exc).__name__}: {str(exc)[:160]}"
+                st.detail = _error_detail(exc)
                 st.ended_at = _now()
             return
         with self.lock:
@@ -222,8 +321,18 @@ class Lookup:
         call: dict | None = None,
         ok: bool = True,
         latency_ms: int | None = None,
+        cached: bool | None = None,
     ) -> int:
+        """Record one receipt. A cache hit (lookup/cache.py) says so and keeps the time of the
+        original read; it is never shown as a fresh request."""
         call = call or {}
+        cached = bool(call.get("cached")) if cached is None else cached
+        summary = summary[:400]
+        fetched = call.get("fetched_at")
+        if cached:
+            summary = summary[:360] + (
+                f" (cached read from {fetched:%H:%M:%S} UTC)" if fetched else " (cached read)"
+            )
         with self.lock:
             rid = len(self.result.receipts) + 1
             self.result.receipts.append(
@@ -231,11 +340,12 @@ class Lookup:
                     id=rid,
                     tool=tool,
                     endpoint=endpoint,
-                    summary=summary[:400],
+                    summary=summary,
                     source_url=source_url,
                     query=query,
                     request_id=call.get("request_id"),
                     latency_ms=latency_ms if latency_ms is not None else call.get("latency_ms"),
+                    cached=cached,
                     ok=ok,
                     at=_now(),
                 )
@@ -341,9 +451,11 @@ class Lookup:
     def _left(self) -> float:
         return max(1.0, self.deadline - time.monotonic())
 
-    def _provider_deadline(self) -> float:
-        """Absolute (monotonic) end for a provider call made now: Gemini's reserve stays free."""
-        return self.deadline - ASSESS_RESERVE_S
+    def _provider_deadline(self, cap_s: float | None = None) -> float:
+        """Absolute (monotonic) end for a provider call made now: the reading's reserve stays
+        free, and with `cap_s` the call never takes longer than that."""
+        end = self.deadline - ASSESS_RESERVE_S
+        return end if cap_s is None else min(end, time.monotonic() + cap_s)
 
     def _spend(self, need_s: float = 3.0, reserve_s: float = ASSESS_RESERVE_S) -> None:
         """Gate before every paid or slow provider call; keeps time back for Gemini's reading."""
@@ -360,7 +472,7 @@ class Lookup:
             log.exception("lookup %s failed", self.result.id)
             with self.lock:
                 self.result.state = "failed"
-                self.result.error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                self.result.error = _error_detail(exc)
         finally:
             with self.lock:
                 self.result.finished_at = _now()
@@ -380,10 +492,14 @@ class Lookup:
                 "bsky_profile": "Bluesky profile",
                 "web": "Web page",
                 "text": "Text",
+                "image": "Uploaded image",
             }[kind]
             if t:
                 st.detail += f" · {t.url}"
-        pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="lookup")
+            if (img := self.result.input.image) is not None:
+                st.detail += f" · {img.mime.removeprefix('image/').upper()} · {_kb(img.bytes)}"
+        pool = ThreadPoolExecutor(max_workers=self.deps.workers, thread_name_prefix="lookup")
+        self._pool = pool
         try:
             self._phases(pool, t, kind)
         finally:
@@ -392,66 +508,103 @@ class Lookup:
         self._assess()
 
     def _phases(self, pool: ThreadPoolExecutor, t: Target | None, kind: str) -> None:
-        first = []
+        """Every step starts as soon as what it needs is known (lookup/README.md, step order):
+
+        1. the post (its text) and, beside it, the author's profile; a web page's text comes
+           from a quick markdown read while the slower fact extraction runs;
+        2. with the text: the four searches, the linked page and the images, all at once;
+        3. as soon as the X and web searches are back: their candidate copies are read on
+           their own pages, and each verified copier's profile right after its copy;
+        4. with every search, page and image in: the monitored clusters (while 3 finishes)."""
+        subject: list[Future] = []  # give the text the searches look for
+        side: list[Future] = []  # nothing waits for these but the end of the run
         if kind == "x_post":
-            first.append(pool.submit(self._x_post))
+            subject.append(pool.submit(self._x_post))
             if t and t.handle:
-                first.append(pool.submit(self._x_author, t.handle, True))
+                side.append(pool.submit(self._x_author, t.handle, True))
             else:
                 self.skip("author", "no handle in the link")
         elif kind == "x_profile":
             self.skip("post", "a profile, not a post")
-            first.append(pool.submit(self._x_author, t.handle, True))
+            side.append(pool.submit(self._x_author, t.handle, True))
         elif kind == "bsky_post":
-            first.append(pool.submit(self._bsky_post))
-            first.append(pool.submit(self._bsky_author, t.handle))
+            subject.append(pool.submit(self._bsky_post))
+            side.append(pool.submit(self._bsky_author, t.handle))
         elif kind == "bsky_profile":
             self.skip("post", "a profile, not a post")
-            first.append(pool.submit(self._bsky_author, t.handle))
+            side.append(pool.submit(self._bsky_author, t.handle))
         elif kind == "web":
             self.skip("post", "a web page, not a social post")
             self.skip("author", "a web page, not a social post")
-            first.append(pool.submit(self._linked, t.url, True))
+            # the facts (publisher, date, claims) take an AI extraction, ~10 s; the headline
+            # in the page's markdown is there in ~3 s and is enough to start the searches
+            side.append(pool.submit(self._linked, t.url, True))
+            subject.append(pool.submit(self._page_text, t.url))
+            subject.append(side[-1])
+        elif kind == "image":
+            for sid in ("post", "author", "linked"):
+                self.skip(sid, "an uploaded image, not a post")
+            self._add_upload_post()
         else:
             self.skip("post", "text input")
             self.skip("author", "text input")
             self.skip("linked", "text input")
-        wait(first, timeout=self._left())
+        self._wait_text(subject)
 
         if kind in ("x_profile", "bsky_profile"):
             for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
                 self.skip(sid, "profile lookup")
-            second = []
-        else:
-            second = []
-            if not textsim.phrase(self._subject_text) and self._media_urls:
-                # image-only post: read the image first, then search for its text
-                self._media(ocr_as_text=True)
-            if kind != "web":
-                if self._card_url:
-                    second.append(pool.submit(self._linked, self._card_url, False))
-                else:
-                    self.skip("linked", "the post links no page")
-            if self._step("media").state == "pending":
-                second.append(pool.submit(self._media))
-            second += [
-                pool.submit(self._copies_web),
-                pool.submit(self._copies_x),
-                pool.submit(self._copies_bsky),
-                pool.submit(self._coverage),
-            ]
-        wait(second, timeout=self._left())
-        if kind not in ("x_profile", "bsky_profile"):
-            self._verify()  # after every search, so candidates from all of them are read
-        else:
+            self.skip("screenshot", "profile lookup")
+            wait(side, timeout=self._left())
             self.skip("verify", "profile lookup")
-        # last: the link, text and accounts found by every step above are known now
+            self._monitor()
+            return
+        media_first = not textsim.phrase(self._subject_text) and self._media_urls
+        if media_first:
+            # image-only post (or an uploaded image): read the image first, then search its text
+            self._media(ocr_as_text=True)
+        x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
+        rest = [pool.submit(self._copies_bsky), pool.submit(self._coverage)]
+        if media_first:
+            rest.append(pool.submit(self._screenshot))  # alongside the searches
+        if kind != "web":
+            if self._card_url:
+                rest.append(pool.submit(self._linked, self._card_url, False))
+            else:
+                self.skip("linked", "the post links no page")
+        if self._step("media").state == "pending":
+            # same worker: the screenshot step needs the images media has read
+            rest.append(pool.submit(lambda: (self._media(), self._screenshot())))
+        elif not media_first:
+            self._screenshot()  # media was skipped: the step says why
+        wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
+        self._queue_verify()  # the X candidates from both searches, best match first
+        self._queue_older_pages()  # web hits dated before the post: read their own date
+        wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
+        self._queue_verify()  # candidates the search for the image's text found
+        self._queue_older_pages()
+        # the link, text and Bluesky accounts are known now; verify adds only X posts
         self._monitor()
+        self._join_verify()
+
+    def _wait_text(self, futures: list[Future]) -> None:
+        """Until one of `futures` has finished with the subject's text known, or all are done.
+
+        Only a finished future counts: a step sets the text before the card, images and time,
+        so a text seen mid-step would start the next steps without them."""
+        pending = set(futures)
+        while pending:
+            left = self._provider_deadline() - time.monotonic()
+            if left <= 0:
+                return
+            done, pending = wait(pending, timeout=left, return_when=FIRST_COMPLETED)
+            if not done or self._phrase():
+                return
 
     # ---------------------------------------------------------------- X
-    def _scrape_x(self, url: str) -> tuple[str, dict]:
+    def _scrape_x(self, url: str, cap_s: float = PAGE_CAP_S) -> tuple[str, dict]:
         self._spend()
-        md, _meta = self.deps.oxylabs.scrape_markdown(url, deadline=self._provider_deadline())
+        md, _meta = self.deps.oxylabs.scrape_markdown(url, deadline=self._provider_deadline(cap_s))
         return md, dict(self.deps.oxylabs.last_call)
 
     def _x_post_from_item(
@@ -498,16 +651,26 @@ class Lookup:
             page: PostPage = parse_post_page(md, t.post_id)
             m = page.main
             if m is None:
-                rid = self.receipt(
+                reason = unavailable_reason(md)
+                detail = unavailable_detail(reason) if reason else "post not visible logged out"
+                self.receipt(
                     "oxylabs",
                     "/scrape",
-                    "X post page read, but the post was not "
+                    detail
+                    if reason
+                    else "X post page read, but the post was not "
                     "on it (deleted, protected or age-restricted)",
                     source_url=t.url,
                     call=call,
-                    ok=False,
+                    ok=bool(reason),
                 )
-                st.state, st.detail = "failed", "post not visible logged out"
+                st.state, st.detail = "done" if reason else "failed", detail
+                with self.lock:
+                    self.result.unreadable = (
+                        unavailable_tag(reason) if reason else "Post not readable"
+                    )
+                if reason:
+                    self._tombstone_note(detail)
                 self._subject_time = snowflake_time(t.post_id)
                 return
             counts = ", ".join(
@@ -528,7 +691,7 @@ class Lookup:
                 source_url=t.url,
                 call=call,
             )
-            now = _now()
+            now = call.get("fetched_at") or _now()
             post = self._x_post_from_item(
                 m, "submitted", sim=1.0, rid=rid, verified=True, as_of=now
             )
@@ -594,8 +757,20 @@ class Lookup:
             url = f"https://x.com/{handle}"
             md, call = self._scrape_x(url)
             p = parse_profile(md, handle)
+            reason = page_unavailable_reason(md, url)
+            if reason in ("suspended", "not_found"):
+                detail = "account suspended" if reason == "suspended" else "account doesn't exist"
+                self.receipt(
+                    "oxylabs",
+                    "/scrape",
+                    f"X profile @{handle}: {detail}",
+                    source_url=url,
+                    call=call,
+                )
+                st.state, st.detail = "done", detail
+                return None
             if p.followers is None and p.joined is None:
-                raise RuntimeError("profile not readable logged out")
+                raise StepUnavailable("profile not readable logged out")
             per_day = None
             ids = sorted(int(it.status_id) for it in p.recent if it.status_id)
             if len(ids) >= 3:
@@ -605,7 +780,8 @@ class Lookup:
                 "oxylabs",
                 "/scrape",
                 f"X profile @{handle}: joined {p.joined or '?'}, "
-                f"{_fmt(p.followers)} followers, {_fmt(p.posts_count)} posts",
+                f"{_fmt(p.followers)} followers, {_fmt(p.posts_count)} posts"
+                + ("; posts are protected" if reason == "protected" else ""),
                 source_url=url,
                 call=call,
             )
@@ -633,7 +809,7 @@ class Lookup:
             self.add_account(acct)
             if subject:
                 found = []
-                now = _now()
+                now = call.get("fetched_at") or _now()  # a cached read keeps its own time
                 for it in p.recent[:10]:
                     rp = self.add_post(
                         self._x_post_from_item(
@@ -644,7 +820,11 @@ class Lookup:
                 st.found = found
                 st.detail = (
                     f"joined {p.joined or '?'} · {_fmt(p.followers)} followers · "
-                    f"{len(p.recent)} recent posts"
+                    + (
+                        "posts are protected"
+                        if reason == "protected"
+                        else f"{len(p.recent)} recent posts"
+                    )
                     + (f" · ~{per_day}/day" if per_day is not None else "")
                 )
             return acct
@@ -687,14 +867,16 @@ class Lookup:
         t = self.target
         with self.step("post") as st:
             if not self.deps.bsky:
-                raise RuntimeError("Bluesky client not configured")
+                raise StepUnavailable("Bluesky client not configured")
             self._spend()
             th = self.deps.bsky.thread(
                 t.handle, t.post_id, depth=1, deadline=self._provider_deadline()
             )
             pv = th.get("post")
             if not pv:
-                raise RuntimeError("post not found (deleted or blocked)")
+                with self.lock:
+                    self.result.unreadable = "Post not found"
+                raise StepUnavailable("post not found (deleted or blocked)")
             rid = self.receipt(
                 "bluesky",
                 "getPostThread",
@@ -729,7 +911,7 @@ class Lookup:
     def _bsky_author(self, actor: str) -> None:
         with self.step("author") as st:
             if not self.deps.bsky:
-                raise RuntimeError("Bluesky client not configured")
+                raise StepUnavailable("Bluesky client not configured")
             self._spend()
             pr = self.deps.bsky.profile(actor, deadline=self._provider_deadline())
             created = parse_time(pr.get("createdAt"))
@@ -811,69 +993,209 @@ class Lookup:
         except httpx.HTTPError:
             return url
 
+    def _user_text(self) -> str | None:
+        return (self.result.input.text or "").strip() or None
+
+    def _tombstone_note(self, detail: str) -> None:
+        self._unreadable = True
+        self.note(
+            f"{detail}, so its text can't be read; "
+            + (
+                "copies are searched with the text you gave."
+                if self._user_text()
+                else "copies and spread were not searched."
+            )
+        )
+
+    def _input_tombstone(
+        self, short: str, final: str, reason: str, call: dict, publisher: str | None = None
+    ) -> str:
+        """The submitted link is an X tombstone: say so once, and let nothing read from the page
+        (its title is X's notice, not content) seed the searches. Returns the page id."""
+        detail = unavailable_detail(reason)
+        with self.lock:
+            self._tomb_detail = detail
+            self.result.unreadable = unavailable_tag(reason)
+            if not self._unreadable:
+                rid = self.receipt(
+                    "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final, call=call
+                )
+                self.add_page(
+                    Page(
+                        id="",
+                        url=short,
+                        final_url=final,
+                        role="linked",
+                        publisher=publisher,
+                        receipt_id=rid,
+                    )
+                )
+                self._tombstone_note(detail)
+            pg = next(p for p in self.result.pages if p.url == short or p.final_url == final)
+            pg.headline, pg.claims = None, []
+            self._subject_text, self._card_title = self._user_text(), None
+            self.result.subject_id = pg.id
+            return pg.id
+
     def _linked(self, url: str, is_input: bool) -> None:
         with self.step("linked") as st:
             short = url
             url = self._resolve(url)
             self._spend()
-            facts = self.deps.oxylabs.scrape_facts(url, deadline=self._provider_deadline())
+            facts = self.deps.oxylabs.scrape_facts(
+                url, deadline=self._provider_deadline(FACTS_CAP_S)
+            )
             call = dict(self.deps.oxylabs.last_call)
+            if facts.unavailable:  # an X tombstone (e.g. behind t.co): its title isn't content
+                detail = unavailable_detail(facts.unavailable)
+                final = facts.final_url or url
+                if is_input:
+                    pid = self._input_tombstone(
+                        short, final, facts.unavailable, call, facts.publisher
+                    )
+                else:
+                    rid = self.receipt(
+                        "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final,
+                        call=call,
+                    )  # fmt: skip
+                    pid = self.add_page(
+                        Page(
+                            id="",
+                            url=short if short != url else url,
+                            final_url=final,
+                            role="linked",
+                            publisher=facts.publisher,
+                            receipt_id=rid,
+                        )
+                    ).id
+                    if self.result.subject_id:
+                        self.add_edge(pid, self.result.subject_id, "link", note="the post links it")
+                st.found = [pid]
+                st.detail = detail
+                return
             if facts.http_status is not None and facts.http_status >= 400:
                 raise ValueError(f"source page returned HTTP {facts.http_status}")
             pub = facts.published_at
             ptime, punc = _page_time(pub)
-            rid = self.receipt(
-                "oxylabs",
-                "/scrape",
-                f"Linked page read: {facts.publisher or domain(facts.final_url)}"
-                f" — {facts.headline or 'no headline'}" + (f" (published {pub})" if pub else ""),
-                source_url=facts.final_url or url,
-                call=call,
+            # one critical section: the quick read may already have found X's tombstone notice
+            # (the two reads can differ), and a confirmed tombstone must not be repopulated
+            with self.lock:
+                if is_input and self._unreadable:
+                    st.found = [self.result.subject_id] if self.result.subject_id else []
+                    st.detail = self._tomb_detail
+                    return
+                rid = self.receipt(
+                    "oxylabs",
+                    "/scrape",
+                    f"Linked page read: {facts.publisher or domain(facts.final_url)}"
+                    f" — {facts.headline or 'no headline'}"
+                    + (f" (published {pub})" if pub else ""),
+                    source_url=facts.final_url or url,
+                    call=call,
+                )
+                pg = self.add_page(
+                    Page(
+                        id="",
+                        url=short if short != url else url,
+                        final_url=facts.final_url or url,
+                        role="linked",
+                        publisher=facts.publisher,
+                        author=facts.author,
+                        published_at=pub,
+                        headline=facts.headline,
+                        claims=facts.claims,
+                        time=ptime,
+                        time_source="page" if ptime else None,
+                        time_uncertainty_s=punc,
+                        receipt_id=rid,
+                    )
+                )
+                if is_input:
+                    self._subject_text = self._subject_text or facts.headline
+                    self._card_title = facts.headline or self._card_title
+                    self._subject_time = ptime
+                    self.result.subject_id = pg.id
+                elif self.result.subject_id:
+                    self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
+                st.found = [pg.id]
+                st.detail = f"{facts.publisher or domain(facts.final_url)}: {facts.headline or '-'}"
+
+    def _page_text(self, url: str) -> None:
+        """Quick first read of a submitted web page: its markdown's first heading. It starts
+        the searches ~8 s before the fact extraction (`_linked`) is back; its own receipt says
+        what it read. Failures are silent: `_linked` still reads the page."""
+        try:
+            short, url = url, self._resolve(url)
+            self._spend()
+            md, meta = self.deps.oxylabs.scrape_markdown(
+                url, deadline=self._provider_deadline(PAGE_CAP_S)
             )
+            call = dict(self.deps.oxylabs.last_call)
+        except Exception as exc:
+            log.info("lookup %s quick page read failed: %s", self.result.id, exc)
+            return
+        final = (meta or {}).get("url") or url
+        if (x := next((u for u in (final, url) if domain(u) in X_HOSTS), None)) and (
+            reason := page_unavailable_reason(md, x)
+        ):  # an X tombstone: its "# Post" heading is X's notice, not the page's text
+            self._input_tombstone(short, final, reason, call)
+            return
+        head = next(
+            (
+                ln[2:].strip()
+                # news sites put their navigation first: AP's H1 is line ~2000 of ~2300
+                for ln in md.splitlines()
+                if ln.startswith("# ") and ln[2:].strip()
+            ),
+            None,
+        )
+        if not head:
+            return
+        head = head[:300]
+        # one critical section: the fact extraction (_linked) must not land between the check
+        # and the add, or this quick read's receipt would replace the facts' (RLock: re-entrant)
+        with self.lock:
+            if any(pg.url == short for pg in self.result.pages):
+                return  # the fact extraction was quicker: its read stands, nothing to add
+            rid = self.receipt(
+                "oxylabs", "/scrape", f'Page text read, headline: "{head[:200]}"',
+                source_url=final, call=call,
+            )  # fmt: skip
             pg = self.add_page(
                 Page(
-                    id="",
-                    url=short if short != url else url,
-                    final_url=facts.final_url or url,
-                    role="linked",
-                    publisher=facts.publisher,
-                    author=facts.author,
-                    published_at=pub,
-                    headline=facts.headline,
-                    claims=facts.claims,
-                    time=ptime,
-                    time_source="page" if ptime else None,
-                    time_uncertainty_s=punc,
-                    receipt_id=rid,
+                    id="", url=short, final_url=final, role="linked", headline=head, receipt_id=rid
                 )
             )
-            if is_input:
-                self._subject_text = self._subject_text or facts.headline
-                self._card_title = facts.headline
-                self._subject_time = ptime
-                with self.lock:
-                    self.result.subject_id = pg.id
-            elif self.result.subject_id:
-                self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
-            st.found = [pg.id]
-            st.detail = f"{facts.publisher or domain(facts.final_url)}: {facts.headline or '-'}"
+            self._subject_text = self._subject_text or head
+            self._card_title = self._card_title or head
+            self.result.subject_id = self.result.subject_id or pg.id
 
     # ---------------------------------------------------------------- searches
     def _search(self, query: str, n: int = 10):
         self._spend()
-        hits = self.deps.oxylabs.search(query, max_results=n, deadline=self._provider_deadline())
+        hits = self.deps.oxylabs.search(
+            query, max_results=n, deadline=self._provider_deadline(SEARCH_CAP_S)
+        )
         return hits, dict(self.deps.oxylabs.last_call)
 
     def _phrase(self) -> str | None:
         return textsim.phrase(self._subject_text) or textsim.phrase(self._card_title)
 
     def _classify_hit(
-        self, hit, rid: int, at: datetime, *, reference: str, min_sim: float = 0.0
+        self,
+        hit,
+        rid: int,
+        at: datetime,
+        *,
+        reference: str,
+        min_sim: float = 0.0,
+        page_role: str | None = None,
     ) -> str | None:
         """Turn one search hit into a post or page; returns the new node id.
 
         X hits that share few words with the reference are dropped (search engines match loose
-        keywords); pages below `min_sim` too."""
+        keywords); pages below `min_sim` too. `page_role` fixes a page's role (else: by how much
+        of the reference its snippet carries)."""
         snippet = textsim.strip_snippet(hit.snippets[0]) if hit.snippets else ""
         if m := X_STATUS_RE.match(hit.url):
             handle, sid = m.group(1), m.group(2)
@@ -915,7 +1237,7 @@ class Lookup:
             Page(
                 id="",
                 url=hit.url,
-                role="reference" if sim >= COPY_MIN else "coverage",
+                role=page_role or ("reference" if sim >= COPY_MIN else "coverage"),
                 headline=hit.title or None,
                 snippet=snippet[:300] or None,
                 published_hint=hit.published_hint.isoformat() if hit.published_hint else None,
@@ -927,15 +1249,23 @@ class Lookup:
         )
         return pg.id
 
+    def _copies_skip_detail(self, short: str) -> str:
+        unread = self._unreadable or (self.result.kind == "x_post" and not self.result.subject_id)
+        if unread and not self._user_text():
+            return "the post's text couldn't be read"
+        return short
+
     def _copies_web(self) -> None:
         phrase = self._phrase()
         if not phrase:
-            self.skip("copies_web", "text too short for an exact-phrase search")
+            self.skip(
+                "copies_web", self._copies_skip_detail("text too short for an exact-phrase search")
+            )
             return
         with self.step("copies_web") as st:
             q = f'"{phrase}"'
             hits, call = self._search(q)
-            at = _now()
+            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
             rid = self.receipt(
                 "oxylabs",
                 "/search",
@@ -950,12 +1280,14 @@ class Lookup:
     def _copies_x(self) -> None:
         phrase = self._phrase()
         if not phrase:
-            self.skip("copies_x", "text too short for an exact-phrase search")
+            self.skip(
+                "copies_x", self._copies_skip_detail("text too short for an exact-phrase search")
+            )
             return
         with self.step("copies_x") as st:
             q = f'site:x.com "{phrase}"'
             hits, call = self._search(q)
-            at = _now()
+            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
             rid = self.receipt(
                 "oxylabs",
                 "/search",
@@ -968,9 +1300,17 @@ class Lookup:
             st.found = found
             st.detail = f"{len(found)} candidate posts on X (read on their own pages next)"
 
-    def _verify(self) -> None:
+    # ---------------------------------------------------------------- verify (pipelined)
+    def _queue_verify(self) -> None:
+        """Queue unread X candidates, best match first, up to `verify_max` for the whole run.
+
+        Called when the X and web searches are back and again after the image-text search, so
+        reading copies starts while the slower steps (linked page, images) still run."""
         ref = self._subject_text or self._phrase()
+        if not ref:
+            return
         with self.lock:
+            queued = set(self._v_posts)
             cands = [
                 p
                 for p in self.result.posts
@@ -979,49 +1319,13 @@ class Lookup:
                 and p.role == "mention"
                 and (p.similarity or 0) >= X_MIN_SIM
                 and p.id != self.result.subject_id
+                and p.id not in queued
             ]
-        pages = self._source_page_candidates()
-        if not ref or not (cands or pages):
-            self.skip("verify", "no source pages or candidate copies to read")
-            return
-        with self.step("verify") as st:
             cands.sort(key=lambda p: -(p.similarity or 0))
-            cands = cands[: self.deps.verify_max]
-            jobs = [lambda p=p: self._safe_verify(p, ref) for p in cands]
-            jobs += [lambda pg=pg: self._safe_verify_page(pg) for pg in pages]
-            self._run_bounded(jobs, workers=6)
-            # who are the copiers? read a few profiles (account age, followers)
-            with self.lock:
-                copiers = list(
-                    dict.fromkeys(
-                        p.author_handle
-                        for p in self.result.posts
-                        if p.platform == "x"
-                        and p.verified
-                        and p.role in ("copy", "quote")
-                        and p.author_handle
-                    )
-                )[: self.deps.profiles_max]
-            self._run_bounded([lambda h=h: self._safe_x_author(h) for h in copiers], workers=4)
-            ids = {p.id for p in cands}
-            with self.lock:
-                kinds = [p.role for p in self.result.posts if p.id in ids and p.verified]
-                present = {p.id for p in self.result.posts}
-                read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
-                read_pages = [pg.id for pg in pages if pg.receipt_id in read_ids]
-                unread = sum(
-                    1
-                    for p in self.result.posts
-                    if p.platform == "x" and not p.verified and p.role == "mention"
-                )
-            st.found = [i for i in ids if i in present] + read_pages
-            st.detail = (
-                f"{len(kinds)} posts read: {kinds.count('copy')} copies"
-                f" · {kinds.count('quote')} quotes"
-                f" · {kinds.count('reply')} replies"
-                f" · {len(read_pages)}/{len(pages)} source pages read"
-                + (f" · {unread} more candidates not read" if unread else "")
-            )
+            cands = cands[: max(0, self.deps.verify_max - len(self._v_posts))]
+            self._v_posts += [p.id for p in cands]
+        for p in cands:
+            self._submit_verify(lambda p=p: self._safe_verify(p, ref))
 
     def _source_page_candidates(self) -> list[Page]:
         with self.lock:
@@ -1029,7 +1333,9 @@ class Lookup:
             candidates = [
                 pg
                 for pg in self.result.pages
-                if pg.receipt_id not in read_ids and pg.id != self.result.subject_id
+                if pg.receipt_id not in read_ids
+                and pg.id != self.result.subject_id
+                and pg.id not in self._v_pages
             ]
         older_ids = {pg.id for pg in self._older_page_candidates()}
         candidates.sort(
@@ -1046,18 +1352,87 @@ class Lookup:
                 selected.append(page)
                 hosts.add(host)
         selected.extend(page for page in candidates if page not in selected)
-        return selected[: max(0, self.deps.source_pages_max)]
+        return selected[: max(0, self.deps.source_pages_max - len(self._v_pages))]
 
-    def _run_bounded(self, jobs: list, workers: int) -> None:
-        """Run jobs in parallel until the provider deadline; never wait past it."""
-        if not jobs:
+    def _queue_older_pages(self, n: int | None = None) -> None:
+        """Queue bounded source reads, prioritizing original records and older copies."""
+        if not (self._subject_text or self._phrase()):
             return
-        pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lookup-v")
-        try:
-            futures = [pool.submit(j) for j in jobs]
-            wait(futures, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+        with self.lock:
+            pages = self._source_page_candidates()
+            if n is not None:
+                pages = pages[: max(0, n - len(self._v_pages))]
+            self._v_pages += [pg.id for pg in pages]
+        for pg in pages:
+            self._submit_verify(lambda pg=pg: self._safe_verify_page(pg))
+
+    def _queue_profile(self, handle: str) -> None:
+        """A verified copier's profile (account age, followers), read right after its copy."""
+        with self.lock:
+            key = handle.lower()
+            known = any(a.platform == "x" and a.handle.lower() == key for a in self.result.accounts)
+            if known or key in self._v_profiles or len(self._v_profiles) >= self.deps.profiles_max:
+                return
+            self._v_profiles.add(key)
+        self._submit_verify(lambda: self._safe_x_author(handle))
+
+    def _submit_verify(self, job: Callable[[], None]) -> None:
+        with self.lock:
+            st = self._step("verify")
+            if st.state == "pending":
+                st.state, st.started_at = "running", _now()
+            if self._pool is None:  # not running inside _run (tests calling steps directly)
+                job()
+                return
+            self._v_futures.append(self._pool.submit(job))
+
+    def _join_verify(self) -> None:
+        """Wait for every queued read (reads can queue profile reads) until the provider
+        deadline, then close the step."""
+        out_of_time = False
+        while True:
+            with self.lock:
+                pending = [f for f in self._v_futures if not f.done()]
+            if not pending:
+                break
+            left = self._provider_deadline() - time.monotonic()
+            if left <= 0:
+                out_of_time = True
+                break
+            wait(pending, timeout=left)
+        with self.lock:
+            st = self._step("verify")
+            if st.state == "pending":
+                st.state, st.detail = "skipped", "no source pages or candidate copies to read"
+                return
+            ids = list(self._v_posts)
+            by_id = {p.id: p for p in self.result.posts}
+            kinds = [by_id[i].role for i in ids if i in by_id and by_id[i].verified]
+            queued = set(ids)
+            unread = sum(
+                1
+                for p in self.result.posts
+                if p.platform == "x"
+                and not p.verified
+                and p.role == "mention"
+                and p.id not in queued
+            )
+            read = self._v_read  # pages that came back; a timed-out or failed read isn't one
+            read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
+            read_pages = [
+                pg.id for pg in self.result.pages
+                if pg.id in self._v_pages and pg.receipt_id in read_ids
+            ]
+            st.found = [i for i in ids if i in by_id] + read_pages
+            st.detail = (
+                (f"{read} read" if read == len(ids) else f"{read} of {len(ids)} read")
+                + f": {kinds.count('copy') + kinds.count('origin')} copies"
+                f" · {kinds.count('quote')} quotes · {kinds.count('reply')} replies"
+                + f" · {len(read_pages)}/{len(self._v_pages)} source pages read"
+                + (f" · {unread} more candidates not read" if unread else "")
+                + (" · time budget used up" if out_of_time else "")
+            )
+            st.state, st.ended_at = "done", _now()
 
     def _older_page_candidates(self, n: int = 2) -> list[Page]:
         """Search-hit pages carrying the text whose date hint is before every post: read them,
@@ -1086,8 +1461,12 @@ class Lookup:
     def _safe_verify_page(self, pg: Page) -> None:
         try:
             self._spend()
-            facts = self.deps.oxylabs.scrape_facts(pg.url, deadline=self._provider_deadline())
+            facts = self.deps.oxylabs.scrape_facts(
+                pg.url, deadline=self._provider_deadline(min(FACTS_CAP_S, self.deps.verify_read_s))
+            )
             call = dict(self.deps.oxylabs.last_call)
+            if facts.unavailable:
+                raise ValueError(f"source page unavailable: {facts.unavailable}")
             if facts.http_status is not None and facts.http_status >= 400:
                 raise ValueError(f"source page returned HTTP {facts.http_status}")
         except BudgetExceeded:
@@ -1120,11 +1499,16 @@ class Lookup:
 
     def _safe_verify(self, p: Post, reference: str) -> None:
         try:
-            self._verify_x(p, reference)
+            post = self._verify_x(p, reference)
         except BudgetExceeded:
-            pass
+            return
         except Exception as exc:
             log.info("verify %s failed: %s", p.url, exc)
+            return
+        with self.lock:
+            self._v_read += 1
+        if post is not None and post.role in ("copy", "quote") and post.author_handle:
+            self._queue_profile(post.author_handle)
 
     def _safe_x_author(self, handle: str) -> None:
         try:
@@ -1132,13 +1516,16 @@ class Lookup:
         except Exception as exc:
             log.info("copier profile @%s not read: %s", handle, exc)
 
-    def _verify_x(self, p: Post, reference: str) -> None:
+    def _verify_x(self, p: Post, reference: str) -> Post | None:
+        """Read a candidate on its own page; returns the verified post (None if dropped)."""
         sid = p.id.split(":", 1)[1]
-        md, call = self._scrape_x(p.url)
+        # a candidate copy is evidence, not the subject: a straggler stays an unread mention
+        # rather than holding the reading (verify_read_s)
+        md, call = self._scrape_x(p.url, cap_s=self.deps.verify_read_s)
         page = parse_post_page(md, sid)
         m = page.main
         if m is None:
-            return
+            return None
         subj = self.result.subject_id
         sim_own = textsim.similarity(m.text, reference)
         sim_quoted = textsim.similarity(m.quoted_text, reference) if m.quoted_text else 0.0
@@ -1159,7 +1546,7 @@ class Lookup:
         if role == "mention" and sim < X_MIN_SIM:
             with self.lock:  # its own page shows it isn't about this text: drop the search hit
                 self.result.posts = [q for q in self.result.posts if q.id != p.id]
-            return
+            return None
         kind = {
             "quote": "quotes it",
             "reply": "replies to it",
@@ -1174,11 +1561,16 @@ class Lookup:
             call=call,
         )
         post = self._x_post_from_item(
-            m, role, sim=round(sim, 2), rid=rid, verified=True, as_of=_now()
+            m,
+            role,
+            sim=round(sim, 2),
+            rid=rid,
+            verified=True,
+            as_of=call.get("fetched_at") or _now(),
         )
         if m.quoted_text and role == "quote":
             post.text = (m.text + "\n\n> " + m.quoted_text).strip()
-        self.add_post(post)
+        post = self.add_post(post)
         if quoted_other:
             # the quoted post's text and id were read on this page: it carries the text too
             q = self.add_post(
@@ -1199,11 +1591,17 @@ class Lookup:
             self.add_edge(q.id, post.id, "quote", note="quotes this post")
         elif subj and role in ("quote", "reply"):
             self.add_edge(subj, post.id, role)
+        return post
 
     def _copies_bsky(self) -> None:
         phrase = textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
         if not phrase or not self.deps.bsky:
-            self.skip("copies_bsky", "text too short" if not phrase else "Bluesky not configured")
+            self.skip(
+                "copies_bsky",
+                self._copies_skip_detail("text too short")
+                if not phrase
+                else "Bluesky not configured",
+            )
             return
         with self.step("copies_bsky") as st:
             q = f'"{phrase}"'
@@ -1236,29 +1634,100 @@ class Lookup:
 
     def _coverage(self) -> None:
         q = textsim.phrase(self._subject_text, 40) or self._card_title
+        # an upload with too little text: pages about the image, found by its caption or
+        # description. They describe the image; none of them is a copy or an origin.
+        about = not q and bool(self._image_query)
+        q = q or self._image_query
         if not q:
             self.skip("coverage", "nothing to search for")
             return
+        image = self.result.kind == "image"
+        if image and not about and self._upload_meme:
+            q += " meme"  # meme pages (template, first use, variants) over unrelated matches
         with self.step("coverage") as st:
             q = q.replace('"', "")
             hits, call = self._search(q, 10)
-            at = _now()
+            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
+            what = "Search for pages about the uploaded image" if image else "Coverage search"
             rid = self.receipt(
-                "oxylabs", "/search", f"Coverage search: {len(hits)} results", query=q, call=call
+                "oxylabs",
+                "/search",
+                f"{what}: {len(hits)} results" + (" (by its text or description)" if about else ""),
+                query=q,
+                call=call,
             )
             ref = self._subject_text or q
             found = []
             for h in hits:
                 if X_STATUS_RE.match(h.url) or "x.com/" in h.url or "twitter.com/" in h.url:
                     continue
-                if (nid := self._classify_hit(h, rid, at, reference=ref)) and nid.startswith(
-                    "page:"
-                ):
+                nid = self._classify_hit(
+                    h, rid, at, reference=ref, page_role="coverage" if about else None
+                )
+                if nid and nid.startswith("page:"):
                     found.append(nid)
             st.found = found
-            st.detail = f"{len(found)} pages on the story"
+            st.detail = f"{len(found)} pages " + ("about the image" if image else "on the story")
 
     # ---------------------------------------------------------------- media (Nemotron)
+    def _is_upload(self, url: str) -> bool:
+        return self._upload is not None and url == self.upload_url()
+
+    def _add_upload_post(self) -> None:
+        """The uploaded image is the submitted post: no author and no time of its own (the
+        upload time says nothing about when the image was made). Its text is what Nemotron
+        reads in it; it is never a carrier of its own text, so never the origin."""
+        img = self.result.input.image
+        assert img is not None
+        url = self.upload_url()
+        p = self.add_post(
+            Post(
+                id=f"{UPLOAD}{img.sha256[:16]}",
+                platform="web",
+                author_name="Your upload",
+                role="submitted",
+                media_urls=[url],
+                verified=True,  # the image itself was read, not a search snippet about it
+            )
+        )
+        with self.lock:
+            self.result.subject_id = p.id
+        self._media_urls = [url]
+
+    def _use_upload_reading(self, texts: list[str], a: Any) -> None:
+        """What the searches look for, from Nemotron's reading `a` of an uploaded image (None
+        when it wasn't read): its text when there are 5+ words of it. With less, the coverage
+        step looks for pages about the image by its short text (a meme caption), else by its
+        description; those pages are about the image, never copies of it."""
+        with self.lock:
+            subj = next((p for p in self.result.posts if p.id == self.result.subject_id), None)
+            if subj is not None and a is not None:
+                subj.text = "\n".join(a.extracted_text)[:2000]  # reading order, for the card
+        joined = " ".join(texts)
+        self._upload_meme = a is not None and a.media_type == "meme"
+        if textsim.phrase(joined):
+            self._subject_text = joined
+            self.note("The searches look for the text Nemotron read inside the uploaded image.")
+            return
+        if a is None:
+            return
+        meme = self._upload_meme
+        words = joined.replace('"', "").split()
+        if len(words) >= 2:
+            short = " ".join(words[:8])
+            self._image_query = f"{short} meme" if meme else short
+        elif "adult" not in a.content_flags and a.description:
+            self._image_query = ("meme " if meme else "") + " ".join(a.description.split()[:30])
+        if not self._image_query:
+            self.note("The uploaded image has too little text to search for; nothing was searched.")
+            return
+        self.note(
+            "The uploaded image has too little text for an exact search; the pages found are "
+            "about the image (searched by its "
+            + ("text" if len(words) >= 2 else "description")
+            + "), not an image match and not copies."
+        )
+
     def _media(self, ocr_as_text: bool = False) -> None:
         urls = self._media_urls[: self.deps.media_max]
         if not urls:
@@ -1268,62 +1737,56 @@ class Lookup:
             self.skip("media", "Nemotron is not configured on this server")
             return
         with self.step("media") as st:
-            from media.nemotron import MediaInput, is_vl_model
-
             http = self.deps.http or httpx.Client(timeout=20, follow_redirects=False)
-            texts, read = [], 0
-            for url in urls:
-                if domain(url) not in MEDIA_HOSTS or not url.startswith("https://"):
-                    continue  # only the platforms' own image CDNs are downloaded
-                own_media = "/card_img/" not in url  # link-card thumbnails: describe only
-                data, mime = _download_image(http, url)
-                if data is None:
-                    continue
-                h = hashlib.sha256(data).hexdigest()
-                self._spend(45)  # one bounded Nemotron attempt
-                started = time.monotonic()
-                a = self.deps.nemotron.analyze(
-                    MediaInput(media_hash=f"lookup:{h}", mime_type=mime, data=data, url=url),
-                    context=self._subject_text,
-                )
-                if not is_vl_model(a.model):
-                    self.note(
-                        f"Media reading skipped: the endpoint answered as {a.model}, "
-                        "not a vision-language model."
-                    )
-                    continue
-                rid = self.receipt(
-                    "nemotron",
-                    "chat.completions",
-                    f"Nemotron read the image: {a.description[:200]}",
-                    source_url=url,
-                    latency_ms=a.latency_ms or int((time.monotonic() - started) * 1000),
-                )
+            # only the platforms' own image CDNs are downloaded (an upload is already here)
+            urls = [
+                u
+                for u in urls
+                if self._is_upload(u) or (domain(u) in MEDIA_HOSTS and u.startswith("https://"))
+            ]
+            # A wall-clock bound on the whole image work: client timeouts bound each network
+            # wait, not a call's total time. Reads still running at the deadline are left
+            # behind (no blocking shutdown) and can no longer publish (`closed`).
+            closed = threading.Event()
+            mp = ThreadPoolExecutor(max_workers=max(1, len(urls)), thread_name_prefix="lookup-m")
+            try:
+                futures = [mp.submit(self._read_image, http, u, closed) for u in urls]
+                wait(futures, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
+            finally:
                 with self.lock:
-                    self.result.media.append(
-                        MediaFinding(
-                            media_url=url,
-                            post_id=self.result.subject_id,
-                            description=a.description,
-                            extracted_text=a.extracted_text,
-                            reuse_cues=a.reuse_cues,
-                            manipulation_cues=a.manipulation_cues,
-                            confidence=a.confidence,
-                            model=a.model,
-                            latency_ms=a.latency_ms,
-                            receipt_id=rid,
-                        )
-                    )
+                    closed.set()
+                mp.shutdown(wait=False, cancel_futures=True)
+            late = BudgetExceeded("time budget used up")
+            reads = [f.result() if f.done() and not f.cancelled() else late for f in futures]
+            texts, read = [], 0
+            errors = [r for r in reads if isinstance(r, Exception)]
+            for url, a in zip(urls, reads, strict=True):
+                if a is None or isinstance(a, Exception):
+                    continue
                 read += 1
-                if own_media:
+                if "/card_img/" not in url:  # link-card thumbnails: describe only
                     texts.extend(a.extracted_text)
+            if errors and not read:
+                if self.result.kind == "image":
+                    self.note(
+                        "Nemotron could not read the uploaded image, so there was no text to "
+                        "search for. Try again in a minute."
+                    )
+                raise errors[0]
             found = []
             # the longest line first: headers ("NETWORK & OPERATIONS", dates) make poor queries
             texts = sorted(texts, key=lambda t: -len(t.split()))
             ocr = textsim.phrase(" ".join(texts), 10)
             if len(textsim.tokens(" ".join(texts))) < OCR_MIN_WORDS:
                 ocr = None
-            if ocr and ocr_as_text:
+            if ocr_as_text and self.result.kind == "image":
+                # the upload is the input: even a short meme caption is worth searching for
+                first = next(
+                    (r for r in reads if r is not None and not isinstance(r, Exception)), None
+                )
+                self._use_upload_reading(texts, first)
+                ocr = None
+            elif ocr and ocr_as_text:
                 # the post is the image: its text is what the copy searches look for
                 self._subject_text = " ".join(texts)
                 self.note(
@@ -1335,7 +1798,7 @@ class Lookup:
                 # the image's own text, searched like the post text: where does it circulate?
                 q = f'"{ocr}"'
                 hits, call = self._search(q, 10)
-                at = _now()
+                at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
                 rid = self.receipt(
                     "oxylabs",
                     "/search",
@@ -1359,10 +1822,99 @@ class Lookup:
             st.detail = f"{read} image(s) read" + (
                 f" · OCR text found in {len(found)} places"
                 if ocr
+                else " · too little text to search for; looking for pages about it"
+                if self._image_query
                 else " · its text drives the searches"
-                if ocr_as_text and texts
+                if ocr_as_text and texts and self._phrase()
                 else ""
             )
+
+    def _read_image(self, http: httpx.Client, url: str, closed: threading.Event) -> Any:
+        """One image read by Nemotron; the analysis, None (not an image / not a VL model) or
+        the exception. A known image (same URL or bytes, same post text as context) is not
+        read again: its receipt says cached and keeps the time of the original reading."""
+        from media.nemotron import MediaInput, is_vl_model
+        from media.screenshot import judges_date
+
+        try:
+            cache, by_url = self.deps.media_cache, self.deps.media_urls
+            context = (self._subject_text or "")[:500]  # what analyze() shows the model
+            ctx = hashlib.sha256(context.encode()).hexdigest()[:16]
+            data: bytes | None = None
+            mime = ""
+            if self._is_upload(url):  # the bytes came with the request: nothing to download
+                data, mime = self.upload or (None, "")
+                h = self.result.input.image.sha256 if self.result.input.image else None
+            else:
+                h = by_url.get(url) if by_url is not None else None
+            hit = cache.get(f"lookup:{h}:{ctx}") if h and cache is not None else None
+            if hit is None and data is None:
+                self._spend(IMAGE_NEED_S)
+                data, mime = _download_image(
+                    http, url, deadline=self._provider_deadline(IMAGE_DOWNLOAD_S)
+                )
+                if data is None:
+                    return None
+                h = hashlib.sha256(data).hexdigest()
+                if by_url is not None:
+                    by_url[url] = h
+                hit = cache.get(f"lookup:{h}:{ctx}") if cache is not None else None
+            if hit is None:
+                self._spend(IMAGE_NEED_S)  # one bounded attempt (client timeout + rate limiter)
+                a = self.deps.nemotron.analyze(
+                    MediaInput(media_hash=f"lookup:{h}", mime_type=mime, data=data, url=url),
+                    context=self._subject_text,
+                )
+                read_at, cached = _now(), False
+                if cache is not None and is_vl_model(a.model):
+                    cache[f"lookup:{h}:{ctx}"] = (a, read_at)
+            else:
+                (a, read_at), cached = hit, True
+        except Exception as exc:
+            log.info("lookup %s image %s not read: %s", self.result.id, url, exc)
+            return exc
+        if not is_vl_model(a.model):
+            self.note(
+                f"Media reading skipped: the endpoint answered as {a.model}, "
+                "not a vision-language model."
+            )
+            return None
+        if a.media_type == "screenshot" and "/card_img/" not in url:
+            with self.lock:  # the "screenshot" step reads it as a post (bytes None: cached)
+                self._shots.append((url, h, mime, data))
+        with self.lock:  # one critical section with `closed`: a late reading is never shown
+            if closed.is_set():
+                return BudgetExceeded("the image reading came after the time budget")
+            rid = self.receipt(
+                "nemotron",
+                "chat.completions",
+                f"Nemotron read the image: {a.description[:200]}",
+                source_url=url,
+                call={"fetched_at": read_at, "cached": cached},
+                latency_ms=0 if cached else a.latency_ms,
+            )
+            self.result.media.append(
+                MediaFinding(
+                    media_url=url,
+                    post_id=self.result.subject_id,
+                    description=a.description,
+                    extracted_text=a.extracted_text,
+                    reuse_cues=a.reuse_cues,
+                    # "a future date suggests a mock-up" judges the date against the model's
+                    # training cutoff, not the image: dropped (media/screenshot.py)
+                    manipulation_cues=[c for c in a.manipulation_cues if not judges_date(c)],
+                    confidence=a.confidence,
+                    model=a.model,
+                    latency_ms=a.latency_ms,
+                    receipt_id=rid,
+                )
+            )
+        return a
+
+    def _screenshot(self) -> None:
+        from lookup import receipts_step  # lookup/receipts_step.py
+
+        receipts_step.run(self)
 
     # ---------------------------------------------------------------- monitor
     def _monitor(self) -> None:
@@ -1370,14 +1922,12 @@ class Lookup:
             self.skip("monitor", "database not configured")
             return
         with self.step("monitor") as st:
-            from signals.textnorm import normalize_url
-
             urls = {u for u in (self.result.input.url, self._card_url) if u}
             with self.lock:
                 urls |= {
                     pg.final_url for pg in self.result.pages if pg.role == "linked" and pg.final_url
                 }
-            variants = sorted({v for u in urls for v in (u, normalize_url(u)) if v})
+            variants = sorted({v for u in urls for v in url_variants(u)})
             phrase = textsim.phrase(self._subject_text)
             found: dict[int, Any] = {}
             why: dict[int, set[str]] = {}
@@ -1456,7 +2006,9 @@ class Lookup:
                 ),
                 key=lambda p: p.created_at,
             )
-            origin_id = carriers[0].id if carriers else self.result.subject_id
+            # an uploaded image is never its own origin: it has no time, only copies do
+            image = self.result.kind == "image"
+            origin_id = carriers[0].id if carriers else None if image else self.result.subject_id
             origin_t = carriers[0].created_at if carriers else self._subject_time
 
             # a page that carries the text is the origin only if even the latest time its date
@@ -1500,10 +2052,33 @@ class Lookup:
                     tool="bluesky" if p.platform == "bluesky" else "oxylabs",
                     note="same text, later",
                 )
+            if subj and image and carriers:
+                self.add_edge(
+                    carriers[0].id,
+                    subj.id,
+                    "media",
+                    sim=carriers[0].similarity,
+                    tool="nemotron",
+                    note="the uploaded image shows the same text",
+                )
             if subj:
                 for pg in self.result.pages:
                     if pg.role in ("coverage", "reference") and pg.id != origin_id:
-                        self.add_edge(subj.id, pg.id, "cites", note="same story")
+                        self.add_edge(
+                            subj.id,
+                            pg.id,
+                            "cites",
+                            note="about the image" if image else "same story",
+                        )
+            if image:
+                n_var = sum(1 for p in carriers if (p.similarity or 0) < VERBATIM)
+                if carriers:
+                    self.note(
+                        f"{len(carriers)} post(s) read on their own page carry the image's text: "
+                        f"{len(carriers) - n_var} verbatim, {n_var} with changed wording "
+                        "(possible variations). The earliest is the earliest known copy, not "
+                        "proof of who made the image."
+                    )
             self.result.spread = _spread(carriers)
             if any(p.platform == "x" for p in posts):
                 self.note(
@@ -1519,36 +2094,87 @@ class Lookup:
                 )
 
     def _assess(self) -> None:
-        if not self.deps.assessor:
-            self.skip("assess", "Gemini is not configured on this server")
-            return
+        """The readings: the primary one (Nemotron, a few seconds) and an optional slower second
+        one (Gemini) start together on the same receipts. Each is shown as that model's reading;
+        neither sets the status. When their calls differ, both are shown and the difference is
+        counted (`readings_disagree`), never resolved by picking one."""
+        primary, second = self.deps.assessor, self.deps.second_assessor
         with self.lock:
             empty = not self.result.posts and not self.result.pages
         if empty:
             self.skip("assess", "nothing was found to read")
+            self.skip("second_reading", "nothing was found to read")
             return
-        with self.step("assess") as st:
-            self._spend(need_s=15, reserve_s=0)
-            with self.lock:
-                snap = self.result.model_copy(deep=True)
-            a = self.deps.assessor.assess(snap)
+        if not primary:
+            self.skip("assess", "Nemotron is not configured on this server")
+        if not second:
+            self.skip("second_reading", "no second reading model on this server")
+        if not (primary or second):
+            return
+        with self.lock:
+            snap = self.result.model_copy(deep=True)
+        jobs = []
+        if primary:
+            jobs.append(("assess", primary, self.deadline))
+        if second:
+            jobs.append(("second_reading", second, time.monotonic() + self.deps.second_reading_s))
+        pool = ThreadPoolExecutor(max_workers=len(jobs), thread_name_prefix="lookup-read")
+        try:
+            futures = [pool.submit(self._reading, sid, m, snap, dl) for sid, m, dl in jobs]
+            wait(futures, timeout=max(dl for _, _, dl in jobs) - time.monotonic() + 1.0)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+    def _reading(self, sid: str, model: Any, snap: LookupResult, deadline: float) -> None:
+        from lookup.assess import disagree
+
+        with self.step(sid) as st:
+            if time.monotonic() + 1.0 > deadline:
+                raise BudgetExceeded("time budget used up")
+            a = model.assess(snap, deadline=deadline)
+            if time.monotonic() > deadline:  # past its own bound: not published
+                raise BudgetExceeded("the reading came after its time bound")
+            provider = getattr(model, "provider", "gemini")
             rid = self.receipt(
-                "gemini",
-                "generateContent",
+                provider,
+                "chat.completions" if provider == "nemotron" else "generateContent",
                 f"{a.model} read the receipts: {a.summary[:200]}",
                 latency_ms=a.latency_ms,
             )
-            with self.lock:
-                self.result.assessment = a
-            st.detail = f"{a.model} · cites {len(a.cites)} receipts · receipt #{rid}"
+            with self.lock:  # the primary reading is `assessment` and readings[0]
+                if sid == "assess":
+                    self.result.readings.insert(0, a)
+                    self.result.assessment = a
+                else:
+                    self.result.readings.append(a)
+                    self.result.assessment = self.result.assessment or a
+                differ = disagree(self.result.readings)
+                self.result.readings_disagree = differ
+                calls = [f"{x.model}: {x.llm_reading}" for x in self.result.readings]
+            if differ:
+                log.info("lookup %s readings disagree: %s", self.result.id, "; ".join(calls))
+                self.note(
+                    "The two model readings differ (" + "; ".join(calls) + "). Both are shown; "
+                    "neither sets the status."
+                )
+            st.detail = (
+                f"{a.model} · {a.latency_ms / 1000:.1f} s · cites {len(a.cites)} receipts"
+                f" · receipt #{rid}"
+                if a.latency_ms is not None
+                else f"{a.model} · cites {len(a.cites)} receipts · receipt #{rid}"
+            )
 
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 
-def _download_image(http: httpx.Client, url: str) -> tuple[bytes | None, str]:
-    """Stream at most MAX_IMAGE_BYTES of an image; (None, '') if it isn't an image or too big."""
-    with http.stream("GET", url, headers={"user-agent": UA}) as res:
+def _download_image(
+    http: httpx.Client, url: str, deadline: float | None = None
+) -> tuple[bytes | None, str]:
+    """Stream at most MAX_IMAGE_BYTES of an image; (None, '') if it isn't an image, too big,
+    or not complete by `deadline` (time.monotonic(): a trickling CDN can't hold the lookup)."""
+    timeout = 20.0 if deadline is None else max(0.5, min(20.0, deadline - time.monotonic()))
+    with http.stream("GET", url, headers={"user-agent": UA}, timeout=timeout) as res:
         res.raise_for_status()
         mime = res.headers.get("content-type", "").split(";")[0].strip()
         if not mime.startswith("image/"):
@@ -1557,6 +2183,8 @@ def _download_image(http: httpx.Client, url: str) -> tuple[bytes | None, str]:
         for chunk in res.iter_bytes():
             buf += chunk
             if len(buf) > MAX_IMAGE_BYTES:
+                return None, ""
+            if deadline is not None and time.monotonic() > deadline:
                 return None, ""
     return bytes(buf), mime
 
@@ -1587,6 +2215,10 @@ def _spread(posts: list[Post]) -> Spread | None:
         first_hour_accounts=len(hour),
         min_gap_s=min(gaps) if gaps else None,
     )
+
+
+def _kb(n: int) -> str:
+    return f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB"
 
 
 def _fmt(n: int | None) -> str:

@@ -371,3 +371,16 @@ def test_bsky_post_url():
         == "https://bsky.app/profile/did:plc:x/post/abc"
     )
     assert bsky_post_url("at://did:plc:x/app.bsky.feed.like/abc") is None
+
+
+@pytest.mark.parametrize("host", ["x.com", "mobile.x.com", "mobile.twitter.com"])
+def test_analyze_matches_twitter_stored_link(client, monkeypatch, host):
+    c, store = client
+
+    def clusters_for_url(urls):
+        return [summary(47)] if "https://twitter.com/a/status/1" in urls else []
+
+    monkeypatch.setattr(store, "clusters_for_url", clusters_for_url)
+    body = c.post("/api/analyze", json={"url": f"https://{host}/a/status/1"}).json()
+    assert body["status"] == "matched"
+    assert [cluster["id"] for cluster in body["clusters"]] == [47]

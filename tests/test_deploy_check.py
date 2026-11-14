@@ -49,7 +49,6 @@ def run_check(tmp_path, request):
             "/api/clusters?limit=50": [200, json.dumps([{"id": ident} for ident in range(50)])],
             "/api/metrics": [200, json.dumps([METRIC_ROW])],
             "/": [200, "<div>Trackdown</div>"],
-            "/monitor/": [200, "<div>Dashboard</div>"],
             "/trackdown/": [200, '<html><script src="app.js"></script></html>'],
             "/version.txt": [200, "test-version"],
         }

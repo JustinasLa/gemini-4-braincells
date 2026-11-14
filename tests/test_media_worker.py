@@ -1,3 +1,6 @@
+import dataclasses
+import re
+
 import httpx
 import pytest
 
@@ -266,3 +269,219 @@ def test_cluster_progress_holds_incomplete_clusters_back_for_a_while():
     assert progress.done() == {1: "t1"}
     progress.record(2, "t2", MediaRun())
     assert progress.done() == {1: "t1", 2: "t2"}
+
+
+# --- screenshot read ---------------------------------------------------------------------------
+
+
+def _shot(media_hash, handle="jane.example", display_name="Jane", platform="x", oddities=()):
+    from media.screenshot import ScreenshotPost
+
+    return ScreenshotPost(
+        media_hash=media_hash,
+        platform=platform,
+        display_name=display_name,
+        handle=handle,
+        shown_time="3:14 PM · Nov 13, 2026",
+        text="Hello",
+        counts=dict.fromkeys(("replies", "reposts", "quotes", "likes", "views", "bookmarks")),
+        ui_oddities=list(oddities),
+        confidence=0.8,
+        model="nemotron-3.5-super-vl",
+        latency_ms=5,
+    )
+
+
+class ScreenshotClient(FakeClient):
+    def __init__(self, media_type="screenshot", flags=(), shot="post", shot_error=None):
+        super().__init__()
+        self.media_type, self.flags = media_type, list(flags)
+        self.shot, self.shot_error, self.shot_calls = shot, shot_error, []
+
+    def analyze(self, media, *, context=None):
+        self.calls.append(media.media_hash)
+        return dataclasses.replace(
+            _analysis(media.media_hash), media_type=self.media_type, content_flags=self.flags
+        )
+
+    def read_screenshot(self, media):
+        self.shot_calls.append(media.media_hash)
+        if self.shot_error:
+            raise self.shot_error
+        return _shot(media.media_hash) if self.shot == "post" else None
+
+
+def _one(client, **kw):
+    return process_cluster_media([_post(1, "did:a", "h")], client, FakeFetcher(), **kw)
+
+
+def test_screenshot_is_read_once_and_stored_in_detail():
+    client = ScreenshotClient()
+    run = _one(client)
+    assert client.calls == ["h"] and client.shot_calls == ["h"]
+    detail = run.findings[0].detail()
+    assert detail["screenshot_status"] == "post" and "screenshot_error" not in detail
+    assert detail["screenshot"]["handle"] == "jane.example"
+    assert detail["screenshot"]["prompt_version"] == "screenshot-v1"
+    assert run.screenshot_failures == 0
+
+
+def test_non_screenshot_media_gets_no_screenshot_read_or_keys():
+    client = ScreenshotClient(media_type="meme")
+    run = _one(client)
+    assert client.shot_calls == []
+    assert not {"screenshot", "screenshot_status"} & run.findings[0].detail().keys()
+
+
+def test_screenshot_that_is_not_a_post():
+    run = _one(ScreenshotClient(shot=None))
+    assert run.findings[0].detail()["screenshot_status"] == "not_post"
+    assert run.findings[0].detail()["screenshot"] is None
+    assert "Reads as a screenshot" not in run.findings[0].summary()
+
+
+def test_client_without_read_screenshot_leaves_status_unset():
+    class AnalyzeOnly(FakeClient):
+        def analyze(self, media, *, context=None):
+            return dataclasses.replace(super().analyze(media), media_type="screenshot")
+
+    run = _one(AnalyzeOnly())
+    assert run.findings[0].screenshot_status is None and run.screenshot_failures == 0
+
+
+def test_adult_screenshot_is_skipped_without_a_call():
+    client = ScreenshotClient(flags=["adult"])
+    run = _one(client)
+    assert client.shot_calls == []
+    assert run.findings[0].detail()["screenshot_status"] == "skipped_adult"
+
+
+def test_failed_screenshot_read_keeps_analysis_and_marks_cluster_incomplete():
+    from media.nemotron import NemotronError
+
+    client = ScreenshotClient(shot_error=NemotronError("invalid screenshot read"))
+    run = _one(client)
+    assert run.failures == [] and run.findings[0].analysis.description == "A poster"
+    detail = run.findings[0].detail()
+    assert detail["screenshot_status"] == "failed" and detail["screenshot"] is None
+    assert detail["screenshot_error"] == "invalid screenshot read"
+    assert run.screenshot_failures == 1
+    now = [0.0]
+    progress = ClusterProgress(retry_s=300, clock=lambda: now[0])
+    progress.record(7, "t", run)
+    assert progress.done() == {7: "t"}
+    now[0] = 301
+    assert progress.done() == {}
+
+
+def test_screenshot_read_never_swallows_non_vl_error():
+    client = ScreenshotClient(shot_error=NotVisionModelError("text model"))
+    with pytest.raises(NotVisionModelError):
+        _one(client)
+
+
+def _stored(client, **extra):
+    detail = _one(client).findings[0].detail()
+    return {k: v for k, v in detail.items() if k not in extra} | extra
+
+
+def test_cached_screenshot_post_is_reused_without_model_calls():
+    stored = _stored(ScreenshotClient())
+    client, fetcher = ScreenshotClient(), FakeFetcher()
+    run = process_cluster_media(
+        [_post(1, "did:a", "h")], client, fetcher, cache_lookup=lambda h: stored
+    )
+    assert client.calls == [] and client.shot_calls == [] and fetcher.calls == []
+    finding = run.findings[0]
+    assert finding.cached and finding.screenshot_status == "post"
+    assert finding.screenshot == _shot("h")
+
+
+def test_cached_screenshot_from_older_screenshot_prompt_is_read_again():
+    stored = _stored(ScreenshotClient())
+    stored["screenshot"] = stored["screenshot"] | {"prompt_version": "screenshot-v0"}
+    client = ScreenshotClient()
+    run = process_cluster_media(
+        [_post(1, "did:a", "h")], client, FakeFetcher(), cache_lookup=lambda h: stored
+    )
+    assert client.calls == [] and client.shot_calls == ["h"]
+    assert run.findings[0].screenshot.prompt_version == "screenshot-v1"
+
+
+def test_screenshot_status_records_its_prompt_version():
+    detail = _stored(ScreenshotClient())
+    assert detail["screenshot_prompt_version"] == "screenshot-v1"
+
+
+def test_cached_not_post_from_older_screenshot_prompt_is_read_again():
+    stored = _stored(ScreenshotClient(), screenshot_status="not_post", screenshot=None)
+    stored["screenshot_prompt_version"] = "screenshot-v0"
+    client = ScreenshotClient()
+    run = process_cluster_media(
+        [_post(1, "did:a", "h")], client, FakeFetcher(), cache_lookup=lambda h: stored
+    )
+    assert client.calls == [] and client.shot_calls == ["h"]
+    assert run.findings[0].screenshot_status == "post"
+
+
+def test_cached_failed_screenshot_read_calls_only_read_screenshot():
+    from media.nemotron import NemotronError
+
+    stored = _stored(ScreenshotClient(shot_error=NemotronError("timeout")))
+    assert stored["screenshot_status"] == "failed"
+    client, fetcher = ScreenshotClient(), FakeFetcher()
+    run = process_cluster_media(
+        [_post(1, "did:a", "h")], client, fetcher, cache_lookup=lambda h: stored
+    )
+    assert client.calls == [] and client.shot_calls == ["h"] and fetcher.calls == ["h"]
+    detail = run.findings[0].detail()
+    assert detail["screenshot_status"] == "post" and "screenshot_error" not in detail
+    assert detail["cached"] is True and run.screenshot_failures == 0
+
+
+def test_cached_failed_screenshot_whose_blob_is_gone_stays_failed():
+    stored = _stored(ScreenshotClient(), screenshot_status="failed")
+    client = ScreenshotClient()
+    run = process_cluster_media(
+        [_post(1, "did:a", "h")],
+        client,
+        FakeFetcher(missing={"h"}),
+        cache_lookup=lambda h: stored,
+    )
+    assert client.calls == [] and client.shot_calls == [] and run.failures == []
+    finding = run.findings[0]
+    assert finding.analysis.description == "A poster"
+    assert finding.screenshot_status == "failed" and finding.screenshot_error == "not found"
+    assert run.screenshot_failures == 1
+
+
+def test_screenshot_summary_describes_the_media_not_the_people():
+    from media.worker import Finding, MediaGroup
+
+    analysis = dataclasses.replace(_analysis("h"), media_type="screenshot")
+    group = MediaGroup("h", [_post(1, "did:a", "h")])
+    finding = Finding(group, analysis, "image", "u", False, _shot("h"), "post")
+    assert finding.summary() == (
+        "Nemotron Super VL: A poster. Reads as a screenshot of an X post shown as from "
+        "@jane.example."
+    )
+    odd = _shot("h", handle=None, platform="unknown", oddities=["mixed fonts", "odd badge", "c"])
+    finding = Finding(group, analysis, "image", "u", False, odd, "post")
+    assert finding.summary().endswith(
+        ' Reads as a screenshot of a social-media post shown as from "Jane".'
+        " Screenshot cues: mixed fonts; odd badge."
+    )
+    assert not re.search(r"\b(bot|shill|spammer)", finding.summary(), re.I)
+    insta = _shot("h", handle=None, display_name=None, platform="instagram")
+    finding = Finding(group, analysis, "image", "u", False, insta, "post")
+    assert finding.summary().endswith(" Reads as a screenshot of an Instagram post.")
+
+
+def test_comparable_ignores_screenshot_latency():
+    from media.store import _comparable
+
+    detail = _stored(ScreenshotClient())
+    later = detail | {"screenshot": detail["screenshot"] | {"latency_ms": 999}}
+    assert _comparable(detail) == _comparable(later)
+    changed = detail | {"screenshot": detail["screenshot"] | {"text": "Edited"}}
+    assert _comparable(detail) != _comparable(changed)

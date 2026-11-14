@@ -1,6 +1,6 @@
 // Timeline dock (scrubber + replay), time ruler and minimap.
 import type { Graph } from "../engine/graph";
-import { fmtClock, fmtDate, fmtDur, fmtShort, ROLE } from "./format";
+import { fmtClock, fmtDate, fmtDur, fmtShort, roleOf } from "./format";
 import { icon } from "./icons";
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -148,9 +148,12 @@ export class Dock {
     const bins = Math.max(20, Math.floor((R - L) / 5));
     const counts: { n: number; roles: Record<string, number> }[] = Array.from({ length: bins }, () => ({ n: 0, roles: {} }));
     for (const n of g.nodes) {
+      // the histogram is the spread; the real post shown in a screenshot is not part of it
+      if (n.d.role === "screenshotted") continue;
       const b = clamp(Math.floor(((n.tx - x0) / Math.max(1, x1 - x0)) * (bins - 1)), 0, bins - 1);
       counts[b].n++;
-      counts[b].roles[n.d.role] = (counts[b].roles[n.d.role] ?? 0) + 1;
+      const r = Object.prototype.hasOwnProperty.call(ON_BLACK, n.d.role) ? n.d.role : "relay";
+      counts[b].roles[r] = (counts[b].roles[r] ?? 0) + 1;
     }
     const max = Math.max(...counts.map((b) => b.n), 1);
     const bw = (R - L) / bins;
@@ -252,7 +255,10 @@ export class Dock {
       }
       const v = String(Math.round(this.u * 1000));
       if (this.slider.value !== v && document.activeElement !== this.slider) this.slider.value = v;
-      const r2 = t - first < 1000 ? "At the earliest copy" : `Playhead: ${fmtDur(t - first)} after the earliest copy`;
+      // the real post shown in a screenshot is not a copy: it never sets "the earliest copy"
+      const copies = g.nodes.filter((n) => n.d.role !== "screenshotted").map((n) => n.d.t);
+      const firstCopy = copies.length ? Math.min(...copies) : first;
+      const r2 = Math.abs(t - firstCopy) < 1000 ? "At the earliest copy" : t < firstCopy ? `Playhead: ${fmtDur(firstCopy - t)} before the earliest copy` : `Playhead: ${fmtDur(t - firstCopy)} after the earliest copy`;
       if (rel.textContent !== r2) rel.textContent = r2;
     }
   }
@@ -369,7 +375,7 @@ export class Minimap {
     const oy = (h - (y1 - y0) * s) / 2 + 6;
     this.b = { x0, y0, s, ox, oy };
     for (const n of ns) {
-      c.fillStyle = ROLE[n.d.role].color;
+      c.fillStyle = roleOf(n.d.role).color;
       c.globalAlpha = 0.85;
       const rw = Math.max(2, n.w * s);
       const rh = Math.max(1.5, n.h * s);

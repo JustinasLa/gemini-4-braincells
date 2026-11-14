@@ -1,8 +1,10 @@
 # Historic test posts for `/api/analyze`
 
-Reusable Twitter/X and Facebook inputs for manual regression tests of the analyze box and
-`POST /api/analyze`. The cases cover historic coordinated campaigns, organic viral events,
-repeated copypasta, URL normalization, short text, and links blocked by Facebook's login wall.
+Old Twitter/X and Facebook posts (2006–2020) for manual tests of the analyze box and
+`POST /api/analyze`. Collected by a three-model council (Claude Opus, GPT Sol, GPT Astra) on
+2026-11-14. Every tweet ID below was re-checked that day via Twitter's public syndication
+endpoint (`https://cdn.syndication.twimg.com/tweet-result?id=<ID>&token=a`). Facebook links and
+the quoted script/hoax texts come from the cited sources and were not re-fetched.
 
 ## What to expect
 

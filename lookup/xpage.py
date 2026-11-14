@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from lookup.urls import snowflake_time
 
@@ -24,9 +25,12 @@ _STATUS_LINK = re.compile(r"\]\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)")
 _REL_TIME = re.compile(  # noqa: E501
     r"^\[(\d+[smhd]|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?)\]\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)\s*$"
 )  # noqa: E501
+# an edited post links its last edit time to its edit history instead:
+# "[Last edited 6:56 PM · Nov 13, 2026Opens edit history](/handle/status/ID/history)"
 _DATE_LINK = re.compile(
-    r"^\[(\d{1,2}:\d{2} [AP]M · [A-Z][a-z]{2} \d{1,2}, \d{4})\]"
-    r"\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)"
+    r"^\[(Last edited )?(\d{1,2}:\d{2} [AP]M · [A-Z][a-z]{2} \d{1,2}, \d{4})"
+    r"(?:Opens edit history)?\]"
+    r"\(/([A-Za-z0-9_]{1,15})/status/(\d+)(?:/history)?\)"
 )  # noqa: E501
 _VIEWS_INLINE = re.compile(r"·\[([\d.,]+[KMB]?)\s*$")
 _REPLY_LINK = re.compile(r"^\[([\d.,]+[KMB]?)\]\(/compose/post\?in_reply_to=(\d+)\)\s*$")
@@ -40,6 +44,78 @@ _CARD_END = re.compile(
 )
 _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^)]*)\)")
 _TITLE = re.compile(r'^# (.+?) on X: "(.*)"\s*$', re.S)
+
+
+def unavailable_reason(md: str) -> str | None:
+    """Read X's explicit notices outside post items."""
+    notices = {
+        "This post is from a suspended account.": "suspended",
+        "Account suspended": "suspended",
+        "This post is from a protected account.": "protected",
+        "These posts are protected": "protected",
+        "You're unable to view this Post because this account owner limits "
+        "who can view their Posts.": "protected",
+        "We're unable to show this content": "unavailable",
+        "The content may be private, deleted or only available on the app.": "unavailable",
+        "Hmm...this page doesn't exist. Try searching for something else.": "unavailable",
+        "This account doesn't exist": "not_found",
+    }
+    in_item = False
+    in_post = False
+    for raw in md.splitlines():
+        if raw.startswith("* [![@"):
+            in_item = True
+            continue
+        if in_item:
+            if raw.startswith("  ") or not raw.strip():
+                continue
+            in_item = False
+        if _AVATAR.match(raw):
+            in_post = True
+        if in_post:
+            if not raw.startswith("#"):
+                continue
+            in_post = False
+        line = raw.strip().removeprefix("* ").lstrip("# ").replace("’", "'")
+        line = line.split(" [Learn more](", 1)[0]
+        if line == "This Post is from a suspended account.":
+            line = "This post is from a suspended account."
+        if line in notices:
+            return notices[line]
+    return None
+
+
+def page_unavailable_reason(md: str, url: str) -> str | None:
+    """X's notice for the page at `url` itself. A post page counts only when its own post is
+    missing (a reply from a suspended account says nothing about the post); a profile page only
+    from the "## " notice headings above its timeline (a timeline item can be another account's
+    tombstone, and the name and bio are the account's own words)."""
+    m = re.search(r"/status(?:es)?/(\d+)", urlsplit(url).path)
+    if m:
+        return None if parse_post_page(md, m.group(1)).main else unavailable_reason(md)
+    header = md.split("\n* ", 1)[0].splitlines()
+    return unavailable_reason("\n".join(ln for ln in header if ln.startswith("## ")))
+
+
+def unavailable_tag(reason: str) -> str:
+    """A few words for the verdict screen."""
+    return {
+        "suspended": "Account suspended",
+        "protected": "Protected account",
+        "unavailable": "Post not available",
+        "not_found": "Account doesn't exist",
+    }[reason]
+
+
+def unavailable_detail(reason: str) -> str:
+    """Plain wording for an unreadable X post."""
+    return {
+        "suspended": "X shows this post is from a suspended account",
+        "protected": "X shows this post is from a protected account "
+        "(only approved followers can see it)",
+        "unavailable": "X says this post isn't available (it may be private, deleted or app-only)",
+        "not_found": "X says this account doesn't exist",
+    }[reason]
 
 
 def parse_count(s: str | None) -> int | None:
@@ -73,6 +149,7 @@ class XItem:
     text: str
     avatar_url: str | None = None
     is_main: bool = False  # the page's own post (has the full date link)
+    edited: bool = False  # the page shows "Last edited" (the text is the latest version)
     quoted_handle: str | None = None
     quoted_id: str | None = None
     quoted_text: str | None = None
@@ -149,9 +226,10 @@ def _parse_item(lines: list[str]) -> XItem | None:
                 item.status_id = r.group(3)
             continue
         if d := _DATE_LINK.match(ln):
-            if d.group(2).lower() == handle.lower():
-                item.status_id = d.group(3)
+            if d.group(3).lower() == handle.lower():
+                item.status_id = d.group(4)
                 item.is_main = True
+                item.edited = bool(d.group(1))
                 if v := _VIEWS_INLINE.search(ln):
                     item.views = parse_count(v.group(1))
             target = None  # text is over

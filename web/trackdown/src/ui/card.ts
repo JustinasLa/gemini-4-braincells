@@ -1,6 +1,6 @@
 import { hashStr } from "../data/build";
 import type { Media, TraceNode } from "../types";
-import { esc, fmtDate, fmtNum, ROLE } from "./format";
+import { esc, fmtDate, fmtNum, roleOf } from "./format";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 
@@ -47,7 +47,7 @@ function mediaHtml(m: Media, seed: string, score?: number): string {
   }
 }
 
-const flagClass = (f: string) => (/old|followers|templated|every|first seen|never saw|invented/i.test(f) ? " warn" : /dropped|cropped|changed|satire|altered|lost/i.test(f) ? " amber" : "");
+const flagClass = (f: string) => (/old|followers|templated|every|first seen|never saw|invented/i.test(f) ? " warn" : /dropped|cropped|changed|satire|altered|lost|differs|no matching post/i.test(f) ? " amber" : "");
 
 /** Dispatch (full card) or slip (compact cluster member). `no` is the catalogue number. */
 export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?: number): string {
@@ -63,7 +63,8 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
     return `<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div></header>
       <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${unknownTime ? "time unknown" : clock}</time></div>`;
   }
-  const mark = ROLE[n.role].mark ? `<div class="rolemark">${esc(ROLE[n.role].mark!)}</div>` : "";
+  const role = roleOf(n.role);
+  const mark = role.mark ? `<div class="rolemark">${esc(role.mark)}</div>` : "";
   const stamp = n.role === "submitted" ? `<div class="stamp">SUBMITTED</div>` : "";
   const flags = n.flags?.length ? `<div class="flags">${n.flags.map((f) => `<span class="flag${flagClass(f)}">${esc(f)}</span>`).join("")}</div>` : "";
   const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${PLATFORM[n.platform] ?? n.platform}</span>`;

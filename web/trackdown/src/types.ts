@@ -15,10 +15,12 @@ export type Role =
   | "amplifier" // member of a coordinated cluster (behaviour, never a judgement of the person)
   | "organic" // independent share, normal account behaviour
   | "submitted" // what the user dropped in
-  | "source"; // a web page / fact-check found by search
+  | "source" // a web page / fact-check found by search
+  | "screenshotted"; // the real post a screenshot in the submitted post shows: never a copy, origin or spread
 
 /** How a child relates to its parent. */
-export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" | "cites";
+export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" | "cites"
+  | "screenshot_of"; // from the post carrying a screenshot to the real post it shows (not a copy link)
 
 /** Which part of the pipeline produced a link or a receipt. */
 export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive" | "bluesky";
@@ -117,6 +119,7 @@ export interface TraceCase {
   wouldChange: string[];
   steps: TraceStep[];
   summary: string;
+  tag?: string; // replaces the status tag ("Not enough evidence"), e.g. "Account suspended"
   findingsOnly?: boolean; // no detector verdict: receipts are search findings, not signs either way
   lookup?: LookupResult;
   mock?: boolean;

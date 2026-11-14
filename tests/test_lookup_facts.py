@@ -81,7 +81,7 @@ def test_full_lookup_reads_sources_before_assessing_facts(claim):
     class ReadingAssessor:
         model = "test"
 
-        def assess(self, result):
+        def assess(self, result, *, deadline=None):
             page = next(page for page in result.pages if page.claims)
             result_draft = draft([page.receipt_id])
             result_draft.claim_checks[0].claim = claim
@@ -258,3 +258,31 @@ def test_zero_budget_never_reads_source_pages():
     job._safe_verify_page(page)
     assert job.deps.oxylabs.calls == []
     assert "time budget" in job.result.notes[-1]
+
+
+def test_source_read_budget_is_shared_across_pipeline_phases():
+    job = lookup()
+    job._subject_text = CLAIM
+    job.deps.source_pages_max = 1
+    _, page = source(job, "/search")
+    job.deps.oxylabs.scrape_facts = lambda url, deadline=None: PageFacts(
+        url=url, final_url=url, claims=[CLAIM]
+    )
+    job._queue_older_pages()
+    job.add_page(Page(id="", url="https://another.example/story"))
+    job._queue_older_pages()
+    job._join_verify()
+    assert job._v_pages == [page.id]
+    assert len([r for r in job.result.receipts if r.endpoint == "/scrape"]) == 1
+    assert page.id in job._step("verify").found
+
+
+def test_unavailable_source_cannot_verify_a_claim():
+    job = lookup()
+    rid, page = source(job, "/search")
+    job.deps.oxylabs.scrape_facts = lambda url, deadline=None: PageFacts(
+        url=url, final_url=url, unavailable="deleted", claims=[CLAIM]
+    )
+    job._safe_verify_page(page)
+    assert page.receipt_id == rid
+    assert guard(draft([rid]), job.result, model="test").claim_checks[0].finding == "unverified"

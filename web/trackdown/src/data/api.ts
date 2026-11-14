@@ -2,6 +2,7 @@
 // reachable the app runs on clearly-labelled simulated cases.
 import type { Receipt, Status, TraceCase, TraceEdge, TraceNode, Tool } from "../types";
 import { hashStr } from "./build";
+import { SHOT_FLAG, screenshotFacts, type LookupScreenshot } from "./lookup";
 
 interface SignalBrief { family?: string; name?: string; score?: number; polarity?: string; summary?: string }
 export interface ClusterSummary {
@@ -47,15 +48,6 @@ async function getJson<T>(url: string, init?: RequestInit, ms = 6000): Promise<T
   }
 }
 
-export async function listLive(limit = 12): Promise<ClusterSummary[]> {
-  try {
-    const rows = await getJson<ClusterSummary[]>(`/api/clusters?limit=${limit}`);
-    return Array.isArray(rows) ? rows : [];
-  } catch {
-    return [];
-  }
-}
-
 const host = (u: string) => {
   try {
     return new URL(u).hostname;
@@ -76,7 +68,11 @@ const toolFor = (model?: string | null, kind?: string): Tool =>
 
 /** Turn a cluster detail into a trace: each shared item's earliest post is the parent of later ones. */
 export async function liveCase(id: number): Promise<TraceCase> {
-  const d = await getJson<ClusterDetail>(`/api/clusters/${id}`);
+  return clusterCase(await getJson<ClusterDetail>(`/api/clusters/${id}`));
+}
+
+/** A cluster's detail as a trace (pure: no network). */
+export function clusterCase(d: ClusterDetail): TraceCase {
   const members = new Map(d.members.map((m) => [m.did, m]));
   const posts = [...d.posts].filter((p) => p.created_at || p.seen_at).sort((a, b) => Date.parse(a.seen_at ?? a.created_at!) - Date.parse(b.seen_at ?? b.created_at!));
   const nodes: TraceNode[] = posts.map((p) => {
@@ -121,6 +117,21 @@ export async function liveCase(id: number): Promise<TraceCase> {
       nodes.push({ id, t: (nodes[0]?.t ?? Date.now()) + (i + 1) * 60000, undated: true, platform: "factcheck", role: "source", author: { name: host(e.source_url!), handle: host(e.source_url!), hue: 210 }, text: tidy(e.summary ?? ""), url: e.source_url! });
       if (nodes[0]) edges.push({ from: nodes[0].id, to: id, rel: "cites", tool: "oxylabs" });
     });
+  // Screenshot receipts (media worker, detail.type "screenshot_receipt"): the check sits on
+  // every post carrying the screenshot, the same "Screenshot check" group a lookup shows
+  const byUri = new Map(nodes.map((n) => [n.id, n]));
+  for (const e of d.evidence) {
+    const det = e.detail as { type?: string; receipt?: LookupScreenshot; post_uris?: unknown };
+    if (e.kind !== "media" || det.type !== "screenshot_receipt" || !det.receipt || typeof det.receipt !== "object") continue;
+    const group = screenshotFacts(det.receipt);
+    const flag = SHOT_FLAG[det.receipt.label] ?? SHOT_FLAG.unchecked;
+    for (const uri of Array.isArray(det.post_uris) ? det.post_uris : []) {
+      const node = typeof uri === "string" ? byUri.get(uri) : undefined;
+      if (!node) continue;
+      node.realData = [...(node.realData ?? []), group];
+      if (!node.flags?.includes(flag)) node.flags = [...(node.flags ?? []), flag];
+    }
+  }
   const receipts: Receipt[] = d.evidence
     .filter((e) => e.kind !== "analyst" && e.summary)
     .slice(0, 10)

@@ -14,6 +14,8 @@ from typing import Any
 import httpx
 
 from common.config import get_settings
+from lookup.xpage import page_unavailable_reason
+from sources.links import X_HOSTS, domain
 from sources.models import PageFacts, SearchHit
 
 log = logging.getLogger(__name__)
@@ -129,7 +131,9 @@ class OxylabsClient:
     def scrape_facts(self, url: str, *, deadline: float | None = None) -> PageFacts:
         """Scrape `url` and let Oxylabs extract publisher, date, headline and main claims."""
         data = self._post(
-            "/scrape", {"url": url, "output": ["json"], "json": {"schema": FACTS_SCHEMA}}, deadline
+            "/scrape",
+            {"url": url, "output": ["json", "markdown"], "json": {"schema": FACTS_SCHEMA}},
+            deadline,
         )
         results = data.get("results") or []
         if not results:
@@ -145,6 +149,15 @@ class OxylabsClient:
             publisher=_text(facts.get("publisher")),
             author=_text(facts.get("author")),
             published_at=_text(facts.get("published_at")),
+            unavailable=(
+                page_unavailable_reason(results[0].get("markdown") or "", x_url)
+                if (
+                    x_url := next(
+                        (u for u in (meta.get("url"), url) if u and domain(u) in X_HOSTS), None
+                    )
+                )
+                else None
+            ),
             headline=_text(facts.get("headline")),
             claims=[c for c in (_text(x) for x in claims) if c][:5],
         )

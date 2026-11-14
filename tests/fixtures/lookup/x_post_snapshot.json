@@ -1,0 +1,251 @@
+{
+ "id": "lk_measure_x_post",
+ "state": "done",
+ "error": null,
+ "input": {
+  "url": "https://x.com/StephenKing/status/2121360054330986967",
+  "text": null
+ },
+ "kind": "x_post",
+ "started_at": "2026-11-14T07:07:06.539526Z",
+ "finished_at": "2026-11-14T07:07:31.429987Z",
+ "status": "insufficient",
+ "subject_id": "x:2121360054330986967",
+ "origin_id": "x:2121360054330986967",
+ "posts": [
+  {
+   "id": "x:2121360054330986967",
+   "platform": "x",
+   "url": "https://x.com/StephenKing/status/2121360054330986967",
+   "author_handle": "StephenKing",
+   "author_name": "Stephen King",
+   "text": "The aliens have landed. That’s the REAL reason for the ground stop. They don’t want to start a worldwide panic. They are blind but can hear like a motherfucker.",
+   "created_at": "2026-11-13T21:50:24.573000Z",
+   "time_source": "snowflake",
+   "role": "submitted",
+   "similarity": 1.0,
+   "metrics": {
+    "views": 10500000,
+    "replies": 4600,
+    "reposts": 17000,
+    "likes": 105000,
+    "bookmarks": 9300,
+    "quotes": null
+   },
+   "metrics_as_of": "2026-11-14T07:07:09.138781Z",
+   "card": null,
+   "receipt_id": 1,
+   "verified": true
+  },
+  {
+   "id": "x:2121452854875766970",
+   "platform": "x",
+   "url": "https://x.com/AI313_/status/2121452854875766970",
+   "author_handle": "AI313_",
+   "author_name": "Aviation Intel",
+   "text": "The aliens have landed. That’s the REAL reason for the ground stop. They don’t want to start a worldwide panic. They are blind but can hear like a motherf\\*\\*\\*\\*.",
+   "created_at": "2026-11-14T03:59:09.947000Z",
+   "time_source": "snowflake",
+   "role": "copy",
+   "similarity": 0.9,
+   "metrics": {
+    "views": 445,
+    "replies": null,
+    "reposts": null,
+    "likes": null,
+    "bookmarks": null,
+    "quotes": null
+   },
+   "metrics_as_of": "2026-11-14T07:07:14.373154Z",
+   "card": null,
+   "receipt_id": 8,
+   "verified": true
+  }
+ ],
+ "accounts": [
+  {
+   "platform": "x",
+   "handle": "StephenKing",
+   "name": "Stephen King",
+   "url": "https://x.com/StephenKing",
+   "bio": "Author",
+   "location": null,
+   "joined": "2013-12",
+   "age_days": 4730,
+   "followers": 6600000,
+   "following": 155,
+   "posts_count": 7052,
+   "recent_posts_per_day": 1.3,
+   "receipt_id": 3
+  }
+ ],
+ "pages": [
+  {
+   "id": "page:1",
+   "url": "https://www.primetimer.com/features/thats-the-real-reason-for-the-ground-stop-stephen-king-blames-aliens-for-nationwide-faa-outage-triggers-wave-of-conspiracy-theories",
+   "final_url": null,
+   "role": "reference",
+   "publisher": null,
+   "author": null,
+   "published_at": null,
+   "published_hint": null,
+   "headline": "\"That's the REAL reason for the ground stop\": Stephen King ...",
+   "claims": [],
+   "snippet": "He also suggested that the supposed aliens are blind. \"The aliens have landed. That’s the REAL reason for the ground stop. They don’t want to start a worldwide ",
+   "time": "2026-11-14T04:07:12.207406Z",
+   "time_source": "search_hint",
+   "time_uncertainty_s": 7200.0,
+   "receipt_id": 5
+  },
+  {
+   "id": "page:2",
+   "url": "https://www.ambito.com/informacion-general/la-hipotesis-stephen-king-la-suspension-los-vuelos-estados-unidos-n6345185",
+   "final_url": null,
+   "role": "reference",
+   "publisher": null,
+   "author": null,
+   "published_at": null,
+   "published_hint": null,
+   "headline": "La hipótesis de Stephen King sobre la suspensión de los vuelos en Estados Unidos",
+   "claims": [],
+   "snippet": "The aliens have landed. That’s the REAL reason for the ground stop. They don’t want to start a worldwide panic. They are blind but can hear like a motherfucker.",
+   "time": "2026-11-13T23:07:12.207406Z",
+   "time_source": "search_hint",
+   "time_uncertainty_s": 7200.0,
+   "receipt_id": 5
+  }
+ ],
+ "media": [],
+ "edges": [
+  {
+   "from": "x:2121360054330986967",
+   "to": "x:2121452854875766970",
+   "rel": "copy",
+   "sim": 0.9,
+   "tool": "oxylabs",
+   "note": "same text, later"
+  },
+  {
+   "from": "x:2121360054330986967",
+   "to": "page:1",
+   "rel": "cites",
+   "sim": null,
+   "tool": "oxylabs",
+   "note": "same story"
+  },
+  {
+   "from": "x:2121360054330986967",
+   "to": "page:2",
+   "rel": "cites",
+   "sim": null,
+   "tool": "oxylabs",
+   "note": "same story"
+  }
+ ],
+ "clusters": [],
+ "spread": null,
+ "receipts": [
+  {
+   "id": 1,
+   "tool": "oxylabs",
+   "endpoint": "/scrape",
+   "summary": "X post by @StephenKing read: 10,500,000 views, 4,600 replies, 17,000 reposts, 105,000 likes, 9,300 bookmarks",
+   "source_url": "https://x.com/StephenKing/status/2121360054330986967",
+   "query": null,
+   "latency_ms": 2597,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:09.138742Z"
+  },
+  {
+   "id": 2,
+   "tool": "x-id",
+   "endpoint": "snowflake",
+   "summary": "Exact creation times of X posts are read from their ids (snowflakes), not from the page",
+   "source_url": "https://x.com/StephenKing/status/2121360054330986967",
+   "query": null,
+   "latency_ms": null,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:09.138910Z"
+  },
+  {
+   "id": 3,
+   "tool": "oxylabs",
+   "endpoint": "/scrape",
+   "summary": "X profile @StephenKing: joined 2013-12, 6.6M followers, 7.1K posts",
+   "source_url": "https://x.com/StephenKing",
+   "query": null,
+   "latency_ms": 3726,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:10.269372Z"
+  },
+  {
+   "id": 4,
+   "tool": "bluesky",
+   "endpoint": "searchPosts",
+   "summary": "Bluesky search for the exact text: 2 posts",
+   "source_url": "https://bsky.app/search?q=\"The aliens have landed. That's the REAL reason\"",
+   "query": "\"The aliens have landed. That's the REAL reason\"",
+   "latency_ms": 201,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:10.474507Z"
+  },
+  {
+   "id": 5,
+   "tool": "oxylabs",
+   "endpoint": "/search",
+   "summary": "Web search for the exact text: 10 results",
+   "source_url": null,
+   "query": "\"The aliens have landed. That's the REAL reason for the ground stop\"",
+   "latency_ms": 1936,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:12.207420Z"
+  },
+  {
+   "id": 6,
+   "tool": "oxylabs",
+   "endpoint": "/search",
+   "summary": "Coverage search: 10 results",
+   "source_url": null,
+   "query": "The aliens have landed. That's the REAL reason for the ground stop. They don't",
+   "latency_ms": 2456,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:12.731212Z"
+  },
+  {
+   "id": 7,
+   "tool": "oxylabs",
+   "endpoint": "/search",
+   "summary": "X search for the exact text: 10 results",
+   "source_url": null,
+   "query": "site:x.com \"The aliens have landed. That's the REAL reason for the ground stop\"",
+   "latency_ms": 2663,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:12.935138Z"
+  },
+  {
+   "id": 8,
+   "tool": "oxylabs",
+   "endpoint": "/scrape",
+   "summary": "@AI313_'s post read: copies it (90% same words); 445 views, ? likes",
+   "source_url": "https://x.com/AI313_/status/2121452854875766970",
+   "query": null,
+   "latency_ms": 1435,
+   "cached": false,
+   "ok": true,
+   "at": "2026-11-14T07:07:14.373098Z"
+  }
+ ],
+ "assessment": null,
+ "steps": [],
+ "notes": [
+  "Some accounts in this lookup also appear in monitored clusters about other content. That is context about those accounts, not a verdict on this link.",
+  "X counts are what the logged-out page showed when it was read; X hides zero counts. Post times come from the post ids."
+ ]
+}

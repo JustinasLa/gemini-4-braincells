@@ -82,24 +82,15 @@ def stored_media(conn: psycopg.Connection, cluster_id: int) -> dict[str, dict[st
 
 
 def cached_analysis(conn: psycopg.Connection, media_hash: str) -> dict[str, Any] | None:
-    """The newest stored analysis of this exact blob (any cluster) from the current prompt."""
+    """The newest stored analysis of this exact blob (any cluster) from the current prompt.
+
+    A row whose screenshot read failed comes last: rows are updated in place (ids don't move), so
+    a newer-id failure must not hide an older row that has since been read."""
     row = conn.execute(
         """
         SELECT detail FROM evidence
-        WHERE kind = 'media'
-          AND detail->>'media_hash' = %s
-          AND detail->>'prompt_version' = %s
-          AND coalesce(detail->>'status', 'complete') = 'complete'
-          AND jsonb_typeof(detail) = 'object'
-          AND jsonb_typeof(detail->'description') = 'string'
-          AND nullif(btrim(detail->>'description'), '') IS NOT NULL
-          AND jsonb_typeof(detail->'extracted_text') = 'array'
-          AND jsonb_typeof(detail->'reuse_cues') = 'array'
-          AND jsonb_typeof(detail->'manipulation_cues') = 'array'
-          AND jsonb_typeof(detail->'confidence') = 'number'
-          AND jsonb_typeof(detail->'latency_ms') = 'number'
-          AND jsonb_typeof(detail->'model') = 'string'
-        ORDER BY id DESC LIMIT 1
+        WHERE kind = 'media' AND detail->>'media_hash' = %s AND detail->>'prompt_version' = %s
+        ORDER BY coalesce(detail->>'screenshot_status', '') = 'failed', id DESC LIMIT 1
         """,
         (media_hash, PROMPT_VERSION),
     ).fetchone()
@@ -142,7 +133,39 @@ def save_media_evidence(
     return row["id"], True
 
 
+def refresh_media_detail(
+    conn: psycopg.Connection, evidence_id: int, detail: dict[str, Any]
+) -> None:
+    """Store a detail whose comparable part is unchanged (new timings, counts, checked_at)
+    without bumping created_at, so it doesn't count as new evidence for the analyst."""
+    conn.execute("UPDATE evidence SET detail = %s WHERE id = %s", (Jsonb(detail), evidence_id))
+
+
+def post_created_at(conn: psycopg.Connection, uris: list[str]) -> dict[str, Any]:
+    """{uri: created_at} of snapshot posts (client clock; None when unknown)."""
+    rows = conn.execute(
+        "SELECT uri, created_at FROM cluster_posts_snapshot WHERE uri = ANY(%s)",
+        (list(dict.fromkeys(uris)),),
+    ).fetchall()
+    return {r["uri"]: r["created_at"] for r in rows}
+
+
+# screenshot_receipt rows (media/screenshot_receipts.py): what a re-check may change without
+# the answer changing. Counts drift as people like and repost; timings and receipt ids vary.
+_RECEIPT_VOLATILE = {"checked_at", "fetches"}
+_RECEIPT_INNER_VOLATILE = {"counts_now", "latency_ms", "receipt_ids", "candidates_checked"}
+
+
 def _comparable(detail: dict[str, Any]) -> dict[str, Any]:
     """Detail minus fields that differ between a fresh call and a cache hit."""
     skip = {"latency_ms", "usage", "cached", "analyzed_at", "finish_reason", "source_uri"}
-    return {k: v for k, v in detail.items() if k not in skip}
+    out = {k: v for k, v in detail.items() if k not in skip}
+    if isinstance(out.get("screenshot"), dict):
+        out["screenshot"] = {k: v for k, v in out["screenshot"].items() if k != "latency_ms"}
+    if detail.get("type") == "screenshot_receipt":
+        out = {k: v for k, v in out.items() if k not in _RECEIPT_VOLATILE}
+        if isinstance(out.get("receipt"), dict):
+            out["receipt"] = {
+                k: v for k, v in out["receipt"].items() if k not in _RECEIPT_INNER_VOLATILE
+            }
+    return out

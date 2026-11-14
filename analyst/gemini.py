@@ -21,10 +21,19 @@ class VerdictModel(Protocol):
 
 
 class GeminiVerdictModel:
-    def __init__(self, api_key: str, model: str, *, temperature: float = 0.2):
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY is not set")
-        self._client = genai.Client(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        *,
+        temperature: float = 0.2,
+        client=None,
+    ):
+        if client is None:
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY is not set")
+            client = genai.Client(api_key=api_key)
+        self._client = client
         self.name = model
         self._temperature = temperature
         self.last_call: dict = {}
@@ -55,6 +64,7 @@ class GeminiVerdictModel:
             "prompt_tokens": prompt_tokens,
             "output_tokens": output,  # candidates + thinking, both billed as output
             "cost_usd": cost_usd(self.name, prompt_tokens, output),
+            "thoughts_tokens": thoughts,
         }
         log.info(
             "gemini call model=%s latency_ms=%d prompt_tokens=%s output_tokens=%s "

@@ -8,17 +8,15 @@ like-farms. It explains every flagged group with evidence you can click through,
 something is most likely just people reacting to the news, refuses to guess when the evidence is
 thin, and publishes its own measured error rates.
 
-Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS): the home page is Trackdown
-(paste a post, trace it), and the live monitor dashboard is at
-[`/monitor/`](https://noise-radar.srv2159172.hstgr.cloud/monitor/). API health:
+Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS): the site is Trackdown
+(paste a post, trace it; `/?cluster=<id>` opens a live cluster). API health:
 [`/api/health`](https://noise-radar.srv2159172.hstgr.cloud/api/health), measured accuracy:
 [`/api/metrics`](https://noise-radar.srv2159172.hstgr.cloud/api/metrics).
 
 Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
 
 Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
-API are on `main` and live, and so are the eval harness and the dashboard (its Accuracy page,
-`/monitor/#/accuracy`, shows `/api/metrics`).
+API are on `main` and live, and so is the eval harness (its results are at `/api/metrics`).
 
 ## The thesis
 
@@ -89,11 +87,11 @@ that anyone was paid or why.
 | `signals/` | The coordination detector: windows, shared keys, account graph, clusters, four signal families, permutation null model, organic guards, deterministic status, enrichment. See `signals/README.md`. |
 | `sources/` | Oxylabs Web API: `/scrape` with AI extraction on a cluster's most-shared links, `/search` for its headline and repeated text. Every fact keeps its source URL. |
 | `media/` | Nemotron 3.5 Super VL: describes images and video thumbnails in candidate clusters, extracts their text (OCR), notes reuse and manipulated-context cues, links different images that share one text template. `media/README.md`. |
-| `lookup/` | Trace any link (X post, Bluesky post, profile, web page) with live data: Oxylabs `/scrape` reads the post, its counts and the author's profile; `/search` finds the same text on the web, on X and Bluesky and the coverage of the story; candidate copies are verified on their own pages (copy, quote or reply); exact X post times from the post id; Nemotron reads the images; Gemini writes a cited reading. Coordination verdict only when the link is in a monitored cluster. `lookup/README.md`. |
+| `lookup/` | Trace any link (X post, Bluesky post, profile, web page) with live data: Oxylabs `/scrape` reads the post, its counts and the author's profile; `/search` finds the same text on the web, on X and Bluesky and the coverage of the story; candidate copies are verified on their own pages (copy, quote or reply); exact X post times from the post id; Nemotron reads the images and writes the cited reading in about 1.5 s; Gemini adds a slower second reading beside it. Steps run as soon as their inputs are known and stream to the page (server-sent events). Coordination verdict only when the link is in a monitored cluster. `lookup/README.md`. |
 | `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
 | `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. |
 | `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
-| `web/` | Dashboard served by Caddy (Trackdown home page at `/`, live monitor dashboard at `/monitor/`). |
+| `web/` | Trackdown, the web UI, served by Caddy at `/`. |
 | `common/` | Shared settings (`common.config`) and DB connections (`common.db`), migrations runner. |
 | `db/` | `schema.sql` plus `migrations/`. |
 | `deploy/` | Docker Compose, Caddy, deploy and outside-check scripts for the Hostinger VPS. |
@@ -105,8 +103,8 @@ that anyone was paid or why.
 | **Bluesky Jetstream** (public firehose) | Data source. `ingest/consumer.py` reads it over WebSocket; `ingest/writer.py` stores it. |
 | **Bluesky AppView + PLC directory** | Account enrichment (profile, creation date, handle history) in `signals/enrich.py`. |
 | **Oxylabs Web API** | `sources/oxylabs.py` (`/scrape` with AI extraction, `/search`), called by the `sources` worker and by `POST /api/analyze` (`api/routes/analyze.py`). Gemini also calls it as a tool (`analyst/tools.py`). |
-| **Google Gemini** (`google-genai`) | `analyst/agent.py` (function-calling loop over Oxylabs and DB tools) and `analyst/gemini.py`; checked by `analyst/guard.py`. |
-| **NVIDIA Nemotron 3.5 Super VL** | Planned image and video-frame reader in `media/` (stub on `main`). `openai` is a dependency for its OpenAI-compatible API. |
+| **Google Gemini** (`google-genai`) | `analyst/agent.py` (function-calling loop over Oxylabs and DB tools) and `analyst/gemini.py`; checked by `analyst/guard.py`. The second reading of a link lookup (`lookup/assess.py`). Embeddings for the semantic signal (`signals/semantic.py`) and the red-team fixtures (`signals/attack.py`). |
+| **NVIDIA Nemotron 3.5 Super VL** | Self-hosted on Verda (vLLM, OpenAI-compatible; `openai` client). Reads images and video frames in candidate clusters (`media/`), reads a looked-up post's images, and writes the link lookup's primary cited reading (`lookup/assess.py`: text-only chat, reasoning off, guided JSON, ~1.5 s). Every response must name the Super VL model. |
 | **Python 3.12 + uv** | Every backend service. `pyproject.toml` / `uv.lock`; one image in `Dockerfile`. |
 | **PostgreSQL 16 + pgvector** | The only datastore: `db/schema.sql`, `db/migrations/`, applied by `common/migrate.py`. Raw tables are hour-partitioned. pgvector is enabled but no vector columns exist yet. |
 | **psycopg 3** | All DB access: `common/db.py`, `ingest/`, `signals/store.py`, `sources/store.py`, `analyst/store.py`, `api/store.py`. |
@@ -116,7 +114,6 @@ that anyone was paid or why.
 | **httpx** | Outbound HTTP: `sources/oxylabs.py`, `signals/enrich.py`. |
 | **Pydantic + pydantic-settings** | Settings from env (`common/config.py`); API models (`api/schemas.py`), verdicts (`analyst/verdict.py`), source facts (`sources/models.py`). |
 | **FastAPI + Uvicorn** | The JSON API: `api/main.py`, `api/routes/`. |
-| **Plain HTML + JavaScript** | The dashboard, one file with no build step: `web/public/monitor/index.html` (calls `/api/*` with `fetch`). |
 | **Caddy 2** | Serves `web/public` and proxies `/api/*` to the API (`deploy/Caddyfile`). |
 | **Docker Compose** | All services (db, migrate, ingest, signals, sources, analyst, api, caddy): `deploy/docker-compose.yml`. |
 | **Hostinger VPS + Traefik** | Production host. Hostinger's Traefik terminates HTTPS in front of our Caddy (`deploy/docker-compose.hostinger.yml`); shipped with `deploy/deploy.sh`, checked with `deploy/check.sh`. |
@@ -281,7 +278,7 @@ evidence `kind` is `signal | media | source | analyst`.
 - `GET /api/clusters/{id}` → summary + `signals` + `members` + `posts` (25, with bsky.app links) + `evidence` (signal/media/source) + `analyst` (full latest verdict) *(implemented)*
 - `GET /api/metrics` → latest `eval_runs` per (dataset, split) *(implemented)*
 - `GET /api/feed.atom?status=&min_score=&limit=&include_synthetic=` → Atom 1.0 feed of the newest clusters with one status (default `coordinated`, real traffic only), each entry linking to its dashboard page; follow new calls in any feed reader *(implemented)*
-- `POST /api/lookup` `{url}` or `{text}` → 202 + `LookupResult` (`state: running`); `GET /api/lookup/{id}` polls it until `done`. Live, receipted trace of one link; schema in `lookup/README.md` *(implemented)*
+- `POST /api/lookup` `{url}` or `{text}` (an `@handle` as text is looked up as that Bluesky profile) → 202 + `LookupResult` (`state: running`); `GET /api/lookup/{id}` polls it until `done`. Live, receipted trace of one link; schema in `lookup/README.md` *(implemented)*
 - `POST /api/analyze` `{text?, url?, handle?}` → `{status: matched|insufficient, clusters, author_clusters, web_findings, notes}`. `matched` = the input is in a monitored cluster (its verdicts apply); otherwise live Oxylabs findings only, never a verdict. `url` may be a web page, a Bluesky post or profile link (`bsky.app/profile/<handle|did>[/post/<rkey>]`) or an `at://` post URI; a post is matched against cluster posts, and when only its author is in a cluster that cluster is listed in `author_clusters` (context about the account, never `matched`). Control characters are removed from the input *(implemented)*
 
 **Analyst verdict** (stored in `evidence.detail` with `kind='analyst'`):

@@ -16,17 +16,22 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import openai
 from openai import OpenAI
+
+if TYPE_CHECKING:
+    from media.screenshot import ScreenshotPost
 
 log = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 # Bumped whenever the prompt or output schema changes (media/README.md has the iteration log).
-PROMPT_VERSION = "media-v3"
+# media-v4: the media-v3 prompt, plus the screenshot-v1 read of screenshots (detail.screenshot).
+# media-v5: extracted_text capped at 20 entries in the prompt (pages of text ran into max_tokens).
+PROMPT_VERSION = "media-v5"
 
 MEDIA_TYPES = ("photo", "screenshot", "meme", "ad_or_promo", "text_image", "video_frame", "other")
 CONTENT_FLAGS = ("adult", "promo_or_ad", "scam_cue", "news_or_politics", "handle_or_url_watermark")
@@ -42,7 +47,9 @@ Rules:
   description as exactly "Adult content." (or "Graphic content."). Do not describe bodies, acts
   or clothing; list only text, logos, handles and URLs, in extracted_text.
 - extracted_text: legible text in the image, verbatim, one entry per line or block, in reading
-  order. Empty list if there is none. Never invent unreadable text.
+  order, at most 20 entries of at most 300 characters each (stop there: on a page of text, keep
+  the headline, handles, URLs and the first lines). Empty list if there is none. Never invent
+  unreadable text.
 - reuse_cues: visible signs the image is mass-produced or reused: template layouts, watermarks,
   handles, URLs, QR codes, placeholder slots (a city or name that looks swapped in), stock imagery.
 - manipulation_cues: visible signs of manipulated or misleading context: edited or mismatched
@@ -74,6 +81,10 @@ def safe_description(description: str, flags: list[str]) -> tuple[str, list[str]
 
 class NemotronError(RuntimeError):
     """Nemotron could not return a valid analysis for one media item."""
+
+
+class NemotronTimeUp(NemotronError):
+    """The caller's deadline left no time to start (or retry) a call."""
 
 
 class NotVisionModelError(NemotronError):
@@ -181,28 +192,82 @@ class RateLimiter:
         self._clock, self._sleep = clock, sleep
         self._next = 0.0
 
-    def wait(self) -> None:
+    def wait(self, deadline: float | None = None, need_s: float = 1.0) -> None:
+        """Wait for this call's slot. With `deadline` (on this limiter's clock): raise
+        NemotronTimeUp, without taking the slot, when the slot starts too late for a call."""
         now = self._clock()
+        if deadline is not None and max(now, self._next) + need_s > deadline:
+            raise NemotronTimeUp("Nemotron: time budget used up before the call could start")
         if now < self._next:
             self._sleep(self._next - now)
             now = self._next
         self._next = now + self.interval
 
 
-def parse_content(content: Any) -> dict[str, Any]:
-    """The first JSON object in a reply, tolerating fences, <think> blocks and prose around it."""
+def parse_content(content: Any, *, truncated: bool = False) -> dict[str, Any]:
+    """The first JSON object in a reply, tolerating fences, <think> blocks and prose around it.
+
+    ``truncated`` (finish_reason=length): an object cut off mid-value keeps its complete fields.
+    """
     if isinstance(content, list):
         content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
     if not isinstance(content, str) or not content.strip():
         raise ValueError("response content is empty")
-    text = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
-    start = text.find("{")
-    if start < 0:
+    # Skip braces inside <think> blocks, but decode the original text: a "<think>" written
+    # inside a JSON string value (verbatim post text) must survive.
+    thinking = [m.span() for m in re.finditer(r"<think>.*?</think>", content, flags=re.S)]
+    start = next(
+        (i for i, c in enumerate(content) if c == "{" and not any(a <= i < b for a, b in thinking)),
+        None,
+    )
+    if start is None:
         raise ValueError("no JSON object in response")
-    payload, _ = json.JSONDecoder().raw_decode(text[start:])
+    # Only the first object: never promote an object nested in a broken envelope.
+    try:
+        payload, _ = json.JSONDecoder().raw_decode(content, start)
+    except json.JSONDecodeError:
+        if not truncated:
+            raise
+        payload = json.loads(close_truncated(content, start))
+        log.warning("nemotron reply cut at max_tokens; kept the fields it completed")
     if not isinstance(payload, dict):
         raise ValueError("response JSON is not an object")
     return payload
+
+
+def close_truncated(text: str, start: int = 0) -> str:
+    """The JSON object opening at ``text[start]``, cut off at max_tokens, closed after its last
+    complete value. The value being written when the reply stopped (a half string, a bare key)
+    is dropped, so what is left is only what the model finished writing.
+    """
+    stack: list[str] = []
+    cut, cut_stack = start, [""]
+    in_string = escaped = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif c == "\\":
+                escaped = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+        elif c in "[{":
+            stack.append("]" if c == "[" else "}")
+            cut, cut_stack = i + 1, stack.copy()
+        elif c in "]}":
+            if not stack:
+                break
+            stack.pop()
+            cut, cut_stack = i + 1, stack.copy()
+            if not stack:
+                return text[start:cut]  # complete after all
+        elif c == ",":
+            cut, cut_stack = i, stack.copy()  # everything before a comma is a complete value
+    return text[start:cut] + "".join(reversed(cut_stack))
 
 
 def _strings(value: Any, limit: int = 20) -> list[str]:
@@ -240,6 +305,7 @@ def log_call_attempt(
     attempt: int = 1,
     outcome: str = "ok",
     error_type: str | None = None,
+    task: str = "analyze",
 ) -> int:
     """One consistent record per API attempt, including failures and comparison calls."""
     latency_ms = round((time.monotonic() - started) * 1000)
@@ -249,6 +315,7 @@ def log_call_attempt(
         "model": model,
         "returned_model": getattr(response, "model", None),
         "hash": media_hash,
+        "task": task,
         "latency_ms": latency_ms,
         "prompt_tokens": usage.get("prompt_tokens"),
         "completion_tokens": usage.get("completion_tokens"),
@@ -284,6 +351,8 @@ class NemotronClient:
         max_tokens: int = 4096,
         reasoning: bool = True,
         timeout_s: float = 120,
+        screenshot_reasoning: bool = False,
+        screenshot_max_tokens: int = 1536,
     ) -> None:
         if not api_key and client is None:
             raise ValueError("Nemotron needs VERDA_INFERENCE_KEY or NVIDIA_API_KEY")
@@ -298,6 +367,11 @@ class NemotronClient:
         self._limiter = RateLimiter(rpm, sleep=sleep)
         self.max_tokens = max_tokens
         self.reasoning = reasoning
+        # The screenshot read is a narrow extraction; reasoning off is about 3x faster
+        # (media/README.md, screenshot-v1). A small budget caps a looping reply.
+        self.screenshot_reasoning = screenshot_reasoning
+        self.screenshot_max_tokens = screenshot_max_tokens
+        self._screenshots: dict[str, ScreenshotPost | None] = {}
         self.calls = 0  # model requests made (cache hits excluded)
 
     @classmethod
@@ -307,6 +381,8 @@ class NemotronClient:
             rpm=settings.media_rpm,
             max_tokens=settings.media_max_tokens,
             reasoning=settings.media_reasoning,
+            screenshot_reasoning=settings.media_screenshot_reasoning,
+            screenshot_max_tokens=settings.media_screenshot_max_tokens,
         )
         if settings.verda_inference_key:
             return cls(
@@ -354,7 +430,8 @@ class NemotronClient:
         try:
             if choice is None:
                 raise ValueError("no choices in response")
-            payload = parse_content(choice.message.content)
+            # cut off at max_tokens (a page of text): keep the fields it finished writing
+            payload = parse_content(choice.message.content, truncated=finish == "length")
             result = self._make_analysis(media, payload, latency_ms, response, finish)
         except (TypeError, ValueError, KeyError) as exc:
             raise NemotronError(
@@ -363,20 +440,86 @@ class NemotronClient:
         self._cache[media.media_hash] = result
         return result
 
-    def _complete(self, messages: list[dict[str, Any]], media_hash: str) -> tuple[Any, int]:
+    def read_screenshot(
+        self, media: MediaInput, *, deadline: float | None = None
+    ) -> ScreenshotPost | None:
+        """Read a screenshot of a social-media post as fields (media/screenshot.py).
+
+        None when the image isn't a screenshot of a post, or nothing findable is legible.
+        Raises NemotronError (invalid reply, request failed) or NotVisionModelError.
+        """
+        from media.screenshot import (
+            SCREENSHOT_SYSTEM_PROMPT,
+            SCREENSHOT_USER_PROMPT,
+            screenshot_from_payload,
+        )
+
+        if media.media_hash in self._screenshots:
+            return self._screenshots[media.media_hash]
+        messages = [
+            {"role": "system", "content": SCREENSHOT_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": SCREENSHOT_USER_PROMPT},
+                    {"type": "image_url", "image_url": {"url": media.image_url()}},
+                ],
+            },
+        ]
+        response, latency_ms = self._complete(
+            messages,
+            media.media_hash,
+            reasoning=self.screenshot_reasoning,
+            max_tokens=self.screenshot_max_tokens,
+            task="screenshot",
+            deadline=deadline,
+        )
+        choice = response.choices[0] if response.choices else None
+        finish = getattr(choice, "finish_reason", None)
+        try:
+            if choice is None:
+                raise ValueError("no choices in response")
+            payload = parse_content(choice.message.content)
+            post = screenshot_from_payload(
+                payload, media_hash=media.media_hash, model=response.model, latency_ms=latency_ms
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            raise NemotronError(
+                f"Nemotron returned an invalid screenshot read (finish_reason={finish}): {exc}"
+            ) from exc
+        self._screenshots[media.media_hash] = post
+        return post
+
+    def _complete(
+        self,
+        messages: list[dict[str, Any]],
+        media_hash: str,
+        *,
+        reasoning: bool | None = None,
+        max_tokens: int | None = None,
+        task: str = "analyze",
+        deadline: float | None = None,
+    ) -> tuple[Any, int]:
+        """One completion with retries. `deadline` (time.monotonic()) bounds everything: the
+        rate-limit wait, each request's timeout and every retry; past it, NemotronTimeUp."""
         extra: dict[str, Any] = {}
-        if not self.reasoning:
+        if not (self.reasoning if reasoning is None else reasoning):
             extra["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
         for attempt in range(self._max_retries):
-            self._limiter.wait()
+            self._limiter.wait(deadline)
             started = time.monotonic()
+            if deadline is not None:
+                left = deadline - started
+                if left < 1.0:
+                    raise NemotronTimeUp("Nemotron: time budget used up")
+                extra["timeout"] = left  # this request ends by the deadline
             try:
                 self.calls += 1
                 response = self._client.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     temperature=0.1,
-                    max_tokens=self.max_tokens,
+                    max_tokens=max_tokens or self.max_tokens,
                     **extra,
                 )
             except openai.OpenAIError as exc:
@@ -392,10 +535,15 @@ class NemotronClient:
                     attempt=attempt + 1,
                     outcome="retry" if retry else type(exc).__name__,
                     error_type=type(exc).__name__,
+                    task=task,
                 )
                 if not retry:
                     raise NemotronError(f"Nemotron request failed: {exc}") from exc
                 delay = min(60.0, 2**attempt) * (1 + random.random() / 2)
+                if deadline is not None and time.monotonic() + delay + 1.0 > deadline:
+                    raise NemotronTimeUp(
+                        f"Nemotron: no time left to retry after {type(exc).__name__}"
+                    ) from exc
                 self._sleep(delay)
                 continue
             except Exception as exc:  # a programming error, not an API failure: log, re-raise
@@ -406,6 +554,7 @@ class NemotronClient:
                     attempt=attempt + 1,
                     outcome=type(exc).__name__,
                     error_type=type(exc).__name__,
+                    task=task,
                 )
                 raise
             returned_model = getattr(response, "model", None)
@@ -417,6 +566,7 @@ class NemotronClient:
                 response=response,
                 attempt=attempt + 1,
                 outcome="ok" if valid_model else "NotVisionModelError",
+                task=task,
             )
             if not valid_model:
                 raise NotVisionModelError(

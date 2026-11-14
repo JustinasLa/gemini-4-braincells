@@ -170,6 +170,7 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
 | Recall, synthetic campaigns in recorded live windows, **dev** hours (20, 22, 00 UTC) | L1 18/18, L2 17/18, L3 0/18 (all L3 shown as "can't tell") | `python -m eval recall --split dev --repeats 1 --base-rates ...` |
 | Recall, **heldout** hours (19, 21, 23, 01, 03, 05 UTC; detector v1.7) | L1 26/26, L2 24/26 (92%, CI 76-98%), L3 0/26 (all shown as "can't tell") | same, `--split heldout` (nothing tuned on these hours) |
 | External validation: Bluesky took down / suspended within 3 h | `coordinated` 56/458 accounts (12.2%, CI 9.5-15.6%); `likely_organic` 0/8,402; random active 0/1,200; clusters 13/81 vs 0/1,188 | `python -m eval takedowns --horizon-h 3` |
+| Are our strongest abstentions real? `insufficient` clusters that met every `coordinated` condition except the p-value (Sat 14 Nov 11:45 Espoo, horizon 3 h, team-server DB, mixed versions) | taken down 40/600 accounts (6.7%, CI 4.9-9.0%) vs `coordinated` 60/922 (6.5%, CI 5.1-8.3%); the other `insufficient` 12/4,286 (0.3%); `likely_organic` 0/15,811; random active 0/3,290 | `python -m eval takedowns` (row `insufficient_p_only`) |
 | Gemini red team (fictional paraphrase campaigns vs organic look-alikes) | fresh-account campaigns 16/16 coordinated, aged 0/16, look-alikes 0/16; semantic signal 32/32 vs 0/16 | `python -m signals.attack_eval` |
 | Speed (2-vCPU budget, warm cache) | 10m pass ~5 s CPU, 1h pass ~40 s CPU + ~19 s DB; live worker 10-12 s per 10m pass | profiling in PR #34 |
 
@@ -211,9 +212,23 @@ Earlier fixes from the same kind of review: weather feeds sharing a custom handl
 - Campaigns on aged or bought accounts, spread over time, still have no significant test (timing
   and identity both look normal): they stay `insufficient` even when Gemini embeddings show the
   same message.
+- We keep the p-value rule on purpose, and it costs recall. The abstentions it holds back
+  are real: clusters stopped only by the p-value are taken down by Bluesky as often as
+  `coordinated` ones (row above). We still don't flag them, because we can't show they beat chance.
+- Two tests for these clusters were measured and not shipped (Sat 14 Nov):
+  1. Exclusive co-engagement breadth inside the window. L3 sits at the 90-95th percentile of
+     693 real dev clusters, so it can't reach p <= 0.01.
+  2. Co-engagement in the 6 h before the window, against activity-matched random active
+     accounts. This is significant for 27% of `likely_organic` clusters, because real
+     communities co-engage every day too, so it can't tell a campaign from a community.
 - Before v1.5 the p-value only tested timing. A campaign with duplicate content and fresh accounts but no
   burst is `insufficient`, not `coordinated` (identity base rates are planned).
 - Independent scheduled bots (clock, weather, news feeds) look synchronized; guards catch the
   ones that post on the hour or share a declared domain, not all.
 - Short texts (< 5 tokens) are ignored as content keys; copy-paste of one-liners isn't caught.
+- Japanese, Chinese, Thai and other unspaced scripts get content keys since v1.8 (about one word
+  per two characters; near-duplicates on character 3-grams). Like word 3-grams for English, this
+  also links templated share posts that differ in one word. Their posts are still never embedded
+  for semantic similarity (that gate counts words by spaces). `POST /api/lookup` (Trackdown)
+  still needs 5 space-separated words of text; `POST /api/analyze` accepts 10+ characters.
 - Identity signals depend on enrichment, which is limited per pass and only for suspicious groups.

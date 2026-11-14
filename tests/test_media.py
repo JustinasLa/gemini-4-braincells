@@ -14,6 +14,7 @@ from media.nemotron import (
     NemotronError,
     NotVisionModelError,
     RateLimiter,
+    close_truncated,
     is_super_vl_model,
     is_vl_model,
     parse_content,
@@ -80,6 +81,7 @@ def _status_error(code):
         GOOD,
         f"```json\n{GOOD}\n```",
         f"<think>let me look {{not json}}</think>\n{GOOD}",
+        f"<think>a {{brace</think>\n{GOOD}",
         f"Here is the analysis:\n{GOOD}\nHope this helps.",
         [{"type": "text", "text": GOOD}],
     ],
@@ -97,6 +99,52 @@ def test_parse_content_rejects_non_objects(content):
 def test_null_content_is_an_error_that_names_the_finish_reason():
     client, _, _ = _client(_response(None, finish="length"))
     with pytest.raises(NemotronError, match="finish_reason=length"):
+        client.analyze(MediaInput("h", "image/png", data=b"x"))
+
+
+# A page of text: the model transcribes line after line until max_tokens cuts it mid-string.
+CUT = (
+    '<think>a page of text</think>{"description": "A numbered list of 172 lines.",'
+    ' "media_type": "text_image", "extracted_text": ["1. market vote", "2. tax \\"rule\\", road",'
+    ' "3. energy pri'
+)
+
+
+@pytest.mark.parametrize(
+    ("cut", "closed"),
+    [
+        ('{"a": "x", "b": ["y", "z', '{"a": "x", "b": ["y"]}'),
+        ('{"a": "x", "b": [', '{"a": "x", "b": []}'),
+        ('{"a": "x", "b"', '{"a": "x"}'),
+        ('{"a": "x", "b": 0.', '{"a": "x"}'),
+        ('{"a": {"c": [1, 2]}, "b": "has, comma', '{"a": {"c": [1, 2]}}'),
+        ('{"a": "x"} trailing', '{"a": "x"}'),
+    ],
+)
+def test_close_truncated_keeps_only_complete_values(cut, closed):
+    assert json.loads(close_truncated(cut)) == json.loads(closed)
+
+
+def test_reply_cut_at_max_tokens_keeps_the_fields_it_finished():
+    client, _, _ = _client(_response(CUT, finish="length"))
+    a = client.analyze(MediaInput("h", "image/png", data=b"x"))
+    assert a.description == "A numbered list of 172 lines."
+    assert a.media_type == "text_image"
+    assert a.extracted_text == ["1. market vote", '2. tax "rule", road']
+    assert a.finish_reason == "length"
+
+
+def test_a_cut_reply_is_only_repaired_when_the_model_hit_max_tokens():
+    with pytest.raises(json.JSONDecodeError):
+        parse_content(CUT)  # finish_reason=stop: a broken reply stays an error
+    client, _, _ = _client(_response(CUT, finish="stop"))
+    with pytest.raises(NemotronError, match="finish_reason=stop"):
+        client.analyze(MediaInput("h", "image/png", data=b"x"))
+
+
+def test_reply_cut_before_its_description_is_still_an_error():
+    client, _, _ = _client(_response('{"description": "A numbered li', finish="length"))
+    with pytest.raises(NemotronError, match="description"):
         client.analyze(MediaInput("h", "image/png", data=b"x"))
 
 
@@ -297,6 +345,7 @@ def test_every_attempt_logs_latency_tokens_and_outcome(caplog, monkeypatch):
         "model": client.model,
         "returned_model": None,
         "hash": "hash",
+        "task": "analyze",
         "latency_ms": 250,
         "prompt_tokens": None,
         "completion_tokens": None,
@@ -364,3 +413,8 @@ def test_super_vl_guard_requires_version_3_5():
     assert is_super_vl_model("nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4")
     assert not is_super_vl_model("nemotron-2-super-vl")
     assert not is_super_vl_model("nvidia/nemotron-3.5-super-120b-a12b")  # text-only label
+
+
+def test_parse_content_never_promotes_an_object_nested_in_broken_json():
+    with pytest.raises(ValueError):
+        parse_content('{"description": "x", "text": "Sample {"is_post": false} code"}')

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -47,8 +48,14 @@ class BlueskyClient:
             transport=transport,
             headers={"user-agent": "shill-or-chill-lookup/1.0"},
         )
-        self.last_call: dict[str, Any] = {}
+        self._local = threading.local()  # last_call per thread: parallel calls don't race
         self._timeout_s = timeout_s
+
+    @property
+    def last_call(self) -> dict[str, Any]:
+        """{endpoint, status, latency_ms} of this thread's latest call (receipts). `status` is
+        None when the request itself failed (timeout, connection error)."""
+        return getattr(self._local, "last_call", {})
 
     def close(self) -> None:
         self._http.close()
@@ -67,11 +74,23 @@ class BlueskyClient:
             return self._http.get(f"/{method}", params=params, timeout=timeout or self._timeout_s)
 
         started = time.monotonic()
-        res = attempt()
-        if res.status_code in (502, 503, 504):  # the public AppView blips now and then: once more
-            time.sleep(0.5)
+        self._local.last_call = {}
+        try:
             res = attempt()
-        self.last_call = {
+            if res.status_code in (502, 503, 504):  # the public AppView blips now and then: again
+                time.sleep(0.5)
+                try:
+                    res = attempt()
+                except BlueskyTimeUp:  # no time for the retry: the first answer is the fact
+                    pass
+        except httpx.HTTPError:
+            self._local.last_call = {
+                "endpoint": method,
+                "status": None,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+            }
+            raise
+        self._local.last_call = call = {
             "endpoint": method,
             "status": res.status_code,
             "latency_ms": int((time.monotonic() - started) * 1000),
@@ -80,7 +99,7 @@ class BlueskyClient:
             "bluesky call endpoint=%s status=%s latency_ms=%d",
             method,
             res.status_code,
-            self.last_call["latency_ms"],
+            call["latency_ms"],
         )
         res.raise_for_status()
         return res.json()
@@ -101,12 +120,22 @@ class BlueskyClient:
         return self._get("app.bsky.actor.getProfile", {"actor": actor}, deadline)
 
     def author_feed(self, actor: str, limit: int = 20, deadline: float | None = None) -> list[dict]:
+        return [f["post"] for f in self.author_feed_items(actor, limit, deadline) if "post" in f]
+
+    def author_feed_items(
+        self,
+        actor: str,
+        limit: int = 20,
+        deadline: float | None = None,
+        filter: str = "posts_no_replies",
+    ) -> list[dict]:
+        """The raw feed items ({post, reason?, reply?}): `reason` marks a repost or a pin."""
         data = self._get(
             "app.bsky.feed.getAuthorFeed",
-            {"actor": actor, "limit": limit, "filter": "posts_no_replies"},
+            {"actor": actor, "limit": limit, "filter": filter},
             deadline,
         )
-        return [f["post"] for f in data.get("feed", []) if "post" in f]
+        return list(data.get("feed", []))
 
     def search(self, q: str, limit: int = 25, deadline: float | None = None) -> list[dict]:
         return self._get(

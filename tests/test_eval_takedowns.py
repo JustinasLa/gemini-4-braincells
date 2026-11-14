@@ -56,3 +56,12 @@ def test_deleted_and_throttled_are_reported_separately_from_moderation():
     row = table(flags, events, NOW, horizon_h=3)["baseline"]
     assert row["moderation"]["k"] == 0
     assert row["deleted"]["k"] == 1 and row["throttled"]["k"] == 1
+
+
+def test_p_only_abstentions_get_their_own_row():
+    flags = [Flag("a", "insufficient", T0), Flag("a", "insufficient_p_only", T0)]
+    events = {"a": [(T0 + timedelta(hours=1), "takendown")]}
+    t = table(flags, events, NOW, horizon_h=3)
+    assert t["insufficient"]["moderation"]["k"] == 1
+    assert t["insufficient_p_only"]["accounts"] == 1
+    assert t["insufficient_p_only"]["moderation"]["k"] == 1

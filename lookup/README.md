@@ -16,11 +16,19 @@ real, live data about it and returns it with a receipt for every fact:
   headline / claim): publisher, date, headline, main claims; other outlets on the same story.
 - **Media** (Nemotron 3.5 Super VL): description and OCR of the post's images; the OCR text is
   searched like the post text, so a screenshot that is passed around is found too.
+- **Screenshots of posts** (Nemotron reads the screenshot; Bluesky API and Oxylabs find the
+  real post): when one of the post's own images is a screenshot of a social post, the lookup
+  looks for the real post it shows and says whether it was found and matches
+  (`lookup/receipts.py`, run by `lookup/receipts_step.py`).
 - **Our monitor**: whether the link, text or accounts are in a cluster the detector watches
   (`api/store.py`), and that cluster's detector status.
-- **Gemini** writes a short, cited reading of the collected receipts: origin, corroboration,
-  spread pattern, counter-evidence, what would change the reading. It may cite only receipt ids
-  that exist (checked in code). It never sets the status.
+- **The reading.** Nemotron 3.5 Super VL (text-only chat on the Verda vLLM endpoint, reasoning
+  off, guided JSON) writes a short, cited reading of the collected receipts in about 1.5 s:
+  origin, corroboration, spread pattern, counter-evidence, what would change the reading.
+  Gemini writes a second reading of the same receipts on the same stream (about 15-20 s later).
+  Both may cite only receipt ids that exist (checked in code); neither sets the status. When
+  their calls differ, both are shown and the difference is counted (`readings_disagree`), never
+  resolved by picking one.
 
 **Status rule (honesty):** `status` is `matched` only when the input hits a cluster we monitor;
 the coordination verdict is then that cluster's detector status. Otherwise `status` is
@@ -58,13 +66,47 @@ of first publication. Older clients remain compatible; missing claim checks defa
 ## API
 
 ```
-POST /api/lookup        {"url": "https://x.com/user/status/123"}   or {"text": "..."}
+POST /api/lookup             {"url": "https://x.com/user/status/123"}   or {"text": "..."}
+                             a text that is one Bluesky account (`@name.bsky.social`, `@name`,
+                             `name.bsky.social`, `@example.com`, a DID) is looked up as its
+                             profile link `https://bsky.app/profile/<handle>`; other text needs
+                             5+ words (`signals.textnorm.word_count`: CJK/Thai counted per ~2 chars)
   -> 202 LookupResult (state "running"); repeated input within LOOKUP_CACHE_TTL_S -> cached result
-GET  /api/lookup/{id}   -> LookupResult; poll every ~1.5 s until state is "done" or "failed"
+GET  /api/lookup/{id}/events -> text/event-stream: `event: snapshot` + `data: <LookupResult>` at
+                                once and on every change (checked every 150 ms), `event: ping`
+                                every 10 s; ends after the snapshot whose state isn't "running"
+GET  /api/lookup/{id}        -> LookupResult; the fallback: poll every ~0.6 s until state is
+                                "done" or "failed"
+POST /api/lookup/image       body: the raw image bytes (JPEG, PNG, WebP or GIF, at most 8 MB)
+  -> 202 LookupResult with kind "image"; the same bytes within LOOKUP_CACHE_TTL_S -> cached result
+GET  /api/lookup/{id}/image  -> the uploaded image, while the job lives (404 after that)
 ```
 
+**Image lookups** (the meme / screenshot tracer). The type comes from the file's magic bytes,
+not the declared content type. The bytes stay in the job, in memory, for `LOOKUP_JOB_TTL_S`
+and are never written to disk or the database; the JSON carries only their sha256, type and
+size. The upload is the submitted post (`upload:<sha256[:16]>`, no author, no time). Nemotron
+reads it, and:
+
+- with 5+ words of text in the image, that text drives the same searches as a post's text
+  (web, X, Bluesky; candidates read on their own pages). The earliest copy read on its own page
+  is `origin_id`; copies below 0.8 similarity are reworded variants, counted in a note. A meme
+  also gets " meme" added to the coverage query, which brings up meme pages.
+- with less text (a short caption), or none, there's no exact-phrase search. The coverage step
+  looks for pages about the image by its caption, or by Nemotron's description (never for adult
+  content). Those pages are role "coverage": about the image, never copies or the origin.
+- the upload is never its own origin: with no verified copy, `origin_id` is null.
+
+Search is by text, not pixels: an image with no text and no well-known look finds little.
+
+Trackdown (web/trackdown) opens the stream and falls back to polling when it errors or no
+snapshot arrives within 4 s (a buffering proxy). `deploy/Caddyfile` leaves the stream
+uncompressed and unbuffered. The trace is finished on screen when the `assess` step is done;
+the second reading is added to the panel when it arrives.
+
 Errors: 400 bad input, 429 rate limit (`LOOKUP_MAX_PER_HOUR` overall, `LOOKUP_MAX_PER_IP_PER_HOUR`
-per client), 503 when Oxylabs isn't configured, 404 unknown/expired id.
+per client), 503 when Oxylabs (or, for images, Nemotron) isn't configured, 404 unknown/expired
+id, 413 image over 8 MB, 415 not a JPEG/PNG/WebP/GIF.
 Jobs live in the API process (single uvicorn worker) for `LOOKUP_JOB_TTL_S`.
 
 ## LookupResult (JSON)
@@ -77,8 +119,8 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "id": "lk_3f9a...",
   "state": "running",                 // running | done | failed
   "error": null,
-  "input": {"url": "https://x.com/user/status/123", "text": null},
-  "kind": "x_post",                   // x_post | x_profile | bsky_post | bsky_profile | web | text
+  "input": {"url": "https://x.com/user/status/123", "text": null},  // image: {"image": {"sha256", "mime", "bytes"}}
+  "kind": "x_post",                   // x_post | x_profile | bsky_post | bsky_profile | web | text | image
   "started_at": "...", "finished_at": null,
   "status": "insufficient",           // matched | insufficient  (see the status rule)
   "subject_id": "x:123",              // the submitted post's id in `posts`, or null
@@ -88,12 +130,15 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "accounts": [Account],
   "pages": [Page],
   "media": [MediaFinding],
+  "screenshots": [ScreenshotReceipt], // one per screenshot of a post in the submitted post's images
   "edges": [Edge],
   "clusters": [ClusterSummary],       // api/schemas.py ClusterSummary + "match": ["link"|"text"|"account"]
                                       // + "verdict_applies" (true only for link/text matches)
   "spread": Spread | null,
   "receipts": [Receipt],
-  "assessment": Assessment | null,
+  "assessment": Assessment | null,    // the primary reading (Nemotron's; Gemini's if Nemotron gave none)
+  "readings": [Assessment],           // every reading, primary first; the second one can arrive while running
+  "readings_disagree": false,         // the readings' llm_reading differ: both shown, neither is the status
   "steps": [Step],
   "notes": ["..."]
 }
@@ -109,9 +154,11 @@ Post {
   "text": "...",
   "created_at": "2026-11-13T23:14:58.508Z",
   "time_source": "snowflake",         // snowflake | api | page | search_hint
-  "role": "submitted",                // submitted | origin | copy | quote | reply | mention | author_recent | bluesky
+  "role": "submitted",                // submitted | origin | copy | quote | reply | mention | author_recent | bluesky | screenshotted
                                       // copy/quote/reply only after the post's own page was read
-                                      // ("verified": true); a search hit is "mention" until then
+                                      // ("verified": true); a search hit is "mention" until then.
+                                      // screenshotted: the real post a screenshot in the submitted
+                                      // post shows; never a copy, never in the spread or the origin
   "similarity": 1.0,                  // token similarity to the submitted text, 0..1, null if n/a
   "metrics": {"views": 22300, "replies": 14, "reposts": 108, "likes": 205, "bookmarks": 21, "quotes": null},
   "metrics_as_of": "...",             // when the page was read
@@ -144,8 +191,50 @@ MediaFinding {
   "reuse_cues": ["..."], "manipulation_cues": ["..."], "confidence": 0.7,
   "model": "nemotron-3.5-super-vl", "latency_ms": 5400, "receipt_id": 9
 }
+ScreenshotReceipt {
+  "media_url": "https://pbs.twimg.com/media/HXBBBB?format=jpg&name=large",  // the screenshot image
+  "media_hash": "lookup:9f2c...",     // sha256 of the downloaded image bytes
+  "post_id": "x:2121360054330986967", // the submitted post whose image is the screenshot
+  // what Nemotron read in the screenshot (verbatim, nothing inferred)
+  "platform": "x",                    // x | bluesky | threads | facebook | instagram | tiktok | other | unknown
+  "handle": "ada_example",            // without @, or null if not legible
+  "display_name": "Ada Example",
+  "shown_time": "3:14 PM · Nov 13, 2026",   // as shown; relative ones ("2h") too
+  "shown_text": "The comets have landed. That's the REAL reason for the ground stop.",
+  "shown_counts": {"replies": 1800, "reposts": 5800, "likes": 35000, "views": null},
+  "ui_oddities": ["the like count uses a font unlike the rest"],  // visible oddities, cautious
+  "read_confidence": 0.82,
+  "read_model": "nemotron-3.5-super-vl",
+  // the check
+  "label": "differs",                 // matches | differs | not_found | unchecked
+  "reason": "the real post says \"a reason\", the screenshot \"the REAL reason\"",
+  "original_id": "x:2121359000000000000",  // key into posts (role "screenshotted"), or null
+  "original_url": "https://x.com/ada_example/status/2121359000000000000",
+  "original_text": "The comets have landed. That's a reason for the ground stop.",
+  "original_created_at": "2026-11-13T15:14:09.120Z",
+  "original_time_source": "snowflake",     // snowflake | api | null
+  "original_receipt_id": 14,               // the fetch that read the real post (its page/API)
+  "similarity": 0.83,                 // screenshot text vs the real post's text, 0..1
+  "diff": [                           // word runs; shot_only: only in the screenshot
+    {"op": "same", "text": "The comets have landed. That's"},
+    {"op": "shot_only", "text": "the REAL"}, {"op": "post_only", "text": "a"},
+    {"op": "same", "text": "reason for the ground stop."}
+  ],
+  "differences": ["\"the REAL reason\" in the screenshot, \"a reason\" in the post"],
+  "time_check": "consistent",         // consistent | inconsistent | unknown
+  "shown_time_earliest": "2026-11-13T01:14:00Z",  // the real times the shown time allows
+  "shown_time_latest": "2026-11-14T05:14:59Z",    // (time zone unknown: ±14 h); null = open
+  "time_note": "shown time is in the viewer's unknown time zone (within 14 h of UTC)",
+  "counts_now": {"views": 2900000, "replies": 1800, "reposts": 5800, "likes": 35000, "bookmarks": 2800, "quotes": null},
+  "counts_note": "Counts change as people like and repost; shown as context, never as a verdict.",
+  "candidates_checked": 3,            // real posts read and compared
+  "receipt_ids": [9, 10, 11],         // the screenshot read, the searches, the posts read
+  "latency_ms": 6100
+}
 Edge { "from": "x:120", "to": "x:123", "rel": "copy", "sim": 0.94, "tool": "oxylabs", "note": "same text" }
-  // rel: repost | quote | copy | media | link | reply | cites ; tool: oxylabs | nemotron | gemini | detector | bluesky
+  // rel: repost | quote | copy | media | link | reply | cites | screenshot_of ; tool: oxylabs | nemotron | gemini | detector | bluesky
+  // screenshot_of: from the post carrying the screenshot to the real post it shows; sim is the
+  // screenshot-vs-post similarity, note the label (matches | differs)
 Spread {
   "n_posts": 12, "n_accounts": 11, "n_verbatim": 9,       // verbatim = similarity >= 0.8
   "first_at": "...", "last_at": "...", "span_s": 4200,
@@ -160,15 +249,19 @@ Receipt {
   "source_url": "https://x.com/...",   // what was fetched or searched (search: the result page URL is in posts/pages)
   "query": null,                       // the search query, for /search
   "request_id": "1794612806305915961", "latency_ms": 9120, "cached": false, "at": "..."
+                                       // cached: the same read in the last LOOKUP_PROVIDER_CACHE_TTL_S
+                                       // (another lookup made it); latency 0, and the summary names
+                                       // the original read's time, which X counts keep as metrics_as_of
 }
 Assessment {
-  "model": "gemini-4-hydrogen",
+  "model": "nemotron-3.5-super-vl",    // the model id the response returned (Gemini: its modelVersion;
+                                       // the requested id, logged as such, only if the API returns none)
   "summary": "...",                    // 2-4 sentences
   "origin": "...", "corroboration": "...", "spread_pattern": "...",
   "counter_evidence": ["..."], "would_change": ["..."],
   "cites": [3, 7, 9],                  // receipt ids, all checked to exist
-  "llm_reading": "organic_looking",    // organic_looking | copy_campaign_looking | unclear  (Gemini's read, not a verdict)
-  "latency_ms": 14000, "cost_usd": 0.03
+  "llm_reading": "organic_looking",    // organic_looking | copy_campaign_looking | unclear  (the model's read, not a verdict)
+  "latency_ms": 1500, "cost_usd": null // null: no per-token price for the self-hosted endpoint; Gemini's is estimated
 }
 Step {
   "id": "post", "tool": "oxylabs", "label": "Read the X post",
@@ -178,12 +271,38 @@ Step {
 }
 ```
 
-Step ids in order: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`,
-`copies_bsky`, `coverage`, `media`, `verify`, `monitor`, `assess`. Steps that don't apply are
-`skipped`. Order of work: post + author; then the searches, linked page and media in parallel;
-then `verify` (candidates from every search); then `monitor` (with every link, text and account
-found); then Gemini. Every provider call checks the time budget first (the last 25 s are kept
-for Gemini); a step that runs out says "time budget used up".
+Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies_bsky`,
+`coverage`, `media`, `screenshot`, `verify`, `monitor`, `assess`, `second_reading`. Steps that don't apply are
+`skipped`. Each step starts as soon as what it needs is known (`Lookup._phases`), not in phases:
+
+1. `post` and `author` start together. The searches wait only for the post's text, not for the
+   profile. A submitted web page gets a quick markdown read (its first heading, ~3 s) that starts
+   the searches while `linked` (the AI fact extraction: publisher, date, claims, ~8-12 s) runs.
+2. With the text: `copies_web`, `copies_x`, `copies_bsky`, `coverage`, the post's `linked` page
+   and `media` (the images in parallel) all start at once. `screenshot` follows `media` on the
+   same worker: each image Nemotron typed a screenshot is read as a post and checked against
+   the real post (`lookup/receipts.py`); for an image-only post it runs alongside the searches.
+3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
+   (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
+   verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read
+   of a candidate copy or older page gets `LOOKUP_VERIFY_READ_S` (8 s; Oxylabs `/scrape` p90 is
+   ~7 s): the reading waits for the slowest of them, so a straggler stays an unread mention
+   instead of holding everything back. The step then says "R of N read" (N queued, R came back);
+   "more candidates not read" counts the ones never queued. Candidates
+   from the search for an image's text are queued when `media` is done.
+4. `monitor` runs once every search, page and image is in (it needs the link, the text and the
+   Bluesky accounts), while `verify` finishes.
+5. `assess` (Nemotron) and `second_reading` (Gemini) start together on the same receipts.
+
+Every provider call checks the time budget first (`LOOKUP_TIME_BUDGET_S`, 60 s; the last 10 s
+are kept for Nemotron's reading). The second reading has its own bound
+(`LOOKUP_SECOND_READING_S`, 45 s) and never delays the first. A step that runs out says "time
+budget used up". Same Oxylabs search or page read within `LOOKUP_PROVIDER_CACHE_TTL_S` (10 min)
+and the same image with the same post text (by URL or bytes, 24 h) are served from a process
+cache (`lookup/cache.py`), marked `cached` on their receipts with the original read's time
+(search snippets' "3 hours ago" stays relative to that read). Images are downloaded and read
+only while a bounded call (one attempt, 20 s, no rate-limiter wait: a lookup makes at most
+two) still fits before the reading's reserve.
 
 ## Rules that keep it honest (and why)
 
@@ -203,14 +322,27 @@ for Gemini); a step that runs out says "time budget used up".
 - **Images.** Nemotron reads the post's own images; their text (8+ words) is searched like the
   post text. Link-card thumbnails are described but not searched (their text is a photo label).
   A post that is only an image is searched by the text inside it.
+- **Screenshots.** A screenshot of a post is a claim, checked against the real post: the label
+  is `matches` (found, same words), `differs` (found, words or time differ; a word diff shows
+  how), `not_found` ("no matching post found: it may be deleted, private or never posted", never
+  "fake") or `unchecked` (with the reason: no legible handle, a platform we can't read, time
+  budget used up). Counts in the screenshot are context only, never the label. A relative time
+  ("2h") counts back from the post that carries the screenshot; an absolute time is in the
+  viewer's unknown time zone, so it allows ±14 h. The label describes the screenshot, never a
+  person. The real post is shown as `screenshotted`: never a copy, in the spread or the origin.
 - **Short links** (t.co etc.) are resolved before the page is scraped.
 - **Origin needs a clear lead.** A page is the origin only if the latest time its date allows
   (a day for a date-only hint, the unit for "3 hours ago") is before every post. Only posts read
   on their own page or API count as copies, in the spread and for the origin.
 - **No verdict from a footprint.** `status` is `matched` only when a monitored cluster shared
   the link or the text. A cluster that only contains an account seen in the lookup is listed as
-  context (`verdict_applies: false`), never as this link's verdict. Gemini's `llm_reading` is shown as its
-  reading, never as the status, and keeps only citations of receipts that exist.
+  context (`verdict_applies: false`), never as this link's verdict. Each model's `llm_reading`
+  is shown as its reading, never as the status, and keeps only citations of receipts that
+  exist; with no valid citation it is "unclear". Two readings that differ are both shown.
+- **Model labels are what the server returned.** `Assessment.model` is the id in the response.
+  Nemotron's reading, like its image reading, is kept only when that id names Nemotron 3.5
+  Super VL (`media.nemotron.is_super_vl_model`); NVIDIA's shared build API once answered a
+  Super VL request under a text-model label.
 
 ## Try it
 
@@ -222,4 +354,28 @@ curl -s localhost:8005/api/lookup/<id> | jq '.state, .steps[] | {id, state, deta
 ```
 
 A typical X post lookup makes 8-20 Oxylabs calls (1 post page, 1-5 profiles, 4 searches, up
-to 8 copy pages, 1 linked page), 0-2 Nemotron calls and 1 Gemini call, in 20-40 s.
+to 8 copy pages, 1 linked page), 1-3 Nemotron calls (images and the reading; one more per screenshot of a post) and 1 Gemini call.
+
+## Timings (2026-11-14, live endpoints, seconds from the request)
+
+Five real inputs (an X post, an X post with an image, an AP News Bluesky post, an AP article,
+a sentence), 2 runs of the old phase order with Gemini's reading vs 3 runs of this one. Taken
+from the steps' `started_at`/`ended_at`, the receipts' latencies and a 100 ms poll of the job
+(what a client sees). Oxylabs latency varies a lot between runs (`/scrape` p50 3.6 s, p90 7.2 s).
+
+| | Before | After |
+|---|---|---|
+| First facts on screen (post, author or page), median | 2.1 s | 0.4 s |
+| Web page: searches start | 7-12 s (after the AI fact extraction) | ~4 s (quick markdown headline) |
+| The reading call | 10-21 s (Gemini) | 1.2-2.0 s (Nemotron, reasoning off) |
+| The reading on screen, median (range) | 32.5 s (23-41) | 14.6 s (4.5-22; one run with a hung Oxylabs read, before the per-call caps, 52) |
+| Job done, median (Gemini's second reading included) | 32.5 s | 31 s |
+| Trackdown: backend change to screen | 1.1-3.6 s (1.5 s poll, waited for `done`) | 0.03-0.16 s (SSE) |
+
+Where the remaining time goes: Oxylabs. `verify` (candidate copy pages, then each copier's
+profile; ~3-5 s each) is now the long pole at ~7-12 s, then ~1.5 s for Nemotron's reading.
+Nemotron with reasoning on took 7.5-15 s per reading and returned nothing once (all 8192
+tokens spent reasoning), so it stays off; with reasoning off, 20 of 20 readings were valid JSON
+(guided decoding), cited only real receipts, and made the same call as Gemini on 3 of the 4
+lookups (the AP article: Nemotron "unclear", Gemini "organic_looking"). Every number in their
+text traced back to a receipt (rounded counts, spans computed from the times).

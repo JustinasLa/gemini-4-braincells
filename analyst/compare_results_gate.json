@@ -1,0 +1,1239 @@
+{
+ "run_at": "2026-11-14T08:19:28+00:00",
+ "clusters": [
+  149,
+  275,
+  394,
+  405,
+  846,
+  22,
+  37,
+  45,
+  116,
+  182,
+  900,
+  529,
+  675,
+  831,
+  669
+ ],
+ "budget": {
+  "max_tool_calls": 6,
+  "max_web_calls": 4,
+  "max_seconds": 120.0
+ },
+ "summary": [
+  {
+   "mode": "agent",
+   "model": "gemini-4-hydrogen",
+   "n": 15,
+   "json_valid": 15,
+   "citations_valid": 1.0,
+   "usable": 15,
+   "agrees": 6,
+   "latency_p50_s": 29.18,
+   "latency_max_s": 49.52,
+   "cost_per_cluster_usd": 0.05396766666666667,
+   "tool_calls_mean": 2.533333333333333,
+   "cited_tool_evidence": 8
+  },
+  {
+   "mode": "gated",
+   "model": "gemini-4-hydrogen",
+   "n": 15,
+   "json_valid": 15,
+   "citations_valid": 1.0,
+   "usable": 15,
+   "agrees": 11,
+   "latency_p50_s": 26.0,
+   "latency_max_s": 64.02,
+   "cost_per_cluster_usd": 0.0436159,
+   "tool_calls_mean": 1.9333333333333333,
+   "cited_tool_evidence": 10
+  }
+ ],
+ "runs": [
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 149,
+   "detector": "coordinated",
+   "cost_usd": 0.048867,
+   "prompt_tokens": 15758,
+   "output_tokens": 3364,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.9,
+   "latency_s": 18.66
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 275,
+   "detector": "coordinated",
+   "cost_usd": 0.031661,
+   "prompt_tokens": 9472,
+   "output_tokens": 2327,
+   "model_turns": 3,
+   "tool_calls": 3,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.93,
+   "latency_s": 19.55
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 394,
+   "detector": "coordinated",
+   "cost_usd": 0.038136,
+   "prompt_tokens": 11064,
+   "output_tokens": 2872,
+   "model_turns": 3,
+   "tool_calls": 3,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 21.83
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 405,
+   "detector": "coordinated",
+   "cost_usd": 0.024299,
+   "prompt_tokens": 2844,
+   "output_tokens": 2671,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 14.39
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 846,
+   "detector": "insufficient",
+   "cost_usd": 0.064548,
+   "prompt_tokens": 19882,
+   "output_tokens": 4630,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 19.26
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 22,
+   "detector": "insufficient",
+   "cost_usd": 0.043469,
+   "prompt_tokens": 11469,
+   "output_tokens": 3502,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.news-press.com/story/news/2026/02/11/friday-13th-superstition-lucky-mega-millions-edwin-castro-valentines/88623856007/",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.72,
+   "latency_s": 26.25
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 37,
+   "detector": "insufficient",
+   "cost_usd": 0.068697,
+   "prompt_tokens": 19833,
+   "output_tokens": 5193,
+   "model_turns": 3,
+   "tool_calls": 3,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 29.18
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 45,
+   "detector": "insufficient",
+   "cost_usd": 0.083904,
+   "prompt_tokens": 9576,
+   "output_tokens": 9272,
+   "model_turns": 2,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://bsky.app/profile/route9.marta.fail",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 49.52
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 116,
+   "detector": "insufficient",
+   "cost_usd": 0.055979,
+   "prompt_tokens": 7764,
+   "output_tokens": 5911,
+   "model_turns": 2,
+   "tool_calls": 3,
+   "web_calls": 2,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://intake.wouldcop.com",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://bsky.app/profile/tuxedotops.wouldcop.com",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.7,
+   "latency_s": 48.43
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 182,
+   "detector": "insufficient",
+   "cost_usd": 0.047856,
+   "prompt_tokens": 11944,
+   "output_tokens": 3992,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.9,
+   "latency_s": 22.3
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 900,
+   "detector": "insufficient",
+   "cost_usd": 0.066001,
+   "prompt_tokens": 15146,
+   "output_tokens": 5771,
+   "model_turns": 2,
+   "tool_calls": 3,
+   "web_calls": 2,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.dailymail.com/news/article-15568469/kurt-van-dyke-murder-costa-rica-brother-crime.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://corrmag.blogspot.com/2026/11/surfing-stars-girlfriend-arrested.html",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.8,
+   "latency_s": 42.12
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 529,
+   "detector": "insufficient",
+   "cost_usd": 0.062169,
+   "prompt_tokens": 21581,
+   "output_tokens": 3973,
+   "model_turns": 4,
+   "tool_calls": 6,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.shawlocal.com/news/2026/11/13/faa-orders-all-flights-grounded-nationwide-due-to-safety-extraordinary-circumstances/",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.8,
+   "latency_s": 49.09
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 675,
+   "detector": "insufficient",
+   "cost_usd": 0.057535,
+   "prompt_tokens": 13372,
+   "output_tokens": 4997,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.latimes.com/california/story/2026-11-13/faa-issues-nationwide-ground-stop",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.8,
+   "latency_s": 34.99
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 831,
+   "detector": "insufficient",
+   "cost_usd": 0.048915,
+   "prompt_tokens": 13500,
+   "output_tokens": 3822,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://apnews.com/article/flights-halted-airports-faa-f81b0904331dafad6133f291e5f531a8",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.8,
+   "latency_s": 31.82
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "agent",
+   "cluster_id": 669,
+   "detector": "insufficient",
+   "cost_usd": 0.067479,
+   "prompt_tokens": 19631,
+   "output_tokens": 5071,
+   "model_turns": 4,
+   "tool_calls": 6,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://ground.news/article/us-faa-issues-ground-stop-for-united-airlines-flights-due-to-tech-issue",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.78,
+   "latency_s": 35.26
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 149,
+   "detector": "coordinated",
+   "route": "single",
+   "gate_p_web": 0.0374,
+   "latency_ms": 9518,
+   "prompt_tokens": 2656,
+   "output_tokens": 1118,
+   "cost_usd": 0.012369,
+   "thoughts_tokens": 684,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.85,
+   "latency_s": 10.81
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 275,
+   "detector": "coordinated",
+   "route": "agent",
+   "gate_p_web": 0.5669,
+   "cost_usd": 0.029348,
+   "prompt_tokens": 5780,
+   "output_tokens": 2757,
+   "model_turns": 2,
+   "tool_calls": 1,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.95,
+   "latency_s": 15.83
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 394,
+   "detector": "coordinated",
+   "route": "single",
+   "gate_p_web": 0.0564,
+   "latency_ms": 5720,
+   "prompt_tokens": 2153,
+   "output_tokens": 1138,
+   "cost_usd": 0.0117645,
+   "thoughts_tokens": 711,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "json_valid": true,
+   "cited": 3,
+   "cited_valid": 3,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.75,
+   "latency_s": 6.17
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 405,
+   "detector": "coordinated",
+   "route": "single",
+   "gate_p_web": 0.0343,
+   "latency_ms": 4937,
+   "prompt_tokens": 2153,
+   "output_tokens": 1010,
+   "cost_usd": 0.0108045,
+   "thoughts_tokens": 590,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": true,
+   "confidence": 0.78,
+   "latency_s": 6.03
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 846,
+   "detector": "insufficient",
+   "route": "single",
+   "gate_p_web": 0.0435,
+   "latency_ms": 8124,
+   "prompt_tokens": 4306,
+   "output_tokens": 1454,
+   "cost_usd": 0.017364,
+   "thoughts_tokens": 976,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.65,
+   "latency_s": 8.54
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 22,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.5514,
+   "cost_usd": 0.078147,
+   "prompt_tokens": 17843,
+   "output_tokens": 6851,
+   "model_turns": 4,
+   "tool_calls": 3,
+   "web_calls": 2,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.mentalfloss.com/entertainment/movies/17-bloody-facts-about-friday-13th",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.threads.com/@miamiherald/post/DftZ-Ncjj4j/looking-for-things-to-do-outdoors-in-miami-explore-coral-reefs-spot-alligators/",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.75,
+   "latency_s": 44.57
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 37,
+   "detector": "insufficient",
+   "route": "single",
+   "gate_p_web": 0.0783,
+   "latency_ms": 5092,
+   "prompt_tokens": 3113,
+   "output_tokens": 865,
+   "cost_usd": 0.011157,
+   "thoughts_tokens": 452,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.75,
+   "latency_s": 5.46
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 45,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.2266,
+   "cost_usd": 0.073631,
+   "prompt_tokens": 19082,
+   "output_tokens": 6001,
+   "model_turns": 3,
+   "tool_calls": 3,
+   "web_calls": 2,
+   "cited_tool_evidence": 2,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://bsky.app/profile/route9.marta.fail",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://marta.fail/about",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.75,
+   "latency_s": 43.64
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 116,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.1478,
+   "cost_usd": 0.05346,
+   "prompt_tokens": 6640,
+   "output_tokens": 5800,
+   "model_turns": 2,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://intake.wouldcop.com/",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.72,
+   "latency_s": 37.75
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 182,
+   "detector": "insufficient",
+   "route": "single",
+   "gate_p_web": 0.0299,
+   "latency_ms": 6241,
+   "prompt_tokens": 2494,
+   "output_tokens": 1361,
+   "cost_usd": 0.0139485,
+   "thoughts_tokens": 943,
+   "model_turns": 1,
+   "tool_calls": 0,
+   "web_calls": 0,
+   "json_valid": true,
+   "cited": 4,
+   "cited_valid": 4,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.65,
+   "latency_s": 6.53
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 900,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.5492,
+   "cost_usd": 0.103356,
+   "prompt_tokens": 39169,
+   "output_tokens": 5947,
+   "model_turns": 4,
+   "tool_calls": 4,
+   "web_calls": 3,
+   "cited_tool_evidence": 2,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://corrmag.blogspot.com/2026/11/surfing-stars-girlfriend-arrested.html",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://people.com/kurt-van-dyke-killed-in-costa-rica-home-invasion-11907471",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://mario-mag.blogspot.com/2026/11/surfing-stars-girlfriend-arrested.html",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "coordinated",
+   "agrees": false,
+   "confidence": 0.85,
+   "latency_s": 64.02
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 529,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.4452,
+   "cost_usd": 0.073991,
+   "prompt_tokens": 26257,
+   "output_tokens": 4614,
+   "model_turns": 4,
+   "tool_calls": 6,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.facebook.com/chroncom/posts/breakingnews-faa-orders-ground-stop-at-all-us-airports-due-to-extraordinary-circ/1617470120412844/",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.8,
+   "latency_s": 32.93
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 675,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.772,
+   "cost_usd": 0.054612,
+   "prompt_tokens": 12963,
+   "output_tokens": 4689,
+   "model_turns": 3,
+   "tool_calls": 2,
+   "web_calls": 1,
+   "cited_tool_evidence": 1,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.latimes.com/california/story/2026-11-13/faa-issues-nationwide-ground-stop",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.78,
+   "latency_s": 28.89
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 831,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.659,
+   "cost_usd": 0.061284,
+   "prompt_tokens": 20136,
+   "output_tokens": 4144,
+   "model_turns": 4,
+   "tool_calls": 3,
+   "web_calls": 2,
+   "cited_tool_evidence": 2,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "scrape_url",
+     "endpoint": "/scrape",
+     "source_url": "https://apnews.com/article/flights-halted-airports-faa-f81b0904331dafad6133f291e5f531a8",
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "search_web",
+     "endpoint": "/search",
+     "source_url": "https://www.opb.org/article/2026/11/13/flights-halted-at-airports-across-us-due-to-air-traffic-control-communications-problems/",
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "likely_organic",
+   "agrees": false,
+   "confidence": 0.9,
+   "latency_s": 32.84
+  },
+  {
+   "model": "gemini-4-hydrogen",
+   "mode": "gated",
+   "cluster_id": 669,
+   "detector": "insufficient",
+   "route": "agent",
+   "gate_p_web": 0.5253,
+   "cost_usd": 0.049002,
+   "prompt_tokens": 12208,
+   "output_tokens": 4092,
+   "model_turns": 3,
+   "tool_calls": 5,
+   "web_calls": 0,
+   "cited_tool_evidence": 0,
+   "tools": [
+    {
+     "name": "get_cluster_posts",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    },
+    {
+     "name": "get_account",
+     "endpoint": null,
+     "source_url": null,
+     "cached": false,
+     "ok": true
+    }
+   ],
+   "json_valid": true,
+   "cited": 5,
+   "cited_valid": 5,
+   "usable": true,
+   "llm_assessment": "insufficient",
+   "agrees": true,
+   "confidence": 0.75,
+   "latency_s": 26.0
+  }
+ ]
+}

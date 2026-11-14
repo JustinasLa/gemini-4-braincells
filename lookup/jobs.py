@@ -26,6 +26,8 @@ class RateLimited(Exception):
 
 
 def cache_key(inp: LookupInput) -> str:
+    if inp.image:  # the same bytes again: the same lookup
+        return f"image:{inp.image.sha256}"
     if inp.url:
         t = classify(inp.url)
         return f"url:{t.url if t else inp.url.strip()}"
@@ -72,7 +74,25 @@ class JobStore:
             hit = self._jobs.get(job_id)
             return hit[1] if hit else None
 
-    def start(self, inp: LookupInput, client: str) -> Lookup:
+    def check_budget(self, client: str) -> None:
+        """Raise RateLimited when a new lookup for `client` would be refused (before reading an
+        upload's body: a refused client never makes the server read 8 MB)."""
+        with self._lock:
+            self._expire(self._clock())
+            self._check(client)
+
+    def _check(self, client: str) -> None:
+        running = sum(1 for _, j in self._jobs.values() if j.result.state == "running")
+        if running >= self.max_running:
+            raise RateLimited("Too many lookups are running right now; try again in a minute.")
+        if self.max_per_hour > 0 and len(self._started) >= self.max_per_hour:
+            raise RateLimited("The hourly lookup budget is used up; try again later.")
+        mine = sum(1 for _, c in self._started if c == client)
+        if self.max_per_client > 0 and mine >= self.max_per_client:
+            raise RateLimited("You've run many lookups this hour; try again later.")
+
+    def start(self, inp: LookupInput, client: str, image: bytes | None = None) -> Lookup:
+        """`image`: an uploaded image's bytes (with `inp.image` describing them)."""
         key = cache_key(inp)
         with self._lock:
             now = self._clock()
@@ -83,15 +103,8 @@ class JobStore:
                 failed = job.result.state == "failed"
                 if not failed and now - t0 <= self.cache_ttl_s:
                     return job
-            running = sum(1 for _, j in self._jobs.values() if j.result.state == "running")
-            if running >= self.max_running:
-                raise RateLimited("Too many lookups are running right now; try again in a minute.")
-            if self.max_per_hour > 0 and len(self._started) >= self.max_per_hour:
-                raise RateLimited("The hourly lookup budget is used up; try again later.")
-            mine = sum(1 for _, c in self._started if c == client)
-            if self.max_per_client > 0 and mine >= self.max_per_client:
-                raise RateLimited("You've run many lookups this hour; try again later.")
-            job = Lookup(f"lk_{secrets.token_hex(8)}", inp, self._make_deps())
+            self._check(client)
+            job = Lookup(f"lk_{secrets.token_hex(8)}", inp, self._make_deps(), image=image)
             self._jobs[job.result.id] = (now, job)
             self._by_key[key] = job.result.id
             self._started.append((now, client))

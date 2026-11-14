@@ -2,35 +2,31 @@ import "./styles.css";
 import rhinoUrl from "./assets/rhino-1515.webp";
 import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
-import { analyze, listLive, liveCase, type ClusterSummary } from "./data/api";
+import { analyze, liveCase } from "./data/api";
 import { simulatedCases } from "./data/cases";
-import { LookupError, lookupCase, startLookup, type LookupResult } from "./data/lookup";
+import { IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
-import { Graph, type Mode } from "./engine/graph";
+import { Graph } from "./engine/graph";
 import type { TraceCase } from "./types";
 import { flipInto, preloadCoin, wait } from "./ui/coin";
-import { thumbStyle } from "./ui/crop";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDate, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDate, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
-const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" height="${n}"`);
 
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <a class="wordmark" href="/monitor/" title="Back to the live monitor" aria-label="Noise Radar: back to the live monitor">NOISE RADAR</a>
-    <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
+    <a class="wordmark" href="/" aria-label="Shill or Chill: home">SHILL OR CHILL</a>
+    <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
       <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
     </div>
   </header>
-  <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
   <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
     <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
@@ -38,7 +34,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="time" class="mode-btn on" aria-pressed="true" aria-label="Timeline layout">TIME</button><button data-z="web" class="mode-btn" aria-pressed="false" aria-label="Web layout">WEB</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
@@ -54,9 +50,7 @@ const app = $(".app");
 const phoneMq = matchMedia("(max-width: 860px)"); // the CSS breakpoint
 const syncDrawers = () => {
   const phone = phoneMq.matches;
-  const rail = $(".rail");
   const pnl = $("#panel");
-  rail.inert = !app.classList.contains("rail-open");
   const sheet = phone && app.classList.contains("sheet-open");
   pnl.inert = phone ? !sheet : !(app.classList.contains("panel-open") || app.classList.contains("lookup-active"));
   if (sheet) {
@@ -67,8 +61,6 @@ const syncDrawers = () => {
   // an open sheet covers the page: nothing behind it may take focus
   $(".topbar").inert = sheet;
   stage.inert = sheet;
-  if (sheet) rail.inert = true;
-  document.querySelector('[data-act="rail"]')?.setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
   document.querySelector("#peek")?.setAttribute("aria-expanded", String(app.classList.contains("sheet-open")));
 };
 new MutationObserver(syncDrawers).observe(app, { attributes: true, attributeFilter: ["class"] });
@@ -91,16 +83,15 @@ let tracing = 0;
 let traceSequence = 0;
 let lookupController: AbortController | null = null;
 let skipFlag = false;
-let liveRows: ClusterSummary[] = [];
 preloadCoin();
 initTooltips();
 
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
   `<div class="legend-title"><span class="label">Key</span></div>` +
-  (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
+  (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source", "screenshotted"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
   `<div class="li"><span class="sw member" style="--c:${ROLE.amplifier.color}"></span>Cluster member · zoom in to read</div>` +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="legend-hint">Select a marker to read the post.</div>`;
+  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="ln" style="--s:dotted;--c:${ROLE.screenshotted.color}"></span>Screenshot of a real post (checked, not a copy)</div><div class="legend-hint">Select a marker to read the post.</div>`;
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done
@@ -110,7 +101,6 @@ type Phase = "home" | "trace" | "done";
 function setPhase(p: Phase) {
   app.dataset.phase = p;
   app.classList.toggle("panel-open", p === "done");
-  if (p !== "done") app.classList.remove("rail-open");
   setInsets();
   if (p === "done") setTimeout(() => {
     setInsets(); // the dock has finished moving in by now
@@ -133,7 +123,7 @@ function setInsets() {
 function renderResources(c: TraceCase) {
   const v = STATUS[c.status];
   $("#title").textContent = c.title;
-  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
+  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
   $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
@@ -146,114 +136,25 @@ function renderResources(c: TraceCase) {
   if (c.findingsOnly) app.dataset.notime = "";
   else delete app.dataset.notime;
   $("#empty").hidden = !empty;
-  document.title = `${c.title} · Trackdown · Noise Radar`;
+  document.title = `${c.title} · Trackdown · Shill or Chill`;
 }
 
-// ---------------------------------------------------------------- outliner
-function railItem(c: TraceCase) {
-  const sub = c.nodes.find((n) => n.id === c.submittedId);
-  const ori = c.nodes.find((n) => n.id === c.originId);
-  const th = c.historical ? { style: `background-image:url(${rhinoUrl});background-position:72% 40%;background-size:260%`, score: "1515" } : thumbStyle(c.id, 64);
-  return `<button class="cat-item${current?.id === c.id ? " on" : ""}" data-case="${c.id}" style="--vc:${STATUS[c.status].css}">
-    <span class="thumb" style="${th.style}" data-score="${th.score}"></span>
-    <span class="vd">${STATUS[c.status].short} · ${esc(SHORT_KICKER[c.kicker] ?? c.kicker)}</span>
-    <span class="ttl">${esc(c.title)}</span>
-    <span class="meta">${railSpan(ori?.t, sub?.t)}</span>
-  </button>`;
-}
+// ---------------------------------------------------------------- actions
+// An uploaded image lives on the server only while its lookup does (1 h): a saved image trace
+// reopened later says so instead of showing a broken image.
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !/\/api\/lookup\/[^/]+\/image$/.test(img.src)) return;
+  const box = img.closest(".media");
+  if (box) box.outerHTML = `<div class="media photo"><span class="cap">Uploaded image · no longer kept on the server (uploads are kept for 1 hour)</span></div>`;
+}, true);
 
-/** one short line: years for long spans, dates for days, one date for a single day */
-function railSpan(a?: number, b?: number) {
-  if (a == null || b == null) return "";
-  const span = b - a;
-  const yr = (t: number) => String(new Date(t).getUTCFullYear());
-  if (span > 365 * 86400000) return `${yr(a)} → ${yr(b)} · ${fmtDur(span)}`;
-  if (span > 86400000) return `${fmtShort(a)} → ${fmtShort(b)}`;
-  return `${fmtShort(a)} · ${fmtDur(span)}`;
-}
-
-// rail captions are one line in a 300px rail: short forms of the case kickers
-const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Old photo", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live" };
-
-const USER_KEY = "soc-trackdown-traces";
-const userCases: TraceCase[] = (() => {
-  try {
-    return (JSON.parse(localStorage.getItem(USER_KEY) ?? "[]") as TraceCase[]).slice(0, 8);
-  } catch {
-    return [];
-  }
-})();
-function saveUserCases() {
-  try {
-    localStorage.setItem(USER_KEY, JSON.stringify(userCases.slice(0, 8)));
-  } catch {
-    /* private mode */
-  }
-}
-function renderRail() {
-  const sims = simulatedCases();
-  const live = liveRows
-    .map(
-      (r) => `<button class="cat-item live${current?.id === `live-${r.id}` ? " on" : ""}" data-live="${r.id}" style="--vc:${STATUS[r.status].css}">
-      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">#${r.id}</span>
-      <span class="meta">${r.size ?? "?"} accounts</span></button>`,
-    )
-    .join("");
-  $("#rail").innerHTML = `
-    ${userCases.length ? `<div class="label"><span>your traces</span><span>${userCases.length}</span></div>${userCases.map(railItem).join("")}` : ""}
-    <div class="label"><span>case files</span><span>${sims.length}</span></div>
-    ${sims.map(railItem).join("")}
-    ${live ? `<div class="label"><span>live from the monitor</span><span>${liveRows.length}</span></div>${live}` : ""}
-    <p class="rail-note"><b>Case files are simulated</b> (fictional accounts, <span class="mono" style="font-size:11px">.example</span> sites) except Dürer's Rhinoceros, which is real history. ${live ? "Live clusters come straight from the detector." : "Live clusters appear here when the monitor API is reachable."}</p>`;
-}
-$("#rail").addEventListener("click", async (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>("[data-case],[data-live]");
-  if (!b) return;
-  app.classList.remove("rail-open");
-  if (b.dataset.live) {
-    try {
-      openCase(await liveCase(Number(b.dataset.live)), "spread");
-    } catch {
-      toast("Couldn't load that cluster from the API");
-    }
-    return;
-  }
-  const c = [...userCases, ...simulatedCases()].find((x) => x.id === b.dataset.case);
-  if (c) openCase(c, "spread");
-});
-
-// ---------------------------------------------------------------- view mode + actions
-const seg = $("#mode");
-seg.addEventListener("click", (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>("[data-mode]");
-  if (b) setMode(b.dataset.mode as Mode);
-});
-function setMode(m: Mode) {
-  stage.querySelectorAll<HTMLElement>(".mode-btn").forEach((b) => {
-    const on = (b.dataset.z === "time") === (m === "timeline");
-    b.classList.toggle("on", on);
-    b.setAttribute("aria-pressed", String(on));
-  });
-  seg.querySelectorAll<HTMLElement>("[data-mode]").forEach((x) => {
-    x.classList.toggle("on", x.dataset.mode === m);
-    x.setAttribute("aria-pressed", String(x.dataset.mode === m));
-  });
-  g.setMode(m);
-  $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
-  setTimeout(() => g.fit(undefined, 1100), 380);
-}
 document.addEventListener("click", (e) => {
   const a = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
   if (!a || a.closest("#panel") || a.closest(".event")) return;
   const act = a.dataset.act;
   if (act === "trace") showHome();
-  if (act === "rail") {
-    app.classList.toggle("rail-open");
-    if (app.classList.contains("rail-open")) setTimeout(() => $("#rail").querySelector<HTMLElement>("button")?.focus(), 50);
-    setTimeout(() => g.fit(undefined, 800), 650);
-  }
   if (act === "sheet") {
-    app.classList.remove("rail-open");
     app.classList.toggle("sheet-open");
     if (app.classList.contains("sheet-open")) setTimeout(() => $("#panel").querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(), 50);
   }
@@ -264,8 +165,6 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
   if (z === "tools") app.classList.toggle("tools");
-  if (z === "time") setMode("timeline");
-  if (z === "web") setMode("web");
   stage.querySelector('[data-z="tools"]')!.setAttribute("aria-expanded", String(app.classList.contains("tools")));
 });
 
@@ -281,10 +180,10 @@ g.onSelect = (id) => {
     if (fromKeyboard) $("#panel").querySelector<HTMLElement>('[data-tab="folio"]')?.focus();
   }
   const n = id ? current?.nodes.find((x) => x.id === id) : null;
-  $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
+  $("#announce").textContent = n ? `${n.author.name}, ${roleOf(n.role).label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
 };
 g.onHover = (id) => {
-  if (tracing) return;
+  if (tracing && app.dataset.phase !== "done") return; // a settled lookup may still be adding a second reading
   g.setHighlight(id ? g.lineage(id) : g.selId ? g.lineage(g.selId) : null);
 };
 g.onFrame = () => {
@@ -309,7 +208,6 @@ function openCase(c: TraceCase, how: "spread" | "static") {
   hideHome();
   setPhase("done");
   current = c;
-  renderRail();
   g.load(c, { revealAll: how === "static" });
   renderResources(c);
   panel.set(c, false);
@@ -393,7 +291,6 @@ async function runTrace(c: TraceCase) {
   hideHome();
   setPhase("trace");
   current = c;
-  renderRail();
   g.load(c, { revealAll: false });
   renderResources(c);
   dock.pause();
@@ -453,7 +350,7 @@ async function runTrace(c: TraceCase) {
       }
       if (!alive()) break;
       for (const f of found) {
-        g.ring(f, ROLE[c.nodes.find((n) => n.id === f)!.role].color, 300, 1500);
+        g.ring(f, roleOf(c.nodes.find((n) => n.id === f)?.role).color, 300, 1500);
         const el = g.byId.get(f)?.el;
         if (el?.querySelector(".cvbox")) {
           el.classList.add("scanning");
@@ -534,7 +431,7 @@ async function showEvent(c: TraceCase, run: number) {
   const el = document.createElement("div");
   el.className = "reveal";
   el.style.setProperty("--vc", v.css);
-  el.innerHTML = `<canvas></canvas><div class="center"><div class="coin-slot"></div><div class="vw${v.word.length > 8 ? " long" : ""}">${v.word.toUpperCase()}</div><div class="vt">${v.tag}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
+  el.innerHTML = `<canvas></canvas><div class="center"><div class="coin-slot"></div><div class="vw${v.word.length > 8 ? " long" : ""}">${v.word.toUpperCase()}</div><div class="vt">${esc(c.tag ?? v.tag)}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
   stage.appendChild(el);
   eventEl = el;
   let src: HTMLImageElement | undefined;
@@ -566,12 +463,10 @@ function showHome() {
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
-    <a class="home-back" href="/monitor/">← Live monitor</a>
     <div class="home-c">
-      <div class="home-eyebrow label">Noise Radar · Trackdown</div>
       <div class="home-wm">SHILL OR CHILL</div>
-      <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
-      <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
+      <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
+      <form class="home-form" aria-describedby="home-note"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
       <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
@@ -579,12 +474,82 @@ function showHome() {
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-back, .home-eyebrow, .home-wm, .home-tag, .home-form, .home-ex, .credit")] });
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
+  // a pasted image sits in the search box until Trace it (or Enter) sends it
+  const q = $<HTMLElement>(".home-q", homeEl);
+  const att = $<HTMLElement>(".home-att", homeEl);
+  const placeholder = input.placeholder;
+  let attached: File | null = null;
+  let attachedUrl = "";
+  const detach = () => {
+    if (attachedUrl) URL.revokeObjectURL(attachedUrl);
+    attached = null;
+    attachedUrl = "";
+    att.hidden = true;
+    q.classList.remove("has-img");
+    input.readOnly = false;
+    input.placeholder = placeholder;
+  };
+  const attach = (f: File) => {
+    if (!IMAGE_TYPES.includes(f.type)) {
+      toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
+      return;
+    }
+    detach();
+    attached = f;
+    attachedUrl = URL.createObjectURL(f);
+    $<HTMLImageElement>("img", att).src = attachedUrl;
+    $<HTMLElement>(".nm", att).textContent = f.name && !/^image\.\w+$/.test(f.name) ? f.name : "Pasted image";
+    att.hidden = false;
+    q.classList.add("has-img");
+    input.value = "";
+    input.readOnly = true; // one thing at a time: the image, or text after removing it
+    input.placeholder = "Press Enter";
+    input.focus();
+  };
+  $<HTMLButtonElement>(".x", att).addEventListener("click", () => { detach(); input.focus(); });
+  input.addEventListener("keydown", (e) => {
+    if (attached && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); detach(); }
+  });
   $("form", homeEl).addEventListener("submit", (e) => {
     e.preventDefault();
-    startTrace(input.value);
+    if (attached) traceImage(attached);
+    else startTrace(input.value);
+  });
+  // an image comes in three ways: the Image button, a drop anywhere on the home, a paste
+  const imageOf = (files?: FileList | null, items?: DataTransferItemList | null) =>
+    [...(files ?? [])].find((f) => f.type.startsWith("image/"))
+    ?? [...(items ?? [])].find((i) => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile() ?? null;
+  // checked here, before the home screen goes: a HEIC or SVG gets a toast, not a failed trace
+  const traceImage = (f: File) => IMAGE_TYPES.includes(f.type) ? void startTrace(f)
+    : toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
+  const file = $<HTMLInputElement>('input[type="file"]', homeEl);
+  file.addEventListener("change", () => { const f = imageOf(file.files); file.value = ""; if (f) traceImage(f); });
+  // Ctrl+V / ⌘V puts a copied image into the search box: in the box, or anywhere on the home
+  // screen (focus is often elsewhere after a click on the page)
+  const pasteImage = (e: ClipboardEvent) => {
+    if (homeEl !== home) return document.removeEventListener("paste", pasteImage);
+    const f = imageOf(e.clipboardData?.files, e.clipboardData?.items);
+    if (f) { e.preventDefault(); attach(f); return; }
+    if (e.target === input || attached) return; // text into the box is the browser's own paste
+    const text = e.clipboardData?.getData("text/plain")?.trim();
+    if (text) { e.preventDefault(); input.value = text; input.focus(); }
+  };
+  document.addEventListener("paste", pasteImage);
+  homeEl.addEventListener("dragover", (e) => {
+    if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
+    e.preventDefault();
+    home.classList.add("drop");
+  });
+  homeEl.addEventListener("dragleave", (e) => { if (!e.relatedTarget || !home.contains(e.relatedTarget as Node)) home.classList.remove("drop"); });
+  homeEl.addEventListener("drop", (e) => {
+    e.preventDefault();
+    home.classList.remove("drop");
+    const f = imageOf(e.dataTransfer?.files, e.dataTransfer?.items);
+    if (f) traceImage(f);
+    else toast("Drop an image file (JPEG, PNG, WebP or GIF).");
   });
   homeEl.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>("[data-hcase]");
@@ -603,9 +568,10 @@ function hideHome() {
     el.remove();
   }, 700);
 }
-async function startTrace(raw: string, mock = false) {
-  const text = raw.trim();
-  if (!text) {
+async function startTrace(raw: LookupRequest, mock = false) {
+  const image = typeof raw === "string" ? null : raw;
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text && !image) {
     homeEl?.querySelector(".home-form")?.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(6px)" }, { transform: "translateX(0)" }], { duration: 300 });
     return;
   }
@@ -622,8 +588,21 @@ async function startTrace(raw: string, mock = false) {
   consoleEl.classList.remove("hidden");
   dock.pause();
   dock.u = 1;
+  consoleEl.innerHTML = ""; // rows of an earlier lookup must not count as already shown
   let graphSignature = "";
+  // Each poll re-renders the console; only steps not shown before slide in, so it does not flash.
+  const shownSteps = new Set<string>();
+  let settled = false;
   const latest: { result: LookupResult | null } = { result: null };
+  // The primary reading is in: show the finished trace now. A second reading that is still
+  // running is added later by update() without re-running this reveal or refitting the graph.
+  const settle = (trace: TraceCase) => {
+    if (settled) return;
+    settled = true;
+    setStatus(null, "");
+    setPhase("done");
+    void showEvent(trace, run);
+  };
   const update = (result: LookupResult) => {
     if (controller.signal.aborted || run !== tracing) return;
     latest.result = result;
@@ -646,40 +625,43 @@ async function startTrace(raw: string, mock = false) {
       graphSignature = signature;
     } else g.case = trace;
     renderResources(trace);
-    panel.set(trace, result.state !== "done");
-    const rows = trace.steps.map((step) => `<div class="line ${step.state === "running" ? "active" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"><b>${esc(step.text)}</b>${step.detail ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${esc(step.state ?? "pending")}${step.found?.length ? ` · ${step.found.length}` : ""}</span></div>`).join("");
+    // a failed job still shows a primary reading that arrived before the failure
+    const ready = readingReady(result) && (result.state !== "failed" || !!result.assessment);
+    panel.set(trace, !ready);
+    const stepKey = (step: (typeof trace.steps)[0], i: number) => step.id ?? `#${i}`;
+    const rows = trace.steps.map((step, i) => `<div class="line${step.state === "running" ? " active" : ""}${shownSteps.has(stepKey(step, i)) ? " seen" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"${step.detail && step.state !== "failed" ? ` title="${esc(step.detail)}"` : ""}><b>${esc(step.text)}</b>${step.detail && step.state === "failed" ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${step.state === "done" ? (step.found?.length ? String(step.found.length) : "") : esc(step.state ?? "pending")}</span></div>`).join(""); // one short line per step, readable as it streams in; details are a hover away, failures show theirs
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
-    consoleEl.innerHTML = `<div class="term-head"><span class="d g"></span><span class="file">${mock ? "MOCK · fictional data" : "Live lookup"} · ${esc(result.state)}</span><button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
+    consoleEl.innerHTML = `<div class="term-head">${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
-    const running = trace.steps.find((step) => step.state === "running");
-    setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
+    trace.steps.forEach((step, i) => shownSteps.add(stepKey(step, i)));
+    if (ready && result.state === "running") settle(trace);
+    if (!settled) {
+      const running = trace.steps.find((step) => step.state === "running");
+      setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
+    }
   };
-  update({ id: "lookup-pending", state: "running", error: null, input: { url: /^https?:\/\//i.test(text) ? text : null, text: /^https?:\/\//i.test(text) ? null : text }, kind: "text", started_at: new Date().toISOString(), finished_at: null, status: "insufficient", subject_id: null, origin_id: null, posts: [], accounts: [], pages: [], media: [], edges: [], clusters: [], spread: null, receipts: [], assessment: null, steps: [{ id: "input", tool: "you", label: "Start lookup", state: "running", detail: "Requesting live data; no coordination verdict yet.", found: [], started_at: null, ended_at: null }], notes: [] });
+  update({ id: "lookup-pending", state: "running", error: null, input: image ? { url: null, text: null, image: { sha256: "", mime: image.type, bytes: image.size } } : { url: /^https?:\/\//i.test(text) ? text : null, text: /^https?:\/\//i.test(text) ? null : text }, kind: image ? "image" : "text", started_at: new Date().toISOString(), finished_at: null, status: "insufficient", subject_id: null, origin_id: null, posts: [], accounts: [], pages: [], media: [], edges: [], clusters: [], spread: null, receipts: [], assessment: null, steps: [{ id: "input", tool: "you", label: "Start lookup", state: "running", detail: "Requesting live data; no coordination verdict yet.", found: [], started_at: null, ended_at: null }], notes: [] });
   try {
     const result = mock && import.meta.env.DEV
       ? await (await import("./data/mockLookup")).runMockLookup(update, controller.signal)
-      : await startLookup(text, update, controller.signal);
+      : await startLookup(image ?? text, update, controller.signal);
     if (controller.signal.aborted || run !== tracing) return;
     const trace = current!;
     if (result.state === "failed") {
-      setPhase("done");
+      if (!settled) setPhase("done");
       toast(result.error || "Lookup failed. Partial receipts remain available; no verdict was issued.");
       return;
     }
-    if (!mock) {
-      const existing = userCases.findIndex((item) => item.id === trace.id);
-      if (existing >= 0) userCases.splice(existing, 1);
-      userCases.unshift(trace);
-      saveUserCases();
+    if (settled) {
+      return;
     }
-    renderRail();
-    panel.set(trace, false);
-    setPhase("done");
-    await showEvent(trace, run);
+    settle(trace);
   } catch (error) {
     if (controller.signal.aborted || run !== tracing) return;
     const message = error instanceof Error ? error.message : "Lookup failed. Please try again later.";
-    if (error instanceof LookupError && error.unavailable) {
+    // once the primary reading is shown, a late failure keeps that trace instead of starting over
+    // the legacy web analysis and the simulation take text; an image has no fallback
+    if (error instanceof LookupError && error.unavailable && !settled && !image) {
       setStatus(null, "Lookup unavailable; trying the legacy web analysis…");
       toast(`${message} Trying web analysis instead.`);
       let trace: TraceCase | null = null;
@@ -689,13 +671,11 @@ async function startTrace(raw: string, mock = false) {
         trace = simulateFromInput(text);
         toast("// live APIs not reachable: running a simulated trackdown");
       }
-      userCases.unshift(trace);
-      saveUserCases();
       runTrace(trace);
     } else {
       if (latest.result) update({ ...latest.result, state: "failed", error: message, steps: latest.result.steps.map((step) => step.state === "running" ? { ...step, state: "failed", detail: message } : step.state === "pending" ? { ...step, state: "skipped" } : step) });
-      setPhase("done");
-      toast(message);
+      if (!settled) setPhase("done");
+      toast(settled ? `${message} The readings received so far stay on screen.` : message);
     }
   } finally {
     if (lookupController === controller) {
@@ -749,17 +729,13 @@ document.addEventListener("keydown", (e) => {
       syncDrawers();
       $("#peek").focus();
     } else if (g.selId) g.select(null);
-    else if (app.classList.contains("rail-open")) {
-      app.classList.remove("rail-open");
-      $<HTMLElement>('[data-act="rail"]').focus();
-    } else app.classList.remove("tools");
+    else app.classList.remove("tools");
   }
   if (e.key === " ") {
     e.preventDefault();
     dock.toggle();
   }
   if (e.key === "f" || e.key === "F") g.fit();
-  if (e.key === "t" || e.key === "T") setMode(g.mode === "timeline" ? "web" : "timeline");
   if (e.key === "n" || e.key === "N") {
     e.preventDefault();
     showHome();
@@ -768,8 +744,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") g.zoomBy(1.3);
   if (e.key === "-") g.zoomBy(1 / 1.3);
   if (/^[1-9]$/.test(e.key)) {
-    const all = [...userCases, ...simulatedCases()];
-    const c = all[Number(e.key) - 1];
+    const c = simulatedCases()[Number(e.key) - 1];
     if (c) openCase(c, "spread");
   }
   if ((e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown") && current) {
@@ -790,19 +765,15 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------- boot
-renderRail();
 syncDrawers();
 const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
 if (params.has("mockLookup") && import.meta.env.DEV) void startTrace("https://social.example/newsroom/status/100", true);
 else if (params.get("lookup")) void startTrace(params.get("lookup")!);
+else if (/^\d+$/.test(params.get("cluster") ?? "")) liveCase(Number(params.get("cluster"))).then((c) => openCase(c, "spread"), () => { toast("Couldn't load that cluster from the API"); openCase(first, "static"); });
 else if (params.has("static")) openCase(first, "static");
 else if (params.has("case")) runTrace(first);
 else {
   setPhase("home");
   showHome();
 }
-listLive().then((rows) => {
-  liveRows = rows;
-  if (rows.length) renderRail();
-});
