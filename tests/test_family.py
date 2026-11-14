@@ -268,3 +268,63 @@ def test_start_without_a_picture_skips():
     job.skip = lambda sid, why: skipped.append((sid, why))
     future = family.start(job, trace, None)
     assert future.done() and skipped and skipped[0][0] == "family"
+
+
+class FakeKym:
+    """Oxylabs as Know Your Meme answers it: /memes/storm-area-51 redirects to the entry's own
+    kind path, /memes/events/storm-area-51 (the real page, saved by tests/test_memeorigin)."""
+
+    PAGE = "https://knowyourmeme.com/memes/events/storm-area-51"
+
+    def __init__(self, hits=()):
+        self.hits, self.scraped = list(hits), []
+
+    def search(self, query, max_results=10, *, deadline=None):
+        return [SimpleNamespace(url=u) for u in self.hits]
+
+    def scrape_markdown(self, url, *, deadline=None):
+        from pathlib import Path
+
+        self.scraped.append(url)
+        md = Path(__file__).parent / "fixtures" / "memeorigin" / "kym_event_storm_area_51.md"
+        return md.read_text(), {"url": self.PAGE, "statuses": {"http_request": {"code": 200}}}
+
+
+def kym_builder(monkeypatch, oxylabs):
+    job, trace, receipts = job_and_trace()
+    job.deps.oxylabs = oxylabs
+    builder = family.Builder(job, trace)
+    monkeypatch.setattr(builder, "_get", lambda url, **kw: None)  # no entry picture to check
+    from media import align
+
+    return builder, align, receipts
+
+
+def test_event_entry_found_by_the_image_search(monkeypatch):
+    """A photo filed under an event entry: the entry is read and cited at its own path."""
+    kym = FakeKym()
+    builder, align, receipts = kym_builder(monkeypatch, kym)
+    builder._find_sources(
+        "", ["https://knowyourmeme.com/photos/1907928-storm-area-51"], align, UPLOAD
+    )
+    assert kym.scraped == ["https://knowyourmeme.com/memes/storm-area-51"]
+    [(entry, source)] = builder.sources
+    assert source.source == "Know Your Meme" and source.name == "Storm Area 51"
+    assert source.url == entry.url == FakeKym.PAGE
+    assert entry.milestones[0].url == FakeKym.PAGE + "#background"
+    assert any(s.startswith("Know Your Meme entry read: Storm Area 51") for _t, _e, s in receipts)
+
+
+def test_event_entry_from_text_search_needs_the_same_picture(monkeypatch):
+    """An entry only the text search found is used when its picture is this photograph."""
+    kym = FakeKym(
+        [
+            "https://knowyourmeme.com/memes/storm-area-51/photos",
+            "https://knowyourmeme.com/memes/events/storm-area-51",
+        ]
+    )
+    builder, align, _ = kym_builder(monkeypatch, kym)
+    builder._find_sources("Storm Area 51", [], align, UPLOAD)
+    assert kym.scraped == [FakeKym.PAGE]  # the gallery is skipped, the entry read
+    assert builder.sources == []
+    assert any("'Storm Area 51'" in n and "not this photograph" in n for n in builder.notes)

@@ -17,7 +17,17 @@ from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
 KYM = "https://knowyourmeme.com"
-_ENTRY = re.compile(r"^https?://(?:www\.)?knowyourmeme\.com/(?:sensitive/)?memes/([a-z0-9-]+)/?$")
+# entry kinds besides plain memes (the site's Encyclopedia menu): /memes/events/storm-area-51
+KYM_KINDS = ("cultures", "events", "people", "sites", "subcultures")
+_ENTRY = re.compile(
+    r"^https?://(?:www\.)?knowyourmeme\.com/(?:sensitive/)?memes/"
+    rf"(?:({'|'.join(KYM_KINDS)})/)?([a-z0-9-]+)/?$"
+)
+# pages shaped like an entry that are not one: listings, the submit form, a random entry
+_NOT_ENTRIES = frozenset(
+    {"all", "confirmed", "deadpool", "new", "newsworthy", "popular", "random", "researching"}
+    | {"search", "submissions", "trending", *KYM_KINDS}
+)
 _PHOTO = re.compile(r"^https?://(?:www\.)?knowyourmeme\.com/(?:sensitive/)?photos/\d+-([a-z0-9-]+)")
 _ICON = re.compile(r"https://i\.kym-cdn\.com/entries/icons/(?:original|mobile|facebook)/[\w/.%-]+")
 _LINK = re.compile(r"!?\[([^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -38,6 +48,19 @@ _DATES = [
 _SENTENCE = re.compile(r"(?<=[.!?\]])\s+(?=[A-Z\"“])")
 _NOTE_MARK = re.compile(r"\u27e6(\d+)\u27e7")  # ⟦n⟧: a footnote kept through sentence splitting
 MAX_MILESTONES = 8
+# Know Your Meme sections, by each entry kind's own headings: memes About / Origin / Spread;
+# events Overview / Background / Developments / Online Reactions; people Overview / History /
+# Online Presence; subcultures and sites About / History / Online Presence
+_KYM_SUMMARY = ("about", "overview")  # what the entry is
+_KYM_HISTORY = (  # how it began and spread: where the dated sentences come from
+    "origin",
+    "spread",
+    "background",
+    "developments",
+    "history",
+    "online presence",
+    "online reactions",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,13 +91,18 @@ class OriginEntry:
 
 
 def kym_entry_url(url: str | None) -> str | None:
-    """The Know Your Meme entry a KYM page belongs to: the entry itself, or a photo's entry
-    (/photos/130-disaster-girl -> /memes/disaster-girl)."""
+    """The Know Your Meme entry a KYM page belongs to: the entry itself, of any kind
+    (/memes/disaster-girl, /memes/events/storm-area-51), or a photo's entry
+    (/photos/130-disaster-girl -> /memes/disaster-girl; the site redirects that to the entry's
+    own kind path). Galleries, listings, search and user pages are not entries."""
     if not url:
         return None
     url = url.split("#", 1)[0].split("?", 1)[0]
     if m := _ENTRY.match(url):
-        return f"{KYM}/memes/{m.group(1)}"
+        kind, slug = m.groups()
+        if slug in _NOT_ENTRIES:
+            return None
+        return f"{KYM}/memes/{kind}/{slug}" if kind else f"{KYM}/memes/{slug}"
     if m := _PHOTO.match(url):
         return f"{KYM}/memes/{m.group(1)}"
     return None
@@ -164,7 +192,8 @@ def _paragraphs(lines: list[str]) -> list[str]:
     return [
         p.strip()
         for p in re.split(r"\n\s*\n", text)
-        if p.strip() and not p.strip().startswith(("[![", "![", "|", ":"))
+        # pictures, tables, the info box, and quoted posts (someone else's words, not the entry's)
+        if p.strip() and not p.strip().startswith(("[![", "![", "|", ":", ">"))
     ]
 
 
@@ -194,15 +223,19 @@ def parse_kym(markdown: str, url: str) -> OriginEntry | None:
             links = _LINK.findall(m.group(2))
             if links:
                 references[m.group(1)] = links[-1][1]
-    about = _paragraphs(sections.get("about", []))
+    if not any(s in sections for s in _KYM_SUMMARY + _KYM_HISTORY):
+        return None  # a listing or error page, not an entry
+    about = next((_paragraphs(sections[s]) for s in _KYM_SUMMARY if s in sections), [])
     summary = _plain(about[0])[0] if about else ""
     summary = _SENTENCE.split(summary)[0] if summary else ""
     milestones = []
-    for section in ("origin", "spread"):
+    for section, lines in sections.items():  # in page order
+        if section not in _KYM_HISTORY:
+            continue
         milestones += dated_sentences(
-            _paragraphs(sections.get(section, [])),
+            _paragraphs(lines),
             source="Know Your Meme",
-            url=f"{url}#{section}",
+            url=f"{url}#{re.sub(r'[^a-z0-9]+', '-', section).strip('-')}",  # the page's own id
             references=references,
         )
     image = icon.group(0) if icon else None
