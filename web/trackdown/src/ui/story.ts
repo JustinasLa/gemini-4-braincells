@@ -49,7 +49,9 @@ function head(lookup: LookupResult, family: Family | null): Head {
   }
   if (lookup.state === "running") return { tone: "busy", title: "Tracing…", lead: "" };
   if (found) {
-    const title = found.kind === "first" ? "Found nowhere else" : found.kind === "original" ? "Earliest copy found" : found.kind === "edited" ? "Edited copy" : found.kind === "copy" ? "Already out there" : "Seen before";
+    // "seen" is a look-alike the comparison could not confirm: not a copy, so not "seen before"
+    if (found.kind === "seen") return { tone: "plain", title: "No copy found", lead: "Only look-alikes" };
+    const title = found.kind === "first" ? "Found nowhere else" : found.kind === "original" ? "Earliest copy found" : found.kind === "edited" ? "Edited copy" : "Already out there";
     return { tone: found.kind === "first" || found.kind === "original" ? "new" : "known", title, lead: found.tag };
   }
   if (lookup.state === "failed") return { tone: "fail", title: "Trace failed", lead: lookup.error || "" };
@@ -106,13 +108,18 @@ function spread(trace: TraceCase & { lookup: LookupResult }): string {
 
 export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?: string): string {
   const lookup = trace.lookup;
-  const family = familyOf(lookup);
+  // a tree with nothing in it but the reader's own picture is not a family: nothing was found, and
+  // the picture search's own finding ("found nowhere else") is the answer
+  const tree = familyOf(lookup);
+  const family = tree && (tree.template || tree.members.some((member) => member.id !== "submitted")) ? tree : null;
   const members = new Map((family?.members ?? []).map((member) => [member.id, member]));
   const variants = (family?.nodes ?? []).filter((node) => node.kind === "variant" && members.has(node.members[0]))
     // dated versions first, oldest first: the nearest thing to an order we can show
     .sort((a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || String(a.date).localeCompare(String(b.date)));
   const matches = imageTraceState(lookup).matches.filter((match) => relationOf(match) !== "different");
   const versions = family ? variants.length : matches.length;
+  // without a family, matches the comparison could not confirm are look-alikes, not copies
+  const group = family ? "Other versions" : matches.length && matches.every((match) => relationOf(match) === "unknown") ? "Look-alikes" : "Copies";
   const h = head(lookup, family);
   const sub = family?.nodes.find((node) => node.kind === "submitted");
   // the reader's own file while it is at hand: it shows before the upload is answered and never reloads
@@ -122,7 +129,7 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
   const running = lookup.state === "running";
   const facts = [
     first ? ["Since", dateLabel(first.date)] : null,
-    !running || versions ? [family ? "Versions" : "Copies", String(versions)] : null,
+    !running || versions ? [family ? "Versions" : group, String(versions)] : null,
     sub?.aimed_at ? ["Aimed at", cap(sub.aimed_at)] : null,
   ].filter((fact): fact is string[] => !!fact);
   const grid = family ? variants.map((node) => versionCard(node, members)).join("") : matches.map(matchCard).join("");
@@ -140,7 +147,7 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
       </div>
     </section>
     ${family ? origin(family, members) : ""}
-    ${grid ? `<section class="st-sec" aria-labelledby="st-versions"><h2 id="st-versions">${family ? "Other versions" : "Copies"} <span>${versions}</span></h2><div class="st-grid">${grid}</div></section>` : ""}
+    ${grid ? `<section class="st-sec" aria-labelledby="st-versions"><h2 id="st-versions">${group} <span>${versions}</span></h2><div class="st-grid">${grid}</div></section>` : ""}
     ${running ? "" : `<p class="st-fine">Search sample. Dates are upper bounds.</p>`}
   </div>`;
 }
