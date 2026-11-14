@@ -283,6 +283,8 @@ class Lookup:
         # site addresses written in the uploaded image (textsim.domains): searched for too, and
         # a hit that names one joins the trace like a caption run
         self._domains: list[str] = []
+        # page id -> the text its own read returned (headline, claims), never search snippets
+        self._page_read: dict[str, str] = {}
         self._upload_read = False  # Nemotron read the uploaded image (its text may be empty)
         self._page_seq = 0
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
@@ -1725,6 +1727,7 @@ class Lookup:
             pg.published_at = facts.published_at
             pg.headline = facts.headline or pg.headline
             pg.claims = facts.claims
+            self._page_read[pg.id] = "\n".join([facts.headline or "", *facts.claims])
             pg.receipt_id = rid
             pg.time, pg.time_source, pg.time_uncertainty_s = t, "page" if t else None, unc
 
@@ -2354,14 +2357,10 @@ class Lookup:
                     and pg.time_uncertainty_s is not None
                     and origin_t
                     and latest(pg) < origin_t - timedelta(minutes=5)
-                    # an upload: the page must carry a real part of the image's text, as read
-                    # (a page that only names the site is about it, like a short post)
-                    and (
-                        not image
-                        or self._carries_caption(
-                            "\n".join([pg.headline or "", pg.snippet or "", *pg.claims])
-                        )
-                    )
+                    # an upload: the page must carry a real part of the image's text in what its
+                    # own read returned (not the search snippet or headline it was found by); a
+                    # page that only names the site is about it, like a short post
+                    and (not image or self._carries_caption(self._page_read.get(pg.id)))
                 ),
                 key=latest,
             )

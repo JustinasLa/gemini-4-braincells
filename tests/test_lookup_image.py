@@ -474,6 +474,9 @@ def test_platform_addresses_and_file_names_are_not_searched():
     assert hits == ["StandWithJensen.com", "#standwithjensen", "standwithjensen"]
     # a dictionary word as the site's name is never matched as a plain word
     assert domain_hits("The information is incorrect", ["information.com"]) == []
+    # a file name is not another ending of the site
+    assert domain_hits("remove analytics.js and analytics.pdf", ["analytics.com"]) == []
+    assert domain_hits("analytics.online is a lookalike", ["analytics.com"]) == ["analytics"]
 
 
 def _graph_job():
@@ -498,8 +501,9 @@ def _graph_job():
         )
     )
 
-    def page(url, headline, snippet):
-        return job.add_page(
+    def page(url, headline, snippet, read=None):
+        """`read`: what the page's own read returned (None: never read)."""
+        pg = job.add_page(
             Page(
                 id="",
                 url=url,
@@ -511,13 +515,21 @@ def _graph_job():
                 time_uncertainty_s=0,
             )
         )
+        if read is not None:
+            job._page_read[pg.id] = read
+        return pg
 
     return job, page
 
 
 def test_page_that_only_names_the_site_is_not_the_uploads_origin():
     job, page = _graph_job()
-    page("https://petition.example-site.org/", "petition.example-site.org", "An open letter")
+    page(
+        "https://petition.example-site.org/",
+        "petition.example-site.org",
+        "An open letter",
+        read="petition.example-site.org\nAn open letter to the board",
+    )
     job._finish_graph()
     assert job.result.origin_id.endswith("/copy")  # the post that repeats the page's text
 
@@ -528,6 +540,16 @@ def test_page_that_repeats_the_images_text_can_be_its_origin():
         "https://archive.example/snap",
         "Stand with Example: Sign the letter",
         "SEARCH PUBLIC SIGNERS BY NAME · 1–2 of 2 matching public signers",
+        read="Stand with Example: Sign the letter\nSEARCH PUBLIC SIGNERS BY NAME",
     )
     job._finish_graph()
     assert job.result.origin_id == pg.id
+
+
+def test_a_search_snippet_alone_never_makes_a_page_the_uploads_origin():
+    job, page = _graph_job()
+    snippet = "Stand with Example: Sign the letter SEARCH PUBLIC SIGNERS BY NAME"
+    page("https://stale.example/a", snippet, snippet, read="petition.example-site.org\nAbout us")
+    page("https://unread.example/b", snippet, snippet)  # dated, but its read never came back
+    job._finish_graph()
+    assert job.result.origin_id.endswith("/copy")

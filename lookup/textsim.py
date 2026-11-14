@@ -152,7 +152,9 @@ def domain_hits(text: str | None, doms: list[str]) -> list[str]:
     for d in doms:
         label = domain_label(d)
         name = re.escape(label)
-        other_ending = rf"{name}(?=\.[a-z]{{2,24}}(?![\w-]))"
+        # another domain ending (standwithjensen.online), never a file name (analytics.js)
+        not_file = "|".join(sorted(_NOT_TLD))
+        other_ending = rf"{name}(?=\.(?!(?:{not_file})(?![\w-]))[a-z]{{2,24}}(?![\w-]))"
         alts = re.escape(d) + (f"|#{name}|{other_ending}" if len(label) >= DOMAIN_LABEL_MIN else "")
         # the full address first, so "StandWithJensen.com" is one match, not two
         for m in re.finditer(rf"(?<![\w#-])(?:{alts})(?![\w-])", text, re.I):
