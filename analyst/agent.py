@@ -100,15 +100,6 @@ class GeminiAgent:
         self._temperature = temperature
         self._max_turns = max_turns
 
-    @property
-    def max_requests(self) -> int:
-        """Most generate_content calls one run can make (tool turns + the forced final turn)."""
-        return self._max_turns + 1
-
-    def count_requests(self, cap) -> None:
-        """Route every request through `cap` (analyst/ratecap.py)."""
-        self._client = cap.wrap(self._client)
-
     @classmethod
     def from_settings(cls, model: str | None = None) -> "GeminiAgent":
         s = get_settings()

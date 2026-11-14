@@ -122,7 +122,7 @@ def test_entry_links_to_dashboard_and_explains_the_call(make_client):
         "Coordinated: 14 accounts acting together, 3 signal families (cluster #7)"
     )
     link = entry.find("a:link[@rel='alternate']", NS).get("href")
-    assert link == "https://radar.example/#/cluster/7"
+    assert link == "https://radar.example/monitor/#/cluster/7"
     assert entry.find("a:category", NS).get("term") == "coordinated"
     text = entry.find("a:summary", NS).text
     assert text.startswith("Fresh accounts pushed one link within seconds.")
@@ -149,7 +149,7 @@ def test_falls_back_to_request_host(make_client):
         "http://testserver/api/feed.atom?limit=1"
     )
     entry = feed.find("a:entry", NS)
-    assert entry.find("a:link", NS).get("href") == "http://testserver/#/cluster/1"
+    assert entry.find("a:link", NS).get("href") == "http://testserver/monitor/#/cluster/1"
     # no updated_at: the window end stands in
     assert entry.find("a:updated", NS).text == "2026-11-13T20:10:00Z"
 

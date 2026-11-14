@@ -46,17 +46,6 @@ class Analyst:
     def name(self) -> str:
         return self.agent.name
 
-    @property
-    def max_requests(self) -> int:
-        """Worst-case Gemini requests for one verdict (an agent run; the batch path uses 1)."""
-        return self.agent.max_requests
-
-    def count_requests(self, cap) -> None:
-        """Count every Gemini request of the agent and the batch model against `cap`."""
-        self.agent.count_requests(cap)
-        if self.batch is not None and hasattr(self.batch, "count_requests"):
-            self.batch.count_requests(cap)
-
     @classmethod
     def from_settings(cls, web: WebClient | None, *, tools: bool | None = None) -> "Analyst":
         s = get_settings()

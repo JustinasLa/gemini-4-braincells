@@ -23,7 +23,7 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <a class="wordmark" href="../" title="Back to the live monitor" aria-label="Noise Radar: back to the live monitor">NOISE RADAR</a>
+    <a class="wordmark" href="/monitor/" title="Back to the live monitor" aria-label="Noise Radar: back to the live monitor">NOISE RADAR</a>
     <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
@@ -566,7 +566,7 @@ function showHome() {
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
-    <a class="home-back" href="../">← Live monitor</a>
+    <a class="home-back" href="/monitor/">← Live monitor</a>
     <div class="home-c">
       <div class="home-eyebrow label">Noise Radar · Trackdown</div>
       <div class="home-wm">SHILL OR CHILL</div>

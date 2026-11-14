@@ -67,10 +67,13 @@ for name in "${!pids[@]}"; do
   if wait "${pids[$name]}"; then echo "ok   $name"; else failed+=("$name"); echo "FAIL $name (see $out/$name-$version.log)"; fi
 done
 
-curl -fsS --max-time 20 "$url/api/metrics" | python3 -c '
+summary=$(cat <<'PY'
 import json, sys
 for r in json.load(sys.stdin):
     d = r.get("details") or {}
     rate = next((f"{k}={r[k]}" for k in ("recall", "fpr", "precision") if r.get(k) is not None), "")
-    print(f"live {r[\"dataset\"]:20} {r[\"split\"]:8} {d.get(\"detector_version\")} n={r[\"n\"]} {rate}")'
+    print(f"live {r['dataset']:20} {r['split']:8} {d.get('detector_version')} n={r['n']} {rate}")
+PY
+)
+curl -fsS --max-time 20 "$url/api/metrics" | python3 -c "$summary"
 ((${#failed[@]} == 0))

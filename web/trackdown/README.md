@@ -47,9 +47,10 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
   - Drag a card: it follows the cursor elastically, tilts with its velocity, keeps its fling, and
     snaps back to its moment in time. Pan with inertia, wheel/pinch zoom around the cursor, double
     click to focus, double click the background to fit.
-  - Semantic zoom: until a card's text is readable (~0.9×) each post is a labelled marker in its
-    role colour; cluster members are small squares inside the cluster box, whose tab (verdict +
-    account count) stays 11px on screen. Labels avoid each other, markers and tabs.
+  - Semantic zoom: cards stay up as you zoom out; only near the zoom-out limit (under ~0.15×)
+    each post becomes a labelled marker in its role colour; cluster members are small squares
+    inside the cluster box, whose tab (verdict + account count) stays 11px on screen.
+    Labels avoid each other, markers and tabs.
   - Hover or select a card: its lineage (ancestors and descendants) lights up and particles flow
     along its edges. Clusters get a breathing hull labelled with the detector's numbers.
 - **Trackdown run** (`runTrace` in `src/main.ts`): the submitted card is scanned, then each step
@@ -83,7 +84,7 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
   the step console, cards and receipts. The verdict coin is revealed only for a completed job;
   failures and timeouts leave partial receipts available without a final verdict. Starting another
-  trace cancels the previous client polling. All API paths are absolute so `/trackdown/` works.
+  trace cancels the previous client polling. All API paths are absolute so the app works at `/` and `/trackdown/`.
 - **Real lookup data**: posts, platform engagement snapshots, profile facts, linked pages and
   their exact timestamps come from the backend contract in `lookup/README.md`. Selected cards
   show source URLs and receipt ids, plus each receipt's endpoint, latency and request id. X
@@ -100,8 +101,9 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
 - **Fallbacks**: an unavailable lookup (404/503/network) tries `POST /api/analyze`; only if that
   path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
   rate limits (429), job failure and timeout show an error instead of silently inventing a trace.
-- **Hosting**: `npm run ship` refreshes `web/public/trackdown/`. Caddy redirects `/trackdown` to
-  `/trackdown/` and uses `/trackdown/index.html` for that app's fallback, not the main dashboard.
+- **Hosting**: `npm run ship` refreshes `web/public/trackdown/`. Caddy serves it as the site's home
+  page at `/` (and still at `/trackdown/` for old links); the live monitor dashboard is at `/monitor/`.
+  Old dashboard hash links (`/#/cluster/7`, `/#/accuracy`, `/#/method`) are forwarded to `/monitor/`.
 - Wording: "Shill" labels a cluster's spread. Cards in a cluster are called "In coordinated
   cluster"; no account is ever called a shill.
 

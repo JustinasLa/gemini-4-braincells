@@ -534,3 +534,75 @@ def test_tiny_p_values_fit_the_real_column():
     assert _real_p(8.82e-61) == P_VALUE_FLOOR > 1.2e-38  # float4 can hold it
     assert _real_p(0.004) == 0.004
     assert _real_p(None) is None
+
+
+def test_publisher_feed_accounts_are_not_coordinated_once_bios_are_known():
+    """#19 (clusters 682/859): five JD Supra topic-feed accounts on bsky.social post the same
+    jdsupra.com article about 1 s apart. With their profiles loaded, declared_automation (v1.6)
+    keeps them out of `coordinated`; brand-new accounts with the same bios get no pass."""
+    members = [  # handle, display name, bio, age (days), followers: the live accounts
+        (
+            "techlawjdsupra.bsky.social",
+            "Tech Law News",
+            "A JD Supra feed www.jdsupra.com",
+            627,
+            206,
+        ),
+        (
+            "m-and-a-jdsupra.bsky.social",
+            "M&A Watch",
+            "A JD Supra news feed www.jdsupra.com",
+            627,
+            96,
+        ),
+        ("european-union-law.bsky.social", "EU Legal Watch", "A JD Supra news feed", 627, 36),
+        ("ai-law-news.bsky.social", "AI Watch", "A JD Supra law feed www.jdsupra.com", 627, 160),
+        ("frank-jdsupra.bsky.social", "Frank", "Lead Engineer at JD Supra.", 723, 156),
+    ]
+
+    def run(age_override=None):
+        wd = empty_window(seed=0)
+        for j, slug in enumerate(["be-kind-rewind-8542956", "the-bug-october-2026-4316556"]):
+            for i in range(len(members)):
+                t = wd.start + 100 + 400 * j + i
+                wd.posts.append(
+                    WPost(
+                        uri=f"at://did:plc:jd{i}/app.bsky.feed.post/{j}",
+                        did=f"did:plc:jd{i}",
+                        t=t,
+                        created_t=t,
+                        text=f"title {slug}",
+                        text_hash=text_hash(f"title {slug}"),
+                        embed_urls=[f"https://jdsupra.com/legalnews/{slug}"],
+                        langs=["en"],
+                    )
+                )
+        from signals.score import AccountInfo
+
+        info = {
+            f"did:plc:jd{i}": AccountInfo(
+                did=f"did:plc:jd{i}",
+                handle=h,
+                display_name=name,
+                description=bio,
+                age_days=float(age_override or age),
+                followers=followers,
+                follows=50,
+                posts_count=5000,
+                description_len=len(bio),
+                has_avatar=True,
+            )
+            for i, (h, name, bio, age, followers) in enumerate(members)
+        }
+        res = detect(wd, lambda dids: {d: info[d] for d in dids if d in info}, DEFAULT)
+        return [c for c in res.clusters if any(m.startswith("did:plc:jd") for m in c.members)]
+
+    feeds = run()
+    assert feeds and all(c.status != "coordinated" for c in feeds)
+    guard = {s.name: s.score for c in feeds for s in c.signals if s.polarity == "against"}
+    assert guard.get("declared_automation", 0) >= DEFAULT.organic_guard_strong
+    fresh = run(age_override=3)  # same bios on brand-new accounts: no "openly automated" pass
+    assert all(
+        s.name != "declared_automation" for c in fresh for s in c.signals if s.polarity == "against"
+    )
+    assert any(c.status == "coordinated" for c in fresh)  # and the same burst is still flagged
