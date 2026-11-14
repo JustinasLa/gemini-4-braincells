@@ -171,7 +171,7 @@ export class Panel {
 
   private realData(node: TraceNode) {
     if (!node.realData) return "";
-    return `<div class="sect label">${this.c?.mock ? "Mock data (fictional)" : "Real data"}</div>${node.realData.map((group) => `<section class="data-group"><h4>${esc(group.label)}</h4><dl>${group.facts.map((fact) => `<dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd>`).join("")}</dl><div class="receipt-meta">${group.receiptId != null ? `Receipt #${group.receiptId}` : "No receipt id returned"}</div>${httpUrl(group.url) ? `<a class="src" href="${esc(group.url!)}" target="_blank" rel="noopener noreferrer">Source ↗ ${esc(group.url!)}</a>` : ""}</section>`).join("")}${node.timeUnknown ? '<p class="lookup-message">Time unknown: this card is positioned at the submitted post’s time (or the lookup start) for layout only. This is not a publication timestamp.</p>' : ""}`;
+    return `<div class="sect label">${this.c?.mock ? "Mock data (fictional)" : "Real data"}</div>${node.realData.map((group) => `<section class="data-group"><h4>${esc(group.label)}</h4><dl>${group.facts.map((fact) => `<dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd>`).join("")}</dl><div class="receipt-meta">${group.receiptId != null ? `Receipt #${group.receiptId}` : "No receipt id returned"}</div>${httpUrl(group.url) ? `<a class="src" href="${esc(group.url!)}" target="_blank" rel="noopener noreferrer">Source ↗ ${esc(group.url!)}</a>` : ""}</section>`).join("")}`;
   }
 
   private detail(n: TraceNode) {
