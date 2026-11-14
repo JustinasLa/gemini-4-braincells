@@ -155,11 +155,11 @@ class Writer:
         if batch.n == 0:
             return 0.0
         t0 = time.monotonic()
+        new_hours = sorted(batch.hours() - self._hours_ready)
         with self.conn.transaction():
             cur = self.conn.cursor()
-            for h in sorted(batch.hours() - self._hours_ready):
+            for h in new_hours:
                 cur.execute("SELECT noise_ensure_partitions(%s, %s)", (h, h))
-                self._hours_ready.add(h)
             dids = batch.dids()
             if dids:
                 cur.execute(
@@ -231,6 +231,8 @@ class Writer:
                         events_per_s,
                     ),
                 )
+        # Only after commit: a rolled-back flush also rolled back its CREATE TABLE.
+        self._hours_ready.update(new_hours)
         self.rows_written += batch.n
         return time.monotonic() - t0
 
