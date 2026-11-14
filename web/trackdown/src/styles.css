@@ -624,7 +624,7 @@ input:focus-visible { outline: none; }
   .peek .pk-t { min-width: 0; }
   .peek .pk-t b { display: -webkit-box; white-space: normal; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.2; }
   .peek .pk-go { white-space: nowrap; }
-  .app[data-phase=done] .dock { left: 8px; right: 8px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 64px); height: 112px; min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); gap: 6px; padding: 8px 10px; }
+  .app[data-phase=done] .dock { left: 8px; right: 8px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 80px); height: 112px; min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); gap: 6px; padding: 8px 10px; }
   .app[data-phase=done] .dock-left { min-width: 0; gap: 10px; }
   .app[data-phase=done] .dock .play { flex: none; width: 42px; height: 42px; }
   .app[data-phase=done] .dock .clock { flex: 1; min-width: 0; gap: 4px; }
