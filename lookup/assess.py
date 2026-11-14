@@ -56,6 +56,12 @@ Write a short, plain reading for a general audience:
   means they turn the submitted picture into that copy. Neither says who copied whom or which
   picture is older. changes_withdrawn true: a description was taken back, so its empty changes
   say nothing about the content (not "pixels only").
+  relation "template" (engine "x_replies"): a picture posted in an X reply thread that shows the
+  same page, app screen or meme template with other content (another name, caption or numbers);
+  changes say what differs. It is not a copy of the submitted picture and says nothing about its
+  origin or date. Several in one thread mean people post their own versions of the same page:
+  say how many and what they show. Do not call them fake or edited yourself; quote a read
+  source if one says so.
 - spread_pattern: describe the copies: how many accounts, how fast, verbatim or quoted,
   established or new accounts. Facts only.
 - counter_evidence: reasons the spread may be ordinary (famous author, news event, people
@@ -112,6 +118,7 @@ class _Draft(BaseModel):
 
 def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
     """The receipts as compact JSON for the prompt."""
+    templates = [m for m in r.image_matches if m.relation == "template"][:6]
 
     def post(p):
         return {
@@ -214,7 +221,11 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
                 "changes_withdrawn": match.changes_withdrawn,
                 "receipt_id": match.receipt_id,
             }
-            for match in r.image_matches[:12]
+            # 12 in all: the picture's own matches, and up to 6 thread pictures of its template
+            for match in [m for m in r.image_matches if m.relation != "template"][
+                : 12 - len(templates)
+            ]
+            + templates
         ],
     }
     return json.dumps(data, default=str, ensure_ascii=False)

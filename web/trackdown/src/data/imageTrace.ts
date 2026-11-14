@@ -30,12 +30,15 @@ export interface ImageMatch {
   receipt_id?: number | null;
 }
 
-export const IMAGE_RELATIONS = ["same", "resized", "cropped", "edited", "unknown"] as const;
+// "template": the same page, app screen or meme template with other content (a picture posted in an
+// X reply thread): a picture of the same kind, never a copy of this one
+export const IMAGE_RELATIONS = ["same", "resized", "cropped", "edited", "template", "unknown"] as const;
 export type ImageRelation = typeof IMAGE_RELATIONS[number] | "different";
 export const relationOf = (match: ImageMatch): ImageRelation =>
   [...IMAGE_RELATIONS, "different"].includes(match.relation ?? "") ? match.relation as ImageRelation : "unknown";
-export const humanLabel = (value: string) => value.replace(/[_-]+/g, " ").replace(/^./, (letter) => letter.toUpperCase());
-export const engineLabel = (match: ImageMatch) => match.engine === "tineye" ? "TinEye" : match.engine === "yandex" ? "Yandex" : "Search engine unknown";
+export const humanLabel = (value: string) => value === "template" ? "Same template · other content" : value.replace(/[_-]+/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+export const engineLabel = (match: ImageMatch) => match.engine === "tineye" ? "TinEye" : match.engine === "yandex" ? "Yandex" : match.engine === "x_replies" ? "X reply thread (FxTwitter)" : "Search engine unknown";
+export const isTemplate = (match: ImageMatch) => relationOf(match) === "template";
 /** an http(s) link or undefined: the app-wide URL check */
 export const pageUrl = (value?: string | null) => httpUrl(value ?? undefined);
 export const imageUrl = (value?: string | null) => typeof value === "string" && (/^data:image\/(png|jpeg|gif|webp|svg\+xml)[;,]/i.test(value) || /^\/(?!\/)/.test(value)) ? value : pageUrl(value);
@@ -122,7 +125,7 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
     id: match.id, t: imageTime(match) ?? (Number.isFinite(anchor) ? anchor : 0),
     // a TinEye crawl date places the card but is no publication time: undated keeps it off "Posted", gaps and the ruler
     timeUnknown: imageTime(match) == null, undated: imageTime(match) == null || match.time_source === "crawl_date",
-    platform: "web", role: match === state.origin ? "origin" : relationOf(match) === "edited" ? "mutation" : "source",
+    platform: match.engine === "x_replies" ? "x" : "web", role: match === state.origin ? "origin" : ["edited", "template"].includes(relationOf(match)) ? "mutation" : "source",
     author: { name: domainOf(match), handle: domainOf(match), hue: 100 },
     text: match.relation_note || `${humanLabel(relationOf(match))} image copy`,
     url: pageUrl(match.page_url), imageMatch: match,
@@ -148,7 +151,7 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
   const parent = origin?.id ?? submitted?.id;
   const edges: TraceEdge[] = served.length
     ? served.map((edge) => ({ from: edge.from, to: edge.to, rel: "variant", tool: engineTool(edge.tool), note: edge.note || note }))
-    : parent ? nodes.filter((node) => node.id !== parent && ["edited", "cropped"].includes(relationOf(node.imageMatch!))).map((node) => ({ from: parent, to: node.id, rel: "variant", note })) : [];
+    : parent ? nodes.filter((node) => node.id !== parent && ["edited", "cropped", "template"].includes(relationOf(node.imageMatch!))).map((node) => ({ from: parent, to: node.id, rel: "variant", note })) : [];
   // the submission and its Original: a same-image copy link (lineage) when dates establish the order and
   // the Original is the trace origin, else a visual variant link that claims no order
   if (origin && submitted && submitted.id !== origin.id && !edges.some((edge) => edge.to === submitted.id && edge.from === origin.id)) {
@@ -204,9 +207,12 @@ export function memeFinding(result: LookupResult): MemeFinding | "pending" | nul
   const posted = Date.parse(subject?.created_at ?? "");
   const upload = result.kind === "image" && !Number.isFinite(posted);
   const what = upload ? "upload" : "post";
-  const related = state.matches.filter((match) => relationOf(match) !== "different");
-  const make = (kind: MemeFindingKind, word: string, tag: string, sentence: string, match?: ImageMatch & { id: string }): MemeFinding => ({ kind, word, tag, sentence, color: FINDING_COLOR[kind], match });
-  if (!related.length) return make("first", "First sighting", "No other copies found", "The image search found no other copy of this picture. It may be new, or not indexed yet.");
+  // pictures of the same template are other pictures: they never make this one a copy or an edit
+  const related = state.matches.filter((match) => relationOf(match) !== "different" && !isTemplate(match));
+  // distinct replies, not pictures: one reply can carry several
+  const templates = new Set(state.matches.filter(isTemplate).map((match) => match.page_url || match.id)).size;
+  const make = (kind: MemeFindingKind, word: string, tag: string, sentence: string, match?: ImageMatch & { id: string }): MemeFinding => ({ kind, word, tag, sentence: templates ? `${sentence} ${plural(templates, "reply on X shows", "replies on X show")} the same template with other content.` : sentence, color: FINDING_COLOR[kind], match });
+  if (!related.length) return make("first", "First sighting", templates ? `${plural(templates, "reply", "replies")} with the same template` : "No other copies found", "The image search found no other copy of this picture. It may be new, or not indexed yet.");
   if (!upload && !Number.isFinite(posted)) return make("seen", "Seen before", `${plural(related.length, "matching copy", "matching copies")} found`, `The image search found ${plural(related.length, "matching copy", "matching copies")}, but this post has no time to compare their dates with.`);
   const older = related
     .filter((match) => upload || (imageTime(match) != null && imageTime(match)! + (match.time_source === "crawl_date" ? DAY : 0) < posted))

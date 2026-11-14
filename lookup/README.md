@@ -131,6 +131,27 @@ reads it (its text goes on the card and into the monitor check and the reading),
   With fewer than 3 words of text and no site address, only the picture is searched for.
 - an upload Nemotron types a screenshot of a post still goes through the screenshot step, which
   looks for the real post it shows.
+- **same template, other content** (`lookup/threadvariants.py`, `media/templatematch.py`):
+  people answer a screenshot with their own screenshot of the same page (a petition's signer
+  search showing another name) or the same meme template with another caption. Those are other
+  pictures, so reverse image search misses them, and X replies aren't indexed by search engines.
+  The step reads up to 6 X threads through FxTwitter (an upload: the X posts its text and site
+  searches found, the most replied-to first once their own reads are back, at most 5 s; an X
+  post: its own thread, two reply pages), takes up to 24 reply pictures
+  (not the traced picture itself), and Nemotron Super VL looks at each beside the traced
+  picture, one call per picture, all at once (~0.5 s live): same site or app, and the same kind
+  of screen content (a cropped result list counts; the site's confirmation page does not).
+  Only the second decides. One picture per call, not a grid: in a grid the model judged each
+  panel against the others and rejected real matches. A match is an `image_matches` entry with
+  `relation: "template"` and `engine: "x_replies"`, with the reply's URL, its exact time
+  (snowflake) and what differs; never the image origin, never a copy of the text. A picture
+  the model finds unchanged is a copy, not another version: not counted. Matches are published
+  as each comparison returns; the wait ends at the provider deadline (late ones are counted in
+  the receipt). The lookup settles the scan before its reading, so the reading and the
+  frozen result agree: a late answer or failure changes nothing, and a scan that hadn't
+  started by then never starts. Reply pages that could not be read (a
+  second page too) get a failed receipt; with none read, the step fails rather than reporting
+  an empty scan.
 - the upload is never its own origin: with no dated match, `origin_id` is null.
 
 Uploads need a public URL: `LOOKUP_PUBLIC_BASE_URL`, or `https://{PUBLIC_HOST}`. The production

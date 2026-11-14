@@ -39,6 +39,7 @@ export function changesHtml(trace: TraceCase, match: ImageMatch): string {
 
 const titleText = (match: ImageMatch) => {
   const relation = relationOf(match);
+  if (relation === "template") return "Same template · other content · not a copy of this picture";
   return `${humanLabel(relation)} ${relation === "different" ? "image · not a variation" : "copy"}`;
 };
 const variantHeading = (match: ImageMatch) => `${relationOf(match) === "different" ? "Different image" : "Match"} · ${domainOf(match)}`;

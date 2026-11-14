@@ -245,11 +245,13 @@ class Trace:
                 self._sync_matches()
 
     def _sync_matches(self):
+        # thread pictures of the same template (lookup/threadvariants.py) are not this trace's
+        templates = [m for m in self.job.result.image_matches if m.relation == "template"]
         self.job.result.image_matches = [
             self.matches[mid]
             for mid in sorted(self.matches, key=self.priorities.__getitem__)
             if self.matches[mid].relation != "different"
-        ]
+        ] + templates
 
     def _accept(self, result, rid):
         return self._accept_hits([(hit, rid) for hit in result.hits])
@@ -759,7 +761,7 @@ class Trace:
             self._step("variations", "skipped", skip or "No candidate images to compare")
             return
         with self.job.lock:
-            matches = list(self.job.result.image_matches)
+            matches = [m for m in self.job.result.image_matches if m.relation != "template"]
             shown = sum(m.changes_from is not None for m in matches)
             compared = len(self.compared)
             dropped = sum(self.matches[mid].relation == "different" for mid in self.compared)
@@ -786,9 +788,10 @@ class Trace:
             if not self.query_url:
                 return
             result = self.job.result
-            self.job._step("reverse_image").found = [match.id for match in result.image_matches]
+            own_matches = [m for m in result.image_matches if m.relation != "template"]
+            self.job._step("reverse_image").found = [match.id for match in own_matches]
             matches = sorted(
-                result.image_matches,
+                own_matches,
                 key=lambda match: (
                     match.first_seen or datetime.max.replace(tzinfo=UTC),
                     match.id,
