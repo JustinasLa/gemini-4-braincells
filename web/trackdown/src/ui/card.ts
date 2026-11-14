@@ -62,7 +62,7 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
   const stamp = n.role === "submitted" ? `<div class="stamp">SUBMITTED</div>` : "";
   const flags = n.flags?.length ? `<div class="flags">${n.flags.map((f) => `<span class="flag${flagClass(f)}">${esc(f)}</span>`).join("")}</div>` : "";
   const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${PLATFORM[n.platform] ?? n.platform}</span>`;
-  return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b><span>${handle}</span></div><span class="catno">#${String(no).padStart(2, "0")}</span></header>
+  return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b><span>${handle}</span></div>${n.undated ? "" : `<span class="catno">#${String(no).padStart(2, "0")}</span>`}</header>
     ${mark}
     <p class="txt">${esc(n.text)}</p>
     ${n.media ? mediaHtml(n.media, n.id, matchScore) : ""}

@@ -152,7 +152,7 @@ export async function liveCase(id: number): Promise<TraceCase> {
     // no analyst summary: say what the cluster is and point to the evidence, never stitch signals into a "reason"
     summary: d.verdict?.summary
       ? tidy(d.verdict.summary)
-      : `The detector grouped ${plural(d.size ?? d.members.length, "account", "accounts")} that acted on the same posts. There is no written summary for this cluster yet; the Evidence tab lists what points each way.`,
+      : `The detector grouped ${plural(d.size ?? d.members.length, "account", "accounts")} that acted on the same posts. There is no written summary for this cluster yet; the Evidence tab lists the signals the detector weighed.`,
     steps: [
       { tool: "detector", text: `Loaded ${plural(posts.length, "post", "posts")} from ${plural(d.members.length, "account", "accounts")}`, found: nodes.filter((n) => n.role !== "source").map((n) => n.id) },
       { tool: "oxylabs", text: `${plural(nodes.filter((n) => n.role === "source").length, "source page", "source pages")} checked`, found: nodes.filter((n) => n.role === "source").map((n) => n.id) },
@@ -179,7 +179,8 @@ export async function analyze(input: string): Promise<TraceCase | null> {
   res.web_findings.forEach((f, i) => {
     const h = f.source_url ? host(f.source_url) : "web";
     const id = `wf-${i}`;
-    nodes.push({ id, t: now - (i + 1) * 3600000, undated: true, platform: "factcheck", role: "source", author: { name: h, handle: h, hue: 210 }, text: tidy(f.summary), url: f.source_url ?? undefined });
+    // the card names the page; what the search found is in the Evidence tab
+    nodes.push({ id, t: now - (i + 1) * 3600000, undated: true, platform: "factcheck", role: "source", author: { name: h, handle: h, hue: 210 }, text: "Related page found by web search.", url: f.source_url ?? undefined });
   });
   return {
     id: `adhoc-${now}`,

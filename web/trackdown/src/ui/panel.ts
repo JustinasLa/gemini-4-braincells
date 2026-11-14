@@ -123,7 +123,7 @@ export class Panel {
     const stats = hasChain(c)
       ? `<div class="stats">
         <div class="stat" data-tip="${esc(`<h4>Copies back</h4>Hops from the submitted post to the earliest copy we found.`)}"><div class="n">${hops}</div><div class="l">${hops === 1 ? "Copy back" : "Copies back"}</div></div>
-        <div class="stat" data-tip="${esc(`<h4>Age of the claim</h4><div class='row'><span>Earliest</span><b>${ori ? fmtDate(ori.t, false) : "–"}</b></div><div class='row'><span>Submitted</span><b>${sub ? fmtDate(sub.t, false) : "–"}</b></div>`)}"><div class="n">${sub && ori ? fmtDur(sub.t - ori.t) : "–"}</div><div class="l">Since earliest</div></div>
+        <div class="stat" data-tip="${esc(`<h4>Age of the claim</h4><div class='row'><span>Earliest</span><b>${ori ? fmtDate(ori.t, false) : "–"}</b></div><div class='row'><span>Submitted</span><b>${sub ? fmtDate(sub.t, false) : "–"}</b></div>`)}"><div class="n">${sub && ori ? fmtDur(sub.t - ori.t) : "–"}</div><div class="l">Earliest → submitted</div></div>
         <div class="stat" data-tip="${esc(`<h4>${c.historical ? "Hands" : "Accounts"}</h4><div class='row'><span>Distinct</span><b>${accounts}</b></div><div class='row'><span>Under 30 days old</span><b class='${fresh ? "neg" : ""}'>${fresh}</b></div>`)}"><div class="n">${accounts}</div><div class="l">${c.historical ? "Hands" : accounts === 1 ? "Account in trace" : "Accounts in trace"}</div></div>
       </div>
       <div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} Replay the trackdown</button></div>`
@@ -157,6 +157,7 @@ export class Panel {
     const short = (url: string) => {
       try {
         const u = new URL(url);
+        if (/(^|\.)bsky\.app$/.test(u.hostname)) return u.pathname.includes("/post/") ? "Bluesky post" : "Bluesky profile";
         return `${u.hostname.replace(/^www\./, "")}${u.pathname.length > 1 ? " · " + (u.pathname.split("/").filter(Boolean).pop() ?? "").slice(0, 32) : ""}`;
       } catch {
         return url.slice(0, 48);
@@ -168,7 +169,8 @@ export class Panel {
     const con = c.receipts.filter((r) => r.against);
     // `against` = points away from the verdict
     const conTitle = c.status === "likely_organic" ? "Signs of coordination" : "Signs of organic spread";
-    const proTitle = c.findingsOnly ? "What we found" : "Supports the verdict";
+    // an abstention has nothing to "support": its evidence is what was weighed
+    const proTitle = c.findingsOnly ? "What we found" : c.status === "insufficient" ? "Evidence considered" : "Supports the verdict";
     return `${pro.length ? `<div class="sect label" style="margin-top:0">${proTitle} <span>${pro.length}</span></div>${pro.map(ev).join("")}` : ""}
       ${con.length ? `<div class="sect label"${pro.length ? "" : ' style="margin-top:0"'}>${conTitle} <span>${con.length}</span></div>${con.map((r, i) => ev(r, i + pro.length)).join("")}` : ""}
       ${c.wouldChange.length ? `<div class="sect label">What would change our mind</div>${c.wouldChange.map((w) => `<div class="change">${esc(w)}</div>`).join("")}` : ""}`;

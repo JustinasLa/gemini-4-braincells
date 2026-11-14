@@ -40,7 +40,7 @@ document.querySelector("#app")!.innerHTML = `
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
-    <div class="empty-stage" id="empty" data-ui hidden><h2>No chain of posts to draw</h2><p>This live cluster was flagged from how its accounts behaved, not from copied posts we can lay out. The verdict and the evidence are in the panel.</p></div>
+    <div class="empty-stage" id="empty" data-ui hidden><h2>No chain of posts to draw</h2><p>The detector grouped this live cluster by how its accounts behaved, not by copied posts we can lay out. The verdict and the evidence are in the panel.</p></div>
     <button class="peek" id="peek" data-ui data-act="sheet" aria-label="Show verdict and evidence"></button>
     <div class="vignette"></div>
   </main>
@@ -77,9 +77,9 @@ initTooltips();
 
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
-  `<div class="legend-title"><span class="label">key</span></div>` +
+  `<div class="legend-title"><span class="label">Key</span></div>` +
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div>`;
+  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="legend-hint">Select a marker to read the post.</div>`;
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done
@@ -90,7 +90,9 @@ function setPhase(p: Phase) {
   app.dataset.phase = p;
   app.classList.toggle("panel-open", p === "done");
   if (p !== "done") app.classList.remove("rail-open");
-  g.insets.bottom = p === "done" ? 112 : 64;
+  // phones stack the verdict bar and a two-row dock at the bottom
+  g.insets.bottom = p === "done" ? (innerWidth < 860 ? 196 : 112) : 64;
+  g.insets.right = innerWidth < 860 ? 24 : 72;
   if (p === "done") setTimeout(() => g.fit(undefined, 900), 650);
 }
 
@@ -148,7 +150,7 @@ function renderRail() {
     .map(
       (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(2)}"></span>
       <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster #${r.id}</span>
-      <span class="meta">${r.size ?? "?"} accounts · detector score ${r.score.toFixed(2)}</span></button>`,
+      <span class="meta">${r.size ?? "?"} accounts</span></button>`,
     )
     .join("");
   $("#rail").innerHTML = `
@@ -286,6 +288,7 @@ statusEl.addEventListener("click", (e) => {
 });
 function setStatus(tool: keyof typeof TOOL | null, text: string) {
   statusEl.classList.toggle("on", !!text);
+  statusEl.inert = !text; // a hidden status line must not hold a focus stop
   const tl = $(".st-tool", statusEl);
   tl.className = `st-tool t-${tool ?? "detector"}`;
   tl.textContent = tool ? TOOL[tool].label : "";
@@ -559,7 +562,7 @@ document.addEventListener("keydown", (e) => {
   if ((e.target as HTMLElement).closest("textarea,input")) return;
   // Space and Enter belong to the focused control; arrows belong to the tab list
   if ((e.key === " " || e.key === "Enter") && (e.target as HTMLElement).closest("button,a,[role=tab]")) return;
-  if ((e.target as HTMLElement).closest("[role=tablist]")) return;
+  if ((e.target as HTMLElement).closest("[role=tablist]") && e.key !== "Escape") return;
   if (e.key === "Escape") {
     if (eventEl) closeEvent();
     else if (tracing) skipFlag = true;

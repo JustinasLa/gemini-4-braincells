@@ -79,7 +79,7 @@ export class Graph {
   W = 0;
   H = 0;
   dpr = 1;
-  insets = { top: 44, bottom: 112, left: 24, right: 24 };
+  insets = { top: 52, bottom: 112, left: 24, right: 72 }; // ruler above, zoom controls on the right
 
   case: TraceCase | null = null;
   nodes: VNode[] = [];
@@ -245,7 +245,7 @@ export class Graph {
     const breakAt = Math.max(3 * 86400000, span / 40);
     this.grid = new Map();
     const xs: number[] = [];
-    const COLW = 236;
+    const COLW = 252; // chip width 218 + a clear gutter
     for (const g of groups) {
       const gap = g[0].d.t - prevT;
       const dx = gap <= 0 ? 0 : Math.min(40 * Math.log2(1 + gap / 60000), 280 + 18 * Math.log2(1 + gap / 86400000));
@@ -264,12 +264,12 @@ export class Graph {
         });
         x += (cols - 1) * COLW;
       } else {
-        // small groups: spread a little so they don't sit on one x
+        // small groups: still ordered by real time (seconds apart read as distance), never one column
         g.forEach((n, i) => {
-          n.tx = x + i * 14;
+          if (i) x += Math.max(14, 90 * Math.log2(1 + (n.d.t - g[i - 1].d.t) / 10000));
+          n.tx = x;
           xs.push(n.tx);
         });
-        x += (g.length - 1) * 14;
       }
       prevT = g[g.length - 1].d.t;
     }
@@ -312,7 +312,7 @@ export class Graph {
       if (!kids.length) {
         const gr = this.grid.get(n);
         if (gr) {
-          const RH = 64;
+          const RH = 76;
           let top = gridTop.get(gr.id);
           if (top == null) {
             top = slot;
@@ -322,7 +322,7 @@ export class Graph {
           n.py = top + gr.row * RH + RH / 2;
           return n.py;
         }
-        const gap = n.compact ? 62 : n.h + 34;
+        const gap = n.compact ? 76 : n.h + 40;
         n.py = slot + gap / 2;
         slot += gap;
         return n.py;
@@ -942,8 +942,9 @@ export class Graph {
     c.lineCap = "round";
     for (const e of this.edges) {
       if (!e.a.vis || !e.b.vis) continue;
-      // in map mode the cluster hull stands for its members: no spaghetti between the dots
-      if (op < 0.5 && e.a.compact && e.b.compact) continue;
+      // in map mode the cluster hull stands for its members: no spokes to every dot
+      // (they come back on hover/selection and once cards are readable)
+      if (op < 0.5 && e.b.compact && e.b.d.cluster && !(hl && hl.has(e.a.d.id) && hl.has(e.b.d.id))) continue;
       const pts = this.edgePts(e, op);
       const prog = clamp((now - e.born) / 650, 0, 1);
       const on = hl ? hl.has(e.a.d.id) && hl.has(e.b.d.id) : false;

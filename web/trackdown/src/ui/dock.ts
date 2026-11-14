@@ -194,9 +194,12 @@ export class Dock {
     }
     c.textAlign = "center";
     let lastB = -1e9;
+    const lw = first != null ? c.measureText(fmtShort(first)).width : 0;
     for (const b of g.timeBreaks) {
       const x = ux(b.x);
-      if (x < L + 80 || x > R - 95 || x - lastB < 80) continue;
+      const hw = c.measureText(`${fmtDur(b.gap)} gap`).width / 2;
+      // keep clear of the end labels and of each other
+      if (x - hw < L + lw + 10 || x + hw > R - lw - 10 || x - lastB < hw * 2 + 16) continue;
       lastB = x;
       c.fillStyle = "#e4b36a";
       c.fillText(`${fmtDur(b.gap)} gap`, x, base + 4);
@@ -234,7 +237,7 @@ export class Dock {
       const rel = this.clock.querySelector(".rel")!;
       const txt = `${fmtDate(t, false)} ${fmtClock(t)}`;
       if (d.textContent !== txt) d.textContent = txt;
-      const r2 = t - first < 1000 ? "Earliest copy" : `${fmtDur(t - first)} after the earliest copy`;
+      const r2 = t - first < 1000 ? "At the earliest copy" : `Playhead: ${fmtDur(t - first)} after the earliest copy`;
       if (rel.textContent !== r2) rel.textContent = r2;
     }
   }
@@ -278,8 +281,13 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   }
   c.textAlign = "center";
   let lastPill = -1e9;
+  let prevBreak = -1e9;
   for (const b of g.timeBreaks) {
     const s = g.toScreen(b.x, 0);
+    const from = prevBreak;
+    prevBreak = s.x;
+    // "2.8 yr later" only reads right if the date it counts from is visible
+    if (!drawn.some(([a]) => a > from && a < s.x)) continue;
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
     const label = `${fmtDur(b.gap)} later`;
     c.font = '600 10px "JetBrains Mono", monospace';
