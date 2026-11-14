@@ -8,6 +8,7 @@ import { hasVerdict, type LookupResult } from "../data/lookup";
 import type { TraceCase } from "../types";
 import { comparisonSource } from "./compare";
 import { esc, STATUS } from "./format";
+import { swarmStrip } from "./swarm";
 import "./story.css";
 
 const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
@@ -100,7 +101,8 @@ function origin(family: Family, members: Map<string, FamilyMember>): string {
 }
 
 function spread(trace: TraceCase & { lookup: LookupResult }): string {
-  if (trace.lookup.state === "running") return "";
+  // the swarm strip answers who is pushing the picture: no second answer here
+  if (trace.lookup.state === "running" || trace.lookup.swarm) return "";
   return hasVerdict(trace)
     ? `<p class="st-call" style="--vc:${STATUS[trace.status].css}"><b>${esc(STATUS[trace.status].word)}</b> ${esc(STATUS[trace.status].tag)}, in a group we watch</p>`
     : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
@@ -159,6 +161,7 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
         <div class="st-actions"><button class="btn solid" type="button" data-act="trace">New trace</button><button class="btn" type="button" data-story-view="map">Map</button></div>
       </div>
     </section>
+    ${lookup.swarm && !running ? swarmStrip(lookup.swarm, { live: lookup.swarm_live?.id }) : ""}
     ${family ? origin(family, members) : ""}
     ${grid ? `<section class="st-sec" aria-labelledby="st-versions"><h2 id="st-versions">${group}</h2><div class="st-grid">${grid}</div></section>` : ""}
     ${running ? "" : `<p class="st-fine">Search sample. Dates are upper bounds.</p>`}

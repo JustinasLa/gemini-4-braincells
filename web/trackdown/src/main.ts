@@ -21,6 +21,7 @@ import { initTooltips } from "./ui/tooltip";
 import { comparisonSource } from "./ui/compare";
 import { initMemeTrace } from "./ui/variations";
 import { mountStory } from "./ui/story";
+import { mountSwarmPage, mountSwarmWall } from "./ui/swarm";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -57,6 +58,8 @@ const app = $(".app");
 const story = mountStory(app);
 // the picture being traced, as a local address: the story shows it before the server has it
 let storyPreview: { url: string; lookup: string } | null = null;
+// the page of one live picture (?swarm=<id>); "Trace it" sends its picture down the upload path
+const swarmPage = mountSwarmPage(app, (file) => void startTrace(file, import.meta.env.DEV && new URLSearchParams(location.search).has("mockSwarm")));
 const nav = $("#judge-links");
 $("#judge-menu").addEventListener("click", () => { nav.hidden = !nav.hidden; nav.style.display = nav.hidden ? "none" : "flex"; $("#judge-menu").setAttribute("aria-expanded", String(!nav.hidden)); });
 const view = new URLSearchParams(location.search).get("view");
@@ -511,6 +514,7 @@ function showQr() {
 function showHome() {
   cancelTrace();
   closeEvent();
+  swarmPage.hide();
   if (homeEl) return;
   const cases = simulatedCases();
   const sims = cases.filter((c) => !c.historical);
@@ -527,6 +531,7 @@ function showHome() {
     </div>
     <span class="credit">Botticelli, c. 1485</span>`;
   document.body.appendChild(homeEl);
+  void mountSwarmWall(homeEl);
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
@@ -636,6 +641,7 @@ async function startTrace(raw: LookupRequest, mock = false) {
   cancelTrace();
   closeEvent();
   hideHome();
+  swarmPage.hide();
   if (storyPreview) URL.revokeObjectURL(storyPreview.url);
   storyPreview = image ? { url: URL.createObjectURL(image), lookup: "lookup-pending" } : null;
   const run = tracing = ++traceSequence;
@@ -849,6 +855,10 @@ const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
 if (params.has("mockLookup") && import.meta.env.DEV) void startTrace("https://social.example/newsroom/status/100", true);
 else if (params.get("lookup")) void startTrace(params.get("lookup")!);
+else if (params.get("swarm")) {
+  setPhase("home");
+  void swarmPage.open(params.get("swarm")!).then((ok) => ok || showHome());
+}
 else if (/^\d+$/.test(params.get("cluster") ?? "")) liveCase(Number(params.get("cluster"))).then((c) => openCase(c, "spread"), () => { toast("Couldn't load that cluster from the API"); openCase(first, "static"); });
 else if (params.has("static")) openCase(first, "static");
 else if (params.has("case")) runTrace(first);

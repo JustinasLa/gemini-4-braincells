@@ -294,6 +294,45 @@ Anyone can submit a handle, link or text. The answer keeps two questions apart:
 
 Very short texts aren't searched (they match too much of the web).
 
+## Meme swarms
+
+A second, separate question about one picture: is it being pushed by a swarm (bot network,
+astroturfing, brigading), or did people find it and post it themselves? The input is the posts
+that carry the picture, the boosts of those posts, and whatever is known about the accounts
+(`swarm/model.py`). The scorer is `swarm/score.py`; its settings are in `swarm/config.py`, and
+their version is stored on every report. `swarm/README.md` lists every signal.
+
+- **Four families**, each scored as the max of its signals, like the clusters above: `timing`
+  (bursts, posts seconds apart, clockwork gaps), `accounts` (joined the same week, alike handles,
+  empty profiles, same bio), `copy` (same or near-same words, the exact same file) and `boost`
+  (boosts from the posters themselves, fast boosts by the same accounts, repeat posting).
+- **Timing is tested**, not thresholded. Null worlds keep how many accounts posted in each
+  coarser time bin and place them at random inside it, so a natural rise of interest survives
+  and only a sharper spike counts. Several widths are tested and combined with Bonferroni.
+- **Reused words weigh by length.** Thirty accounts writing "lol" is not evidence; thirty
+  accounts writing the same sentence is. Empty text is never reuse.
+- **Organic guards**: most accounts wrote their own words, many different files of the picture
+  (people saved and re-uploaded it), old accounts with followers, a slow spread with no burst
+  (this one never decides alone), and posters talking to each other.
+- **Verdict**: Shill (`swarm`) needs at least two families, a combined score of 0.6, no strong
+  guard, and a small timing p-value when timing is one of only two families. Chill (`organic`)
+  needs a strong guard and at most one family. Anything else, and anything with fewer than 5
+  posting accounts, is Can't tell (`unclear`), with a few words on why.
+
+What it can't do:
+
+- **Popularity is not a signal.** A picture posted by thousands of people gets no score for that
+  alone, and a swarm hiding inside a big organic spread is diluted and may come out unclear.
+- **A search sample is not the whole spread.** Lookups see what a search returned, often the
+  latest posts, which can look like a burst. The report says which basis it used.
+- **Copied captions and identical files can be organic**: people copy a meme's caption, and
+  platforms can reuse the same file. Neither counts as a swarm without a second family.
+- **Slow, varied campaigns** with aged accounts and paraphrased text, spread over days, come out
+  unclear or organic.
+- **Missing account data** makes the accounts family 0, which means unknown, not clean.
+- The thresholds are set by hand on synthetic cases (`tests/test_swarm_score.py`). There is no
+  measured error rate for swarms yet.
+
 ## How the metrics are made
 
 Every accuracy number the app shows is a row in the `eval_runs` table written by `eval/`, served

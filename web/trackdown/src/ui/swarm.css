@@ -1,0 +1,68 @@
+/* Meme swarms (ui/swarm.ts): the strip on a meme result, the home wall, the page of one live picture.
+   The story's language: hairlines, near-black surfaces, the verdict word in its colour. */
+
+/* the strip: the dots under the picture's column, the answer under the headline's */
+.sw { --sw-dot: #8f8b84; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-areas: "plot word" "plot say"; gap: 0 40px; }
+.sw-plot { grid-area: plot; align-self: center; margin: 0; min-width: 0; }
+.sw-plot svg { display: block; width: 100%; height: auto; max-height: 180px; overflow: visible; }
+.sw-band { fill: color-mix(in srgb, var(--vc) 16%, transparent); }
+.sw-base { stroke: var(--line-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sw-axis { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font: 400 11.5px/1.3 var(--mono); color: var(--text-3); }
+.sw-say { grid-area: say; min-width: 0; }
+.sw .sw-word { grid-area: word; align-self: end; margin: 0; font: 600 clamp(34px, 3.6vw, 46px)/1.02 var(--sans); letter-spacing: -0.03em; color: var(--vc); }
+.sw-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+.sw-chips li { display: inline-flex; align-items: baseline; gap: 9px; max-width: 100%; padding: 7px 11px; font: 500 14.5px/1.3 var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); overflow-wrap: anywhere; }
+.sw-chips b { flex: none; font: 500 10px/1.3 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
+.sw-why { margin: 14px 0 0; font: 400 17px/1.4 var(--sans); color: var(--text); }
+.sw-note { margin: 16px 0 0; font: 400 12.5px/1.5 var(--sans); color: var(--text-3); }
+.sw-live { display: inline-flex; align-items: center; min-height: 32px; margin: 6px 0 0; font: 500 13px/1.3 var(--sans); color: var(--text-2); text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; }
+.sw-live:hover { color: var(--text); text-decoration-color: var(--text); }
+@media (prefers-reduced-motion: no-preference) {
+  .sw-plot svg { animation: sw-draw 1.1s var(--ease-out) 0.15s both; }
+}
+@keyframes sw-draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+/* stacked: the strip inside the swarm page's hero column */
+.sw.stack { grid-template-columns: minmax(0, 1fr); grid-template-areas: "word" "plot" "say"; margin: 0; padding: 0; border: 0; }
+.sw.stack .sw-word { font-size: clamp(38px, 5vw, 64px); }
+.sw.stack .sw-plot, .sw.stack .sw-chips, .sw.stack .sw-why { margin-top: 22px; }
+
+/* the swarm page */
+.sw-page .st-mine img { background: #0c0c0e; }
+.sw-posts { margin: 14px 0 0; padding: 0; list-style: none; max-width: 760px; }
+.sw-posts a { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 14px; align-items: baseline; padding: 10px 0; color: var(--text); text-decoration: none; border-bottom: 1px dashed var(--line); }
+.sw-posts a:hover .sw-t { text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; }
+.sw-posts time { font: 500 12px/1.3 var(--mono); color: var(--text-3); }
+.sw-t { font: 400 14.5px/1.4 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw-h { max-width: 220px; font: 400 12px/1.3 var(--mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw-more { max-width: 760px; }
+.sw-more summary { padding: 12px 0 0; cursor: pointer; list-style: none; font: 500 12px/1.3 var(--mono); color: var(--text-3); }
+.sw-more summary::-webkit-details-marker { display: none; }
+.sw-more summary:hover { color: var(--text); }
+.sw-more[open] summary { display: none; }
+.sw-more .sw-posts { margin: 0; }
+
+/* home: the wall peeks in at the bottom of the first screen and scrolls up over the painting */
+.home.has-wall .credit { margin-bottom: 64px; }
+.sw-wall { position: absolute; top: calc(100% - 52px); left: 0; right: 0; z-index: 3; padding: 14px 0 48px; background: linear-gradient(rgba(0, 0, 0, 0), rgba(5, 5, 6, 0.94) 52px); animation: fade 0.6s 0.9s both; }
+.sw-wall > * { width: min(980px, calc(100% - 32px)); margin-left: auto; margin-right: auto; }
+.sw-wall h2 { margin-top: 0; margin-bottom: 0; font: 600 21px/1.2 var(--sans); letter-spacing: -0.01em; color: #fff; text-shadow: 0 2px 12px #000; }
+.sw-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 36px; }
+.sw-tile { position: relative; display: block; aspect-ratio: 1; overflow: hidden; background: #0c0c0e; border: 1px solid var(--line-2); transition: border-color 0.15s, transform 0.15s; }
+.sw-tile:hover, .sw-tile:focus-visible { border-color: var(--text-2); transform: translateY(-2px); outline: none; }
+.sw-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sw-tile b { position: absolute; left: 6px; bottom: 6px; min-width: 26px; padding: 4px 6px 3px; font: 600 12px/1 var(--mono); text-align: center; color: var(--black); background: var(--vc); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 860px) {
+  .sw { grid-template-columns: minmax(0, 1fr); grid-template-areas: "word" "plot" "say"; }
+  .sw-plot { margin-top: 18px; }
+  .sw-chips { gap: 6px; margin-top: 16px; }
+  .sw-chips li { padding: 6px 10px; font-size: 14px; }
+  .sw-posts a { grid-template-columns: 42px minmax(0, 1fr); gap: 2px 12px; }
+  .sw-h { grid-column: 2; max-width: 100%; }
+  .sw-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 28px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sw-tile { transition: none; }
+  .sw-wall { animation: none; }
+}

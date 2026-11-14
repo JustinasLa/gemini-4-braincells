@@ -70,6 +70,43 @@ def _db_store():
     return factory
 
 
+def _swarm_scorer():
+    """swarm.score.score_swarm, or None (the lookup's swarm step is then skipped)."""
+    try:
+        from swarm.score import score_swarm
+    except Exception as exc:  # optional: a lookup without the swarm check still works
+        log.warning("lookup: swarm scorer unavailable: %s", exc)
+        return None
+    return score_swarm
+
+
+_live_index: object | None = None
+_live_failed_at: float | None = None
+LIVE_RETRY_S = 300.0
+
+
+def _live_swarms():
+    """The live Bluesky swarm index (swarm.live.LiveSwarmIndex), made on the first lookup that
+    needs it and shared; None when there is no database or the module can't be loaded (tried
+    again after LIVE_RETRY_S). A failing query later is the swarm step's to absorb."""
+    global _live_index, _live_failed_at
+    if _live_index is not None:
+        return _live_index
+    if _live_failed_at is not None and time.monotonic() - _live_failed_at < LIVE_RETRY_S:
+        return None
+    if not get_settings().database_url:
+        return None
+    try:
+        from swarm.live import LiveSwarmIndex
+
+        _live_index = LiveSwarmIndex()  # common.db.connect per query; DB errors return None
+    except Exception as exc:
+        log.warning("lookup: live swarm index unavailable: %s", exc)
+        _live_failed_at = time.monotonic()
+        return None
+    return _live_index
+
+
 def make_deps() -> Deps:
     """Clients for one lookup. Missing keys turn the matching steps into 'skipped'."""
     from lookup import cache
@@ -152,6 +189,8 @@ def make_deps() -> Deps:
         reverse_image=s.lookup_reverse_image,
         wikipedia=s.lookup_family_web,
         wayback=s.lookup_family_web,
+        swarm_scorer=_swarm_scorer(),
+        live_swarms=_live_swarms(),
         public_base_url=s.lookup_public_base_url
         or (f"https://{s.public_host}" if s.public_host else ""),
     )

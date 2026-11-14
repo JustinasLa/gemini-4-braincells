@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
-from api.routes import analyze, clusters, feed, lookup, metrics
+from api.routes import analyze, clusters, feed, lookup, metrics, swarms
 from common.db import connect
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -16,6 +16,7 @@ app.include_router(metrics.router)
 app.include_router(analyze.router)
 app.include_router(lookup.router)
 app.include_router(feed.router)
+app.include_router(swarms.router)
 
 
 @app.get("/api/health")

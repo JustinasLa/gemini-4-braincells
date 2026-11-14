@@ -203,9 +203,31 @@ Results fill while `state` is `running`; the client re-renders on each poll. Tim
   "steps": [Step],
   "notes": ["..."],
   "image_matches": [ImageMatch],
-  "image_origin_id": "img:3" | null  // separate from origin_id; see the image-origin rule below
+  "image_origin_id": "img:3" | null,  // separate from origin_id; see the image-origin rule below
+  "swarm": SwarmReport | null,        // the swarm check (below); evidence only, never the status
+  "swarm_live": SwarmDetail | null,   // the live Bluesky group of the same picture, when one matched
+  "swarm_sample": SwarmReport | null  // the search sample's report when `swarm` is the live one
 }
 ```
+
+### Swarm check
+
+`lookup/swarm_step.py`, step `swarm` ("Swarm check"), after the posts are final and before the
+reading; models in `swarm/model.py`. It runs for an upload and for an X or Bluesky post with a
+picture (skipped otherwise: "no picture"). The posts that count are the submitted post (never the
+upload's placeholder) and the copies, quotes, replies, Bluesky posts and origin the lookup kept
+(an upload's only with a `caption_match`); never `mention`, `author_recent` or `screenshotted`.
+Each becomes a `Sighting` (quote/reply: `target` is the post it boosts; `time_exact` false for a
+search-hint time; `media_key` the X media key or Bluesky blob CID). Account data comes from what
+the lookup read: profile reads (`accounts`), the author profile FxTwitter sends with every post
+(exact join time, followers, following, posts, bio, avatar), and one batched Bluesky
+`getProfiles` (at most 2 x 25, with a receipt, only when the provider time allows). A month-only
+join date ("2009-06") is left out. The report has `basis: "sample"` (a search sample: copies are
+missing). When the live Bluesky index knows the picture (by blob CID, else by the upload's
+perceptual hash), `swarm_live` is that group, and `swarm` is its report when it has more posting
+accounts than the sample (the sample is then `swarm_sample`). The step is capped at 2 s; a
+failure or a late answer leaves `swarm` null and changes nothing else. A verdict describes the
+group of posts, never one account.
 
 ### Image matches
 

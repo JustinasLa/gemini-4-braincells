@@ -10,12 +10,22 @@ from common.config import get_settings
 from common.db import connect
 from sources.checker import SourceChecker
 from sources.oxylabs import OxylabsClient
+from swarm.store import SwarmStore
 
 
 def get_store() -> Iterator[Store]:
     try:
         with connect() as conn:
             yield Store(conn)
+    except psycopg.OperationalError as exc:
+        raise HTTPException(503, "database unavailable") from exc
+
+
+def get_swarm_store() -> Iterator[SwarmStore]:
+    """meme_swarms reads (api/routes/swarms.py); a missing table reads as empty."""
+    try:
+        with connect() as conn:
+            yield SwarmStore(conn)
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
 

@@ -86,6 +86,28 @@ services:
       start_period: 120s
       retries: 3
 
+  # Meme swarms: pictures many accounts posted in the last 24 h, scored for swarm behaviour every
+  # 5 min -> meme_swarms (GET /api/swarms). Reads posts/reposts/likes; fetches CDN thumbnails.
+  swarm:
+    build: { context: .., dockerfile: Dockerfile }
+    command: ["python", "-m", "swarm", "run"]
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+    healthcheck:
+      # Healthy while the database answers (a quiet day can leave nothing new to write).
+      test: ["CMD", "python", "-c", "import os, psycopg; psycopg.connect(os.environ['DATABASE_URL']).execute('SELECT 1')"]
+      interval: 60s
+      start_period: 120s
+      retries: 3
+
   caddy:
     image: caddy:2
     restart: unless-stopped

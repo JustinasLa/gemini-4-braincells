@@ -48,6 +48,9 @@ class Conversation:
     replies: list[XItem] = field(default_factory=list)
     cursor: str | None = None  # the next page of replies
     possibly_sensitive: bool = False
+    # handle (lowercased) -> author_profile() of each post's author in this answer (the main
+    # post, the post it quotes, its replies): FxTwitter sends them with every post
+    authors: dict[str, dict] = field(default_factory=dict)
 
 
 def _int(v: Any) -> int | None:
@@ -80,6 +83,45 @@ def _photos(st: dict) -> list[str]:
 def _id(v: Any) -> str | None:
     s = str(v) if isinstance(v, int | str) and not isinstance(v, bool) else ""
     return s if s.isdigit() else None
+
+
+def _joined(v: Any) -> datetime | None:
+    """FxTwitter's join date ("Thu Jan 30 06:48:04 +0000 2020"), exact to the second."""
+    try:
+        return datetime.strptime(v, "%a %b %d %H:%M:%S %z %Y") if isinstance(v, str) else None
+    except ValueError:
+        return None
+
+
+def author_profile(author: Any) -> dict | None:
+    """The public profile FxTwitter sends with each post's author: handle, name, join time,
+    counts, bio, avatar (the swarm check reads it: lookup/swarm_step.py). None without a
+    handle. A missing field stays None, never 0."""
+    a = _dict(author)
+    handle = _str(a.get("screen_name"))
+    if not handle:
+        return None
+    desc = a.get("description")
+    return {
+        "handle": handle,
+        "name": _str(a.get("name")),
+        "joined": _joined(a.get("joined")),
+        "followers": _int(a.get("followers")),
+        "following": _int(a.get("following")),
+        "posts_count": _int(a.get("statuses")),
+        "bio": desc if isinstance(desc, str) else None,
+        "avatar_url": _str(a.get("avatar_url")),
+    }
+
+
+def _authors(statuses: list[Any]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for st in statuses:
+        st = _dict(st)
+        for a in (st.get("author"), _dict(st.get("quote")).get("author")):
+            if (p := author_profile(a)) is not None:
+                out.setdefault(p["handle"].lower(), p)
+    return out
 
 
 def to_item(st: Any) -> XItem:
@@ -237,6 +279,7 @@ class FxTwitterClient:
             parent = _dict(st.get("replying_to"))
             pid = _id(parent.get("status"))
             replies: list[XItem] = []
+            read = [st]  # the statuses read, for their authors' profiles
             raw = data.get("replies") if with_replies else None
             for r in raw if isinstance(raw, list) else []:
                 try:
@@ -245,6 +288,7 @@ class FxTwitterClient:
                     continue
                 it.is_main = False
                 replies.append(it)
+                read.append(r)
             cursor = _dict(data.get("cursor")).get("bottom") if with_replies else None
             return Conversation(
                 main=main,
@@ -253,6 +297,7 @@ class FxTwitterClient:
                 replies=replies,
                 cursor=_str(cursor),
                 possibly_sensitive=st.get("possibly_sensitive") is True,
+                authors=_authors(read),
             )
         except FxTwitterError:
             raise

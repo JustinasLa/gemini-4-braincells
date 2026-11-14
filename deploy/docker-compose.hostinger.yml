@@ -23,3 +23,9 @@ services:
     deploy:
       resources:
         limits: { cpus: "1.5", memory: 4G }
+
+  # Same limits as the base file; listed so the VPS budget above stays complete in one place.
+  swarm:
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
