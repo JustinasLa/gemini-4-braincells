@@ -18,9 +18,6 @@ class Settings(BaseSettings):
     analyst_max_tool_calls: int = 6
     analyst_max_web_calls: int = 4  # live Oxylabs requests per cluster (cache hits are free)
     analyst_time_budget_s: float = 120.0
-    # Gemini requests per sliding hour for the analyst worker (analyst/ratecap.py); 0 = no cap.
-    # The hackathon Gemini project is watched for abuse: keep the daily total in the low thousands.
-    analyst_max_gemini_calls_per_hour: int = 100
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_media_model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b"
