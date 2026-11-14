@@ -204,13 +204,25 @@ class Lookup:
             return rid
 
     def add_post(self, p: Post) -> Post:
+        """Insert or merge by id. The submitted post keeps its role whatever step saw it first;
+        otherwise the better-read copy (its own page/API over a search snippet) wins."""
         with self.lock:
             for k, old in enumerate(self.result.posts):
-                if old.id == p.id:
-                    if p.verified and not old.verified or old.role == "mention":
-                        keep_role = old.role if old.role in ("submitted", "origin") else p.role
-                        self.result.posts[k] = p.model_copy(update={"role": keep_role})
-                    return self.result.posts[k]
+                if old.id != p.id:
+                    continue
+                pinned = next((r for r in ("submitted", "origin") if r in (old.role, p.role)), None)
+                better = (p.verified and not old.verified) or old.role in (
+                    "mention",
+                    "author_recent",
+                )
+                base = p if better or p.role == "submitted" else old
+                if base is p and old.similarity is not None and p.similarity is None:
+                    base = p.model_copy(update={"similarity": old.similarity})
+                merged = base.model_copy(update={"role": pinned or base.role})
+                if merged.role == "submitted":
+                    merged.similarity = 1.0
+                self.result.posts[k] = merged
+                return merged
             self.result.posts.append(p)
             return p
 
@@ -325,17 +337,21 @@ class Lookup:
                 second = [pool.submit(self._monitor)]
             else:
                 second = []
+                if not textsim.phrase(self._subject_text) and self._media_urls:
+                    # image-only post: read the image first, then search for its text
+                    self._media(ocr_as_text=True)
                 if kind != "web":
                     if self._card_url:
                         second.append(pool.submit(self._linked, self._card_url, False))
                     else:
                         self.skip("linked", "the post links no page")
+                if self._step("media").state == "pending":
+                    second.append(pool.submit(self._media))
                 second += [
                     pool.submit(self._copies_web),
                     pool.submit(self._copies_x),
                     pool.submit(self._copies_bsky),
                     pool.submit(self._coverage),
-                    pool.submit(self._media),
                     pool.submit(self._monitor),
                 ]
             wait(second, timeout=self._left())
@@ -638,6 +654,7 @@ class Lookup:
                 feed = self.deps.bsky.author_feed(actor, limit=20)
             except httpx.HTTPError:
                 pass
+            feed = [pv for pv in feed if (pv.get("author") or {}).get("did") == pr.get("did")]
             times = sorted(
                 t for t in (parse_time((p.get("record") or {}).get("createdAt")) for p in feed) if t
             )
@@ -664,7 +681,10 @@ class Lookup:
             )
             self._bsky_handles.add(pr.get("handle") or actor)
             found = []
-            for pv in feed[:10]:
+            me = (pr.get("did"), pr.get("handle"))
+            own = [pv for pv in feed if (pv.get("author") or {}).get("did") in me
+                   or (pv.get("author") or {}).get("handle") in me]  # fmt: skip
+            for pv in own[:10]:  # the feed also lists reposts of other people's posts
                 rp = self.add_post(self._bsky_post_obj(pv, "author_recent", None, rid))
                 found.append(rp.id)
             st.found = found
@@ -986,7 +1006,7 @@ class Lookup:
             st.detail = f"{len(found)} pages on the story"
 
     # ---------------------------------------------------------------- media (Nemotron)
-    def _media(self) -> None:
+    def _media(self, ocr_as_text: bool = False) -> None:
         urls = self._media_urls[: self.deps.media_max]
         if not urls:
             self.skip("media", "the post has no images")
@@ -1046,6 +1066,12 @@ class Lookup:
             ocr = textsim.phrase(" ".join(texts), 10)
             if len(textsim.tokens(" ".join(texts))) < OCR_MIN_WORDS:
                 ocr = None
+            if ocr and ocr_as_text:
+                # the post is the image: its text is what the copy searches look for
+                self._subject_text = " ".join(texts)
+                self.note("The post has no text of its own; the searches use the text Nemotron "
+                          "read inside its image.")  # fmt: skip
+                ocr = None
             if ocr and textsim.similarity(ocr, self._subject_text, truncated=True) < VERBATIM:
                 # the image's own text, searched like the post text: where does it circulate?
                 q = f'"{ocr}"'
@@ -1072,7 +1098,11 @@ class Lookup:
                             )
             st.found = found
             st.detail = f"{read} image(s) read" + (
-                f" · OCR text found in {len(found)} places" if ocr else ""
+                f" · OCR text found in {len(found)} places"
+                if ocr
+                else " · its text drives the searches"
+                if ocr_as_text and texts
+                else ""
             )
 
     # ---------------------------------------------------------------- monitor

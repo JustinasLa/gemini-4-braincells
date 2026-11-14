@@ -371,3 +371,14 @@ def test_api_validation_and_polling(monkeypatch):
         assert c.get("/api/lookup/lk_nope").status_code == 404
     finally:
         app.dependency_overrides.pop(lookup_route.get_jobs, None)
+
+
+def test_submitted_role_survives_merge_order():
+    job = Lookup("lk_o", LookupInput(text=TEXT), make_deps())
+    from lookup.models import Post
+
+    job.add_post(Post(id="x:1", platform="x", role="author_recent", verified=True))
+    job.add_post(Post(id="x:1", platform="x", role="submitted", verified=True, text="t"))
+    job.add_post(Post(id="x:1", platform="x", role="author_recent", verified=True))
+    (p,) = job.result.posts
+    assert p.role == "submitted" and p.similarity == 1.0 and p.text == "t"
