@@ -14,7 +14,10 @@ npm run ship                        # build and copy to ../public/trackdown/ for
 ```
 
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
-`?lookup=<URL-encoded link>` starts a live lookup. In the Vite development server only,
+`?lookup=<URL-encoded link>` starts a live lookup. An image (a meme, a screenshot) starts an image
+lookup from the home screen's Upload image button, by dropping it on the home screen or by pasting
+it into the input (`POST /api/lookup/image`, lookup/README.md); photos over 2 MB or 2048 px are sent
+as a 2048 px JPEG. In the Vite development server only,
 `?mockLookup` runs a progressive fictional fixture; the header, panel and console label it MOCK.
 The fixture is excluded from production builds and never runs by default.
 

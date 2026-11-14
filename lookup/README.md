@@ -46,7 +46,27 @@ GET  /api/lookup/{id}/events -> text/event-stream: `event: snapshot` + `data: <L
                                 every 10 s; ends after the snapshot whose state isn't "running"
 GET  /api/lookup/{id}        -> LookupResult; the fallback: poll every ~0.6 s until state is
                                 "done" or "failed"
+POST /api/lookup/image       body: the raw image bytes (JPEG, PNG, WebP or GIF, at most 8 MB)
+  -> 202 LookupResult with kind "image"; the same bytes within LOOKUP_CACHE_TTL_S -> cached result
+GET  /api/lookup/{id}/image  -> the uploaded image, while the job lives (404 after that)
 ```
+
+**Image lookups** (the meme / screenshot tracer). The type comes from the file's magic bytes,
+not the declared content type. The bytes stay in the job, in memory, for `LOOKUP_JOB_TTL_S`
+and are never written to disk or the database; the JSON carries only their sha256, type and
+size. The upload is the submitted post (`upload:<sha256[:16]>`, no author, no time). Nemotron
+reads it, and:
+
+- with 5+ words of text in the image, that text drives the same searches as a post's text
+  (web, X, Bluesky; candidates read on their own pages). The earliest copy read on its own page
+  is `origin_id`; copies below 0.8 similarity are reworded variants, counted in a note. A meme
+  also gets " meme" added to the coverage query, which brings up meme pages.
+- with less text (a short caption), or none, there's no exact-phrase search. The coverage step
+  looks for pages about the image by its caption, or by Nemotron's description (never for adult
+  content). Those pages are role "coverage": about the image, never copies or the origin.
+- the upload is never its own origin: with no verified copy, `origin_id` is null.
+
+Search is by text, not pixels: an image with no text and no well-known look finds little.
 
 Trackdown (web/trackdown) opens the stream and falls back to polling when it errors or no
 snapshot arrives within 4 s (a buffering proxy). `deploy/Caddyfile` leaves the stream
@@ -54,7 +74,8 @@ uncompressed and unbuffered. The trace is finished on screen when the `assess` s
 the second reading is added to the panel when it arrives.
 
 Errors: 400 bad input, 429 rate limit (`LOOKUP_MAX_PER_HOUR` overall, `LOOKUP_MAX_PER_IP_PER_HOUR`
-per client), 503 when Oxylabs isn't configured, 404 unknown/expired id.
+per client), 503 when Oxylabs (or, for images, Nemotron) isn't configured, 404 unknown/expired
+id, 413 image over 8 MB, 415 not a JPEG/PNG/WebP/GIF.
 Jobs live in the API process (single uvicorn worker) for `LOOKUP_JOB_TTL_S`.
 
 ## LookupResult (JSON)
@@ -67,8 +88,8 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "id": "lk_3f9a...",
   "state": "running",                 // running | done | failed
   "error": null,
-  "input": {"url": "https://x.com/user/status/123", "text": null},
-  "kind": "x_post",                   // x_post | x_profile | bsky_post | bsky_profile | web | text
+  "input": {"url": "https://x.com/user/status/123", "text": null},  // image: {"image": {"sha256", "mime", "bytes"}}
+  "kind": "x_post",                   // x_post | x_profile | bsky_post | bsky_profile | web | text | image
   "started_at": "...", "finished_at": null,
   "status": "insufficient",           // matched | insufficient  (see the status rule)
   "subject_id": "x:123",              // the submitted post's id in `posts`, or null

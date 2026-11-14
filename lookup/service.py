@@ -62,6 +62,16 @@ COPY_MIN = 0.5
 ASSESS_RESERVE_S = 10.0  # the last seconds of the budget are the primary (Nemotron) reading's
 X_MIN_SIM = 0.35  # an X search hit sharing fewer words with the text is not about it
 OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message worth searching
+UPLOAD = "upload:"  # media_urls entry of an uploaded image: its bytes are in the job, not a CDN
+# an uploaded image's own step labels: there is no post, the image is the input
+IMAGE_LABELS = {
+    "media": "Read the uploaded image with Nemotron VL",
+    "copies_web": "Search the web for the text in the image",
+    "copies_x": "Search X for the text in the image",
+    "copies_bsky": "Find the text in the image on Bluesky",
+    "coverage": "Find pages about the image (meme pages, coverage)",
+    "verify": "Read candidate copies on their own pages",
+}
 # Per-call caps (s) on Oxylabs, from the 2026-11-14 measurement (lookup/README.md): /scrape p50
 # 3.6 s, p90 7.2 s, one hang of 34 s; AI fact extraction up to 11.6 s; /search p90 2.6 s. A call
 # that hangs ends here instead of holding the reading until the whole budget is gone.
@@ -164,17 +174,22 @@ class Deps:
 
 
 class Lookup:
-    def __init__(self, job_id: str, inp: LookupInput, deps: Deps):
+    def __init__(self, job_id: str, inp: LookupInput, deps: Deps, image: bytes | None = None):
+        """`image`: the uploaded image's bytes when `inp.image` describes an upload."""
         self.deps = deps
         self.lock = threading.RLock()
-        self.target: Target | None = classify(inp.url) if inp.url else None
-        kind = self.target.kind if self.target else "text"
+        if inp.image is not None and image is None:
+            raise ValueError("an image lookup needs the image bytes")
+        self._upload: bytes | None = image if inp.image is not None else None
+        self.target: Target | None = classify(inp.url) if inp.url and not self._upload else None
+        kind = "image" if self._upload else self.target.kind if self.target else "text"
+        labels = IMAGE_LABELS if kind == "image" else {}
         self.result = LookupResult(
             id=job_id,
             input=inp,
             kind=kind,
             started_at=_now(),
-            steps=[Step(id=s, tool=t, label=lbl) for s, t, lbl in STEPS],
+            steps=[Step(id=s, tool=t, label=labels.get(s, lbl)) for s, t, lbl in STEPS],
         )
         self.deadline = time.monotonic() + deps.time_budget_s
         self._subject_text: str | None = (inp.text or "").strip() or None
@@ -187,6 +202,9 @@ class Lookup:
         self._card_url: str | None = None
         self._card_title: str | None = None
         self._media_urls: list[str] = []
+        # an uploaded image with too little text for an exact search: what to look for instead
+        self._image_query: str | None = None
+        self._upload_meme = False  # Nemotron typed the uploaded image a meme
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
         self._pool: ThreadPoolExecutor | None = None
@@ -205,6 +223,15 @@ class Lookup:
             if self._final is not None:
                 return self._final
             return self.result.model_dump(mode="json", by_alias=True)
+
+    @property
+    def upload(self) -> tuple[bytes, str] | None:
+        """The uploaded image (bytes, MIME type), served back by GET /api/lookup/{id}/image."""
+        img = self.result.input.image
+        return (self._upload, img.mime) if self._upload is not None and img else None
+
+    def upload_url(self) -> str:
+        return f"/api/lookup/{self.result.id}/image"
 
     def _step(self, sid: str) -> Step:
         return next(s for s in self.result.steps if s.id == sid)
@@ -421,9 +448,12 @@ class Lookup:
                 "bsky_profile": "Bluesky profile",
                 "web": "Web page",
                 "text": "Text",
+                "image": "Uploaded image",
             }[kind]
             if t:
                 st.detail += f" · {t.url}"
+            if (img := self.result.input.image) is not None:
+                st.detail += f" · {img.mime.removeprefix('image/').upper()} · {_kb(img.bytes)}"
         pool = ThreadPoolExecutor(max_workers=self.deps.workers, thread_name_prefix="lookup")
         self._pool = pool
         try:
@@ -467,6 +497,10 @@ class Lookup:
             side.append(pool.submit(self._linked, t.url, True))
             subject.append(pool.submit(self._page_text, t.url))
             subject.append(side[-1])
+        elif kind == "image":
+            for sid in ("post", "author", "linked"):
+                self.skip(sid, "an uploaded image, not a post")
+            self._add_upload_post()
         else:
             self.skip("post", "text input")
             self.skip("author", "text input")
@@ -481,7 +515,7 @@ class Lookup:
             self._monitor()
             return
         if not textsim.phrase(self._subject_text) and self._media_urls:
-            # image-only post: read the image first, then search for its text
+            # image-only post (or an uploaded image): read the image first, then search its text
             self._media(ocr_as_text=True)
         x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
         rest = [pool.submit(self._copies_bsky), pool.submit(self._coverage)]
@@ -983,12 +1017,20 @@ class Lookup:
         return textsim.phrase(self._subject_text) or textsim.phrase(self._card_title)
 
     def _classify_hit(
-        self, hit, rid: int, at: datetime, *, reference: str, min_sim: float = 0.0
+        self,
+        hit,
+        rid: int,
+        at: datetime,
+        *,
+        reference: str,
+        min_sim: float = 0.0,
+        page_role: str | None = None,
     ) -> str | None:
         """Turn one search hit into a post or page; returns the new node id.
 
         X hits that share few words with the reference are dropped (search engines match loose
-        keywords); pages below `min_sim` too."""
+        keywords); pages below `min_sim` too. `page_role` fixes a page's role (else: by how much
+        of the reference its snippet carries)."""
         snippet = textsim.strip_snippet(hit.snippets[0]) if hit.snippets else ""
         if m := X_STATUS_RE.match(hit.url):
             handle, sid = m.group(1), m.group(2)
@@ -1030,7 +1072,7 @@ class Lookup:
             Page(
                 id="",
                 url=hit.url,
-                role="reference" if sim >= COPY_MIN else "coverage",
+                role=page_role or ("reference" if sim >= COPY_MIN else "coverage"),
                 headline=hit.title or None,
                 snippet=snippet[:300] or None,
                 published_hint=hit.published_hint.isoformat() if hit.published_hint else None,
@@ -1369,29 +1411,97 @@ class Lookup:
 
     def _coverage(self) -> None:
         q = self._card_title or textsim.phrase(self._subject_text, 14)
+        # an upload with too little text: pages about the image, found by its caption or
+        # description. They describe the image; none of them is a copy or an origin.
+        about = not q and bool(self._image_query)
+        q = q or self._image_query
         if not q:
             self.skip("coverage", "nothing to search for")
             return
+        image = self.result.kind == "image"
+        if image and not about and self._upload_meme:
+            q += " meme"  # meme pages (template, first use, variants) over unrelated matches
         with self.step("coverage") as st:
             q = q.replace('"', "")
             hits, call = self._search(q, 10)
             at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
+            what = "Search for pages about the uploaded image" if image else "Coverage search"
             rid = self.receipt(
-                "oxylabs", "/search", f"Coverage search: {len(hits)} results", query=q, call=call
+                "oxylabs",
+                "/search",
+                f"{what}: {len(hits)} results" + (" (by its text or description)" if about else ""),
+                query=q,
+                call=call,
             )
             ref = self._subject_text or q
             found = []
             for h in hits:
                 if X_STATUS_RE.match(h.url) or "x.com/" in h.url or "twitter.com/" in h.url:
                     continue
-                if (nid := self._classify_hit(h, rid, at, reference=ref)) and nid.startswith(
-                    "page:"
-                ):
+                nid = self._classify_hit(
+                    h, rid, at, reference=ref, page_role="coverage" if about else None
+                )
+                if nid and nid.startswith("page:"):
                     found.append(nid)
             st.found = found
-            st.detail = f"{len(found)} pages on the story"
+            st.detail = f"{len(found)} pages " + ("about the image" if image else "on the story")
 
     # ---------------------------------------------------------------- media (Nemotron)
+    def _is_upload(self, url: str) -> bool:
+        return self._upload is not None and url == self.upload_url()
+
+    def _add_upload_post(self) -> None:
+        """The uploaded image is the submitted post: no author and no time of its own (the
+        upload time says nothing about when the image was made). Its text is what Nemotron
+        reads in it; it is never a carrier of its own text, so never the origin."""
+        img = self.result.input.image
+        assert img is not None
+        url = self.upload_url()
+        p = self.add_post(
+            Post(
+                id=f"{UPLOAD}{img.sha256[:16]}",
+                platform="web",
+                author_name="Your upload",
+                role="submitted",
+                media_urls=[url],
+                verified=True,  # the image itself was read, not a search snippet about it
+            )
+        )
+        with self.lock:
+            self.result.subject_id = p.id
+        self._media_urls = [url]
+
+    def _use_upload_reading(self, texts: list[str], a: Any) -> None:
+        """What the searches look for, from Nemotron's reading `a` of an uploaded image (None
+        when it wasn't read): its text when there are 5+ words of it. With less, the coverage
+        step looks for pages about the image by its short text (a meme caption), else by its
+        description; those pages are about the image, never copies of it."""
+        with self.lock:
+            subj = next((p for p in self.result.posts if p.id == self.result.subject_id), None)
+            if subj is not None and a is not None:
+                subj.text = "\n".join(a.extracted_text)[:2000]  # reading order, for the card
+        joined = " ".join(texts)
+        self._upload_meme = a is not None and a.media_type == "meme"
+        if textsim.phrase(joined):
+            self._subject_text = joined
+            self.note("The searches look for the text Nemotron read inside the uploaded image.")
+            return
+        if a is None:
+            return
+        meme = self._upload_meme
+        words = joined.replace('"', "").split()
+        if len(words) >= 2:
+            short = " ".join(words[:8])
+            self._image_query = f"{short} meme" if meme else short
+        elif "adult" not in a.content_flags and a.description:
+            self._image_query = ("meme " if meme else "") + " ".join(a.description.split()[:30])
+        self.note(
+            "The uploaded image has too little text for an exact search; the pages found are "
+            "about the image (searched by its "
+            + ("text" if len(words) >= 2 else "description")
+            + "), not an image match and not copies."
+        )
+
     def _media(self, ocr_as_text: bool = False) -> None:
         urls = self._media_urls[: self.deps.media_max]
         if not urls:
@@ -1402,8 +1512,12 @@ class Lookup:
             return
         with self.step("media") as st:
             http = self.deps.http or httpx.Client(timeout=20, follow_redirects=False)
-            # only the platforms' own image CDNs are downloaded
-            urls = [u for u in urls if domain(u) in MEDIA_HOSTS and u.startswith("https://")]
+            # only the platforms' own image CDNs are downloaded (an upload is already here)
+            urls = [
+                u
+                for u in urls
+                if self._is_upload(u) or (domain(u) in MEDIA_HOSTS and u.startswith("https://"))
+            ]
             # A wall-clock bound on the whole image work: client timeouts bound each network
             # wait, not a call's total time. Reads still running at the deadline are left
             # behind (no blocking shutdown) and can no longer publish (`closed`).
@@ -1434,7 +1548,14 @@ class Lookup:
             ocr = textsim.phrase(" ".join(texts), 10)
             if len(textsim.tokens(" ".join(texts))) < OCR_MIN_WORDS:
                 ocr = None
-            if ocr and ocr_as_text:
+            if ocr_as_text and self.result.kind == "image":
+                # the upload is the input: even a short meme caption is worth searching for
+                first = next(
+                    (r for r in reads if r is not None and not isinstance(r, Exception)), None
+                )
+                self._use_upload_reading(texts, first)
+                ocr = None
+            elif ocr and ocr_as_text:
                 # the post is the image: its text is what the copy searches look for
                 self._subject_text = " ".join(texts)
                 self.note(
@@ -1470,8 +1591,10 @@ class Lookup:
             st.detail = f"{read} image(s) read" + (
                 f" · OCR text found in {len(found)} places"
                 if ocr
+                else " · too little text to search for; looking for pages about it"
+                if self._image_query
                 else " · its text drives the searches"
-                if ocr_as_text and texts
+                if ocr_as_text and texts and self._phrase()
                 else ""
             )
 
@@ -1485,9 +1608,15 @@ class Lookup:
             cache, by_url = self.deps.media_cache, self.deps.media_urls
             context = (self._subject_text or "")[:500]  # what analyze() shows the model
             ctx = hashlib.sha256(context.encode()).hexdigest()[:16]
-            h = by_url.get(url) if by_url is not None else None
+            data: bytes | None = None
+            mime = ""
+            if self._is_upload(url):  # the bytes came with the request: nothing to download
+                data, mime = self.upload or (None, "")
+                h = self.result.input.image.sha256 if self.result.input.image else None
+            else:
+                h = by_url.get(url) if by_url is not None else None
             hit = cache.get(f"lookup:{h}:{ctx}") if h and cache is not None else None
-            if hit is None:
+            if hit is None and data is None:
                 self._spend(IMAGE_NEED_S)
                 data, mime = _download_image(
                     http, url, deadline=self._provider_deadline(IMAGE_DOWNLOAD_S)
@@ -1637,7 +1766,9 @@ class Lookup:
                 ),
                 key=lambda p: p.created_at,
             )
-            origin_id = carriers[0].id if carriers else self.result.subject_id
+            # an uploaded image is never its own origin: it has no time, only copies do
+            image = self.result.kind == "image"
+            origin_id = carriers[0].id if carriers else None if image else self.result.subject_id
             origin_t = carriers[0].created_at if carriers else self._subject_time
 
             # a page that carries the text is the origin only if even the latest time its date
@@ -1681,10 +1812,33 @@ class Lookup:
                     tool="bluesky" if p.platform == "bluesky" else "oxylabs",
                     note="same text, later",
                 )
+            if subj and image and carriers:
+                self.add_edge(
+                    carriers[0].id,
+                    subj.id,
+                    "media",
+                    sim=carriers[0].similarity,
+                    tool="nemotron",
+                    note="the uploaded image shows the same text",
+                )
             if subj:
                 for pg in self.result.pages:
                     if pg.role in ("coverage", "reference") and pg.id != origin_id:
-                        self.add_edge(subj.id, pg.id, "cites", note="same story")
+                        self.add_edge(
+                            subj.id,
+                            pg.id,
+                            "cites",
+                            note="about the image" if image else "same story",
+                        )
+            if image:
+                n_var = sum(1 for p in carriers if (p.similarity or 0) < VERBATIM)
+                if carriers:
+                    self.note(
+                        f"{len(carriers)} post(s) read on their own page carry the image's text: "
+                        f"{len(carriers) - n_var} verbatim, {n_var} with changed wording "
+                        "(possible variations). The earliest is the earliest known copy, not "
+                        "proof of who made the image."
+                    )
             self.result.spread = _spread(carriers)
             if any(p.platform == "x" for p in posts):
                 self.note(
@@ -1821,6 +1975,10 @@ def _spread(posts: list[Post]) -> Spread | None:
         first_hour_accounts=len(hour),
         min_gap_s=min(gaps) if gaps else None,
     )
+
+
+def _kb(n: int) -> str:
+    return f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB"
 
 
 def _fmt(n: int | None) -> str:

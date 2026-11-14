@@ -88,8 +88,8 @@ export interface LookupResult {
   id: string;
   state: "running" | "done" | "failed";
   error: string | null;
-  input: { url: string | null; text: string | null };
-  kind: "x_post" | "x_profile" | "bsky_post" | "bsky_profile" | "web" | "text";
+  input: { url: string | null; text: string | null; image?: { sha256: string; mime: string; bytes: number } | null };
+  kind: "x_post" | "x_profile" | "bsky_post" | "bsky_profile" | "web" | "text" | "image";
   started_at: string;
   finished_at: string | null;
   status: "matched" | "insufficient";
@@ -170,7 +170,37 @@ function streamLookup(id: string, emit: (raw: string, result: LookupResult) => v
   });
 }
 
-export async function startLookup(input: string, onUpdate: (result: LookupResult) => void = () => {}, signal?: AbortSignal): Promise<LookupResult> {
+/** what a lookup starts from: a link, post text or an @handle, or an image file (a meme, a screenshot) */
+export type LookupRequest = string | Blob;
+export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+/** the server's cap; larger images are scaled down before upload */
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_SIDE = 2048;
+/** the uploaded image of an image lookup, served back while its job lives */
+export const uploadUrl = (id: string) => `/api/lookup/${encodeURIComponent(id)}/image`;
+
+/** A large photo becomes a JPEG of at most MAX_SIDE px: Nemotron reads it as well, and the upload
+ * is faster. GIFs keep their bytes when they fit (the server reads the first frame). */
+export async function prepareImage(file: Blob): Promise<Blob> {
+  if (!IMAGE_TYPES.includes(file.type)) throw new LookupError("Upload a JPEG, PNG, WebP or GIF image.");
+  if (file.size <= 2 * 1024 * 1024 && file.type !== "image/png") return file;
+  let bitmap: ImageBitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch { if (file.size <= MAX_UPLOAD_BYTES) return file; throw new LookupError("That image could not be read."); }
+  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= 2 * 1024 * 1024) { bitmap.close(); return file; }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const out = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (out && out.size < file.size) return out;
+  if (file.size <= MAX_UPLOAD_BYTES) return file;
+  throw new LookupError("That image is larger than 8 MB.");
+}
+
+export async function startLookup(input: LookupRequest, onUpdate: (result: LookupResult) => void = () => {}, signal?: AbortSignal): Promise<LookupResult> {
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener("abort", cancel, { once: true });
@@ -184,19 +214,23 @@ export async function startLookup(input: string, onUpdate: (result: LookupResult
     last = raw;
     onUpdate(result);
   };
-  const request = async (path: string, body?: { url: string } | { text: string }): Promise<{ raw: string; result: LookupResult }> => {
+  const request = async (path: string, body?: { url: string } | { text: string } | Blob): Promise<{ raw: string; result: LookupResult }> => {
     let response: Response;
+    const image = body instanceof Blob;
     try {
       response = await fetch(path, {
         method: body ? "POST" : "GET",
-        headers: { "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : undefined,
+        headers: { "Content-Type": image ? body.type || "application/octet-stream" : "application/json" },
+        body: image ? body : body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
     } catch {
       if (controller.signal.aborted) throw abortError();
       throw new LookupError("The live lookup service could not be reached.", true);
     }
+    if (response.status === 413) throw new LookupError("That image is too large (8 MB at most).");
+    if (response.status === 415) throw new LookupError("That file is not an image we can read. Upload a JPEG, PNG, WebP or GIF.");
+    if (response.status === 503 && image) throw new LookupError("Image lookups are not configured or are temporarily unavailable.", true);
     if (response.status === 400) throw new LookupError("That input could not be read. Enter an http(s) link, an @handle or at least 5 words of post text.");
     if (response.status === 429) throw new LookupError("Lookup rate limit reached. Please try again later.");
     if (response.status === 503) throw new LookupError("Live lookup is not configured or is temporarily unavailable.", true);
@@ -212,9 +246,14 @@ export async function startLookup(input: string, onUpdate: (result: LookupResult
     return { raw, result: parseResult(raw) };
   };
   try {
-    const text = input.trim();
-    if (!text) throw new LookupError("Enter a link, an @handle or some post text first.");
-    const first = await request("/api/lookup", /^https?:\/\//i.test(text) ? { url: text } : { text });
+    let first: { raw: string; result: LookupResult };
+    if (typeof input === "string") {
+      const text = input.trim();
+      if (!text) throw new LookupError("Enter a link, an @handle or some post text first.");
+      first = await request("/api/lookup", /^https?:\/\//i.test(text) ? { url: text } : { text });
+    } else {
+      first = await request("/api/lookup/image", await prepareImage(input));
+    }
     emit(first.raw, first.result);
     let result = first.result;
     if (result.state !== "running") return result;
@@ -280,7 +319,16 @@ export function lookupCase(result: LookupResult): TraceCase {
     if (post.card) realData.push({ label: "Linked card", url: httpUrl(post.card.url), receiptId: post.receipt_id, facts: facts({ Headline: post.card.title, Domain: post.card.domain }) });
     if (account) realData.push({ label: "Author facts", url: httpUrl(account.url), receiptId: account.receipt_id, facts: facts({ Joined: account.joined, Followers: account.followers, Following: account.following, Posts: account.posts_count, "Recent posts/day (profile sample)": account.recent_posts_per_day, Bio: account.bio, Location: account.location }) });
     for (const finding of media) realData.push({ label: "Nemotron media reading (model inference)", url: httpUrl(finding.media_url), receiptId: finding.receipt_id, facts: facts({ Description: finding.description, "OCR text": finding.extracted_text.join("\n"), "Reuse cues": finding.reuse_cues.join("\n"), "Manipulation cues": finding.manipulation_cues.join("\n"), Model: finding.model, "Latency (ms)": finding.latency_ms }) });
-    const mediaSource = httpUrl(post.media_urls[0]);
+    const upload = result.kind === "image" && post.role === "submitted";
+    const mediaSource = upload ? uploadUrl(result.id) : httpUrl(post.media_urls[0]);
+    if (upload) return {
+      id: post.id, t: fallbackTime, timeUnknown: true, platform: "web", role: "submitted",
+      author: { name: "Your upload", handle: "uploaded image", hue: hashStr(post.id) % 360 },
+      text: post.text, url: undefined,
+      media: { kind: "photo", src: mediaSource, title: media[0]?.description || "Your uploaded image", note: media[0]?.description ?? undefined },
+      flags: ["uploaded image · no time of its own", ...(media[0] && !post.text ? ["no text read in the image"] : [])],
+      realData: realData.slice(1),
+    };
     return {
       id: post.id, t: time ?? fallbackTime, timeUnknown: time == null, platform: post.platform, role: roles[post.role],
       author: { name: post.author_name || account?.name || handle, handle, hue: hashStr(`${post.platform}:${handle}`) % 360, followers: account?.followers ?? undefined, ageDays: account?.age_days ?? undefined },
@@ -334,8 +382,8 @@ export function lookupCase(result: LookupResult): TraceCase {
   const subject = result.subject_id ? resolve(result.subject_id) : "";
   const submittedId = nodeIds.has(subject) ? subject : nodes.find((node) => node.url === result.input.url || node.id === result.input.url)?.id ?? "";
   return {
-    id: result.id, title: (result.posts.find((post) => post.id === result.subject_id)?.text || result.input.url || result.input.text || "Live lookup").slice(0, 90),
-    kicker: "Live link lookup", status: matched?.status ?? "insufficient", confidence: matched?.confidence ?? 0, scored: matched?.confidence != null,
+    id: result.id, title: (result.posts.find((post) => post.id === result.subject_id)?.text?.replace(/\s+/g, " ") || result.input.url || result.input.text || (result.kind === "image" ? "Uploaded image" : "Live lookup")).slice(0, 90),
+    kicker: result.kind === "image" ? "Live image lookup" : "Live link lookup", status: matched?.status ?? "insufficient", confidence: matched?.confidence ?? 0, scored: matched?.confidence != null,
     synthetic: false, live: true, submittedId, originId: result.origin_id && nodeIds.has(resolve(result.origin_id)) ? resolve(result.origin_id) : "",
     nodes, edges, clusters,
     receipts: [
@@ -346,7 +394,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     steps: result.steps.map((step) => ({ id: step.id, tool: toolFor(step.tool), text: step.label, state: step.state, detail: step.detail, found: step.found.map(resolve).filter((id) => nodeIds.has(id)) })),
     // two readings that differ are both shown in the panel; neither is put up front as the summary
     summary: readingsDisagree(result) ? `Two model readings of these receipts differ; both are shown below. ${result.posts.length} posts and ${result.pages.length} pages collected.`
-      : result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Can't tell: this link's footprint does not establish coordination."}`,
+      : result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : `Can't tell: this ${result.kind === "image" ? "image's" : "link's"} footprint does not establish coordination.`}`,
     lookup: result,
   };
 }

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-Kind = Literal["x_post", "x_profile", "bsky_post", "bsky_profile", "web", "text"]
+Kind = Literal["x_post", "x_profile", "bsky_post", "bsky_profile", "web", "text", "image"]
 StepState = Literal["pending", "running", "done", "failed", "skipped"]
 
 
@@ -158,9 +158,19 @@ class Step(BaseModel):
     ended_at: datetime | None = None
 
 
+class ImageRef(BaseModel):
+    """An uploaded image (POST /api/lookup/image). Its bytes stay in the job, in memory, and are
+    served back at GET /api/lookup/{id}/image until the job expires; they are never stored."""
+
+    sha256: str
+    mime: str
+    bytes: int
+
+
 class LookupInput(BaseModel):
     url: str | None = None
     text: str | None = None
+    image: ImageRef | None = None
 
 
 class LookupResult(BaseModel):
