@@ -42,3 +42,6 @@ class Verdict(VerdictDraft):
     tool_calls: list[dict] = Field(default_factory=list)
     model_calls: list[dict] = Field(default_factory=list)
     cost_usd: float | None = None  # model cost estimate from analyst/pricing.py
+    # Decision gate (analyst/decide.py) for candidate clusters: P(web check matters), threshold,
+    # latency and the route taken ("single" = tools skipped, low-thinking verdict; "agent").
+    gate: dict | None = None

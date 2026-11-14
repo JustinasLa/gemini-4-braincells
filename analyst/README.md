@@ -22,7 +22,8 @@ clusters + evidence ─▶ prompt ─▶ Gemini ──(function call)──▶ t
 | `agent.py` | The function-calling loop. Every turn offers the tools and the `VerdictDraft` JSON schema; Gemini either calls tools or returns the verdict. On budget or turn limit, one last turn with calling switched off forces the verdict. |
 | `tools.py` | `search_web`, `scrape_url` (live Oxylabs), `get_cluster_posts`, `get_account` (read-only DB). `Budget`, `WebCache`, evidence sinks. |
 | `guard.py` | Checks every draft: unknown evidence ids dropped, fewer than 2 valid citations → the model's assessment becomes `insufficient`, status is always the detector's. |
-| `runner.py` | Routing: `coordinated`/`insufficient` clusters → verdict model with tools; `likely_organic` → cheap batch model, single shot, no web calls. |
+| `runner.py` | Routing: `coordinated`/`insufficient` clusters → decision gate, then the verdict model with tools (or one low-thinking call when the gate says the web cannot matter); `likely_organic` → cheap batch model, single shot, no web calls. |
+| `decide.py` | Decision gate: one Gemini Decisions API call (`gemini-decision-1`) estimates whether a web check could change the call. |
 | `gemini.py`, `prompt.py`, `service.py`, `store.py` | Single-shot model, prompt, verdict pipeline, DB reads/writes. |
 | `pricing.py` | Gemini list prices for cost estimates (source and date inside). |
 | `compare.py` | Model comparison on real clusters (below). Writes nothing to the DB. |
@@ -55,7 +56,50 @@ Rules the code enforces:
   every tool call (tool, args, endpoint, URL, evidence id, cached, latency) is logged and kept in
   the verdict as `model_calls` / `tool_calls`, plus `cost_usd`.
 
-## Verdict: the detector decides, Gemini explains
+## Decision gate: skip the tool loop where the web cannot matter
+
+Most of a verdict's time is the verdict turn, not the tools: in production a tool-calling turn
+averaged 5.1 s and the verdict-writing turn 18.1 s (about 1,100 thinking tokens). So before a
+candidate cluster's agent run, `decide.py` asks the **Gemini Decisions API** one calibrated
+yes/no question over the same system prompt and evidence: *could a live web check change the
+assessment?* (~0.27 s p50, no output tokens). When `P(web) < ANALYST_GATE_MAX_P_WEB` (0.1), the
+verdict model (`GEMINI_MODEL`) answers once, without tools, at `ANALYST_FAST_THINKING=LOW`.
+Otherwise the full agent runs at default thinking, unchanged.
+
+- The gate never sets a status. The verdict model still makes its own call and guard still
+  checks every citation. The verdict keeps the trace in `gate` (`p_web`, `threshold`,
+  `latency_ms`, `route`: `single` or `agent`).
+- It fails open: any gate error (timeout, 404, Google's input filter) runs the full agent and
+  stores `gate.error`.
+- The Decisions API runs only on `models/gemini-decision-1` (Hydrogen and the other generate
+  models return 404), and only on `v1beta`: google-genai 3.3 defaults to `/v1/decisions`, which
+  returns a bare 404, so `decide.py` passes `api_version="v1beta"`.
+- Off: `GEMINI_DECISION_MODEL=` (empty).
+
+Measured with `python -m analyst.compare --modes agent` and `--modes gated` (two processes, so
+no shared web cache) on the 15 tool-routed clusters from both runs below. Raw runs:
+`compare_results_gate.json`.
+
+| mode | model | JSON valid | citations valid | usable | agrees w/ detector | latency p50 / max (s) | cost / cluster | tool calls (mean) | tool evidence cited |
+|---|---|---|---|---|---|---|---|---|---|
+| agent | gemini-4-hydrogen | 15/15 | 100% | 15/15 | 6/15 | 29.2 / 49.5 | $0.0540 | 2.5 | 8 |
+| gated | gemini-4-hydrogen | 15/15 | 100% | 15/15 | 11/15 | 26.0 / 64.0 | $0.0436 | 1.9 | 10 |
+
+- **Gated clusters get 2.9x faster.** The gate sent 6 of 15 to the single call (149, 394, 405,
+  846, 37, 182; `p_web` 0.03-0.08): 125.6 s in total in agent mode, 43.5 s gated (about 21 s →
+  7 s each). The other 9 ran the same agent (337.0 s vs 326.5 s, within run-to-run noise). This
+  sample picks link-sharing clusters first, so the p50 moves little.
+- **None of the gated clusters needed the web.** In the earlier comparison runs Hydrogen cited
+  web evidence on 7 of these clusters. All 7 had `p_web` ≥ 0.148, and the gate sent them all to
+  the agent.
+- **Production mix**: the gate alone, run on the 120 most recent candidate clusters with a
+  verdict, would skip the tools on 33% (28/42 `coordinated`, 11/76 `insufficient`). Two
+  prompts were blocked by Google's input filter, and both went to the agent.
+- **Low thinking is less decisive.** On the gated clusters Hydrogen at LOW said `insufficient`
+  more often (846, 37, 182 went from `coordinated` to `insufficient`, which agrees with the
+  detector on all three). In a separate single-shot test, LOW changed the assessment on 3 of
+  15 clusters compared with default thinking.
+
 
 `status` is always the detector's status. Gemini's own call is `llm_assessment`, with
 `agrees_with_detector` and `disagreement_reason`. A disagreement (for example Gemini finds the
