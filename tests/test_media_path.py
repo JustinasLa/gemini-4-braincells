@@ -155,6 +155,7 @@ def test_stored_media_reaches_api_and_dashboard(media_cases):
         app.dependency_overrides.clear()
 
     dashboard = (ROOT / "web/public/index.html").read_text()
-    assert "detail.media_url" in dashboard
-    assert "Open media &rarr;" in dashboard
-    assert "detail.n_accounts" in dashboard and "detail.n_posts" in dashboard
+    # The media card (redesigned in #39) reads these fields of each media evidence row.
+    assert "e.kind === 'media'" in dashboard
+    assert "d.media_url" in dashboard and "Show image" in dashboard
+    assert "d.n_accounts" in dashboard and "d.n_posts" in dashboard
