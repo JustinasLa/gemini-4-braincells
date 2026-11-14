@@ -133,3 +133,38 @@ def test_no_search_results_is_still_evidence():
     assert len(items) == 1
     assert "no web search results" in items[0].summary
     assert items[0].source_url is None
+
+
+def test_cluster_summaries_keep_cluster_wording():
+    items = SourceChecker(FakeClient()).check(posts())
+    assert [i.summary for i in items] == [
+        'Linked page shared by 4 of 4 accounts: "Water supply poisoned" (Example News).',
+        "The linked headline matches 3 web results on 2 domains; "
+        "earliest dated: b.example (2026-11-10).",
+        "The cluster's message text matches 3 web results on 2 domains; "
+        "earliest dated: b.example (2026-11-10).",
+    ]
+
+
+def test_adhoc_summaries_describe_the_input_without_account_counts():
+    post = ClusterPost(did="adhoc", text=TEXT, embed_urls=["https://www.news.example/story"])
+    items = SourceChecker(FakeClient()).check([post], adhoc=True)
+    assert [i.summary for i in items] == [
+        'The linked page: "Water supply poisoned" (Example News).',
+        "The linked headline matches 3 web results on 2 domains; "
+        "earliest dated: b.example (2026-11-10).",
+        "Your text matches 3 web results on 2 domains; earliest dated: b.example (2026-11-10).",
+    ]
+    for i in items:
+        assert "account" not in i.summary.lower() and "cluster" not in i.summary.lower()
+    assert items[0].detail["shared_by_accounts"] is None
+    assert items[0].detail["cluster_accounts"] is None
+
+
+def test_adhoc_no_results_wording():
+    class Empty(FakeClient):
+        def search(self, query, max_results=10):
+            return []
+
+    items = SourceChecker(Empty()).check([ClusterPost(did="adhoc", text=TEXT)], adhoc=True)
+    assert items[0].summary.startswith('Your text returned no web search results for "')

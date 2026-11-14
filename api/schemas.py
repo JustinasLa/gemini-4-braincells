@@ -1,11 +1,18 @@
 """Response and request models: the JSON contract the dashboard reads (see README.md)."""
 
+import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Status = Literal["coordinated", "likely_organic", "insufficient"]
+
+# Input PostgreSQL can't store (NUL; lone UTF-16 surrogates can't even be encoded) and C0
+# controls that carry no meaning in a handle, link or post text are removed. Controls that
+# str.split() treats as whitespace become a space, so they don't join two words (#14).
+_SPACE_LIKE = re.compile(r"[\x0b\x0c\x1c-\x1f]")
+_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1b\x7f\ud800-\udfff]")
 
 
 class SignalBrief(BaseModel):
@@ -104,6 +111,13 @@ class AnalyzeRequest(BaseModel):
     url: str | None = Field(default=None, max_length=2000)
     handle: str | None = Field(default=None, max_length=300)
 
+    @field_validator("text", "url", "handle", mode="before")
+    @classmethod
+    def _strip_control(cls, v: object) -> object:
+        # Before validation: pydantic rejects lone surrogates itself, and its 422 body echoing
+        # them can't be encoded either (a 500). Other types are left for pydantic to reject.
+        return _CONTROL.sub("", _SPACE_LIKE.sub(" ", v)) if isinstance(v, str) else v
+
     @model_validator(mode="after")
     def _one_input(self) -> "AnalyzeRequest":
         if not any(v and v.strip() for v in (self.text, self.url, self.handle)):
@@ -123,5 +137,8 @@ class AnalyzeResponse(BaseModel):
     # "insufficient": not in our window; web findings below are weaker and are not a verdict.
     status: Literal["matched", "insufficient"]
     clusters: list[ClusterSummary] = Field(default_factory=list)
+    # Clusters the author of a submitted Bluesky post belongs to, when that post itself is in
+    # none of them. Context about the account only: not a verdict on the post, never "matched".
+    author_clusters: list[ClusterSummary] = Field(default_factory=list)
     web_findings: list[WebFinding] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

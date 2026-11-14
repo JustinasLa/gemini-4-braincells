@@ -183,6 +183,18 @@ class Store:
             limit,
         )
 
+    def clusters_for_post(self, author: str, rkey: str, limit: int = 10) -> list[ClusterSummary]:
+        """Clusters holding post `rkey` by `author`: a DID, or a handle resolved via accounts."""
+        return self._summaries_where(
+            """SELECT cp.cluster_id FROM cluster_posts cp
+               WHERE cp.post_uri = 'at://' || %(author)s || '/app.bsky.feed.post/' || %(rkey)s
+                  OR cp.post_uri IN (
+                      SELECT 'at://' || a.did || '/app.bsky.feed.post/' || %(rkey)s
+                      FROM accounts a WHERE lower(a.handle) = lower(%(author)s))""",
+            {"author": author, "rkey": rkey},
+            limit,
+        )
+
     def clusters_for_text(self, phrase: str, limit: int = 10) -> list[ClusterSummary]:
         return self._summaries_where(
             """SELECT cp.cluster_id FROM cluster_posts cp

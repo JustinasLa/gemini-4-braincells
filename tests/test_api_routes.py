@@ -46,9 +46,22 @@ class FakeStore:
         self.calls.append(("text", phrase))
         return []
 
+    def clusters_for_post(self, author, rkey):
+        self.calls.append(("post", (author, rkey)))
+        in_cluster = {("did:plc:abc", RKEY), ("alice.bsky.social", RKEY)}
+        return [summary(682)] if (author, rkey) in in_cluster else []
+
+
+RKEY = "3n27wevn47t2i"
+
 
 class FakeChecker:
-    def check(self, posts, stored=None):
+    def __init__(self, calls=None):
+        self.calls = calls if calls is not None else []
+
+    def check(self, posts, stored=None, adhoc=False):
+        assert adhoc, "/api/analyze must ask for input-level wording"
+        self.calls.append(("check", [p.embed_urls for p in posts]))
         return [
             SourceEvidence(
                 summary="found", detail={"key": "k"}, source_url="https://x.example", model="m"
@@ -60,7 +73,8 @@ class FakeChecker:
 def client():
     store = FakeStore()
     app.dependency_overrides[get_store] = lambda: store
-    app.dependency_overrides[get_checker] = lambda: FakeChecker()
+    checker = FakeChecker(store.calls)
+    app.dependency_overrides[get_checker] = lambda: checker
     yield TestClient(app), store
     app.dependency_overrides.clear()
 
@@ -97,6 +111,31 @@ def test_analyze_requires_input(client):
     assert c.post("/api/analyze", json={"text": "  "}).status_code == 422
 
 
+def test_analyze_strips_nul_and_control_chars(client):
+    c, store = client
+    text = "five words here and \u0000 then more words after it"
+    res = c.post(
+        "/api/analyze",
+        json={
+            "text": text,
+            "handle": "bot.bsky\u0000.social",
+            "url": "https://news.example/\u0000a",
+        },
+    )
+    assert res.status_code == 200
+    assert ("handle", "bot.bsky.social") in store.calls
+    assert ("url", ["https://news.example/a"]) in store.calls
+    phrases = [arg for kind, arg in store.calls if kind == "text"]
+    assert phrases and all("\x00" not in p for p in phrases)
+    assert all("\x00" not in str(arg) for _, arg in store.calls)
+
+
+def test_analyze_nul_only_input_is_422(client):
+    c, _ = client
+    assert c.post("/api/analyze", json={"text": "\u0000 "}).status_code == 422
+    assert c.post("/api/analyze", json={"handle": "\u0000", "url": "\x01"}).status_code == 422
+
+
 def test_analyze_matched_handle(client):
     c, store = client
     body = c.post("/api/analyze", json={"handle": "@bot.bsky.social"}).json()
@@ -124,6 +163,105 @@ def test_analyze_short_text_skips_web_search_and_cluster_lookup(client):
     assert body["web_findings"] == []
     assert any("too short" in n for n in body["notes"])
     assert not [call for call in store.calls if call[0] == "text"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://bsky.app/profile/did:plc:abc/post/{RKEY}",
+        f"at://did:plc:abc/app.bsky.feed.post/{RKEY}",
+        f"https://bsky.app/profile/alice.bsky.social/post/{RKEY}?ref=share",
+        f"bsky.app/profile/did:plc:abc/post/{RKEY}",  # copied without a scheme
+        f"AT://did:plc:abc/app.bsky.feed.post/{RKEY}/",
+    ],
+)
+def test_analyze_bsky_post_in_cluster_is_matched(client, url):
+    c, store = client
+    body = c.post("/api/analyze", json={"url": url}).json()
+    assert body["status"] == "matched"
+    assert [x["id"] for x in body["clusters"]] == [682]
+    assert body["author_clusters"] == []
+    assert any(kind == "post" and arg[1] == RKEY for kind, arg in store.calls)
+    assert not [call for call in store.calls if call[0] == "check"]  # bsky links: no web check
+
+
+def test_analyze_bsky_post_not_in_cluster_gives_author_context_only(client):
+    c, store = client
+    url = "https://bsky.app/profile/bot.bsky.social/post/zzz"
+    body = c.post("/api/analyze", json={"url": url}).json()
+    assert body["status"] == "insufficient"
+    assert body["clusters"] == []
+    assert [x["id"] for x in body["author_clusters"]] == [2]
+    assert any("its author is a member of cluster #2" in n for n in body["notes"])
+    assert any("not evidence that this post" in n for n in body["notes"])
+    assert not any("live web check" in n.lower() for n in body["notes"])
+    assert ("handle", "bot.bsky.social") in store.calls
+    assert not [call for call in store.calls if call[0] == "check"]
+
+
+def test_analyze_bsky_profile_link_is_a_handle_lookup(client):
+    c, store = client
+    body = c.post("/api/analyze", json={"url": "https://bsky.app/profile/bot.bsky.social"}).json()
+    assert body["status"] == "matched"
+    assert body["clusters"][0]["id"] == 2
+    assert ("handle", "bot.bsky.social") in store.calls
+    assert not [call for call in store.calls if call[0] in ("check", "post")]
+
+
+def test_analyze_bsky_link_with_text_checks_only_the_text(client):
+    c, store = client
+    text = "five words here and then more words after it"
+    url = f"https://bsky.app/profile/did:plc:abc/post/{RKEY}"
+    c.post("/api/analyze", json={"url": url, "text": text})
+    assert ("check", [[]]) in store.calls  # the text is searched, the bsky link is not scraped
+
+
+def test_analyze_control_chars_that_separate_words_become_spaces(client):
+    c, store = client
+    text = "water\x0csupply was poisoned last night in the city"
+    c.post("/api/analyze", json={"text": text})
+    phrases = [arg for kind, arg in store.calls if kind == "text"]
+    assert phrases and phrases[0].startswith("water supply was")
+
+
+def test_analyze_lone_surrogate_is_not_a_500(client):
+    c, store = client
+    res = c.post(
+        "/api/analyze",
+        content=b'{"handle": "bot\\ud800.bsky.social", "text": "\\udfff"}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert res.status_code == 200
+    assert ("handle", "bot.bsky.social") in store.calls
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://bsky.app/profile/bot.bsky.social/feed/news",
+        "https://bsky.app/profile/bot.bsky.social/lists/abc",
+        "at://did:plc:abc/app.bsky.actor.profile/self",
+        "file:///etc/passwd",
+        "https://cdn.example/photo.jpg",
+    ],
+)
+def test_analyze_links_it_does_not_look_up_say_so(client, url):
+    c, store = client
+    body = c.post("/api/analyze", json={"url": url}).json()
+    assert body["status"] == "insufficient"  # a feed or list is not the creator's handle
+    assert body["clusters"] == [] and body["author_clusters"] == []
+    assert any("not looked up" in n for n in body["notes"])
+    assert not [call for call in store.calls if call[0] in ("check", "post", "handle")]
+
+
+def test_bsky_target_forms():
+    from api.routes.analyze import bsky_target
+
+    assert bsky_target("https://bsky.app/profile/@Alice.bsky.social") == ("Alice.bsky.social", None)
+    assert bsky_target("www.bsky.app/profile/did:plc:x/post/rk") == ("did:plc:x", "rk")
+    assert bsky_target("at://did:plc:x") == ("did:plc:x", None)
+    assert bsky_target("at://did:plc:x/app.bsky.feed.post/rk/extra") is None
+    assert bsky_target("https://example.com/profile/x/post/y") is None
 
 
 def test_bsky_post_url():
