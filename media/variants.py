@@ -1,11 +1,14 @@
 """CPU-only comparison of image encodings, localized edits, and rectangular crops.
 
 Edited-region boxes use (left, top, right, bottom) fractions of the oriented BASE.
-Crop boxes always locate the smaller field of view inside the larger field of
-view, in fractions of the latter; the note explicitly identifies the direction.
-This exception means a reverse crop's box is in OTHER-image coordinates. Crops
-with a small additional edit can still be classified as cropped. Unknown means
+Crop boxes locate the other picture inside the base, in fractions of BASE, and
+are None when the other picture is larger; the note identifies that direction.
+Crops with a small additional edit can still be classified as cropped. Unknown means
 a decoded image has a side below 16 pixels or insufficient grayscale variation.
+
+The 300 ms budget targets 2048-pixel photo/meme pairs, not full-entropy noise
+stored as quality-95, 4:4:4 progressive JPEGs: entropy decoding alone can exceed
+that budget even with luminance-only draft decoding.
 """
 
 import hashlib
@@ -26,6 +29,8 @@ _WORK_SIDE = 512
 _ALIGN_SIDE = 256
 # 32 blocks per axis averages 8x8 pixels to suppress individual JPEG artifacts.
 _GRID_SIDE = 32
+# A 512-pixel, 64-block fallback resolves small text before declaring re-encoding.
+_FINE_GRID_SIDE = 64
 # Below 16 original pixels per side, there is too little spatial evidence.
 _MIN_SIDE = 16
 # Less than two grayscale levels of deviation is effectively blank at this scale.
@@ -42,12 +47,15 @@ _ALIGN_MEDIAN = 0.24
 _TEXTURE_QUANTILE = 0.50
 # Two gray levels exclude blank background blocks from that alignment check.
 _TEXTURE_MIN_STD = 2.0
-# Synthetic JPEG block errors peak at .052; .28 leaves headroom for noisy resizes.
+# Coarse JPEG residuals stay below .10; .28 leaves headroom for noisy resizes.
 _CHANGE_FLOOR = 0.28
 # A .18 margin above median residuals rejects global brightness/contrast shifts.
 _CHANGE_MARGIN = 0.18
-# Three adjacent blocks preserve caption strokes while rejecting isolated noise.
+# Three adjacent blocks reject noise unless a component contains a strong change.
 _MIN_COMPONENT = 3
+# Twice the threshold (.56 minimum) exceeds coarse JPEG noise (<.10) and fine
+# resize/CMYK residuals (up to .52); fine fallback components must meet it too.
+_STRONG_CHANGE_FACTOR = 2.0
 # Forty percent admits localized edits but rejects most whole-picture changes.
 _MAX_EDIT_FRACTION = 0.40
 # A box spanning 65% of the frame can be a near-full crop, not a local edit.
@@ -56,14 +64,17 @@ _LOCAL_BOX_AREA = 0.65
 _CROP_ALIGNMENT_GAIN = 0.02
 # 160 pixels balances crop localization (about 1%) and inexpensive FFT searches.
 _SEARCH_SIDE = 160
-# Start at 40% of the largest fitting template, the required crop coverage floor.
-_CROP_MIN_SCALE = 0.40
-# Four-percent coarse steps give sixteen inexpensive scales through 100%.
+# Start at 20% of the largest fitting template to retain tight subject crops.
+_CROP_MIN_SCALE = 0.20
+# Four-percent coarse steps give twenty-one inexpensive scales through 100%.
 _CROP_COARSE_STEP = 0.04
 # Refine to 1% then .25% scale steps, finer than the 160-pixel search resolution.
 _CROP_REFINE_STEPS = (0.01, 0.0025)
 # Synthetic crops score .989..1; .87 leaves room for resampling and small edits.
 _CROP_NCC = 0.87
+# Templates below 40% need .94 NCC, plus the same hash and residual verification.
+_SMALL_CROP_SCALE = 0.40
+_SMALL_CROP_NCC = 0.94
 # Twelve bits admits imperfect crop registration; NCC provides the main safeguard.
 _CROP_DISTANCE = 12
 # .35 allows more registration residual than the .24 aligned-image threshold.
@@ -101,23 +112,29 @@ def _decode(data: bytes) -> tuple[Image.Image, tuple[int, int], str | None]:
             orientation = source.getexif().get(274, 1)
             if orientation in (5, 6, 7, 8):
                 size = size[::-1]
-            source.draft("RGB", (_WORK_SIDE, _WORK_SIDE))
+            source.draft("L", (_WORK_SIDE, _WORK_SIDE))
             reduction = max(1, max(source.size) // _WORK_SIDE)
             working = source
-            if reduction > 1:
-                if source.mode in ("P", "1"):
-                    mode = "RGBA" if "transparency" in source.info else "RGB"
-                    working = source.convert(mode)
-                working = working.reduce(reduction)
-            else:
-                working = source.copy()
-            working = ImageOps.exif_transpose(working)
-            if working.mode in ("RGBA", "LA") or "transparency" in working.info:
+            if source.mode.startswith("I;16") or source.mode in ("I", "F"):
+                values = np.asarray(source, dtype=np.float32)
+                if source.mode.startswith("I;16"):
+                    values = values / 257
+                else:
+                    values = np.nan_to_num(values)
+                    low, high = float(values.min()), float(values.max())
+                    values = (values - low) * (255 / (high - low) if high > low else 0)
+                working = Image.fromarray(np.clip(values, 0, 255).astype(np.uint8))
+            elif working.mode in ("RGBA", "LA", "PA") or "transparency" in working.info:
                 rgba = working.convert("RGBA")
                 background = Image.new("RGBA", rgba.size, "white")
-                working = Image.alpha_composite(background, rgba).convert("RGB")
-            else:
+                working = Image.alpha_composite(background, rgba)
+            elif working.mode in ("CMYK", "YCbCr", "LAB"):
                 working = working.convert("RGB")
+            working = working.convert("L")
+            working.info.update(source.info)
+            if reduction > 1:
+                working = working.reduce(reduction)
+            working = ImageOps.exif_transpose(working)
             working.thumbnail((_WORK_SIDE, _WORK_SIDE), Image.Resampling.LANCZOS)
             return working, size, image_format
     except (
@@ -151,30 +168,35 @@ def _gray(image: Image.Image, size: tuple[int, int]) -> np.ndarray:
     return np.asarray(image.convert("L").resize(size, Image.Resampling.BILINEAR), dtype=np.float32)
 
 
-def _blocks(base: Image.Image, other: Image.Image) -> np.ndarray:
-    first = _gray(base, (_ALIGN_SIDE, _ALIGN_SIDE))
-    second = _gray(other, (_ALIGN_SIDE, _ALIGN_SIDE))
+def _blocks(
+    base: Image.Image, other: Image.Image, side: int = _ALIGN_SIDE, grid: int = _GRID_SIDE
+) -> np.ndarray:
+    first = _gray(base, (side, side))
+    second = _gray(other, (side, side))
     first = (first - first.mean()) / max(float(first.std()), _MIN_STD)
     second = (second - second.mean()) / max(float(second.std()), _MIN_STD)
-    cell = _ALIGN_SIDE // _GRID_SIDE
-    return np.abs(first - second).reshape(_GRID_SIDE, cell, _GRID_SIDE, cell).mean(axis=(1, 3))
+    cell = side // grid
+    return np.abs(first - second).reshape(grid, cell, grid, cell).mean(axis=(1, 3))
 
 
-def _changed_box(blocks: np.ndarray) -> tuple[tuple[float, float, float, float] | None, float]:
+def _changed_box(
+    blocks: np.ndarray, *, strong_only: bool = False
+) -> tuple[tuple[float, float, float, float] | None, float]:
     threshold = max(_CHANGE_FLOOR, float(np.median(blocks)) + _CHANGE_MARGIN)
     labels, _ = ndimage.label(blocks > threshold, structure=np.ones((3, 3)))
     counts = np.bincount(labels.ravel())
-    keep = counts >= _MIN_COMPONENT
+    keep = (counts >= _MIN_COMPONENT) & (not strong_only)
+    keep[np.unique(labels[blocks >= threshold * _STRONG_CHANGE_FACTOR])] = True
     keep[0] = False
     changed = keep[labels]
     rows, columns = np.nonzero(changed)
     if not len(rows):
         return None, 0.0
     box = (
-        float(columns.min() / _GRID_SIDE),
-        float(rows.min() / _GRID_SIDE),
-        float((columns.max() + 1) / _GRID_SIDE),
-        float((rows.max() + 1) / _GRID_SIDE),
+        float(columns.min() / blocks.shape[1]),
+        float(rows.min() / blocks.shape[0]),
+        float((columns.max() + 1) / blocks.shape[1]),
+        float((rows.max() + 1) / blocks.shape[0]),
     )
     return box, float(changed.mean())
 
@@ -270,7 +292,8 @@ def _crop_match(
             )
         )
         radius = step
-    if best_box is None or best_score < _CROP_NCC:
+    minimum_score = _SMALL_CROP_NCC if best_scale < _SMALL_CROP_SCALE else _CROP_NCC
+    if best_box is None or best_score < minimum_score:
         return None
     return best_score, tuple(float(coordinate) for coordinate in best_box)
 
@@ -280,8 +303,8 @@ def relate(base: bytes, other: bytes) -> Relation:
 
     Identical valid bytes are same, even if tiny or blank; otherwise images with
     a side below 16 pixels or grayscale standard deviation below 2 are unknown.
-    Edited boxes are fractions of BASE. Crop boxes locate the smaller view in
-    the larger view (BASE normally, OTHER for a reverse crop, stated in note).
+    Edited boxes are fractions of BASE. Crop boxes locate the other picture in
+    the base, in fractions of BASE, and are None when the other picture is larger.
     Crops can include a small localized edit. All boxes are left/top/right/bottom.
     """
     identical = hashlib.sha256(base).digest() == hashlib.sha256(other).digest()
@@ -306,6 +329,17 @@ def relate(base: bytes, other: bytes) -> Relation:
         blocks = _blocks(first, second)
         region, fraction = _changed_box(blocks)
         aligned = _aligned(first, blocks)
+        if aligned and region is None and distance <= _RESIZE_DISTANCE:
+            shared_size = (min(first.width, second.width), min(first.height, second.height))
+            region, fraction = _changed_box(
+                _blocks(
+                    first.resize(shared_size, Image.Resampling.LANCZOS),
+                    second.resize(shared_size, Image.Resampling.LANCZOS),
+                    _WORK_SIDE,
+                    _FINE_GRID_SIDE,
+                ),
+                strong_only=True,
+            )
         if aligned and region is None and distance <= _RESIZE_DISTANCE:
             if first_size == second_size:
                 note = f"Same picture, re-encoded at {second_size[0]}x{second_size[1]}."
@@ -351,9 +385,13 @@ def relate(base: bytes, other: bytes) -> Relation:
     if matches:
         _, crop_distance, box, reverse = max(matches)
         note = (
-            "The base picture is a crop of the other picture."
+            "The other picture shows the base picture with extra area around it."
             if reverse
-            else "The other picture is a crop of the base picture."
+            else (
+                "The other picture is a crop of the base picture, keeping about "
+                f"{round((box[2] - box[0]) * 100)}% of its width and "
+                f"{round((box[3] - box[1]) * 100)}% of its height."
+            )
         )
-        return Relation("cropped", crop_distance, box, None, note)
+        return Relation("cropped", crop_distance, None if reverse else box, None, note)
     return deferred_edit or Relation("different", distance, None, None, "A different picture.")

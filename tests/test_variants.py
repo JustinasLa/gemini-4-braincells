@@ -73,10 +73,30 @@ def test_identical_bytes_and_identical_pixels(picture):
     _assert_note(result)
 
 
-@pytest.mark.parametrize("quality", [30, 70, 95])
-def test_jpeg_reencode(picture, quality):
-    result = relate(_bytes(picture), _bytes(picture, "JPEG", quality=quality))
+def test_each_input_is_decoded_once(picture, monkeypatch):
+    base, other = _bytes(picture), _bytes(picture, "JPEG", quality=85)
+    original_open = Image.open
+    opened = []
+
+    def tracked_open(*args, **kwargs):
+        opened.append(1)
+        return original_open(*args, **kwargs)
+
+    monkeypatch.setattr(Image, "open", tracked_open)
+    assert relate(base, other).kind == "resized"
+    assert len(opened) == 2
+    opened.clear()
+    assert relate(base, base).kind == "same"
+    assert len(opened) == 1
+
+
+@pytest.mark.parametrize("quality", [30, 40, 50, 60, 70, 80, 90, 95])
+@pytest.mark.parametrize("scale", [1, 0.5])
+def test_jpeg_reencode(picture, quality, scale):
+    variant = picture.resize(tuple(round(side * scale) for side in picture.size))
+    result = relate(_bytes(picture), _bytes(variant, "JPEG", quality=quality))
     assert result.kind == "resized"
+    assert result.edited_region is None
     _assert_note(result)
 
 
@@ -87,6 +107,24 @@ def test_resize_and_mild_brightness(picture):
     assert "800x600 to 400x300" in result.note
     brighter = ImageEnhance.Brightness(ImageEnhance.Contrast(picture).enhance(0.9)).enhance(1.05)
     assert relate(_bytes(picture), _bytes(brighter)).kind == "resized"
+
+
+@pytest.mark.parametrize("quality", [30, 40, 50, 60, 70, 80, 90, 95])
+def test_fine_check_matches_resize_resolution(quality):
+    image = _picture(size=(509, 600))
+    for top in (20, 120, 220, 320, 420):
+        ImageDraw.Draw(image).text(
+            (20, top),
+            "SMALL OUTLINED MEME CAPTION",
+            font=ImageFont.load_default(size=24),
+            fill="white",
+            stroke_width=1,
+            stroke_fill="black",
+        )
+    smaller = image.resize((254, 300), Image.Resampling.LANCZOS)
+    result = relate(_bytes(image), _bytes(smaller, "JPEG", quality=quality))
+    assert result.kind == "resized", result
+    assert result.edited_region is None
 
 
 @pytest.mark.parametrize(
@@ -106,9 +144,15 @@ def test_crops(picture, box, reverse):
     result = relate(other, base) if reverse else relate(base, other)
     assert result.kind == "cropped", result
     expected = tuple(value / picture.size[index % 2] for index, value in enumerate(box))
-    assert result.crop_box == pytest.approx(expected, abs=0.05)
+    if reverse:
+        assert result.crop_box is None
+    else:
+        assert result.crop_box == pytest.approx(expected, abs=0.05)
+        left, top, right, bottom = result.crop_box
+        assert 0 <= left < right <= 1 and 0 <= top < bottom <= 1
+        assert "% of its width" in result.note and "% of its height" in result.note
     assert result.edited_region is None
-    assert ("base picture is a crop" in result.note) is reverse
+    assert ("extra area around it" in result.note) is reverse
     _assert_note(result)
 
 
@@ -149,6 +193,108 @@ def test_different_image(picture):
     result = relate(_bytes(picture), _bytes(_picture(42)))
     assert result.kind == "different", result
     _assert_note(result)
+
+
+@pytest.mark.parametrize("texts", [("PRICE $10", "PRICE $100"), ("VOTE MAY", "VOTE JUNE")])
+@pytest.mark.parametrize("font_size", [24, 40])
+def test_small_caption_changes(texts, font_size):
+    image = _picture(size=(601, 600))
+    first, second = image.copy(), image.copy()
+    for target, text in zip((first, second), texts, strict=True):
+        ImageDraw.Draw(target).text(
+            (20, 20),
+            text,
+            font=ImageFont.load_default(size=font_size),
+            fill="white",
+            stroke_width=1,
+            stroke_fill="black",
+        )
+    result = relate(_bytes(first), _bytes(second, "JPEG", quality=85))
+    assert result.kind == "edited", result
+    left, top, right, bottom = result.edited_region
+    changed_rows, changed_columns = np.nonzero(
+        np.any(np.asarray(first) != np.asarray(second), axis=2)
+    )
+    assert left <= changed_columns.mean() / image.width <= right
+    assert top <= changed_rows.mean() / image.height <= bottom
+    assert right - left < 0.3 and bottom - top < 0.15
+    _assert_note(result)
+
+
+def test_small_corner_watermark():
+    image = _picture(size=(601, 600))
+    variant = image.copy()
+    ImageDraw.Draw(variant).text(
+        (550, 8),
+        "AC",
+        font=ImageFont.load_default(size=22),
+        fill="white",
+        stroke_width=1,
+        stroke_fill="black",
+    )
+    result = relate(_bytes(image), _bytes(variant, "JPEG", quality=85))
+    assert result.kind == "edited", result
+    left, top, right, bottom = result.edited_region
+    assert 0.85 < left < right <= 1 and 0 <= top < bottom < 0.10
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_quarter_crop(picture, reverse):
+    box = (280, 120, 480, 270)
+    base, other = _bytes(picture), _bytes(picture.crop(box), "JPEG", quality=80)
+    result = relate(other, base) if reverse else relate(base, other)
+    assert result.kind == "cropped", result
+    if reverse:
+        assert result.crop_box is None
+    else:
+        expected = tuple(value / picture.size[index % 2] for index, value in enumerate(box))
+        assert result.crop_box == pytest.approx(expected, abs=0.03)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_quarter_crop_of_unrelated_image(picture, reverse):
+    base, other = _bytes(_picture(42)), _bytes(picture.crop((280, 120, 480, 270)))
+    result = relate(other, base) if reverse else relate(base, other)
+    assert result.kind == "different", result
+
+
+def test_large_16bit_png(picture):
+    gray = picture.resize((1600, 1200)).convert("L")
+    image = Image.fromarray(np.asarray(gray, dtype=np.uint16) * 257)
+    data = _bytes(image)
+    result = fingerprint(data)
+    assert (result.width, result.height, result.format) == (1600, 1200, "PNG")
+    assert result.phash == fingerprint(_bytes(gray)).phash
+    assert relate(data, _bytes(gray)).kind == "resized"
+
+
+@pytest.mark.parametrize("mode", ["I;16B", "I", "F", "CMYK", "YCbCr", "LAB", "LA", "PA"])
+def test_large_non_rgb_modes(picture, mode):
+    image = picture.resize((1600, 1200))
+    if mode in ("I;16B", "I", "F"):
+        values = np.asarray(image.convert("L"), dtype=np.float32)
+        values = (values - values.min()) * (255 / (values.max() - values.min()))
+        expected = Image.fromarray(values.astype(np.uint8))
+        if mode == "I;16B":
+            image = Image.fromarray((np.asarray(expected, dtype=np.uint16) * 257).astype(">u2"))
+        elif mode == "I":
+            image = Image.fromarray((np.asarray(expected, dtype=np.int32) * 1000) - 1234)
+        else:
+            image = Image.fromarray(values / 512 - 0.25)
+        data = _bytes(image, "TIFF")
+    else:
+        image = image.convert(mode)
+        if mode in ("LA", "PA"):
+            image.putalpha(Image.linear_gradient("L").resize(image.size))
+            expected = Image.alpha_composite(
+                Image.new("RGBA", image.size, "white"), image.convert("RGBA")
+            )
+        else:
+            expected = image.convert("RGB")
+        data = _bytes(image, "JPEG" if mode == "CMYK" else "PNG" if mode == "LA" else "TIFF")
+    result = fingerprint(data)
+    assert (result.width, result.height) == (1600, 1200)
+    assert relate(data, _bytes(expected)).kind == "resized"
 
 
 def test_transparent_modes_composite_on_white(picture):
@@ -195,8 +341,19 @@ def test_screenshot_padding(picture):
     ImageDraw.Draw(screenshot).text((20, 25), "IMAGE VIEWER", fill="black")
     result = relate(_bytes(picture), _bytes(screenshot, "JPEG", quality=80))
     assert result.kind == "cropped", result
-    assert result.crop_box == pytest.approx((40 / 880, 100 / 740, 840 / 880, 700 / 740), abs=0.05)
-    assert "base picture is a crop" in result.note
+    assert result.crop_box is None
+    assert "extra area around it" in result.note
+
+
+def test_added_caption_bar(picture):
+    canvas = Image.new("RGB", (picture.width, picture.height + 100), "white")
+    canvas.paste(picture, (0, 100))
+    ImageDraw.Draw(canvas).text((20, 20), "A NEW HEADLINE", font=_font(), fill="black")
+    result = relate(_bytes(picture), _bytes(canvas, "JPEG", quality=85))
+    assert result.kind == "cropped", result
+    assert result.crop_box is None
+    assert "extra area around it" in result.note
+    _assert_note(result)
 
 
 def test_gif_first_frame(picture):
@@ -263,18 +420,40 @@ def test_unknown(picture, size, color):
     assert relate(data, data).kind == "same"
 
 
-@pytest.mark.parametrize("image_format", ["JPEG", "PNG"])
-def test_2048_performance(image_format):
-    original = _picture(size=(2048, 2048))
+@pytest.mark.parametrize(
+    "image_format,progressive,size",
+    [
+        ("JPEG", False, (2048, 2048)),
+        ("JPEG", True, (2048, 2048)),
+        ("PNG", False, (2048, 2048)),
+        ("JPEG", False, (4000, 500)),
+    ],
+)
+def test_performance(image_format, progressive, size):
+    original = _picture(size=size)
     variant = original.copy()
     ImageDraw.Draw(variant).rectangle((100, 100, 350, 350), fill="orange")
-    base, other = _bytes(original, image_format), _bytes(variant, image_format)
+    base, other = (
+        _bytes(image, image_format, quality=85, progressive=progressive)
+        for image in (original, variant)
+    )
+    _assert_performance(base, other, "edited", f"{size} {image_format} progressive={progressive}")
+
+
+def _assert_performance(base, other, expected, label):
     relate(base, other)
     durations = []
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         result = relate(base, other)
         durations.append(time.perf_counter() - start)
-    assert result.kind == "edited", result
-    assert min(durations) < 0.300, durations
-    print(f"2048 {image_format}: {min(durations) * 1000:.1f} ms")
+    assert result.kind == expected, result
+    median = float(np.median(durations))
+    assert median < 0.300, durations
+    print(f"{label}: median of 5 = {median * 1000:.1f} ms")
+
+
+def test_tiny_vs_huge_performance(picture):
+    tiny = _bytes(picture.resize((8, 8)))
+    huge = _bytes(picture.resize((4096, 4096)), "JPEG", quality=85)
+    _assert_performance(tiny, huge, "unknown", "tiny vs huge")
