@@ -1,0 +1,27 @@
+Task: build part 1 of "Screenshot Receipts" in gemini-4-braincells (Shill or Chill). Nemotron 3.5 Super VL reads an image that it already marked `media_type="screenshot"` as a social-media post, so later code can find the real post and check the screenshot against it. Two sibling threads run in parallel: part 2, "find the original" (lookup/receipts.py), and part 3, "Nemotron as the fast main AI for lookup". The user's goal: Nemotron is fast, so it should be the main AI wherever speed matters. Lookups should feel instant.
+
+Scope (you own media/; don't touch lookup/):
+1. New prompt `screenshot-v1` plus `NemotronClient.read_screenshot(MediaInput) -> ScreenshotPost | None` in a new `media/screenshot.py`, using the existing client plumbing in `media/nemotron.py`: logging, Super VL check, retries, tolerant JSON parse. Return None when the image is not a screenshot of a post. Use reasoning off (`enable_thinking=false`) if your measurements show it is still reliable for this narrow extraction, because speed matters. The README table has v2 reasoning-off numbers. Measure it.
+2. THE CONTRACT. Part 2 codes against it, so don't change these fields or names without leaving a note in your PR:
+```python
+@dataclass(frozen=True, slots=True)
+class ScreenshotPost:
+    media_hash: str
+    platform: str            # x | bluesky | threads | facebook | instagram | tiktok | other | unknown (from the UI look)
+    display_name: str | None
+    handle: str | None       # without the leading @, None if not legible
+    shown_time: str | None   # verbatim as shown in the screenshot ("3:14 PM · Nov 13, 2026", "2h")
+    text: str | None         # the post's own text, verbatim; not replies/UI chrome
+    counts: dict[str, int | None]   # keys: replies, reposts, quotes, likes, views, bookmarks; None = not shown (never guess 0); parse "2.5K" -> 2500
+    ui_oddities: list[str]   # visible signs of editing: mixed fonts, misaligned text, odd badge, wrong UI for the platform. Cautious, often empty
+    confidence: float        # 0..1
+    model: str               # model id the response returned
+    latency_ms: int
+```
+3. Media worker: when an analysis has `media_type == "screenshot"`, also call read_screenshot and store the result under `detail.screenshot`. Bump the prompt-version/cache key so stored rows get re-read. Keep the adult-content guard and the "describe media, not people" rules. Never call anyone a bot or shill.
+4. Run `media.compare` (or a small sibling script) on real screenshots from candidate clusters. Record the results in a `media/README.md` iteration row: valid JSON, handle/text legible rate, p50 latency, reasoning on vs off. Real post data stays out of git, as the README already does.
+5. Unit tests for the parser and normaliser (counts like "1.2M", missing handle, prose/think-block wrapping, a non-post screenshot -> None).
+
+Working style: use multiple subagents in parallel. For example: one builds the prompt, parser and contract; one wires the worker; one writes tests; one runs the measurement. Then do Sol review rounds: Codex gpt-6.1-sol, reasoning high, via delegate_task, a new delegate each round, until it says approved. Fix the findings yourself. Start with `entire brain brief` + `entire graph query` per .entire/agent-guide.md.
+
+Git: pushes from worktrees of the shared /srv checkout can fail on other users' mode-600 Entire objects. If that happens, clone https://github.com/JustinasLa/gemini-4-braincells.git into ~/work/<name>, fetch your branch into it and push from there. Push branch `feat/nemotron-screenshot-read` early, as soon as the contract exists, so part 2 can stack on it. Open a PR once Sol approves. Do NOT merge or deploy: report back with the PR URL, measurements and anything that changed in the contract.
