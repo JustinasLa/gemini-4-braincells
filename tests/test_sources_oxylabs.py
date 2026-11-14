@@ -183,3 +183,25 @@ def test_scrape_facts_detects_tombstone_only_for_x_hosts(url, final_url, expecte
     assert facts.unavailable == expected
     assert len(calls) == 1
     assert calls[0]["output"] == ["json", "markdown"]
+
+
+def test_scrape_facts_live_post_with_suspended_reply_is_not_unavailable():
+    from tests.test_lookup import POST_MD, SUBJ, SUSPENDED_ITEM
+
+    url = f"https://x.com/ada_example/status/{SUBJ}"
+
+    def handler(req):
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "json": {"headline": 'Ada Example on X: "The comets have landed."'},
+                        "markdown": POST_MD + SUSPENDED_ITEM,
+                        "metadata": {"url": url, "statuses": {"http_request": {"code": 200}}},
+                    }
+                ]
+            },
+        )
+
+    assert client_with(handler).scrape_facts(url).unavailable is None

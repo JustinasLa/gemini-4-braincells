@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from lookup.urls import snowflake_time
 
@@ -79,6 +80,16 @@ def unavailable_reason(md: str) -> str | None:
         if line in notices:
             return notices[line]
     return None
+
+
+def page_unavailable_reason(md: str, url: str) -> str | None:
+    """X's notice for the page at `url` itself. A post page counts only when its own post is
+    missing (a reply from a suspended account says nothing about the post); a profile page only
+    from the header above its timeline (a timeline item can be another account's tombstone)."""
+    m = re.search(r"/status(?:es)?/(\d+)", urlsplit(url).path)
+    if m:
+        return None if parse_post_page(md, m.group(1)).main else unavailable_reason(md)
+    return unavailable_reason(md.split("\n* ", 1)[0])
 
 
 def unavailable_detail(reason: str) -> str:

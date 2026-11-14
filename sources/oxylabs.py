@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from common.config import get_settings
-from lookup.xpage import unavailable_reason
+from lookup.xpage import page_unavailable_reason
 from sources.links import X_HOSTS, domain
 from sources.models import PageFacts, SearchHit
 
@@ -150,8 +150,12 @@ class OxylabsClient:
             author=_text(facts.get("author")),
             published_at=_text(facts.get("published_at")),
             unavailable=(
-                unavailable_reason(results[0].get("markdown") or "")
-                if domain(url) in X_HOSTS or domain(meta.get("url") or url) in X_HOSTS
+                page_unavailable_reason(results[0].get("markdown") or "", x_url)
+                if (
+                    x_url := next(
+                        (u for u in (meta.get("url"), url) if u and domain(u) in X_HOSTS), None
+                    )
+                )
                 else None
             ),
             headline=_text(facts.get("headline")),

@@ -19,7 +19,13 @@ from lookup.jobs import JobStore, RateLimited, cache_key
 from lookup.models import LookupInput
 from lookup.service import Deps, Lookup, StepUnavailable, _x_title, snippet_time
 from lookup.urls import classify, snowflake_time
-from lookup.xpage import parse_count, parse_post_page, parse_profile, unavailable_reason
+from lookup.xpage import (
+    page_unavailable_reason,
+    parse_count,
+    parse_post_page,
+    parse_profile,
+    unavailable_reason,
+)
 from sources.models import PageFacts, SearchHit
 from sources.oxylabs import OxylabsError
 
@@ -945,3 +951,37 @@ def test_lookup_monitor_matches_twitter_link_from_x_input():
     assert job.result.status == "matched"
     assert job.result.clusters[0]["match"] == ["link"]
     assert job.result.clusters[0]["verdict_applies"]
+
+
+SUSPENDED_ITEM = (
+    "* This Post is from a suspended account. "
+    "[Learn more](https://help.x.com/rules-and-policies/notices-on-x)\n"
+)
+
+
+def test_suspended_reply_does_not_make_a_live_post_or_profile_unavailable():
+    # A live post with a reply (or a profile with a timeline item) from a suspended account.
+    post_md, profile_md = POST_MD + SUSPENDED_ITEM, PROFILE_MD + SUSPENDED_ITEM
+    assert unavailable_reason(post_md) == "suspended"  # the bare detector sees the notice
+    assert page_unavailable_reason(post_md, f"https://x.com/ada_example/status/{SUBJ}") is None
+    assert page_unavailable_reason(profile_md, "https://x.com/ada_example") is None
+    tomb = (XPAGES / "post_suspended_LeroyLovesUSA_796772863869075460.md").read_text()
+    url = "https://x.com/LeroyLovesUSA/status/796772863869075460"
+    assert page_unavailable_reason(tomb, url) == "suspended"
+    prof = (XPAGES / "profile_suspended_LeroyLovesUSA.md").read_text()
+    assert page_unavailable_reason(prof, "https://x.com/LeroyLovesUSA") == "suspended"
+
+
+def test_live_author_with_a_suspended_timeline_item_is_not_called_suspended():
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            md, meta = super().scrape_markdown(url, deadline)
+            return (md + SUSPENDED_ITEM if url.endswith("/ada_example") else md), meta
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    job = Lookup("lk_live", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    job.run()
+    author = next(s for s in job.result.steps if s.id == "author")
+    assert author.state == "done" and "suspended" not in author.detail
+    assert author.detail.startswith("joined ")

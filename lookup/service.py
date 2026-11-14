@@ -41,6 +41,7 @@ from lookup.urls import X_STATUS_RE, Target, classify, domain, snowflake_time, x
 from lookup.xpage import (
     PostPage,
     XItem,
+    page_unavailable_reason,
     parse_post_page,
     parse_profile,
     unavailable_detail,
@@ -632,7 +633,7 @@ class Lookup:
             url = f"https://x.com/{handle}"
             md, call = self._scrape_x(url)
             p = parse_profile(md, handle)
-            reason = unavailable_reason(md)
+            reason = page_unavailable_reason(md, url)
             if reason in ("suspended", "not_found"):
                 detail = "account suspended" if reason == "suspended" else "account doesn't exist"
                 self.receipt(
