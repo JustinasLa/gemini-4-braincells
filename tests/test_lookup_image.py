@@ -527,8 +527,7 @@ def _graph_job():
             )
         )
         if read is not None:
-            job._page_read[pg.id] = read
-            pg.headline, *pg.claims = read.split("\n")
+            job._page_read[pg.id] = tuple(read.split("\n"))
         return pg
 
     return job, page
@@ -599,6 +598,18 @@ def test_upload_page_filter_uses_its_own_read_not_the_search_hit(headline, claim
     else:
         assert job._step("copies_web").found == []
         assert all(pg.id not in (e.from_, e.to) for e in job.result.edges)
+
+
+def test_image_origin_cannot_join_caption_words_across_separate_read_fields():
+    job, page = _graph_job()
+    page(
+        "https://fragments.example/a",
+        "Stand with",
+        "Example Sign the letter",
+        read="Stand with\nExample Sign the letter",
+    )
+    job._finish_graph()
+    assert job.result.origin_id.endswith("/copy")
 
 
 def test_upload_page_filter_keeps_search_matches_when_the_read_fails():

@@ -288,7 +288,7 @@ class Lookup:
         # a hit that names one joins the trace like a caption run
         self._domains: list[str] = []
         # page id -> the text its own read returned (headline, claims), never search snippets
-        self._page_read: dict[str, str] = {}
+        self._page_read: dict[str, tuple[str | None, ...]] = {}
         self._upload_read = False  # Nemotron read the uploaded image (its text may be empty)
         self._page_seq = 0
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
@@ -1831,11 +1831,9 @@ class Lookup:
             pg.publisher = facts.publisher or pg.publisher
             pg.author = facts.author or pg.author
             pg.published_at = facts.published_at
-            pg.headline = (
-                facts.headline if self.result.kind == "image" else facts.headline or pg.headline
-            )
+            pg.headline = facts.headline or pg.headline
             pg.claims = facts.claims
-            self._page_read[pg.id] = "\n".join([facts.headline or "", *facts.claims])
+            self._page_read[pg.id] = (facts.headline, *facts.claims)
             pg.receipt_id = rid
             pg.time, pg.time_source, pg.time_uncertainty_s = t, "page" if t else None, unc
 
@@ -2412,7 +2410,7 @@ class Lookup:
                 # A successful read supersedes the search hit, even when it returned no
                 # text. Its claims can carry the caption; a stale snippet cannot verify it.
                 texts = (
-                    (pg.headline, *pg.claims)
+                    self._page_read[pg.id]
                     if pg.id in self._page_read
                     else (pg.headline, pg.snippet)
                 )
@@ -2475,7 +2473,10 @@ class Lookup:
                     # an upload: the page must carry a real part of the image's text in what its
                     # own read returned (not the search snippet or headline it was found by); a
                     # page that only names the site is about it, like a short post
-                    and (not image or self._carries_caption(self._page_read.get(pg.id)))
+                    and (
+                        not image
+                        or any(self._carries_caption(text) for text in self._page_read.get(pg.id, ()))
+                    )
                 ),
                 key=latest,
             )
