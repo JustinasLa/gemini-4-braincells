@@ -393,3 +393,36 @@ def test_frozen_hand_labels_reuse_owner_resolution(tmp_path, monkeypatch):
     }
     assert run(cases)["details"]["verdict_confidence"]["brier"] == pytest.approx(0.01)
     assert "not snapshotted" in markdown_report(run([{**cases[0], "label": 1}]))
+
+
+def test_base_rates_reach_the_detector_and_the_provenance(tmp_path, monkeypatch):
+    """--base-rates turns on the identity test as the live worker runs it, and says so."""
+    from eval import calibration
+    from signals.baseline import BaseRates
+    from signals.synth import empty_window
+
+    seen = []
+    real_detect = calibration.detect
+
+    def spy(*args, **kw):
+        seen.append(kw.get("base_rates"))
+        return real_detect(*args, **kw)
+
+    window = empty_window(start=START, seed=5)
+    monkeypatch.setattr(calibration, "detect", spy)
+    monkeypatch.setattr(calibration, "split_hours", lambda root, split: ["2026111319"])
+    monkeypatch.setattr(calibration, "hour_files", lambda root, hours: ["recorded"])
+    monkeypatch.setattr(
+        calibration,
+        "iter_windows",
+        lambda files, size, cfg: iter([(SimpleNamespace(label="19:50", skipped=None), window)]),
+    )
+    rates = BaseRates(n_age=400, fresh=0.0125, n_profile=399, empty=0.0)
+    src = tmp_path / "rates.json"
+    src.write_text(json.dumps({"base_rates": rates.as_dict()}))
+    out = tmp_path / "run.json"
+    argv = ["calibration", "--labels-dir", str(tmp_path), "--json-out", str(out)]
+    assert main([*argv, "--base-rates", str(src)]) == 0
+    assert seen and all(r == rates for r in seen)
+    provenance = json.loads(out.read_text())["details"]["provenance"]
+    assert provenance["base_rates"] == {**rates.as_dict(), "source": str(src)}

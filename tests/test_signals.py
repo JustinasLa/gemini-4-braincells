@@ -409,3 +409,70 @@ def test_declared_automation_guard_needs_old_accounts_that_say_so():
     assert guard(old_bots).score == 1.0
     assert guard(fresh_bots) is None  # new accounts calling themselves bots don't get a pass
     assert guard(humans) is None  # "robotics" doesn't match the word "bot"
+
+
+def test_declared_automation_ignores_bios_not_loaded_yet():
+    from signals.score import AccountInfo, organic_guards
+
+    members = [f"did:plc:q{i}" for i in range(6)]
+    info = {
+        d: AccountInfo(
+            did=d,
+            age_days=700.0,
+            display_name="Quakes",
+            description="Bot posting new quakes in near-real time",
+        )
+        for d in members[:3]
+    }
+    info.update(
+        {
+            d: AccountInfo(did=d, age_days=700.0, display_name="Quakes", description=None)
+            for d in members[3:]
+        }
+    )  # bios not fetched yet
+    g = next(
+        x
+        for x in organic_guards(members, [], info, WindowData(start=0, end=600), DEFAULT)
+        if x.name == "declared_automation"
+    )
+    assert g.score == 1.0 and g.detail["with_known_bio"] == 3
+
+
+def test_wider_crowd_guard_text_matches_its_score():
+    """#18: the guard row is shown at every score; its text must match what the score says."""
+    from signals.keys import Key
+    from signals.score import organic_guards
+
+    members = [f"did:plc:c{i}" for i in range(5)]
+
+    def crowd(*totals: int):
+        keys = []
+        for i, total in enumerate(totals):
+            k = Key("link", f"https://example.com/{i}", accounts=set(members))
+            k.total_accounts = total  # accounts sharing it in the whole window
+            keys.append(k)
+        g = next(
+            x
+            for x in organic_guards(members, keys, {}, WindowData(start=0, end=600), DEFAULT)
+            if x.name == "part_of_wider_crowd"
+        )
+        return g.score, g.summary
+
+    wider = "a wider crowd is doing the same thing"
+    score, text = crowd(5)  # nobody outside the cluster (cluster 682)
+    assert score == 0.0
+    assert "no wider crowd" in text and "only" not in text and "100%" not in text
+    score, text = crowd(*[5] * 19, 6)  # one item of 20 has an outsider: not "all"
+    assert 0 < score < 0.05 and text.startswith("on average 99%") and "too few" in text
+    score, text = crowd(6)  # 83% exclusive
+    assert score < DEFAULT.organic_guard_strong and wider not in text and "83%" in text
+    score, text = crowd(11)  # 45%: below the strong-guard bar, so no "wider crowd" claim
+    assert score < DEFAULT.organic_guard_strong and wider not in text and "too few" in text
+    score, text = crowd(13)  # 38%: the guard holds
+    assert score >= DEFAULT.organic_guard_strong and text.startswith("on average only 38%")
+    assert wider in text
+    score, text = crowd(50)  # 10% exclusive: a real crowd, the original wording
+    assert score == 0.9 and text == (
+        "on average only 10% of the accounts sharing these items in the window are in this "
+        "cluster (a wider crowd is doing the same thing)"
+    )

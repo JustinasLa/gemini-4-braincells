@@ -665,13 +665,28 @@ def organic_guards(
     if sk:
         excl = [len(k.accounts) / max(k.total_accounts, 1) for k in sk]  # type: ignore[attr-defined]
         mean_excl = float(np.mean(excl))
+        # Word it by what the score shows: the row is stored (and shown) at every score, so a
+        # guard that did not hold must not claim a wider crowd (#18). total_accounts counts the
+        # key's sharers in the whole window, so every ratio is <= 1 and mean 1 = all exclusive.
+        crowd_score = _r(1 - mean_excl)
+        share = "of the accounts sharing these items in the window are in this cluster"
+        if crowd_score <= 0:
+            crowd = f"all {share} (no wider crowd is doing the same thing)"
+        elif crowd_score >= cfg.organic_guard_strong:
+            crowd = (
+                f"on average only {mean_excl:.0%} {share} (a wider crowd is doing the same thing)"
+            )
+        else:
+            crowd = (
+                f"on average {mean_excl:.0%} {share} "
+                "(too few accounts outside it to count as a wider crowd)"
+            )
         out.append(
             Signal(
                 "guard",
                 "part_of_wider_crowd",
-                _r(1 - mean_excl),
-                f"on average only {mean_excl:.0%} of the accounts sharing these items "
-                "in the window are in this cluster (a wider crowd is doing the same thing)",
+                crowd_score,
+                crowd,
                 {"mean_exclusivity": _r(mean_excl), "shared_keys": len(sk)},
                 polarity="against",
             )
@@ -727,8 +742,9 @@ def organic_guards(
     # Declared automation: most accounts say in their bio or name that they are a bot, a feed or
     # automated alerts, and they aren't new. Openly automated services (traffic, weather, news
     # feeds) post in sync by design; that is not a covert campaign.
-    aged_text = [a for a in known if a.age_days is not None and (a.description or a.display_name)]
-    if len(aged_text) >= cfg.min_cluster_size:
+    # Only accounts whose bio was fetched count (a bio not loaded yet is not "didn't say so").
+    aged_text = [a for a in known if a.age_days is not None and a.description is not None]
+    if len(aged_text) >= 3:
         declared = sorted(
             a.did
             for a in aged_text
@@ -741,10 +757,11 @@ def organic_guards(
                     "guard",
                     "declared_automation",
                     _r(len(declared) / len(aged_text)),
-                    f"{len(declared)} of {len(aged_text)} accounts say in their name or bio that "
+                    f"{len(declared)} of {len(aged_text)} accounts with a known bio say in their "
+                    "name or bio that "
                     "they are a bot, a feed or automated alerts, and are over 90 days old: an "
                     "openly automated service posts in sync by design",
-                    {"declared": len(declared), "with_bio_or_name": len(aged_text)},
+                    {"declared": len(declared), "with_known_bio": len(aged_text)},
                     dids=declared,
                     polarity="against",
                 )

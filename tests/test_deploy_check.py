@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+METRIC_ROW = {"dataset": "organic_live", "split": "heldout", "details": {"detector_version": "v9"}}
 
 
 @pytest.fixture(params=[False, True], ids=["python", "jq"])
@@ -46,7 +47,7 @@ def run_check(tmp_path, request):
             "/api/health": [200, json.dumps({"ok": True, "ingest_lag_s": 1})],
             "/api/clusters?limit=1": [200, "[]"],
             "/api/clusters?limit=50": [200, json.dumps([{"id": ident} for ident in range(50)])],
-            "/api/metrics": [200, "{}"],
+            "/api/metrics": [200, json.dumps([METRIC_ROW])],
             "/": [200, "<div>Dashboard</div>"],
             "/trackdown/": [200, '<html><script src="app.js"></script></html>'],
             "/version.txt": [200, "test-version"],
@@ -119,3 +120,20 @@ def test_trackdown_requires_200_and_html(run_check, status, body):
 def test_existing_health_failure_is_still_hard(run_check):
     result, _ = run_check({"/api/health": [200, '{"ok": true, "ingest_lag_s": 500}']})
     assert result.returncode == 1 and "health not ok" in result.stdout
+
+
+def test_empty_metrics_is_a_warning_not_a_failure(run_check):
+    result, _ = run_check({"/api/metrics": [200, "[]"]})
+    assert result.returncode == 0, result.stderr
+    assert "WARN /api/metrics is empty" in result.stdout and " OK " in result.stdout
+
+
+@pytest.mark.parametrize(("deployed", "warns"), [("v9", False), ("v10", True)])
+def test_metrics_must_name_the_deployed_detector(run_check, tmp_path, deployed, warns):
+    git = tmp_path / "bin" / "git"  # the deployed commit's signals/config.py
+    git.write_text(f"#!/bin/sh\necho 'VERSION = \"{deployed}\"'\n")
+    git.chmod(0o755)
+    result, _ = run_check()
+    assert result.returncode == 0, result.stderr
+    assert ("WARN eval rows are for detector ['v9'], the site runs v10" in result.stdout) is warns
+    assert ("INFO metrics rows=1 replay detector=['v9'] deployed=v9" in result.stdout) is not warns

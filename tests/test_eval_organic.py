@@ -364,3 +364,41 @@ def test_adhoc_run_is_never_written(tmp_path, flag):
     argv = ["organic", "run", "--offline", "--write", *flag]
     argv += ["--slices", str(tmp_path), "--fixture", str(tmp_path / "f.json")]
     assert main(argv) == 2  # refused before anything runs (no fixture would give 1)
+
+
+def test_base_rates_reach_the_detector_and_the_row(tmp_path, monkeypatch):
+    """--base-rates turns on the identity test as the live worker runs it, and says so."""
+    from eval.__main__ import main
+    from signals.baseline import BaseRates
+
+    seen = []
+    real_detect = organic.detect
+
+    def spy(*args, **kw):
+        seen.append(kw.get("base_rates"))
+        return real_detect(*args, **kw)
+
+    monkeypatch.setattr(organic, "detect", spy)
+    monkeypatch.setattr(organic, "build_window", lambda data, w, cfg: empty_window(start=w, seed=3))
+    rates = BaseRates(n_age=400, fresh=0.0125, n_profile=399, empty=0.0)
+    organic._G.update(profiles=Profiles(None, fetch=False), cfg=organic.DEFAULT, budget=400)
+    organic._G.update(data=None, rates=rates)
+    try:
+        organic._job(W, None, None, [])
+        organic._job(W, "news_link", 1000, [])
+    finally:
+        organic._G.clear()
+    assert seen == [rates, rates]
+
+    src = tmp_path / "rates.json"
+    src.write_text(json.dumps({"base_rates": rates.as_dict()}))
+    fixture = tmp_path / "organic_live.json"
+    fixture.write_text(json.dumps({"cases": []}))
+    out = tmp_path / "rows.json"
+    argv = ["organic", "run", "--offline", "--slices", str(tmp_path / "none"), "--workers", "1"]
+    argv += ["--profiles", str(tmp_path / "p.json"), "--fixture", str(fixture), "--json", str(out)]
+    assert main([*argv, "--base-rates", str(src)]) == 0
+    for row in json.loads(out.read_text()):
+        assert row["details"]["base_rates"] == {**rates.as_dict(), "source": str(src)}
+    assert main(argv) == 0
+    assert all(r["details"]["base_rates"] is None for r in json.loads(out.read_text()))

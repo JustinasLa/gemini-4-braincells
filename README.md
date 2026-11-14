@@ -15,8 +15,8 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS). API health
 Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
 
 Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
-API are on `main` and live. The eval harness (open PRs #9 and #10) and the dashboard are being
-integrated; until they land, `main` has only their stubs and `/api/metrics` may be empty.
+API are on `main` and live, and so are the eval harness and the dashboard (its Accuracy page,
+`#/accuracy`, shows `/api/metrics`).
 
 ## The thesis
 
@@ -89,7 +89,7 @@ that anyone was paid or why.
 | `media/` | Nemotron 3.5 Super VL: describes images and video thumbnails in candidate clusters, extracts their text (OCR), notes reuse and manipulated-context cues, links different images that share one text template. `media/README.md`. |
 | `lookup/` | Trace any link (X post, Bluesky post, profile, web page) with live data: Oxylabs `/scrape` reads the post, its counts and the author's profile; `/search` finds the same text on the web, on X and Bluesky and the coverage of the story; candidate copies are verified on their own pages (copy, quote or reply); exact X post times from the post id; Nemotron reads the images; Gemini writes a cited reading. Coordination verdict only when the link is in a monitored cluster. `lookup/README.md`. |
 | `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
-| `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. In review (PRs #9, #10). |
+| `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. |
 | `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
 | `web/` | Dashboard served by Caddy (`web/public/index.html` is a placeholder until the dashboard lands). |
 | `common/` | Shared settings (`common.config`) and DB connections (`common.db`), migrations runner. |
@@ -123,7 +123,7 @@ that anyone was paid or why.
 
 ## How the metrics are made
 
-The eval code is in review (PRs #9 and #10); this describes what it does. `eval/` replays recorded Jetstream hours offline, through the same normaliser and the same
+`eval/` replays recorded Jetstream hours offline, through the same normaliser and the same
 detector entry point as the live worker, and writes one `eval_runs` row per dataset and split.
 `GET /api/metrics` returns the latest row per dataset and split, unchanged.
 
@@ -134,11 +134,11 @@ detector entry point as the live worker, and writes one `eval_runs` row per data
   and real organic bursts picked by a fixed rule that never looks at detector output.
 - **Split**: odd UTC hours are held out, even hours are for development. We tune only on dev.
 - Each row's `details` records the detector version and the eval code commit.
-- An empty `/api/metrics` means no run has been published to that deployment yet, so there are
-  no accuracy numbers to show yet.
+- Replays run the detector the site runs: `deploy/publish-evals.sh` (Deploy, below) refuses any
+  other commit. An empty `/api/metrics` means no run has been published to that deployment yet.
 
-Live precision and confidence calibration need hand-labelled live clusters; they aren't reported
-until those labels exist. Details: [docs/METHODOLOGY.md](docs/METHODOLOGY.md#how-the-metrics-are-made).
+Calibration is measured on the synthetic cases only. Live precision needs hand-labelled live
+clusters; it isn't reported until those labels exist. Details: [docs/METHODOLOGY.md](docs/METHODOLOGY.md#how-the-metrics-are-made).
 
 ## Limits
 
@@ -212,7 +212,18 @@ deploy/check.sh                         # outside check: health + ingest lag, cl
 curl https://noise-radar.srv2159172.hstgr.cloud/version.txt   # deployed commit
 ```
 
-Redeploy after every merge to `main`. `deploy/check.sh` also runs every 5 minutes from the team
+Redeploy after every merge to `main`. When the deploy changes `signals/config.py` `VERSION` (or
+`/api/metrics` is empty: `check.sh` warns about both), republish the accuracy numbers from the
+team server, from a clean checkout of the deployed commit (~5-10 min):
+
+```bash
+git checkout --detach "$(curl -s https://noise-radar.srv2159172.hstgr.cloud/version.txt)"
+HOSTINGER_HOST=srv2159172.hstgr.cloud HOSTINGER_SSH_KEY=~/.ssh/hostinger_ed25519 deploy/publish-evals.sh
+```
+
+It reruns recall (dev + heldout), organic FPR and calibration (heldout) on the recorded slices,
+writes their `eval_runs` rows to the prod DB and keeps the result JSON in
+`/srv/junction-espoo/data/eval-slices/results/`. `deploy/check.sh` also runs every 5 minutes from the team
 server (cron of the deploying user) and logs to `~/noise-radar-health.log`.
 
 Running it on the VPS: every long-running service has `restart: unless-stopped` (`migrate` is a
