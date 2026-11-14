@@ -357,6 +357,61 @@ def test_run_reports_fixture_cases_it_could_not_score(tmp_path):
     assert live["details"]["missing_cases"] == ["link_share:gone"]
 
 
+@pytest.mark.parametrize("remaining_accounts", [0, 1, 3])
+def test_changed_fixture_case_is_excluded_from_fpr(tmp_path, monkeypatch, remaining_accounts):
+    """A complete window can still lack the burst the saved fixture labelled organic."""
+    from eval.__main__ import main
+
+    changed_link = "https://news.example/changed"
+    posts = [_post(i, W + i, "changed case", [changed_link]) for i in range(remaining_accounts)]
+    posts += [_post(i, W + i, "intact case", [LINK]) for i in (10, 11)]
+    data = _hour(posts)
+    data.seconds[W] = set(range(W, AT))
+    stamp = datetime.fromtimestamp(W, UTC)
+    monkeypatch.setattr(organic, "slice_hours", lambda root: {stamp.strftime("%Y%m%d%H"): [root]})
+    monkeypatch.setattr(organic, "read_rows", lambda paths: data)
+    monkeypatch.setattr(
+        organic,
+        "detect",
+        lambda *args, **kwargs: SimpleNamespace(
+            clusters=[_cluster("coordinated", ["did:plc:u10", "did:plc:u11"])], stats={}
+        ),
+    )
+    fixture = tmp_path / "fixture.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": identifier,
+                        "type": "link_burst",
+                        "key": key,
+                        "accounts": 2,
+                        "window_start": stamp.isoformat(),
+                        "split": "dev",
+                    }
+                    for identifier, key in [("changed", changed_link), ("intact", LINK)]
+                ]
+            }
+        )
+    )
+    out = tmp_path / "rows.json"
+    assert main(
+        [
+            "organic", "run", "--offline", "--split", "dev", "--workers", "1", "--seeds", "0",
+            "--slices", str(tmp_path), "--profiles", str(tmp_path / "profiles.json"),
+            "--fixture", str(fixture), "--json", str(out),
+        ]
+    ) == 0
+    live = next(row for row in json.loads(out.read_text()) if row["dataset"] == "organic_live")
+    assert live["n"] == 1
+    assert live["fpr"] == 1.0
+    assert live["details"]["fixture_cases"] == 2
+    assert live["details"]["missing_cases"] == ["changed"]
+    assert live["details"]["counts"]["no_cluster"] == 0
+    assert [fp["case_id"] for fp in live["details"]["false_positives"]] == ["intact"]
+
+
 @pytest.mark.parametrize("flag", [["--max-windows", "1"], ["--seeds", "1"], ["--budget", "50"]])
 def test_adhoc_run_is_never_written(tmp_path, flag):
     from eval.__main__ import main
