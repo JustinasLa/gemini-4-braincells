@@ -420,7 +420,8 @@ export function lookupCase(result: LookupResult): TraceCase {
       id: post.id, t: fallbackTime, timeUnknown: true, platform: "web", role: "submitted",
       author: { name: "Your upload", handle: "uploaded image", hue: hashStr(post.id) % 360 },
       text: post.text, url: undefined,
-      media: { kind: "photo", src: mediaSource, title: media[0]?.description || "Your uploaded image", note: media[0]?.description ?? undefined },
+      // no description line: the upload's matches are pictures, not text about it
+      media: { kind: "photo", src: mediaSource, title: media[0]?.description || "Your uploaded image" },
       flags: ["uploaded image · no time of its own", ...(media[0] && !post.text ? ["no text read in the image"] : [])],
       realData: realData.slice(1),
     };

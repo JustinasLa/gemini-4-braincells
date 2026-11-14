@@ -1,7 +1,6 @@
 """Image lookups (POST /api/lookup/image): an uploaded meme or screenshot is traced like a post
 whose only content is its image (no network; fictional accounts)."""
 
-import dataclasses
 import hashlib
 
 from fastapi.testclient import TestClient
@@ -119,7 +118,10 @@ def test_sniff_image_by_magic_bytes():
     assert sniff_image(b"") is None
 
 
-def test_uploaded_meme_text_drives_the_searches_and_finds_copies():
+TEXT_STEPS = ("copies_web", "copies_x", "copies_bsky", "coverage")
+
+
+def test_uploaded_meme_is_read_but_its_text_is_never_searched():
     reader = FakeReader()
     job = _run(reader)
     r = job.result
@@ -128,51 +130,29 @@ def test_uploaded_meme_text_drives_the_searches_and_finds_copies():
     st = {s.id: s for s in r.steps}
     assert st["post"].state == st["author"].state == st["linked"].state == "skipped"
     assert st["media"].label.startswith("Read the uploaded image")
+    assert st["media"].state == "done"
     subj = next(p for p in r.posts if p.id == r.subject_id)
     assert subj.role == "submitted" and subj.id.startswith("upload:")
     assert subj.created_at is None and subj.media_urls == ["/api/lookup/lk_img/image"]
     assert subj.text == "\n".join(CAPTION)  # reading order, for the card
-    assert any("WHEN THE COMETS LAND" in q for q in job.deps.oxylabs.queries)
-    assert any(q.endswith(" meme") for q in job.deps.oxylabs.queries)  # coverage: meme pages
-    posts = {p.id: p for p in r.posts}
-    # the earliest copy read on its own page is the origin, never the upload itself
-    assert r.origin_id == f"x:{COPY}" and posts[f"x:{COPY}"].role == "origin"
-    assert any(
-        e.from_ == f"x:{COPY}" and e.to == r.subject_id and e.rel == "media" for e in r.edges
-    )
-    assert r.media[0].post_id == r.subject_id
-    assert any("possible variations" in n for n in r.notes)
-
-
-def test_upload_with_no_copies_has_no_origin():
-    job = _run(FakeReader(text=["unique words nobody else has posted anywhere"]))
-    # the fake X search still returns its two posts, but they share no words with this text
-    assert job.result.origin_id is None
-
-
-def test_short_caption_searches_for_pages_about_the_meme():
-    job = _run(FakeReader(text=["THIS IS FINE"]))
-    r = job.result
-    qs = job.deps.oxylabs.queries
-    assert qs == ["THIS IS FINE meme"]  # no exact-phrase copy search on three words
-    st = {s.id: s for s in r.steps}
-    assert st["copies_x"].state == "skipped" and st["coverage"].state == "done"
-    assert all(pg.role == "coverage" for pg in r.pages)  # about the image, never a copy
-    assert r.origin_id is None
-
-
-def test_no_text_searches_by_description_but_never_for_adult_content():
-    job = _run(FakeReader(text=[], description="A cartoon dog sits in a burning room."))
-    assert job.deps.oxylabs.queries == ["meme A cartoon dog sits in a burning room."]
-
-    class Adult(FakeReader):
-        def analyze(self, media, *, context=None):
-            a = super().analyze(media, context=context)
-            return dataclasses.replace(a, content_flags=["adult"])
-
-    job = _run(Adult(text=[], description="Adult content (not described)."))
+    # only matches of the picture: no post or page found by the caption
     assert job.deps.oxylabs.queries == []
-    assert {s.id: s.state for s in job.result.steps}["media"] == "done"  # read, not searched
+    assert all(st[sid].state == "skipped" for sid in TEXT_STEPS)
+    assert [p.id for p in r.posts] == [r.subject_id] and r.pages == []
+    assert r.origin_id is None  # never its own origin
+    assert any("Only matches of the uploaded picture" in n for n in r.notes)
+
+
+def test_short_caption_or_description_is_never_searched():
+    for reader in (
+        FakeReader(text=["THIS IS FINE"]),
+        FakeReader(text=[], description="A cartoon dog sits in a burning room."),
+        FakeReader(text=["unique words nobody else has posted anywhere"], media_type="photo"),
+    ):
+        job = _run(reader)
+        assert job.deps.oxylabs.queries == []
+        assert {s.id: s.state for s in job.result.steps}["media"] == "done"  # read, not searched
+        assert job.result.pages == [] and job.result.origin_id is None
 
 
 def test_image_cache_key_and_bytes_required():
@@ -220,17 +200,6 @@ def test_text_lookup_has_no_image_route():
     store = JobStore(lambda: Deps(oxylabs=FakeOxylabs()), max_per_hour=10)
     job = store.start(LookupInput(text="the comets have landed and nobody says why"), "c")
     assert job.upload is None
-
-
-def test_too_little_text_and_no_query_says_nothing_was_searched():
-    class Adult(FakeReader):
-        def analyze(self, media, *, context=None):
-            a = super().analyze(media, context=context)
-            return dataclasses.replace(a, content_flags=["adult"])
-
-    job = _run(Adult(text=[], description="Adult content (not described)."))
-    assert any("nothing was searched" in n for n in job.result.notes)
-    assert not any("searched by its" in n for n in job.result.notes)
 
 
 def test_unreadable_upload_says_so():
