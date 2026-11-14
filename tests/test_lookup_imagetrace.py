@@ -1508,6 +1508,7 @@ def test_a_date_arriving_after_publication_withdraws_the_description():
     after = trace.matches[match.id]
     assert after.first_seen == OLD
     assert after.changes == [] and after.change_kinds == [] and after.changes_from is None
+    assert after.changes_withdrawn and after.receipt_id == 1  # back on its earlier receipt
     receipt = job.result.receipts[rid - 1]
     assert not receipt.ok and receipt.summary.startswith("Image change description withdrawn")
     assert all(m.changes_from is None for m in job.result.image_matches if m.id == match.id)
@@ -1548,3 +1549,31 @@ def test_withdrawal_marks_the_receipt_even_when_the_deadline_passes_mid_way(monk
     assert trace.matches[match.id].changes == [] and trace.matches[match.id].changes_from is None
     receipt = job.result.receipts[rid - 1]
     assert not receipt.ok and receipt.summary.startswith("Image change description withdrawn")
+
+
+def test_a_later_date_never_makes_a_copy_less_provably_older():
+    """Entire review: keep the earliest upper bound, not the earliest raw date."""
+    job = job_for()
+    trace = imagetrace.Trace(job)
+    page = replace(hit(engine="yandex", when=None), first_seen=None)
+    [match] = trace._accept(result("yandex", "query", [page]), 1)
+    trace.matches[match.id] = match.model_copy(
+        update={"first_seen": datetime(2026, 11, 13, 12, tzinfo=UTC), "time_source": "page"}
+    )
+    crawl = replace(
+        page,
+        engine="tineye",
+        first_seen=datetime(2026, 11, 13, 10, tzinfo=UTC),
+        time_source="crawl_date",
+    )  # earlier raw date, later bound (end of day)
+    trace._accept(result("tineye", "query", [crawl]), 2)
+    kept = trace.matches[match.id]
+    assert kept.time_source == "page" and kept.first_seen.hour == 12
+
+
+def test_variations_detail_counts_only_descriptions_still_shown():
+    job = job_for()
+    run_trace(job)
+    step = job._step("variations")
+    shown = sum(m.changes_from is not None for m in job.result.image_matches)
+    assert step.detail.endswith(f"; {shown} change descriptions")

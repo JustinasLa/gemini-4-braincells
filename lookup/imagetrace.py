@@ -69,6 +69,11 @@ def _media_id(url: str) -> str:
     return f"{host}{re.sub(r'\.[A-Za-z0-9]{2,5}$', '', path)}".lower()
 
 
+def _bound(item):
+    """Latest moment the picture is known to have existed (a day-only crawl ends at midnight)."""
+    return item.first_seen + timedelta(days=item.time_source == "crawl_date")
+
+
 def _num(value):
     return None if value is None else float(value)
 
@@ -150,6 +155,7 @@ class Trace:
         self.admitted: set[str] = set()
         self.tried: dict[str, set[str]] = {}  # match id -> URLs already downloaded or refused
         self.failed: set[str] = set()  # admitted, every URL tried, no comparison
+        self.compare_receipts: dict[str, int | None] = {}  # match id -> its comparison receipt
         self.compared: set[str] = set()  # comparisons published (incl. "different", dropped)
         self.tineye_settled = False  # TinEye answered or failed: its reserve is open to Yandex
         self.overflow: list[tuple] = []  # (hit, rid) Yandex hits held back for the reserve
@@ -218,6 +224,7 @@ class Trace:
                     "changes",
                     "change_kinds",
                     "changes_from",
+                    "changes_withdrawn",
                     "receipt_id",
                 }
                 self.matches[match.id] = self.matches[match.id].model_copy(
@@ -269,7 +276,7 @@ class Trace:
                     if (
                         hit.first_seen
                         and hit.time_source
-                        and (not match.first_seen or hit.first_seen < match.first_seen)
+                        and (not match.first_seen or _bound(hit) < _bound(match))
                     ):
                         match.first_seen, match.time_source = hit.first_seen, hit.time_source
                         match.engine = hit.engine
@@ -518,15 +525,21 @@ class Trace:
         posted = posted or self.job._subject_time
         if not (match.first_seen and posted):
             return False
-        bound = match.first_seen + timedelta(days=match.time_source == "crawl_date")
-        return bound <= posted
+        return _bound(match) <= posted
 
     def _withdraw_description(self, mid):
         """A date arrived after the change description was published and flipped which picture
         it starts from: its sentences read the other way, so they are taken back (job.lock)."""
         match = self.matches[mid]
         self.matches[mid] = match.model_copy(
-            update={"changes": [], "change_kinds": [], "changes_from": None}
+            update={
+                "changes": [],
+                "change_kinds": [],
+                "changes_from": None,
+                "changes_withdrawn": True,
+                # the match cites its comparison again (its relation and first-seen summary)
+                "receipt_id": self.compare_receipts.get(mid, match.receipt_id),
+            }
         )
         if match.receipt_id:
             # written here, not through _complete: this runs inside an _accept_hits transaction
@@ -566,6 +579,8 @@ class Trace:
             updated.changes = [_wording(change) for change in diff.changes]
             updated.change_kinds = list(dict.fromkeys(diff.kinds))
             updated.changes_from = "match" if older else "upload"
+            with self.job.lock:
+                self.compare_receipts.setdefault(match.id, self.matches[match.id].receipt_id)
             updated.receipt_id = rid
             updated = ImageMatch.model_validate(updated.model_dump())
             with self.job.lock:  # re-check and publish as one step: no date slips in between
@@ -732,6 +747,7 @@ class Trace:
             return
         with self.job.lock:
             matches = list(self.job.result.image_matches)
+            shown = sum(m.changes_from is not None for m in matches)
             compared = len(self.compared)
             dropped = sum(self.matches[mid].relation == "different" for mid in self.compared)
         detail = f"{compared} image{'' if compared == 1 else 's'} compared"
@@ -740,7 +756,7 @@ class Trace:
         self._step(
             "variations",
             "done",
-            f"{detail}; {diffs_done} change descriptions"
+            f"{detail}; {shown} change descriptions"
             + ("" if describe is not None else " (not installed on this server)"),
             [match.id for match in matches],
         )
