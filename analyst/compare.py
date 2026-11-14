@@ -114,8 +114,11 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
                         model_turns=len(res.model_calls),
                         tool_calls=len(box.records),
                         web_calls=box.budget.web_calls,
+                        # new tool evidence the model cited that a successful call returned
                         cited_tool_evidence=sum(
-                            1 for c in draft.evidence if c.evidence_id in box.new_evidence
+                            1
+                            for c in draft.evidence
+                            if c.evidence_id in box.new_evidence and c.evidence_id in box.returned
                         ),
                         tools=[
                             {k: r[k] for k in ("name", "endpoint", "source_url", "cached", "ok")}
