@@ -2,6 +2,7 @@ import type { Cluster, Relation, Role, Tool, TraceCase, TraceNode, TraceStep } f
 import { fmtDur, fmtNum, httpUrl, shotLabel } from "../ui/format";
 import type { ClusterSummary } from "./api";
 import { hashStr } from "./build";
+import { appendImageTrace, type ImageMatch } from "./imageTrace";
 
 type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id";
 export interface LookupPost {
@@ -132,6 +133,8 @@ export interface LookupAssessment {
   latency_ms: number | null; cost_usd: number | null;
 }
 export interface LookupResult {
+  image_matches?: ImageMatch[];
+  image_origin_id?: string | null;
   id: string;
   state: "running" | "done" | "failed";
   error: string | null;
@@ -337,6 +340,10 @@ export async function startLookup(input: LookupRequest, onUpdate: (result: Looku
 export const readingReady = (result: LookupResult) => result.state !== "running"
   || result.steps.some((step) => step.id === "assess" && ["done", "failed", "skipped"].includes(step.state));
 /** every reading received so far, primary first (older servers send only `assessment`) */
+/** A case has a coordination verdict to reveal: every non-lookup case (simulated, historical, a
+ *  monitored cluster), and a lookup only when it matched a monitored cluster. A lookup's
+ *  "insufficient" is the absence of a call, not a verdict, so it gets no coin. */
+export const hasVerdict = (c: Pick<TraceCase, "lookup" | "status">) => !c.lookup || c.status !== "insufficient";
 export const readingsOf = (result: LookupResult): LookupAssessment[] => result.readings?.length ? result.readings : result.assessment ? [result.assessment] : [];
 /** the readings differ (the server says so; older servers: compare their llm_reading) */
 export const readingsDisagree = (result: LookupResult) => result.readings_disagree ?? new Set(readingsOf(result).map((r) => r.llm_reading)).size > 1;
@@ -344,7 +351,8 @@ export const readingsDisagree = (result: LookupResult) => result.readings_disagr
 export const modelTool = (model: string | null | undefined): Tool => /nemotron/i.test(model ?? "") ? "nemotron" : /gemini/i.test(model ?? "") ? "gemini" : "archive";
 
 const toolFor = (tool: string): Tool => {
-  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you"].includes(tool)) return tool as Tool;
+  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you", "fetch"].includes(tool)) return tool as Tool;
+  if (tool === "tineye" || tool === "yandex") return "oxylabs"; // reverse-image engines, read through Oxylabs /scrape
   return "archive";
 };
 const timeOf = (value: string | null): number | undefined => {
@@ -488,7 +496,7 @@ export function lookupCase(result: LookupResult): TraceCase {
   }
   const subject = result.subject_id ? resolve(result.subject_id) : "";
   const submittedId = nodeIds.has(subject) ? subject : nodes.find((node) => node.url === result.input.url || node.id === result.input.url)?.id ?? "";
-  return {
+  return appendImageTrace({
     id: result.id, title: (result.posts.find((post) => post.id === result.subject_id)?.text?.replace(/\s+/g, " ") || result.input.url || result.input.text || (result.kind === "image" ? "Uploaded image" : "Live lookup")).slice(0, 90),
     kicker: result.kind === "image" ? "Live image lookup" : "Live link lookup", status: matched?.status ?? "insufficient", confidence: matched?.confidence ?? 0, scored: matched?.confidence != null,
     synthetic: false, live: true, submittedId, originId: result.origin_id && nodeIds.has(resolve(result.origin_id)) ? resolve(result.origin_id) : "",
@@ -504,5 +512,5 @@ export function lookupCase(result: LookupResult): TraceCase {
     summary: readingsDisagree(result) ? `Two model readings of these receipts differ; both are shown below. ${result.posts.length} posts and ${result.pages.length} pages collected.`
       : result.assessment?.summary || (!matched && result.unreadable ? `${result.unreadable}: the submitted post can't be read${result.input.text ? "; these results trace the text you supplied" : ", so there is nothing to trace"}. Can't tell is not a verdict on the account.` : null) || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Coordination: insufficient evidence. This is not a finding about the accuracy of the content."}`,
     lookup: result,
-  };
+  });
 }

@@ -2,7 +2,7 @@
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
-import { fmtDur, isLineageEdge, isMatchRel, relOf, ROLE, roleOf, STATUS } from "../ui/format";
+import { clusterShort, fmtDur, isLineageEdge, isMatchRel, relOf, ROLE, roleOf } from "../ui/format";
 
 
 
@@ -980,13 +980,14 @@ export class Graph {
       const match = isMatchRel(e.e.rel);
       const shot = e.e.rel === "screenshot_of";
       const role = this.colors[e.b.d.role] ?? C.ink2;
-      const col = on ? role : match ? "rgba(245,245,245,0.9)" : shot ? ROLE.screenshotted.color : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
+      const col = on ? role : e.e.rel === "variant" ? "#a2ffb5" : match ? "rgba(245,245,245,0.9)" : shot ? ROLE.screenshotted.color : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
       c.save();
       c.globalAlpha = dim ? 0.1 : on ? 1 : match ? 0.75 : 0.7;
       c.strokeStyle = col;
       c.lineWidth = (on ? 2.2 : match ? 1.1 : 1.3) / k;
       if (match || e.e.rel === "cites") c.setLineDash([7 / k, 6 / k]);
       else if (shot) c.setLineDash([2 / k, 5 / k]);
+      else if (e.e.rel === "variant") c.setLineDash(relOf("variant").dash.map((length) => length / k));
       if (match) c.lineDashOffset = -now / 40 / k;
       c.beginPath();
       c.moveTo(pts[0], pts[1]);
@@ -1350,7 +1351,7 @@ export class Graph {
     const fs = 11 / k; // constant on screen: the verdict label must never become microtype
     c.font = `600 ${fs}px "JetBrains Mono", monospace`;
     // the tab never runs past its box: drop detail from the right until it fits
-    const parts = [STATUS[cl.status].short.toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
+    const parts = [clusterShort(cl.status, !!this.case?.lookup).toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
     let label = parts.join(" · ");
     while (parts.length > 2 && c.measureText(label).width + fs * 1.2 > x1 - x0) { // always keep verdict + count
       parts.pop();

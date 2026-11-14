@@ -19,6 +19,8 @@ dependencies = [
     "python-igraph>=1.0.0",
     "leidenalg>=0.12.0",
     "scipy>=1.18.1",
+    "pillow>=13.0.0",
+    "imagehash>=4.3.2",
 ]
 
 [dependency-groups]
