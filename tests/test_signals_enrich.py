@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 import signals.enrich as enrichment
@@ -41,7 +42,7 @@ def test_failed_profile_lookup_does_not_refresh_its_timestamp(monkeypatch, plc_o
     assert update["handle"] is None and update["avatar"] is None
 
 
-def test_partial_profile_response_only_refreshes_returned_profiles(monkeypatch):
+def test_failed_chunk_only_refreshes_successful_accounts(monkeypatch):
     found, missing = "did:web:found.example", "did:web:missing.example"
     conn = Connection([found, missing])
     monkeypatch.setattr(
@@ -66,3 +67,39 @@ def test_partial_profile_response_only_refreshes_returned_profiles(monkeypatch):
     enrichment.enrich(conn, [missing])
     assert isinstance(conn.updates[missing]["profile_fetched"], datetime)
     assert conn.updates[missing]["handle"] == "missing.example"
+
+
+def test_successful_response_caches_absent_accounts_without_inventing_profile_fields(monkeypatch):
+    did = "did:web:deleted.example"
+    conn = Connection([did])
+    monkeypatch.setattr(enrichment, "fetch_profiles", lambda client, dids: {did: None})
+    monkeypatch.setattr(enrichment, "fetch_plc", lambda client, did: None)
+    enrichment.enrich(conn, [did])
+    assert isinstance(conn.updates[did]["profile_fetched"], datetime)
+    assert conn.updates[did]["handle"] is None
+    assert conn.updates[did]["followers"] is None
+
+
+def test_profile_fetch_distinguishes_absence_from_failed_chunks(monkeypatch):
+    dids = [f"did:web:actor{i}.example" for i in range(26)]
+
+    def response(client, url, params):
+        chunk = [did for _, did in params]
+        if chunk == dids[25:]:
+            return None
+        return httpx.Response(200, json={"profiles": [{"did": dids[0]}]})
+
+    monkeypatch.setattr(enrichment, "_get", response)
+    result = enrichment.fetch_profiles(None, dids)
+    assert result[dids[0]] == {"did": dids[0]}
+    assert result[dids[1]] is None
+    assert len(result) == 25
+    assert dids[25] not in result
+
+
+@pytest.mark.parametrize("body", [b"not JSON", b"{}", b"[]"])
+def test_malformed_profile_response_remains_retryable(monkeypatch, body):
+    monkeypatch.setattr(
+        enrichment, "_get", lambda *args, **kwargs: httpx.Response(200, content=body)
+    )
+    assert enrichment.fetch_profiles(None, ["did:web:actor.example"]) == {}
