@@ -120,7 +120,7 @@ class Reader(threading.Thread):
                             log.warning("skipped a non-object frame: %r", raw[:200])
                             continue
                         t = ev.get("time_us")
-                        if isinstance(t, int):
+                        if valid_time_us(t):
                             self.cursor_us = t
                             if self.recorder:
                                 self.recorder.write(raw, t)
