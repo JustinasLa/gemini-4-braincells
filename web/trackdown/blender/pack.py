@@ -20,7 +20,6 @@ for i, name in ((0, "shill"), (24, "chill"), (12, "edge")):
     Image.open(f"{src}/f{i:03d}.png").resize((256, 256), Image.LANCZOS).save(
         f"{out}/coin-{name}.webp", "WEBP", quality=90
     )
-Image.open(f"{src}/f000.png").resize((64, 64), Image.LANCZOS).save(f"{out}/favicon.png")
 
 # "Can't tell (yet)": a coin still spinning = premultiplied average of flip frames 4..20
 fr = [
