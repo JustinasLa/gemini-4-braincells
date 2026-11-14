@@ -154,10 +154,3 @@ def test_stored_media_reaches_api_and_dashboard(media_cases):
     finally:
         app.dependency_overrides.clear()
 
-    # The dashboard's Images card (mediaCard) must render the stored file and its spread.
-    dashboard = (ROOT / "web/public/monitor/index.html").read_text()
-    start = dashboard.index("function mediaCard(")
-    media_card = dashboard[start : dashboard.index("\n  }\n", start)]
-    assert "e.kind === 'media'" in media_card
-    assert '<img src="${esc(d.media_url)}"' in media_card
-    assert "d.n_accounts" in media_card and "d.n_posts" in media_card

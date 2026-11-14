@@ -7,15 +7,16 @@
     <meta name="description" content="Trackdown, Shill or Chill’s tracing view: trace a post back to its earliest copy and see whether its spread was coordinated." />
     <title>Trackdown · Shill or Chill</title>
     <script>
-      // The live monitor moved from / to /monitor/. Keep its old links (/#/cluster/7, /#/accuracy) working.
-      if (/^#\/(cluster|accuracy|method)(\/|$)/.test(location.hash)) location.replace("/monitor/" + location.hash);
+      // The old dashboard's cluster links (/#/cluster/7, /monitor/#/cluster/7) open that cluster here.
+      var oldCluster = location.hash.match(/^#\/cluster\/(\d+)/);
+      if (oldCluster) location.replace("/?cluster=" + oldCluster[1]);
     </script>
     <link rel="icon" type="image/png" href="./coin/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Michroma&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-    <script type="module" crossorigin src="./assets/index-CN1kh5oH.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DO2yyZUq.css">
+    <script type="module" crossorigin src="./assets/index-pCAze9WD.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-0hfnkpH_.css">
   </head>
   <body>
     <div id="app"></div>
