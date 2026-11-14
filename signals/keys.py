@@ -59,11 +59,17 @@ class MinHashCache:
         self.num_perm = num_perm
         self.capacity = capacity
         self._d: dict[str, MinHash] = {}
+        # Permutations depend only on (num_perm, seed): compute them once, not per post.
+        template = MinHash(num_perm=num_perm, seed=1)
+        self._perms = template.permutations
+        self._scheme = template.scheme
 
     def get(self, uri: str, toks: list[str]) -> MinHash:
         mh = self._d.get(uri)
         if mh is None:
-            mh = MinHash(num_perm=self.num_perm, seed=1)
+            mh = MinHash(
+                num_perm=self.num_perm, seed=1, permutations=self._perms, scheme=self._scheme
+            )
             shingles = {" ".join(toks[i : i + 3]) for i in range(max(1, len(toks) - 2))}
             mh.update_batch([s.encode() for s in sorted(shingles)])
             if len(self._d) >= self.capacity:
