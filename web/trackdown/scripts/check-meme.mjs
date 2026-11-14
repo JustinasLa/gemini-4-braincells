@@ -117,8 +117,23 @@ check("a withdrawn change description says so instead of 'No change description 
 });
 check("relation groups count matches, exclude original and different", () => {
   const state = api.imageTraceState(fixture);
-  assert.deepEqual(state.groups.map((group) => [group.relation, group.matches.length]), [["same", 1], ["resized", 1], ["cropped", 1], ["edited", 1], ["unknown", 1]]);
+  assert.deepEqual(state.groups.map((group) => [group.relation, group.matches.length]), [["same", 1], ["resized", 1], ["cropped", 1], ["edited", 1], ["template", 0], ["unknown", 1]]);
   assert.equal(state.different.length, 1);
+});
+check("same-template reply pictures are their own group and never make the picture a copy or an edit", () => {
+  const upload = api.memeFixture("meme-upload");
+  upload.image_matches = [{ id: "xr:2121470000000000001:ab", image_url: "https://pbs.twimg.com/media/TPL.jpg", page_url: "https://x.com/user1/status/2121470000000000001", domain: "x.com/user1", engine: "x_replies", relation: "template", first_seen: "2026-11-13T21:00:00Z", time_source: "snowflake", relation_note: "Reply by @user1: same template, other content", changes: ['shows "Xi Jingping" instead of "Dario Amodei"'], changes_from: "upload", change_kinds: [] }];
+  upload.image_origin_id = null;
+  const state = api.imageTraceState(upload);
+  assert.deepEqual(state.groups.find((group) => group.relation === "template").matches.map((m) => m.id), ["xr:2121470000000000001:ab"]);
+  assert.equal(state.origin, undefined);
+  const finding = api.memeFinding(upload);
+  assert.equal(finding?.kind, "first", "a template picture is not an earlier copy of this one");
+  assert.match(finding.sentence, /1 reply on X shows the same template with other content\./);
+  assert.equal(api.humanLabel("template"), "Same template · other content");
+  const node = api.appendImageTrace(api.lookupCase(upload)).nodes.find((n) => n.id === "xr:2121470000000000001:ab");
+  assert.equal(node?.platform, "x");
+  assert.equal(node?.role, "mutation");
 });
 check("empty result and done reverse step without matches never invent an origin", () => {
   const empty = api.memeFixture("meme-empty");
