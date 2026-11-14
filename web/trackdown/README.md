@@ -38,7 +38,7 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 - Avatars are detected patches of the painting. Days-old accounts get an empty hatched box; templated
   handles (glow_fan_0412…) share one patch, so a wave of look-alikes looks alike.
 - A cluster is one large detection box with a class/score tab (`SHILL · 31 ACCOUNTS · 94 S`).
-- The verdict arrives as the banner itself: painting, detection boxes, the bronze coin, and the verdict
+- The verdict arrives as the banner itself: painting, detection boxes, and the verdict
   as a wide wordmark.
 - Type: Michroma (wide wordmark, like JUNCTION), and T3 Code's default stacks: the system UI font
   with Inter as the fallback (text), SF Mono / Menlo / Consolas (`//` labels, data, terminal). Black, white, CV green, and the painting's own colours for the verdicts.
@@ -61,7 +61,7 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
     along its edges. Clusters get a breathing hull labelled with the detector's numbers.
 - **Trackdown run** (`runTrace` in `src/main.ts`): the submitted card is scanned, then each step
   of `case.steps` reveals what it found (rejected candidates flash up as ghost cards), the camera
-  follows, the origin gets a shockwave, the rest of the spread pours in, and the verdict coin lands.
+  follows, the origin gets a shockwave, the rest of the spread pours in, and the verdict appears.
 - **Timeline dock** (`src/ui/dock.ts`): histogram on the same compressed axis, scrub or play the
   spread (also a native range input for keyboards), ruler across the top, minimap.
 - **Panel** (`src/ui/panel.ts`): tabs Verdict (Findings for a lookup) / Post. On phones it is a
@@ -90,7 +90,7 @@ Phones: Fit and KEY sit in the map toolbar.
   it polls `GET /api/lookup/{id}` every 0.6 seconds. Either way it gives up after 150 seconds. Each snapshot updates
   the step console, cards and receipts. The finale is revealed once the primary reading is in (an
   image search still running delays it until that search finishes); failures and timeouts leave
-  partial receipts available without a finale. See "Finale: verdict coin or meme finding". Starting another
+  partial receipts available without a finale. See "Finale: verdict or meme finding". Starting another
   trace cancels the previous client polling. All API paths are absolute so the app works at `/` and `/trackdown/`.
 - **Real lookup data**: posts, platform engagement snapshots, profile facts, linked pages and
   their exact timestamps come from the backend contract in `lookup/README.md`. Selected cards
@@ -141,18 +141,17 @@ Botticelli, *The Birth of Venus* (c. 1485; top band cropped, darkened, with ORB 
 
 Rendered in Blender 4.2 (Cycles, CPU) from `blender/coin.py`: struck bronze, a cinnabar SHILL
 field with a flag, a verdigris CHILL field with sunglasses, and the legend
-"SHILL OR CHILL · FACTA NON VERBA · MMXXVI" in Cinzel round the rim, 48-frame flip packed into `public/coin/coin-sheet.webp` by
-`blender/pack.py`. Shill lands on frame 0, Chill on frame 24, and "Can't tell (yet)" lands on
-its edge and wobbles. The rail and panel use stills; the abstain still is a motion-blurred,
-still-spinning coin. The font is Cinzel (OFL).
+"SHILL OR CHILL · FACTA NON VERBA · MMXXVI" in Cinzel round the rim, rendered as
+stills in `public/coin/`. The coin is not animated anywhere: the verdict panel shows the still as a
+badge, and the finale shows no coin. The abstain still is a motion-blurred, still-spinning coin. The font is Cinzel (OFL).
 
-## Finale: verdict coin or meme finding
+## Finale: verdict or meme finding
 
-The coin flips only for a real coordination verdict (`hasVerdict` in `src/data/lookup.ts`): every
+The verdict word (no coin) is the finale only for a real coordination verdict (`hasVerdict` in `src/data/lookup.ts`): every
 simulated, historical and monitored case, and a lookup only when it matched a monitored cluster. A
-lookup's `insufficient` is the absence of a call, so it never gets the coin. Instead, a lookup with
+lookup's `insufficient` is the absence of a call, so it never gets a verdict finale. Instead, a lookup with
 an image search ends on what that search found (`memeFinding` in `src/data/imageTrace.ts`), with the
-submitted picture in place of the coin and the same sentence at the top of the Meme trace panel:
+submitted picture above the word and the same sentence at the top of the Meme trace panel:
 
 - **Copy**: the earliest match older than the submission is the same picture (same, resized, cropped).
 - **Edited**: the earliest older match is an edited version; the model's change list is quoted as a reading.

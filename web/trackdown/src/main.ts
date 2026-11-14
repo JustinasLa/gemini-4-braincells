@@ -10,8 +10,8 @@ import { hasVerdict, IMAGE_TYPES, LookupError, lookupCase, readingReady, startLo
 import { simulateFromInput } from "./data/simulate";
 import { Graph } from "./engine/graph";
 import { imageUrl, memeFinding } from "./data/imageTrace";
-import type { Status, TraceCase } from "./types";
-import { flipInto, preloadCoin, wait } from "./ui/coin";
+import type { TraceCase } from "./types";
+import { preloadCoin, wait } from "./ui/coin";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
 import { esc, fmtDate, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format";
@@ -429,24 +429,24 @@ async function runTrace(c: TraceCase) {
   if (finale && finale !== "wait") {
     closeEvent();
     afterReveal = () => setPhase("done");
-    showEvent(c, run, finale);
+    showEvent(c, finale);
   } else setPhase("done");
   if (run === tracing) tracing = 0;
 }
 
 // ---------------------------------------------------------------- reveal: the Junction banner with the finding as its wordmark
-/** What the finale shows. A coordination verdict flips the coin; a lookup with no verdict shows what
+/** What the finale shows. A coordination verdict shows its word (no coin); a lookup with no verdict shows what
  *  the image search found about the picture instead (Original / Copy / Edited / First sighting). */
-interface Reveal { word: string; tag: string; css: string; coin: Status | null; image?: string }
+interface Reveal { word: string; tag: string; css: string; image?: string }
 function revealOf(c: TraceCase): Reveal | "wait" | null {
   if (hasVerdict(c)) {
     const v = STATUS[c.status];
-    return { word: v.word, tag: `${c.tag ?? v.tag}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}`, css: v.css, coin: c.status };
+    return { word: v.word, tag: `${c.tag ?? v.tag}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}`, css: v.css };
   }
   const finding = c.lookup ? memeFinding(c.lookup) : null;
   if (finding === "pending") return "wait";
   if (!finding) return null; // a lookup with no image search and no verdict: nothing to announce
-  return { word: finding.word, tag: `${finding.tag}${c.mock ? " · mock" : ""}`, css: finding.color, coin: null, image: imageUrl(comparisonSource(c)) };
+  return { word: finding.word, tag: `${finding.tag}${c.mock ? " · mock" : ""}`, css: finding.color, image: imageUrl(comparisonSource(c)) };
 }
 let eventEl: HTMLElement | null = null;
 let afterReveal: (() => void) | null = null;
@@ -460,11 +460,11 @@ function closeEvent() {
   e.classList.add("out");
   setTimeout(() => e.remove(), 480);
 }
-async function showEvent(c: TraceCase, run: number, r: Reveal) {
+async function showEvent(c: TraceCase, r: Reveal) {
   const el = document.createElement("div");
   el.className = "reveal";
   el.style.setProperty("--vc", r.css);
-  const slot = r.coin ? '<div class="coin-slot"></div>' : r.image ? `<img class="meme-slot" alt="The submitted picture" src="${esc(r.image)}" referrerpolicy="no-referrer" draggable="false">` : "";
+  const slot = r.image ? `<img class="meme-slot" alt="The submitted picture" src="${esc(r.image)}" referrerpolicy="no-referrer" draggable="false">` : "";
   el.innerHTML = `<canvas></canvas><div class="center">${slot}<div class="vw${r.word.length > 8 ? " long" : ""}">${esc(r.word.toUpperCase())}</div><div class="vt">${esc(r.tag)}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
   el.querySelector(".meme-slot")?.addEventListener("error", (e) => (e.target as HTMLElement).remove());
   stage.appendChild(el);
@@ -474,12 +474,11 @@ async function showEvent(c: TraceCase, run: number, r: Reveal) {
     src = new Image();
     src.src = rhinoUrl;
   }
-  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5, avoid: () => [...el.querySelectorAll(".coin-slot, .meme-slot, .vw, .vt, .tap")] });
+  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5, avoid: () => [...el.querySelectorAll(".meme-slot, .vw, .vt, .tap")] });
   el.addEventListener("click", closeEvent);
   await bannerReady;
   await wait(300);
-  if (r.coin) await flipInto($(".coin-slot", el), r.coin, () => run !== tracing && tracing !== 0);
-  else el.querySelector(".meme-slot")?.animate([{ opacity: 0, transform: "scale(.92)" }, { opacity: 1, transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" });
+  el.querySelector(".meme-slot")?.animate([{ opacity: 0, transform: "scale(.92)" }, { opacity: 1, transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" });
   $(".vw", el).animate([{ opacity: 0, letterSpacing: "0.7em" }, { opacity: 1, letterSpacing: "0.3em" }], { duration: 800, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" });
   $(".vt", el).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: 350, fill: "forwards" });
   setTimeout(() => eventEl === el && closeEvent(), 5200);
@@ -650,12 +649,12 @@ async function startTrace(raw: LookupRequest, mock = false) {
   // the finale shows once: at settle, or later when the image search that decides it finishes
   let revealed = false;
   const reveal = (trace: TraceCase) => {
-    // an uploaded image is nearly always a copy: no coin flip or Copy banner, straight to the trace
+    // an uploaded image is nearly always a copy: no verdict or Copy banner, straight to the trace
     if (revealed || image) return;
     const r = revealOf(trace);
     if (r === "wait") return;
     revealed = true;
-    if (r) void showEvent(trace, run, r);
+    if (r) void showEvent(trace, r);
   };
   const latest: { result: LookupResult | null } = { result: null };
   // The primary reading is in: show the finished trace now. A second reading that is still
