@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -559,7 +560,7 @@ def test_server_error_retried_once_within_budget(images, caplog):
     assert result is not None and result.changes == FULL["changes"]
     assert client.calls == len(client.requests) == 2
     assert client.requests[1]["timeout"] < 20
-    client._limiter.wait.assert_called_once_with()
+    assert client._limiter.wait.call_count == 2  # the retry takes its own limiter slot
     records = call_records(caplog)
     assert [(r["attempt"], r["outcome"]) for r in records] == [(1, "retry"), (2, "ok")]
 
@@ -703,3 +704,86 @@ def test_colour_key_transparency_survives_downscaling(images, mode):
     _, client = compare((buffer.getvalue(), images[1]), layout="pair")
     sent = sent_images(client)[0].convert("L")
     assert sent.getextrema()[0] > 230
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The caption changed from 'REAL NEWS' to 'FAKE NEWS'.",
+        "The caption changed from 'DON'T TRUST BOTS' to 'TRUST THE PROPAGANDA'.",
+        'The text "deepfake alert" was added at the top.',
+        "The caption changed from \u2018REAL\u2019 to \u2018FAKE\u2019.",
+    ],
+)
+def test_forbidden_words_inside_quoted_image_text_are_kept(images, sentence):
+    payload = {**FULL, "changes": [sentence], "kinds": ["caption_changed"]}
+    result, _ = compare(images, payload)
+    assert result.changes == [sentence] and result.kinds == ["caption_changed"]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The face was replaced with a fake one.",
+        "The dog's 'GOOD BOY' caption looks fake.",
+        "A real 'WARNING' label was added.",
+    ],
+)
+def test_forbidden_words_outside_quotes_still_drop(images, sentence):
+    payload = {**FULL, "changes": [sentence], "kinds": ["other"]}
+    result, _ = compare(images, payload)
+    assert result.changes == []
+
+
+def test_composite_width_capped_with_padded_narrow_panel():
+    tall, wide = image_bytes((20, 1000)), image_bytes((1000, 300))
+    _, client = compare((tall, wide), layout="composite")
+    assert sent_images(client)[0].width <= 2048
+
+
+def test_red_box_drawn_after_composite_scaling():
+    """B is shrunk to A's height in the composite; the box must stay visible (>= 3 px)."""
+    short, tall = image_bytes((1000, 250)), image_bytes((800, 1000), color="gray")
+    _, client = compare((short, tall), layout="composite", edited_region=(0.1, 0.1, 0.9, 0.9))
+    composite = sent_images(client)[0].convert("RGB")
+    row = composite.height // 2
+    reds = [
+        x
+        for x in range(composite.width)
+        if (lambda p: p[0] > 160 and p[1] < 100 and p[2] < 100)(composite.getpixel((x, row)))
+    ]
+    assert len(reds) >= 6  # two vertical edges, each at least 3 px wide
+
+
+def test_media_hash_separates_inputs(caplog):
+    caplog.set_level(logging.INFO)
+    a, b = image_bytes(color="white"), image_bytes(color="gray")
+    compare((a, b))  # hashed per input, so (a+x, y) and (a, x+y) can't collide
+    hashes = [r["hash"] for r in call_records(caplog)]
+    assert len(hashes) == 1
+
+    joined = hashlib.sha256(hashlib.sha256(a).digest() + hashlib.sha256(b).digest()).hexdigest()[
+        :16
+    ]
+    assert hashes[0] == joined
+
+
+def test_not_vision_model_is_logged_as_error(images, caplog):
+    client = FakeClient(response(json.dumps(FULL), model="other-model"))
+    assert describe_changes(client, *images, timeout_s=2) is None
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors and "NotVisionModelError" in errors[0].getMessage()
+
+
+def test_retry_skipped_when_limiter_slot_does_not_fit(images, clock):
+    client = SequenceClient([server_error(), response(json.dumps(FULL))])
+    client._limiter.wait.side_effect = lambda: setattr(client._limiter, "_next", clock[0] + 30)
+    assert describe_changes(client, *images, timeout_s=20) is None
+    assert client.calls == 1
+
+
+def test_no_request_with_less_than_min_budget(images, monkeypatch, clock):
+    slow_decoding(monkeypatch, clock, 0.8)  # 1.6 s of 2.0 s: 0.4 s left (< 0.5 s)
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, *images, timeout_s=2.0) is None
+    assert client.requests == []

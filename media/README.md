@@ -193,21 +193,25 @@ variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, fro
 (legible text in each), `confidence`, `model` (as the response returned it), `latency_ms`. No
 visible change gives `changes == []`. It returns None, never raises, on bad image bytes, an image
 over 24 MP, timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
-could lose an unfinished `content_flags`) or an unusable reply.
+could lose an unfinished `content_flags`) or an unusable reply. A non-Super-VL response, which
+stops the worker, is logged at ERROR here but still returns None: the lookup must not break.
 
 - **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`).
-  `timeout_s` counts from entry: image decoding, then the rate-limiter wait (skipped, returning
-  None, if it would not fit), then the request, which gets what is left as its HTTP timeout.
-  That timeout applies per read, so a reply that completes after the deadline is dropped (None).
-  A bare 5xx gets one retry if at least 3 s of the budget is left. Each attempt is logged by `log_call_attempt` with `task=imagediff`, and the Super VL check
-  applies. It calls the OpenAI client directly, not `NemotronClient._complete`, whose 4-try
+  `timeout_s` counts from entry: image decoding, then the rate-limiter wait, then the request,
+  which gets what is left as its HTTP timeout. No request starts with less than 0.5 s left after
+  the limiter's wait (None instead). The HTTP timeout applies per read, so a reply that completes
+  after the deadline is dropped (None). A bare 5xx gets one retry, with its own limiter slot, if
+  at least 3 s of the budget is left. Each request is logged by `log_call_attempt` with
+  `task=imagediff`, and the Super VL check applies. It calls the OpenAI client directly, not `NemotronClient._complete`, whose 4-try
   backoff cannot keep to a lookup's budget.
 - **Layout:** Verda accepts two images per request, so both were measured. The default is one
   composite image: both scaled to one height, labelled "A: earlier" / "B: later", at most 2048 px
-  wide. `edited_region` (fractions of the variant) draws a red box on B; only then is the model told
-  about the box, and a "red box/outline/border/frame" sentence is dropped as our own marker.
+  wide. `edited_region` (fractions of the variant) draws a red box on B, after the composite
+  is scaled so the line stays visible. Only then is the model told about the box, and a "red
+  box/outline/border/frame" sentence is dropped as our own marker.
 - **Wording:** describes the media, never names a person. A sentence with deepfake, fake, real,
-  authentic, genuine, bot, shill, troll or propaganda is dropped with its kind. Adult or graphic
+  authentic, genuine, bot, shill, troll or propaganda in our own words is dropped with its kind.
+  Quoted image text is exempt, so a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported. Adult or graphic
   media (model flag or the shared `safe_description` word list) gives exactly "Adult content." or
   "Graphic content." with no text lists.
 

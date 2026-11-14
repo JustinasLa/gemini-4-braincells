@@ -9,7 +9,6 @@ import logging
 import math
 import re
 import time
-import warnings
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast, get_args
 
@@ -66,9 +65,17 @@ _FORBIDDEN = re.compile(
 _MARKER = re.compile(
     r"\bred\s+(?:(?:thin|rectangular|square)\s+)*(?:box|outline|border|frame|rectangle)\b", re.I
 )
+# Quoted image text ('...' or "...", not an apostrophe): the wording guard skips it, so a
+# caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported, quoted, not dropped.
+_QUOTED = re.compile(r"(?<!\w)'.*?'(?!\w)|\"[^\"]*\"|\u2018.*?\u2019(?!\w)|\u201c[^\u201d]*\u201d")
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
-_MAX_PIXELS = 24_000_000  # larger inputs are refused before decoding (decompression bombs)
+_MAX_COMPOSITE = 2048  # composite width cap
+# Larger inputs are refused from the header, before decoding (decompression bombs). This is far
+# below Pillow's own warning threshold (~89 MP), so no process-wide warning filter is needed
+# (warnings.catch_warnings is not thread-safe, and the lookup decodes in threads).
+_MAX_PIXELS = 24_000_000
 _RETRY_MIN_S = 3.0  # retry a 5xx only when at least this much of timeout_s is left
+_MIN_REQUEST_S = 0.5  # a request is only sent with at least this much budget left
 SYSTEM_PROMPT = f"""Compare A (earlier/original) with B (later/variant). Prompt: {PROMPT_VERSION}.
 Return only JSON: text_before, text_after, changes, kinds, content_flags, confidence.
 - text_before/text_after: legible text in A/B verbatim, at most 20 entries each, at most
@@ -134,15 +141,13 @@ class ImageDiff:
 
 
 def _image(data: bytes) -> Image.Image:
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", Image.DecompressionBombWarning)
-        with Image.open(io.BytesIO(data)) as source:
-            if source.width * source.height > _MAX_PIXELS:
-                raise ValueError(f"image too large: {source.width}x{source.height}")
-            source.seek(0)
-            keyed = "transparency" in source.info  # tRNS: a colour key, not an alpha band
-            source.draft("RGB", (_MAX_SIDE, _MAX_SIDE))  # JPEG: decode at a reduced scale
-            image = ImageOps.exif_transpose(source)
+    with Image.open(io.BytesIO(data)) as source:
+        if source.width * source.height > _MAX_PIXELS:
+            raise ValueError(f"image too large: {source.width}x{source.height}")
+        source.seek(0)
+        keyed = "transparency" in source.info  # tRNS: a colour key, not an alpha band
+        source.draft("RGB", (_MAX_SIDE, _MAX_SIDE))  # JPEG: decode at a reduced scale
+        image = ImageOps.exif_transpose(source)
     # Resizing blends a colour key into its neighbours, and palette/1-bit images resize badly:
     # flatten those to RGBA first.
     if keyed or image.mode not in ("RGB", "RGBA", "L"):
@@ -154,8 +159,15 @@ def _image(data: bytes) -> Image.Image:
     return background
 
 
-def _mark(image: Image.Image, region: tuple[float, float, float, float] | None) -> bool:
-    """Draw the edited_region box on ``image``; False (nothing drawn) for a bad region."""
+def _mark(
+    image: Image.Image,
+    region: tuple[float, float, float, float] | None,
+    panel: tuple[int, int, int, int],
+) -> bool:
+    """Draw the edited_region box inside ``panel`` (x, y, w, h: where B is in ``image``).
+
+    Drawn on the final image, so composite scaling can't thin it. False: nothing drawn.
+    """
     if region is None:
         return False
     try:
@@ -169,21 +181,25 @@ def _mark(image: Image.Image, region: tuple[float, float, float, float] | None) 
         return False
     if left >= right or top >= bottom:
         return False
+    x, y, w, h = panel
     box = (
-        left * (image.width - 1),
-        top * (image.height - 1),
-        right * (image.width - 1),
-        bottom * (image.height - 1),
+        x + left * (w - 1),
+        y + top * (h - 1),
+        x + right * (w - 1),
+        y + bottom * (h - 1),
     )
-    ImageDraw.Draw(image).rectangle(box, outline="red", width=max(2, image.height // 200))
+    ImageDraw.Draw(image).rectangle(box, outline="red", width=max(3, h // 200))
     return True
 
 
-def _composite(original: Image.Image, variant: Image.Image) -> Image.Image:
+def _composite(
+    original: Image.Image, variant: Image.Image
+) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    """Side-by-side A | B with label bars; also returns B's panel as (x, y, w, h)."""
     gap, bar = 16, 40
     height = min(original.height, variant.height)
     ratio = original.width / original.height + variant.width / variant.height
-    scaled_height = min(height, (2048 - gap) / ratio)
+    scaled_height = min(height, (_MAX_COMPOSITE - gap) / ratio)
     height = max(1, int(scaled_height))
     panels = [
         image.resize(
@@ -201,7 +217,14 @@ def _composite(original: Image.Image, variant: Image.Image) -> Image.Image:
     ):
         composite.paste(image, (offset, bar))
         draw.text((offset + 8, 8), label, fill="black", font=font)
-    return composite
+    panel = (widths[0] + gap, bar, panels[1].width, height)
+    if composite.width > _MAX_COMPOSITE:  # a very narrow panel was padded for its label
+        scale = _MAX_COMPOSITE / composite.width
+        size = (_MAX_COMPOSITE, max(1, round(composite.height * scale)))
+        composite = composite.resize(size, Image.Resampling.LANCZOS)
+        x, y, w, h = (round(value * scale) for value in panel)
+        panel = (x, y, max(1, w), max(1, h))
+    return composite, panel
 
 
 def _part(image: Image.Image) -> dict[str, Any]:
@@ -231,7 +254,8 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
     changes: list[str] = []
     aligned: list[ChangeKind] = []
     for index, sentence in enumerate(sentences):
-        if not sentence or _FORBIDDEN.search(sentence) or (marked and _MARKER.search(sentence)):
+        unquoted = _QUOTED.sub("''", sentence)  # quoted image text may say anything
+        if not sentence or _FORBIDDEN.search(unquoted) or (marked and _MARKER.search(unquoted)):
             continue
         sentence = sentence if sentence.endswith(".") else sentence + "."
         if sentence in changes or len(changes) == 5:
@@ -273,10 +297,16 @@ def describe_changes(
         deadline = entered + timeout_s
         if layout not in ("pair", "composite"):
             raise ValueError("unknown image layout")
-        media_hash = hashlib.sha256(original + variant).hexdigest()[:16]
+        digests = hashlib.sha256(original).digest() + hashlib.sha256(variant).digest()
+        media_hash = hashlib.sha256(digests).hexdigest()[:16]
         earlier, later = _image(original), _image(variant)
-        marked = _mark(later, edited_region)
-        images = [earlier, later] if layout == "pair" else [_composite(earlier, later)]
+        if layout == "pair":
+            images = [earlier, later]
+            marked = _mark(later, edited_region, (0, 0, later.width, later.height))
+        else:
+            composite, panel = _composite(earlier, later)
+            images = [composite]
+            marked = _mark(composite, edited_region, panel)
         text = (
             "The first image is A (earlier/original); the second is B (later/variant)."
             if layout == "pair"
@@ -298,8 +328,7 @@ def describe_changes(
         # Same-package private access: _complete's retry loop cannot honour a lookup budget.
         # Checked before reserving a limiter slot, so a lookup out of budget costs none.
         limiter = client._limiter
-        now = time.monotonic()
-        if deadline - now <= 0 or getattr(limiter, "_next", 0.0) - now >= deadline - now:
+        if not _fits(limiter, deadline):
             raise TimeoutError("no time budget left for the request")
         limiter.wait()
         for attempt in (1, 2):
@@ -330,6 +359,7 @@ def describe_changes(
                     attempt == 2
                     or isinstance(exc, openai.APITimeoutError)
                     or deadline - time.monotonic() < _RETRY_MIN_S
+                    or not _fits(limiter, deadline)
                 ):
                     raise
                 log_call_attempt(
@@ -342,6 +372,7 @@ def describe_changes(
                     task="imagediff",
                 )
                 pending = False
+                limiter.wait()  # the retry takes its own rate-limiter slot, like _complete
         if time.monotonic() > deadline:
             raise TimeoutError("reply arrived after the time budget")
         if not is_super_vl_model(response.model):
@@ -367,8 +398,17 @@ def describe_changes(
     except Exception as exc:
         if pending and started is not None:
             _log_failure(model, media_hash, started, response, attempt, type(exc).__name__)
-        log.warning("image comparison unavailable: %s: %.300s", type(exc).__name__, exc)
+        # The worker stops on NotVisionModelError; the lookup must not, but say it loudly.
+        level = logging.ERROR if isinstance(exc, NotVisionModelError) else logging.WARNING
+        log.log(level, "image comparison unavailable: %s: %.300s", type(exc).__name__, exc)
         return None
+
+
+def _fits(limiter: Any, deadline: float) -> bool:
+    """True when a request can still start after the limiter's wait with budget to spare."""
+    now = time.monotonic()
+    starts = max(now, getattr(limiter, "_next", 0.0))
+    return deadline - starts >= _MIN_REQUEST_S
 
 
 def _log_failure(
