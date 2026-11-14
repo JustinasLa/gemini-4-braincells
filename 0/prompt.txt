@@ -1,0 +1,26 @@
+Task: build part 3 of "Meme trace" in gemini-4-braincells (Shill or Chill). Sponsor pitch: upload a meme (image or X link), we trace it to the original and show every edited variation and WHAT CHANGED, because propaganda now spreads as modified/deepfaked memes. Sibling threads: part 1 "variation classifier" (owns media/variants.py, adds pillow + imagehash deps on branch feat/meme-variants, pushed early), part 2 "reverse image search + lookup integration" (owns sources/, lookup/*, api/), part 4 "Trackdown UI" (owns web/trackdown). You own ONLY `media/imagediff.py`, `tests/test_imagediff.py`, and a short new section in media/README.md. Do not edit media/nemotron.py beyond, at most, a small additive public helper if you truly need one (say why in the PR); never change existing behaviour there.
+
+Don't interfere with running work: "Screenshot receipts" (branch feat/screenshot-receipts) edits lookup/* and Trackdown; PR #74 edits Trackdown main.ts/styles.css; PR #62 edits the monitor page. Don't touch those files.
+
+Workspace: no /srv worktrees (pruned), no git fetch in /srv (blocked). Clone fresh into ~/work/meme-imagediff; branch feat/meme-imagediff from origin/feat/meme-variants once it exists (it carries the pillow dep), otherwise from origin/main and rebase later. Read AGENTS.md, .entire/agent-guide.md and media/README.md (prompt versions, Super VL guard, reasoning-token budget lessons, adult-content guard, call logging) first.
+
+Contract (part 2 consumes exactly this):
+```python
+# media/imagediff.py
+ChangeKind = Literal["caption_changed","text_added","text_removed","element_added","element_removed","face_changed","cropped","recolored","watermark","other"]
+@dataclass(frozen=True, slots=True)
+class ImageDiff:
+    changes: list[str]        # plain sentences, max 5, e.g. "The caption changed from 'X' to 'Y'."
+    kinds: list[ChangeKind]
+    text_before: list[str]    # legible text in the original
+    text_after: list[str]     # legible text in the variant
+    confidence: float
+    model: str                # the model id the response returned
+    latency_ms: int
+def describe_changes(client: NemotronClient, original: bytes, variant: bytes, *, timeout_s: float, edited_region: tuple[float,float,float,float] | None = None) -> ImageDiff | None
+```
+One Nemotron 3.5 Super VL call per pair. First check whether the Verda vLLM deployment accepts two images in one request (it may be started with limit-mm-per-prompt=1). If not, compose ONE side-by-side image with Pillow (labelled "A: earlier" / "B: later", same height, max 2048 px wide, optional red box on edited_region) and send that. Measure both if both work and pick by accuracy then latency. Wording rules: describe the media, not people; never say deepfake/fake/real/bot; adult or graphic material -> "Adult content."/"Graphic content." with no detail, reusing the existing guard; returns None on timeout/model failure (never raises into the lookup). Keep the Super VL check and per-call logging the module already does. Time target: p50 under 4 s.
+
+Tests: unit tests with a fake client (parsing, fences/<think>, normalisation, guard, compositing). Then a real evaluation: 12-20 pairs you make from public meme images (caption swap, added element, face patch, crop, recolor, watermark, identical) fetched to a temp dir outside git, run against the live endpoint. Live calls: either locally with VERDA_INFERENCE_KEY (see /srv/junction-espoo/secrets/team.env, never print or commit it) or in the prod container `ssh -o BatchMode=yes hostinger 'docker exec -i noise-radar-api-1 python -' < script.py`. Record per-kind accuracy and p50 latency in media/README.md like the existing prompt-iteration table.
+
+Process: you orchestrate. Delegate the build to Codex `gpt-6-astra` (reasoningEffort high) via delegate_task, review rounds with Codex `gpt-6.1-sol` (reasoningEffort high), one new delegate_task per round with the diff and prior findings, until Sol approves; fix small findings yourself. `uv run pytest` + ruff clean. Trail, `entire review general`, `entire trail ci-pr`, `entire trail ready`, squash-merge per AGENTS.md once part 1 has merged (new module only, safe to merge when approved). No deploy needed. Final line: PR <url>, head <sha>, state.
