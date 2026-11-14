@@ -25,6 +25,8 @@ export interface LookupPost {
   media_urls: string[];
   receipt_id: number | null;
   verified?: boolean;
+  // an uploaded image's lookup: the parts of `text` that repeat 3+ words in a row of its text
+  caption_match?: string[];
 }
 export interface LookupAccount {
   platform: LookupPost["platform"];
@@ -58,6 +60,7 @@ export interface LookupPage {
   claims: string[];
   snippet: string | null;
   receipt_id: number | null;
+  caption_match?: string[]; // as on LookupPost, in the headline or snippet
 }
 export interface LookupMedia {
   media_url: string;
@@ -428,7 +431,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     return {
       id: post.id, t: time ?? fallbackTime, timeUnknown: time == null, platform: post.platform, role,
       author: { name: post.author_name || account?.name || handle, handle, hue: hashStr(`${post.platform}:${handle}`) % 360, followers: account?.followers ?? undefined, ageDays: account?.age_days ?? undefined },
-      text: post.text, url: httpUrl(post.url), likes: metrics.likes ?? undefined, reposts: metrics.reposts ?? undefined,
+      text: post.text, textMatch: post.caption_match, url: httpUrl(post.url), likes: metrics.likes ?? undefined, reposts: metrics.reposts ?? undefined,
       media: mediaSource ? { kind: "photo", src: mediaSource, title: media[0]?.description || "Post media (source image)", note: media[0]?.description ?? undefined }
         : post.card ? { kind: "link", title: post.card.title || "Linked page", domain: post.card.domain ?? undefined } : undefined,
       flags: [
@@ -458,7 +461,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     nodes.push({
       id: page.id ?? page.url, t: time ?? fallbackTime, timeUnknown: time == null, platform: page.publisher ? "news" : "web", role: "source",
       author: { name: page.publisher || hostOf(page.url), handle: page.author || hostOf(page.url), hue: hashStr(page.url) % 360 },
-      text: [page.headline, page.snippet].filter(Boolean).join("\n"), url,
+      text: [page.headline, page.snippet].filter(Boolean).join("\n"), textMatch: page.caption_match, url,
       flags: time == null ? ["time unknown", ...(page.published_hint ? [`date hint: ${page.published_hint}`] : [])] : [...precision, ...(page.time_source === "search_hint" ? ["date from a search result, page not read"] : [])],
       realData: [{ label: "Page facts", url, receiptId: page.receipt_id, facts: facts({ Publisher: page.publisher, Author: page.author, "Published at (as returned)": page.published_at, "Parsed time (UTC)": page.time, "Time source": page.time_source, "Time uncertainty": unc ? `${Math.round(unc / 3600)} h window` : null, "Date hint (not an exact time)": page.published_hint, Headline: page.headline, Claims: page.claims.join("\n"), "Page role": page.role }) }],
     });

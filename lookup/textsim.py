@@ -45,14 +45,50 @@ def similarity(candidate: str | None, reference: str | None, *, truncated: bool 
     return max(jac, 0.95 * len(a & b) / len(b))
 
 
-def phrase(text: str | None, n_words: int = 12) -> str | None:
+def phrase(text: str | None, n_words: int = 12, *, min_words: int = 5) -> str | None:
     """An exact-search phrase: the first `n_words` words of the text, without URLs or mentions.
-    None when the text is too short (< 5 words) to search for reliably."""
+    None when the text is too short (< `min_words` words) to search for reliably."""
     if not text:
         return None
     t = _URL.sub(" ", text.translate(_QUOTES))
     words = [w for w in t.split() if not w.startswith("@") and not w.startswith("#")]
-    if len(words) < 5:
+    if len(words) < min_words:
         return None
     out = " ".join(words[:n_words])
     return out.replace('"', "").strip(" .,:;")
+
+
+RUN_MIN = 3  # words in a row of an uploaded image's caption that make a text hit a match
+
+
+def caption_runs(text: str | None, caption: str | None, min_words: int = RUN_MIN) -> list[str]:
+    """The parts of `text` that repeat at least `min_words` words in a row of `caption`, as they
+    are written in `text` (for highlighting), longest-first per position and never overlapping.
+
+    Words compare case-insensitively, ignoring punctuation and curly quotes. A run made only of
+    stop words ("is in the") doesn't count."""
+    if not text or not caption:
+        return []
+    cap = [w.lower() for w in _TOKEN.findall(caption.translate(_QUOTES))]
+    if len(cap) < min_words:
+        return []
+    # translate() maps one character to one, so the spans index the original text
+    toks = list(_TOKEN.finditer(text.translate(_QUOTES)))
+    words = [m.group().lower() for m in toks]
+    starts: dict[str, list[int]] = {}
+    for j, w in enumerate(cap):
+        starts.setdefault(w, []).append(j)
+    out, i = [], 0
+    while i < len(words):
+        best = 0
+        for j in starts.get(words[i], ()):
+            k = 0
+            while i + k < len(words) and j + k < len(cap) and words[i + k] == cap[j + k]:
+                k += 1
+            best = max(best, k)
+        if best >= min_words and any(w not in STOP for w in words[i : i + best]):
+            out.append(text[toks[i].start() : toks[i + best - 1].end()])
+            i += best
+        else:
+            i += 1
+    return out

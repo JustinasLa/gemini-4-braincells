@@ -95,6 +95,9 @@ class Post(BaseModel):
     media_urls: list[str] = Field(default_factory=list)
     receipt_id: int | None = None
     verified: bool = False  # True when the post's own page/API was read (not only a search snippet)
+    # an uploaded image's lookup: the parts of `text` that repeat 3+ words in a row of the
+    # image's caption (as written in `text`, for highlighting)
+    caption_match: list[str] = Field(default_factory=list)
 
 
 class Account(BaseModel):
@@ -131,6 +134,9 @@ class Page(BaseModel):
     # the true time lies in [time, time + time_uncertainty_s]; None when unknown
     time_uncertainty_s: float | None = None
     receipt_id: int | None = None
+    # an uploaded image's lookup: the parts of `headline` or `snippet` that repeat 3+ words in a
+    # row of the image's caption
+    caption_match: list[str] = Field(default_factory=list)
 
 
 class MediaFinding(BaseModel):

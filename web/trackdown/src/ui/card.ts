@@ -1,6 +1,6 @@
 import { hashStr } from "../data/build";
 import type { Media, TraceNode } from "../types";
-import { esc, fmtClock, fmtDate, fmtNum, roleOf } from "./format";
+import { esc, fmtClock, fmtDate, fmtNum, markRuns, roleOf } from "./format";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 import { imageCardHtml } from "./variations";
@@ -70,7 +70,7 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
   const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${esc(PLATFORM[n.platform] ?? n.platform)}</span>`;
   return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div>${n.platform === "x" ? '<span class="platform-x" aria-label="X post">𝕏</span>' : ""}${unknownTime ? "" : `<span class="catno">#${String(no).padStart(2, "0")}</span>`}</header>
     ${mark}
-    <p class="txt">${esc(n.text)}</p>
+    <p class="txt">${markRuns(n.text, n.textMatch)}</p>
     ${n.media ? mediaHtml(n.media, n.id, matchScore) : ""}
     ${flags}
     <footer>${eng}<time>${unknownTime ? "time unknown" : fmtDate(n.t)}</time></footer>`;
