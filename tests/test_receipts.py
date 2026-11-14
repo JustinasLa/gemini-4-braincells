@@ -87,7 +87,7 @@ def no_fake(r) -> None:
         "Nov 13, 2026 at 3:14 PM",
         "November 13, 2026 at 3:14 PM",
         "15:14 · 13 Nov 2026",
-        "Edited · 3:14 PM · Nov 13, 2026 · 1.2M Views",
+        "3:14 PM · Nov 13, 2026 · 1.2M Views",
     ],
 )
 def test_absolute_time_is_within_14h_either_way(shown):
@@ -764,3 +764,20 @@ def test_unknown_platform_with_a_non_x_handle_searches_bluesky_only(monkeypatch)
     s = shot(platform="unknown", handle="hanna.bsky.social")
     r = find_original(s, deps(bsky=object(), oxylabs=object()), Budget.seconds(30))
     assert r.label == "matches"
+
+
+# ---------------------------------------------------------------- edited X posts
+
+
+def test_last_edited_time_bounds_the_creation_from_above_only():
+    e, latest, note = shown_window("Last edited 3:14 PM · Nov 13, 2026", ANCHOR)
+    assert e is None
+    assert latest == datetime(2026, 11, 13, 15, 14, tzinfo=UTC) + TZ + timedelta(seconds=59)
+    assert "last edit" in note
+    # created two days before the edit: consistent, so the words decide
+    r = judge(
+        shot(shown_time="Last edited 3:14 PM · Nov 13, 2026"),
+        [cand(created_at=datetime(2026, 11, 11, 9, 0, tzinfo=UTC))],
+        ANCHOR,
+    )
+    assert (r.label, r.time_check) == ("matches", "consistent")

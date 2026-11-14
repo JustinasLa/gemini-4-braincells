@@ -1264,3 +1264,35 @@ def test_unreadable_is_set_only_when_the_submitted_post_cant_be_read():
     job.run()
     assert job.result.unreadable == "Post not readable"
     assert job.snapshot()["unreadable"] == "Post not readable"
+
+
+EDITED_MD = """* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)[@ada\\_example](/ada_example)
+
+  The harbour ferry now leaves at 6:40, not 6:15.
+  Second line of a fictional edited post
+
+  [Last edited 6:56 PM · Nov 13, 2026Opens edit history](HIST)·[16.6K
+
+  Views](/ada_example/status/2121316314375749699)
+
+  [14](/compose/post?in_reply_to=2121316314375749699)
+
+  171
+
+  382
+
+  29
+""".replace("HIST", "/ada_example/status/2121316314375749699/history")
+
+
+def test_parse_edited_post_page():
+    from lookup.xpage import parse_post_page
+
+    page = parse_post_page(EDITED_MD, "2121316314375749699")
+    m = page.main
+    assert m is not None and m.is_main and m.edited
+    assert m.status_id == "2121316314375749699" and m.handle == "ada_example"
+    assert m.text.startswith("The harbour ferry now leaves at 6:40")
+    assert m.views == 16600 and m.replies == 14

@@ -626,6 +626,20 @@ _UNIT_WORD = {
 def shown_window(
     shown_time: str | None, anchor: datetime
 ) -> tuple[datetime | None, datetime | None, str | None]:
+    """See _shown_window. "Last edited 8:56 PM · …" is when the post was last edited: it was
+    created before that, so the window keeps only its latest end."""
+    earliest, latest, note = _shown_window(shown_time, anchor)
+    if earliest is not None and latest is not None and _EDITED.search(shown_time or ""):
+        return None, latest, "the time shown is the last edit; the post was created before it"
+    return earliest, latest, note
+
+
+_EDITED = re.compile(r"\bedited\b", re.I)
+
+
+def _shown_window(
+    shown_time: str | None, anchor: datetime
+) -> tuple[datetime | None, datetime | None, str | None]:
     """The real times a shown time allows: (earliest, latest, note). None = open on that side.
 
     Absolute times are in the viewer's unknown time zone (within about 14 h of UTC). Relative
