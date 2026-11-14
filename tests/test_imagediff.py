@@ -1088,3 +1088,51 @@ def test_no_change_sentences_dropped(images, sentence, kept):
     assert (sentence in result.changes) is kept
     assert result.changes[-1] == FULL["changes"][0]
     assert result.kinds == (["other", "caption_changed"] if kept else ["caption_changed"])
+
+
+# Every edit descriptor Sol's round-12 sweep found accepted as a no-change subject.
+EDIT_DESCRIPTORS = (
+    "moved relocated repositioned shifted translated rotated turned flipped mirrored swapped "
+    "switched exchanged rearranged reordered realigned offset tilted edited altered modified "
+    "revised updated changed rewritten reworded retyped corrected redrawn retouched redone remade "
+    "cropped trimmed cut resized rescaled scaled enlarged reduced stretched shrunk shrunken "
+    "compressed zoomed reframed reoriented skewed warped distorted recolored recoloured repainted "
+    "retinted tinted colorized colorised colourized colourised desaturated saturated brightened "
+    "darkened lightened blurred sharpened pixelated censored redacted masked obscured overlaid "
+    "superimposed additional third repeated cloned restored appended reinserted readded "
+    "newly-added copy-pasted re-added re-inserted re-positioned re-colored re-coloured "
+    "added removed new inserted pasted replaced extra another second copied duplicated"
+).split()
+
+
+@pytest.mark.parametrize("descriptor", EDIT_DESCRIPTORS)
+def test_edit_bearing_subjects_are_kept(descriptor):
+    from media.imagediff import _says_no_change
+
+    for sentence in (
+        f"The {descriptor} logo is unchanged.",
+        f"The {descriptor} background has not changed.",
+        f"The {descriptor} image looks the same.",
+        f"No changes to the {descriptor} logo.",
+        f"There is no visible change in the {descriptor} caption.",
+    ):
+        assert not _says_no_change(sentence), sentence
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The bottom caption 'FOR FIVE SECONDS' is unchanged.",
+        "The background remains the same.",
+        "The rest of the image is unchanged.",
+        "The colours haven't changed.",
+        "No change.",
+        "No changes to the background.",
+        "There is no visible change to the face.",
+        "Nothing else changed.",
+    ],
+)
+def test_plain_no_change_sentences_match(sentence):
+    from media.imagediff import _says_no_change
+
+    assert _says_no_change(sentence)

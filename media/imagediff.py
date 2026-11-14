@@ -105,13 +105,14 @@ _FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
 # A "change" that is only a plain no-change statement (seen live: "The bottom caption 'X' is
 # unchanged."). Only whole sentences of these forms are dropped: anything compound is kept,
 # since dropping a real edit would report "no change" (a stray clause is only cosmetic).
+# The subject is an allowlist: an article, position/scope words, ONE plain head word and
+# optionally its quoted text. Any other qualifier ("the moved logo", "the newly-added
+# caption", "the recoloured background") can carry an edit, so such a sentence is kept.
 _SUBJECT = (
-    r"(?:(?:the|a|an|its|this|that)\s+)?"
-    # no conjunctions, relative clauses or edit words: "The added logo is the same." is an edit
-    r"(?:(?!(?:and|but|or|except|while|though|although|yet|instead|now|with|against|than"
-    r"|that|which|who|whose|where|added|removed|new|inserted|pasted|replaced|replacement"
-    r"|extra|another|second|copied|duplicated?)\b)"
-    r"[\w'-]+\s+){1,6}"
+    r"(?:(?:the|its|this|that)\s+)?"
+    r"(?:(?:top|bottom|upper|lower|left|right|centre|center|middle|main|whole|entire|overall"
+    r"|other|rest\s+of\s+the)\s+)*"
+    r"[a-z]+(?:\s+'')?\s+"
 )
 _NO_CHANGE_FORMS = tuple(
     re.compile(form, re.I)
@@ -121,7 +122,7 @@ _NO_CHANGE_FORMS = tuple(
         rf"{_SUBJECT}(?:(?:did|does|has|have)\s+not|didn't|doesn't|hasn't|haven't)\s+changed?\.?",
         r"nothing(?:\s+else)?\s+(?:(?:has|was|is)\s+)?changed\.?",
         r"(?:there\s+(?:is|are|was|were)\s+)?no\s+(?:other\s+)?(?:visible\s+)?changes?"
-        r"(?:\s+(?:to|in)\s+(?:the\s+)?[\w-]+(?:\s+[\w-]+)?)?\.?",
+        rf"(?:\s+(?:to|in)\s+{_SUBJECT.removesuffix(r'\s+')})?\.?",
     )
 )
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
