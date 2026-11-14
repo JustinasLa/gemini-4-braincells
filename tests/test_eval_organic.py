@@ -402,3 +402,26 @@ def test_base_rates_reach_the_detector_and_the_row(tmp_path, monkeypatch):
         assert row["details"]["base_rates"] == {**rates.as_dict(), "source": str(src)}
     assert main(argv) == 0
     assert all(r["details"]["base_rates"] is None for r in json.loads(out.read_text()))
+
+
+def test_replayed_event_in_the_next_window_is_kept_once(tmp_path):
+    """A failover host can replay a record with a later time_us that falls in the next window;
+    like the writer (uri is unique) only the first copy counts."""
+    post = {"text": "hello", "createdAt": "2026-11-13T20:49:59Z"}
+    like = {"subject": {"uri": "at://did:plc:author/app.bsky.feed.post/x"}}
+    events = [
+        _event("did:plc:p", AT - 1, "app.bsky.feed.post", "a", post),
+        _event("did:plc:p", AT + 1, "app.bsky.feed.post", "a", post),  # replay, next window
+        _event("did:plc:l", AT - 1, "app.bsky.feed.like", "k", like),
+        _event("did:plc:l", AT + 1, "app.bsky.feed.like", "k", like),
+    ]
+    path = tmp_path / "20261113" / "20-1.jsonl.gz"
+    path.parent.mkdir()
+    with gzip.open(path, "wt") as fh:
+        for e in events:
+            fh.write(json.dumps(e) + "\n")
+    data = read_rows([path])
+    assert list(data.posts[W]) == ["at://did:plc:p/app.bsky.feed.post/a"]
+    assert not data.posts.get(AT)
+    assert len(data.actions[W]["likes"]) == 1
+    assert not data.actions.get(AT)

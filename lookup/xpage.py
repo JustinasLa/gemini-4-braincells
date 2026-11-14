@@ -21,23 +21,22 @@ from lookup.urls import snowflake_time
 
 _AVATAR = re.compile(r"^\[!\[@([A-Za-z0-9_]{1,15})\]\(([^)]*)\)\]\(/([A-Za-z0-9_]{1,15})\)\s*$")
 _NAME = re.compile(r"^\[(.+?)\]\(/([A-Za-z0-9_]{1,15})\)\[@(.+?)\]\(/([A-Za-z0-9_]{1,15})\)\s*$")
-_STATUS_LINK = re.compile(r"\]\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)")
-_REL_TIME = re.compile(  # noqa: E501
+_REL_TIME = re.compile(
     r"^\[(\d+[smhd]|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?)\]\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)\s*$"
-)  # noqa: E501
+)
 # an edited post links its last edit time to its edit history instead:
 # "[Last edited 6:56 PM · Nov 13, 2026Opens edit history](/handle/status/ID/history)"
 _DATE_LINK = re.compile(
     r"^\[(Last edited )?(\d{1,2}:\d{2} [AP]M · [A-Z][a-z]{2} \d{1,2}, \d{4})"
     r"(?:Opens edit history)?\]"
     r"\(/([A-Za-z0-9_]{1,15})/status/(\d+)(?:/history)?\)"
-)  # noqa: E501
+)
 _VIEWS_INLINE = re.compile(r"·\[([\d.,]+[KMB]?)\s*$")
 _REPLY_LINK = re.compile(r"^\[([\d.,]+[KMB]?)\]\(/compose/post\?in_reply_to=(\d+)\)\s*$")
 _NUMBER = re.compile(r"^([\d.,]+[KMB]?)\s*$")
 _MEDIA = re.compile(
     r"!\[[^\]]*\]\((https://pbs\.twimg\.com/(?:media|amplify_video_thumb|ext_tw_video_thumb|tweet_video_thumb)/[^)\s]+)\)"
-)  # noqa: E501
+)
 _CARD = re.compile(r"^\[!\[([^\]]*)\]\((https://pbs\.twimg\.com/card_img/[^)]+)\)\s*$")
 _CARD_END = re.compile(
     r"^(.*?)\]\((https?://t\.co/\w+)\)(?:\[From ([^\]]+)\]\(https?://t\.co/\w+\))?\s*$"
@@ -390,7 +389,7 @@ def parse_profile(md: str, handle: str) -> Profile:
             p.name = ln[2:].strip()
             # bio / location follow "@handle"
             rest = [x for x in lines[k + 1 : k + 12] if x]
-            if rest and rest[0].lstrip("@").replace("\\_", "_").lower() == handle.lower():
+            if rest and rest[0].lstrip("@").lower() == handle.lower():
                 rest = rest[1:]
             bio = []
             for x in rest:
@@ -406,7 +405,7 @@ def parse_profile(md: str, handle: str) -> Profile:
         elif m := re.match(
             r"^\[!\[@[^\]]+\]\((https://pbs\.twimg\.com/profile_images/[^)]+)\)\]\(/[^)]+/photo\)",
             ln,
-        ):  # noqa: E501
+        ):
             p.avatar_url = m.group(1)
     p.recent = [it for it in parse_items(md) if it.handle.lower() == handle.lower()]
     return p

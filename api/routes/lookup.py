@@ -29,6 +29,7 @@ _HANDLE_RE = re.compile(
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", re.I
 )
 _DID_RE = re.compile(r"did:(?:plc:[a-z2-7]{24}|web:[a-z0-9.-]+)", re.I)
+_UNREADABLE = re.compile(r"[\x00\ud800-\udfff]")
 
 
 def handle_profile_url(text: str) -> str | None:
@@ -142,6 +143,9 @@ def make_deps() -> Deps:
         verify_read_s=s.lookup_verify_read_s,
         time_budget_s=s.lookup_time_budget_s,
         second_reading_s=s.lookup_second_reading_s,
+        reverse_image=s.lookup_reverse_image,
+        public_base_url=s.lookup_public_base_url
+        or (f"https://{s.public_host}" if s.public_host else ""),
     )
 
 
@@ -173,8 +177,10 @@ def start_lookup(
 ) -> JSONResponse:
     url = (body.url or "").strip()
     text = (body.text or "").strip()
-    if "\x00" in url or "\x00" in text:
-        raise HTTPException(400, "input contains a NUL character")
+    # NUL can't be stored, and a lone surrogate can't be encoded: the job would start and its
+    # JSON snapshot fail to serialize (a 500 that still spent the caller's lookup budget).
+    if _UNREADABLE.search(url) or _UNREADABLE.search(text):
+        raise HTTPException(400, "input contains a NUL character or an unpaired surrogate")
     if url:
         if len(url) > 2000 or not url.lower().startswith(("http://", "https://")):
             raise HTTPException(400, "url must be an http(s) link")

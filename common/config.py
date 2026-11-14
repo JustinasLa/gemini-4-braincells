@@ -43,7 +43,9 @@ class Settings(BaseSettings):
     media_screenshot_max_tokens: int = 1536
 
     oxylabs_web_api_key: str = ""
-    context_dev_api_key: str = ""
+    public_host: str = ""
+    lookup_public_base_url: str = ""
+    lookup_reverse_image: bool = True
 
     # Link lookup (lookup/README.md): every lookup spends live Oxylabs, Nemotron and Gemini calls.
     lookup_max_per_hour: int = 60  # all clients together; 0 = no cap

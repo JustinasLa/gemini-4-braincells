@@ -8,7 +8,7 @@ Signal evidence rows are upserted by signal name, so their ids stay stable for a
 """
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import psycopg
 
@@ -113,7 +113,8 @@ def _store_one(
 ) -> int:
     members = set(c.members)
     window_len = end - start
-    # 1. Same episode? (same window kind, overlapping window, mostly the same accounts)
+    # 1. Same episode? (any window kind, window ending at most one window length before this
+    # one starts, mostly the same accounts)
     recent = conn.execute(
         """
         SELECT c.id, c.campaign_id, array_agg(m.did), c.window_kind, c.score FROM clusters c
@@ -285,7 +286,3 @@ def _store_one(
         (end, cluster_id, c.score, c.status, campaign_id),
     )
     return cluster_id
-
-
-def now_utc() -> datetime:
-    return datetime.now(UTC)

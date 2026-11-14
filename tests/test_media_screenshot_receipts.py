@@ -370,3 +370,13 @@ def test_a_reused_answer_lists_new_carrier_posts(find):
     assert d["n_posts"] == 2 and len(d["post_uris"]) == 2  # ...on every post carrying it
     assert d["receipt"] == stored[key]["detail"]["receipt"]
     assert d["checked_at"] == stored[key]["detail"]["checked_at"]
+
+
+def test_timed_out_check_keeps_the_counts_note_like_find_original(find, monkeypatch):
+    monkeypatch.setattr(sr, "GRACE_S", 0.05)
+    find(Recorder(delay=0.5))
+    row = sr.receipt_rows([_finding()], _deps, existing={}, budget_s=0.05)[0]
+    receipt = row["detail"]["receipt"]
+    assert receipt["label"] == "unchecked" and receipt["reason"] == "time budget used up"
+    assert receipt["counts_note"] == lookup_receipts.COUNTS_NOTE  # the shot shows counts
+    assert receipt["media_url"] == "https://cdn.bsky.app/img/bafyshot@jpeg"

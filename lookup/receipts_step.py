@@ -144,9 +144,16 @@ def _check(
         lk._spend(READ_NEED_S)  # the read itself is bounded by the deadline passed to it
         if data is None:  # the image's reading came from the cache, without its bytes
             http = lk.deps.http or httpx.Client(timeout=20, follow_redirects=False)
-            data, mime = _download_image(
-                http, url, deadline=lk._provider_deadline(IMAGE_DOWNLOAD_S)
-            )
+            try:
+                data, mime = _download_image(
+                    http, url, deadline=lk._provider_deadline(IMAGE_DOWNLOAD_S)
+                )
+            except httpx.HTTPError as exc:  # a 404 or a dropped connection: not a crash
+                log.info("screenshot %s not downloaded again: %s", url, exc)
+                data = None
+            finally:
+                if http is not lk.deps.http:  # made here for this one download
+                    http.close()
             if data is None:
                 return _unchecked(h, "the screenshot could not be downloaded again")
             lk._spend(READ_NEED_S)

@@ -3,7 +3,8 @@ stored cluster says which settings produced it (clusters.detector_version)."""
 
 from dataclasses import asdict, dataclass, field
 
-VERSION = "v1.8"  # v1.8: unspaced scripts get content keys, marks kept (#17, #54)
+VERSION = "v1.9"  # v1.9: transparent_automation groups handles by the registered domain
+# (Public Suffix List), so unrelated people under co.uk / com.br are not "one operator" (#110)
 
 
 @dataclass(frozen=True)

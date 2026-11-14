@@ -11,6 +11,48 @@ Kind = Literal["x_post", "x_profile", "bsky_post", "bsky_profile", "web", "text"
 StepState = Literal["pending", "running", "done", "failed", "skipped"]
 
 
+class ImageMatch(BaseModel):
+    id: str
+    image_url: str
+    thumb_url: str | None = None
+    page_url: str | None = None
+    domain: str | None = None
+    engine: Literal["tineye", "yandex"]
+    first_seen: datetime | None = None
+    time_source: Literal["crawl_date", "page", "snowflake"] | None = None
+    width: int | None = None
+    height: int | None = None
+    relation: Literal["same", "resized", "cropped", "edited", "different", "unknown"] = "unknown"
+    distance: float | None = None
+    # (left, top, right, bottom) fractions 0..1 of the uploaded image (relate()'s base);
+    # crop_box is None when the match is larger than the upload
+    crop_box: tuple[float, float, float, float] | None = None
+    edited_region: tuple[float, float, float, float] | None = None
+    relation_note: str = ""
+    changes: list[str] = Field(default_factory=list)
+    change_kinds: list[
+        Literal[
+            "caption_changed",
+            "text_added",
+            "text_removed",
+            "element_added",
+            "element_removed",
+            "face_changed",
+            "cropped",
+            "recolored",
+            "watermark",
+            "other",
+        ]
+    ] = Field(default_factory=list)
+    # which side `changes` start from: "match" = the changes turn this copy into the upload (the
+    # copy is the earlier one), "upload" = they turn the upload into this copy
+    changes_from: Literal["match", "upload"] | None = None
+    # a description existed but was withdrawn (a later date flipped its direction): the empty
+    # `changes` then says nothing about whether the content changed
+    changes_withdrawn: bool = False
+    receipt_id: int | None = None
+
+
 class Card(BaseModel):
     title: str | None = None
     domain: str | None = None
@@ -53,6 +95,9 @@ class Post(BaseModel):
     media_urls: list[str] = Field(default_factory=list)
     receipt_id: int | None = None
     verified: bool = False  # True when the post's own page/API was read (not only a search snippet)
+    # an uploaded image's lookup: the parts of `text` that repeat 3+ words in a row of the
+    # image's caption (as written in `text`, for highlighting)
+    caption_match: list[str] = Field(default_factory=list)
 
 
 class Account(BaseModel):
@@ -89,6 +134,9 @@ class Page(BaseModel):
     # the true time lies in [time, time + time_uncertainty_s]; None when unknown
     time_uncertainty_s: float | None = None
     receipt_id: int | None = None
+    # an uploaded image's lookup: the parts of `headline` or `snippet` that repeat 3+ words in a
+    # row of the image's caption
+    caption_match: list[str] = Field(default_factory=list)
 
 
 class MediaFinding(BaseModel):
@@ -107,9 +155,13 @@ class MediaFinding(BaseModel):
 class Edge(BaseModel):
     from_: str = Field(alias="from", serialization_alias="from")
     to: str
-    rel: Literal["repost", "quote", "copy", "media", "link", "reply", "cites", "screenshot_of"]
+    rel: Literal[
+        "repost", "quote", "copy", "media", "link", "reply", "cites", "screenshot_of", "variant"
+    ]
     sim: float | None = None
-    tool: Literal["oxylabs", "nemotron", "gemini", "detector", "bluesky"] = "oxylabs"
+    tool: Literal["oxylabs", "nemotron", "gemini", "detector", "bluesky", "tineye", "yandex"] = (
+        "oxylabs"
+    )
     note: str | None = None
 
     model_config = {"populate_by_name": True}
@@ -129,7 +181,9 @@ class Spread(BaseModel):
 
 class Receipt(BaseModel):
     id: int
-    tool: Literal["oxylabs", "nemotron", "gemini", "bluesky", "detector", "x-id"]
+    tool: Literal[
+        "oxylabs", "nemotron", "gemini", "bluesky", "detector", "x-id", "tineye", "yandex", "fetch"
+    ]
     endpoint: str
     summary: str
     source_url: str | None = None
@@ -279,3 +333,5 @@ class LookupResult(BaseModel):
     # why the submitted post couldn't be read ("Account suspended"); the UI shows it in place of
     # "Not enough evidence", since there was nothing to judge
     unreadable: str | None = None
+    image_matches: list[ImageMatch] = Field(default_factory=list)
+    image_origin_id: str | None = None

@@ -15,18 +15,6 @@ from signals.textnorm import is_unspaced, normalize_text, shingles, word_count
 from signals.window import WindowData
 
 CONTENT_KINDS = ("text", "neardup", "media", "url")
-ENGAGEMENT_KINDS = ("like", "repost", "quote", "follow")
-# Which background (per-second event counts) each key kind's actions come from.
-BACKGROUND_KIND = {
-    "text": "post",
-    "neardup": "post",
-    "media": "post",
-    "url": "post",
-    "quote": "post",
-    "like": "like",
-    "repost": "repost",
-    "follow": "follow",
-}
 
 
 @dataclass(slots=True)

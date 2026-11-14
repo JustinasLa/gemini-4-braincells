@@ -43,7 +43,8 @@ V1_USER = (
     "Extract legible text, identify visual reuse or near-duplicate cues, and list "
     "cautious signs of manipulation or misleading context. Do not infer political intent."
 )
-# media-v2 (0802fc5), kept verbatim. v3 = media.nemotron.SYSTEM_PROMPT + the adult-content guard.
+# media-v2 (0802fc5), kept verbatim. "v3" runs the current media.nemotron.SYSTEM_PROMPT (now
+# media-v5, not the media-v3 text measured in media/README.md) plus the adult-content guard.
 V2_SYSTEM = f"""You read one image (or one video thumbnail) attached to a Bluesky post.
 The post belongs to a cluster of accounts that a behaviour detector found posting in a
 suspiciously similar way. Your notes are shown publicly as evidence next to that detector result.

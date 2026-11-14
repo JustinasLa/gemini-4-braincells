@@ -1,7 +1,7 @@
 // Small helpers to author simulated trackdowns deterministically.
 import type { Author, Media, Platform, Relation, Role, Tool, TraceEdge, TraceNode } from "../types";
 
-export function rng(seed: number) {
+function rng(seed: number) {
   let s = seed >>> 0 || 1;
   return () => {
     s ^= s << 13;

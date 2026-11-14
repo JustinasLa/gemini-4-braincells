@@ -34,7 +34,6 @@ Accounts already actioned before they were flagged are dropped.
 """
 
 import argparse
-import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass
@@ -43,6 +42,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 
 from common.config import get_settings
+from eval.store import write_eval_run
 from signals.config import DEFAULT
 
 GROUPS = (
@@ -252,10 +252,7 @@ def run(conn: psycopg.Connection, horizon_h: float, now: datetime | None = None)
 
 def write(conn: psycopg.Connection, result: dict) -> int:
     n = result["groups"]["coordinated"]["accounts"]
-    return conn.execute(
-        "INSERT INTO eval_runs (dataset, split, n, details) VALUES (%s, %s, %s, %s) RETURNING id",
-        (DATASET, "live", n, json.dumps(result)),
-    ).fetchone()[0]
+    return write_eval_run(DATASET, "live", n=n, details=result, conn=conn)
 
 
 def add_arguments(p: argparse.ArgumentParser) -> None:

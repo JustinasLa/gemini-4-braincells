@@ -14,6 +14,7 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS): the site i
 [`/api/metrics`](https://noise-radar.srv2159172.hstgr.cloud/api/metrics).
 
 Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
+Mobile judge walkthrough: **[docs/MOBILE-JUDGE-WALKTHROUGH.md](docs/MOBILE-JUDGE-WALKTHROUGH.md)** (cluster feed, evidence, metrics, judge input and viewport check).
 
 Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
 API are on `main` and live, and so is the eval harness (its results are at `/api/metrics`).
@@ -73,7 +74,7 @@ that anyone was paid or why.
    Oxylabs Web API              Nemotron 3.5 Super VL       Gemini
    /scrape linked pages,        reads images / frames:      explains the status, cites
    /search where the text       OCR, reuse cues             evidence ids, counter-evidence;
-   or headline appears          (being integrated)          code-checked (analyst/guard.py)
+   or headline appears                                      code-checked (analyst/guard.py)
        └───────────────────────────┴───────────────────────────┘
                                    ▼  evidence (signal | source | media | analyst)
                          api/ (FastAPI) ──▶ web/ dashboard   (Caddy, behind Hostinger's Traefik)
@@ -115,7 +116,7 @@ that anyone was paid or why.
 | **Pydantic + pydantic-settings** | Settings from env (`common/config.py`); API models (`api/schemas.py`), verdicts (`analyst/verdict.py`), source facts (`sources/models.py`). |
 | **FastAPI + Uvicorn** | The JSON API: `api/main.py`, `api/routes/`. |
 | **Caddy 2** | Serves `web/public` and proxies `/api/*` to the API (`deploy/Caddyfile`). |
-| **Docker Compose** | All services (db, migrate, ingest, signals, sources, analyst, api, caddy): `deploy/docker-compose.yml`. |
+| **Docker Compose** | All services (db, migrate, ingest, signals, sources, analyst, media, api, caddy): `deploy/docker-compose.yml`. |
 | **Hostinger VPS + Traefik** | Production host. Hostinger's Traefik terminates HTTPS in front of our Caddy (`deploy/docker-compose.hostinger.yml`); shipped with `deploy/deploy.sh`, checked with `deploy/check.sh`. |
 | **pytest + ruff** | Tests in `tests/`; lint and format config in `pyproject.toml`. |
 | **Entire** (Graph, Brain) | Agent session checkpoints and code lookup for the team (see below). |

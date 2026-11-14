@@ -197,9 +197,10 @@ class OxylabsClient:
                 )
                 status = res.status_code
                 try:
-                    payload = res.json()
+                    parsed = res.json()
                 except ValueError:
-                    payload = {}
+                    parsed = None
+                payload = parsed if isinstance(parsed, dict) else {}
             except httpx.TransportError as exc:
                 log.warning("oxylabs %s transport error: %s", path, type(exc).__name__)
             request_id = (payload.get("metadata") or {}).get("request_id")
@@ -217,7 +218,7 @@ class OxylabsClient:
                 request_id,
                 attempt + 1,
             )
-            if status == 200:
+            if status == 200 and payload:
                 return payload
             out_of_time = deadline is not None and (
                 time.monotonic() + self._backoff_s * 2**attempt >= deadline
@@ -230,7 +231,12 @@ class OxylabsClient:
                 time.sleep(self._backoff_s * 2**attempt)
                 attempt += 1
                 continue
-            reason = payload.get("detail") or payload.get("title") or "request failed"
+            # A 200 that isn't a JSON object must not read as an empty result ("no results").
+            reason = (
+                payload.get("detail")
+                or payload.get("title")
+                or ("no JSON object in the response" if status == 200 else "request failed")
+            )
             raise OxylabsError(
                 f"oxylabs {path} failed ({status}): {reason}", status=status, request_id=request_id
             )

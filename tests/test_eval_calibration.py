@@ -339,8 +339,8 @@ def test_no_human_labels_are_fabricated(tmp_path):
     assert provenance == {"samples": 0, "with_label_records": 0, "included": 0}
 
 
-def test_frozen_hand_labels_reuse_owner_resolution(tmp_path, monkeypatch):
-    import sys
+def test_frozen_hand_labels_reuse_owner_resolution(tmp_path):
+    from eval.labels import append_record
 
     def item(identifier, split="heldout", version=DEFAULT.version):
         return {
@@ -373,14 +373,11 @@ def test_frozen_hand_labels_reuse_owner_resolution(tmp_path, monkeypatch):
             }
         )
     )
-    (tmp_path / "review.labels.jsonl").touch()
-    owner = SimpleNamespace(
-        load_records=lambda path: ({}, {}),
-        final_labels=lambda ids, records, adjudications: {
-            identifier: {"label": "organic" if identifier != 4 else None} for identifier in ids
-        },
-    )
-    monkeypatch.setitem(sys.modules, "eval.labels", owner)
+    records = tmp_path / "review.labels.jsonl"
+    for who, identifier in [("a", 1), ("b", 1), ("a", 2), ("b", 2), ("a", 3), ("b", 3), ("a", 4)]:
+        append_record(
+            records, {"type": "label", "item": identifier, "labeller": who, "label": "organic"}
+        )
     cases, provenance = load_hand_labels(tmp_path, "heldout", DEFAULT.version)
     assert len(cases) == 1 and cases[0]["cluster_id"] == 1
     assert cases[0]["label"] == 0
@@ -426,3 +423,43 @@ def test_base_rates_reach_the_detector_and_the_provenance(tmp_path, monkeypatch)
     assert seen and all(r == rates for r in seen)
     provenance = json.loads(out.read_text())["details"]["provenance"]
     assert provenance["base_rates"] == {**rates.as_dict(), "source": str(src)}
+
+
+def test_hand_labels_resolve_with_the_labelling_pair_like_score(tmp_path):
+    """A stray third labeller must not unresolve a pair-agreed item or resolve a single one."""
+    from eval import labels as L
+
+    def item(identifier):
+        return {
+            "item": identifier,
+            "split": "heldout",
+            "weight": 1.0,
+            "detector": {
+                "detector_version": DEFAULT.version,
+                "cluster_id": identifier,
+                "status": "likely_organic",
+                "score": 0.2,
+                "confidence": 0.9,
+                "window_start": datetime.fromtimestamp(START, UTC).isoformat(),
+            },
+        }
+
+    sample = {"name": "pair", "items": [item(1), item(2), item(3)]}
+    (tmp_path / "samples").mkdir()
+    (tmp_path / "samples" / "pair.json").write_text(json.dumps(sample))
+    path = tmp_path / "pair.labels.jsonl"
+    for who, k, label in [
+        ("a", 1, "organic"),
+        ("b", 1, "organic"),
+        ("a", 2, "organic"),
+        ("b", 2, "organic"),
+        ("c", 1, "coordinated"),  # stray: disagrees with the pair on item 1
+        ("a", 3, "coordinated"),
+        ("c", 3, "coordinated"),  # stray: only "agrees" because b hasn't labelled item 3
+    ]:
+        L.append_record(path, {"type": "label", "item": k, "labeller": who, "label": label})
+    final = L.score(sample, *L.load_records(path))["final"]
+    cases, _ = load_hand_labels(tmp_path, "heldout", DEFAULT.version)
+    resolved = {f"pair:{k}" for k, f in final.items() if f["label"] in L.DEFINITE}
+    assert resolved == {"pair:1", "pair:2"}
+    assert {c["case_id"] for c in cases} == resolved

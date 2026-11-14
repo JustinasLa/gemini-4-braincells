@@ -1,5 +1,6 @@
 """eval/takedowns.py: the pure table logic (no DB)."""
 
+import json
 from datetime import UTC, datetime, timedelta
 
 from eval.takedowns import Flag, table, wilson
@@ -65,3 +66,22 @@ def test_p_only_abstentions_get_their_own_row():
     assert t["insufficient"]["moderation"]["k"] == 1
     assert t["insufficient_p_only"]["accounts"] == 1
     assert t["insufficient_p_only"]["moderation"]["k"] == 1
+
+
+def test_write_goes_through_the_shared_eval_runs_writer():
+    from types import SimpleNamespace
+
+    from eval.takedowns import DATASET, write
+
+    calls = []
+
+    class Conn:
+        def execute(self, sql, args):
+            calls.append((sql, args))
+            return SimpleNamespace(fetchone=lambda: (7,))
+
+    result = {"groups": {"coordinated": {"accounts": 229}}, "horizon_h": 3.0}
+    assert write(Conn(), result) == 7
+    sql, args = calls[0]
+    assert "INSERT INTO eval_runs" in sql and "::jsonb" in sql
+    assert args == (DATASET, "live", None, None, None, None, 229, json.dumps(result))

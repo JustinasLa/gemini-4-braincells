@@ -1,8 +1,8 @@
 """Image lookups (POST /api/lookup/image): an uploaded meme or screenshot is traced like a post
 whose only content is its image (no network; fictional accounts)."""
 
-import dataclasses
 import hashlib
+import time
 
 from fastapi.testclient import TestClient
 
@@ -99,7 +99,19 @@ class FakeOxylabs:
                 title="When the comets land: meme",
                 snippets=["When the comets land is a meme template"],
                 position=1,
-            )
+            ),
+            SearchHit(  # shares words with every caption here, but never 3 in a row
+                url="https://news.example/flights",
+                title="Comets, flights and fire",
+                snippets=["Why flights stopped: comets land in a fine week for the dog"],
+                position=2,
+            ),
+            SearchHit(
+                url="https://memes.example/fine",
+                title="This is fine: the dog in the burning room",
+                snippets=["The this is fine dog sits in a room on fire"],
+                position=3,
+            ),
         ]
 
 
@@ -119,60 +131,79 @@ def test_sniff_image_by_magic_bytes():
     assert sniff_image(b"") is None
 
 
-def test_uploaded_meme_text_drives_the_searches_and_finds_copies():
+TEXT_STEPS = ("copies_web", "copies_x", "copies_bsky")
+
+
+def test_uploaded_meme_keeps_hits_with_3_caption_words_in_a_row():
     reader = FakeReader()
     job = _run(reader)
     r = job.result
-    assert r.state == "done" and r.kind == "image"
+    assert r.state == "done" and r.kind == "image" and r.input.image.sha256 == _ref().sha256
     assert reader.calls == [(JPEG, None)]  # the uploaded bytes, read once, no post text
     st = {s.id: s for s in r.steps}
     assert st["post"].state == st["author"].state == st["linked"].state == "skipped"
-    assert st["media"].label.startswith("Read the uploaded image")
+    assert st["media"].label == "Image read"
+    assert st["media"].state == "done"
     subj = next(p for p in r.posts if p.id == r.subject_id)
     assert subj.role == "submitted" and subj.id.startswith("upload:")
     assert subj.created_at is None and subj.media_urls == ["/api/lookup/lk_img/image"]
     assert subj.text == "\n".join(CAPTION)  # reading order, for the card
-    assert any("WHEN THE COMETS LAND" in q for q in job.deps.oxylabs.queries)
-    assert any(q.endswith(" meme") for q in job.deps.oxylabs.queries)  # coverage: meme pages
+    qs = job.deps.oxylabs.queries
+    # the caption in reading order, exact; never the description, never the loose coverage query
+    assert '"WHEN THE COMETS LAND AND NOBODY TELLS YOU WHY THE FLIGHTS STOPPED"' in qs
+    assert not any("dog" in q or q.endswith(" meme") for q in qs)
+    assert st["coverage"].state == "skipped"
     posts = {p.id: p for p in r.posts}
+    assert posts[f"x:{COPY}"].caption_match == [" ".join(CAPTION)]
+    assert posts[f"x:{LATER}"].caption_match == ["when the comets land", "nobody tells you"]
+    # pages too, only with 3+ words in a row: the one sharing loose words is dropped
+    pages = {pg.url: pg for pg in r.pages}
+    assert set(pages) == {"https://memes.example/comets"}
+    assert pages["https://memes.example/comets"].caption_match == ["When the comets land"]
+    assert all(e.from_ in posts or e.from_ in {pg.id for pg in r.pages} for e in r.edges)
     # the earliest copy read on its own page is the origin, never the upload itself
     assert r.origin_id == f"x:{COPY}" and posts[f"x:{COPY}"].role == "origin"
-    assert any(
-        e.from_ == f"x:{COPY}" and e.to == r.subject_id and e.rel == "media" for e in r.edges
-    )
-    assert r.media[0].post_id == r.subject_id
-    assert any("possible variations" in n for n in r.notes)
+    assert any("3 words in a row" in n for n in r.notes)
 
 
-def test_upload_with_no_copies_has_no_origin():
-    job = _run(FakeReader(text=["unique words nobody else has posted anywhere"]))
-    # the fake X search still returns its two posts, but they share no words with this text
-    assert job.result.origin_id is None
-
-
-def test_short_caption_searches_for_pages_about_the_meme():
+def test_short_caption_is_searched_and_only_its_words_in_a_row_match():
     job = _run(FakeReader(text=["THIS IS FINE"]))
     r = job.result
-    qs = job.deps.oxylabs.queries
-    assert qs == ["THIS IS FINE meme"]  # no exact-phrase copy search on three words
-    st = {s.id: s for s in r.steps}
-    assert st["copies_x"].state == "skipped" and st["coverage"].state == "done"
-    assert all(pg.role == "coverage" for pg in r.pages)  # about the image, never a copy
+    assert job.deps.oxylabs.queries == ['"THIS IS FINE"', 'site:x.com "THIS IS FINE"']
+    # the comets posts and pages don't carry "this is fine": only the dog page stays
+    assert [p.id for p in r.posts] == [r.subject_id]
+    assert [(pg.url, pg.caption_match) for pg in r.pages] == [
+        ("https://memes.example/fine", ["This is fine", "this is fine"])
+    ]
     assert r.origin_id is None
 
 
-def test_no_text_searches_by_description_but_never_for_adult_content():
-    job = _run(FakeReader(text=[], description="A cartoon dog sits in a burning room."))
-    assert job.deps.oxylabs.queries == ["meme A cartoon dog sits in a burning room."]
+def test_under_3_words_or_only_a_description_is_never_searched():
+    for reader in (
+        FakeReader(text=["FINE DOG"]),
+        FakeReader(text=[], description="A cartoon dog sits in a burning room."),
+    ):
+        job = _run(reader)
+        steps = {s.id: s.state for s in job.result.steps}
+        assert job.deps.oxylabs.queries == []
+        assert all(steps[sid] == "skipped" for sid in (*TEXT_STEPS, "coverage"))
+        assert steps["media"] == "done"  # read, not searched
+        assert [p.id for p in job.result.posts] == [job.result.subject_id]
+        assert job.result.pages == [] and job.result.origin_id is None
+        assert any("matches of the uploaded picture only" in n for n in job.result.notes)
 
-    class Adult(FakeReader):
-        def analyze(self, media, *, context=None):
-            a = super().analyze(media, context=context)
-            return dataclasses.replace(a, content_flags=["adult"])
 
-    job = _run(Adult(text=[], description="Adult content (not described)."))
-    assert job.deps.oxylabs.queries == []
-    assert {s.id: s.state for s in job.result.steps}["media"] == "done"  # read, not searched
+def test_caption_runs():
+    from lookup.textsim import caption_runs
+
+    cap = "When the comets land\nAND NOBODY tells you why"
+    # case, punctuation and line breaks don't matter; the text's own spelling is returned
+    assert caption_runs("“When the comets land,” nobody knew", cap) == ["When the comets land"]
+    assert caption_runs("and nobody tells you", cap) == ["and nobody tells you"]
+    assert caption_runs("comets land and nobody", cap) == ["comets land and nobody"]
+    assert caption_runs("the comets go home", cap) == []  # two words in a row
+    assert caption_runs("in the and", "a dog in the and more") == []  # only stop words
+    assert caption_runs("anything", "two words") == [] and caption_runs(None, cap) == []
 
 
 def test_image_cache_key_and_bytes_required():
@@ -222,17 +253,6 @@ def test_text_lookup_has_no_image_route():
     assert job.upload is None
 
 
-def test_too_little_text_and_no_query_says_nothing_was_searched():
-    class Adult(FakeReader):
-        def analyze(self, media, *, context=None):
-            a = super().analyze(media, context=context)
-            return dataclasses.replace(a, content_flags=["adult"])
-
-    job = _run(Adult(text=[], description="Adult content (not described)."))
-    assert any("nothing was searched" in n for n in job.result.notes)
-    assert not any("searched by its" in n for n in job.result.notes)
-
-
 def test_unreadable_upload_says_so():
     class Broken(FakeReader):
         def analyze(self, media, *, context=None):
@@ -243,6 +263,10 @@ def test_unreadable_upload_says_so():
     assert r.state == "done" and {s.id: s.state for s in r.steps}["media"] == "failed"
     assert any("could not read the uploaded image" in n for n in r.notes)
     assert job.deps.oxylabs.queries == []
+    # it says the text couldn't be read, not that the image has too little of it
+    assert {s.id: s.detail for s in r.steps}["copies_x"] == "the image's text could not be read"
+    assert any("its text could not be read" in n for n in r.notes)
+    assert not any("fewer than" in n for n in r.notes)
 
 
 def test_rate_limited_client_is_refused_before_the_body_is_read(monkeypatch):
@@ -252,7 +276,8 @@ def test_rate_limited_client_is_refused_before_the_body_is_read(monkeypatch):
     monkeypatch.setattr(lookup_route, "_media_configured", lambda: True)
     try:
         c = TestClient(app)
-        assert c.post("/api/lookup/image", content=JPEG).status_code in (200, 202)
+        first = c.post("/api/lookup/image", content=JPEG)
+        assert first.status_code in (200, 202)
         read = []
 
         def body():
@@ -263,5 +288,40 @@ def test_rate_limited_client_is_refused_before_the_body_is_read(monkeypatch):
         assert read == []  # refused before a byte of the upload was read
         # the JSON route has no image field: an image there is not silently accepted
         assert c.post("/api/lookup", json={"image": {"sha256": "x"}}).status_code == 400
+        # let the first lookup finish: a run still queueing reads at exit logs a traceback
+        for _ in range(200):
+            if c.get(f"/api/lookup/{first.json()['id']}").json()["state"] != "running":
+                break
+            time.sleep(0.05)
     finally:
         app.dependency_overrides.pop(lookup_route.get_jobs, None)
+
+
+def test_upload_quote_whose_quoted_post_carries_the_caption_keeps_both():
+    """Entire review: a post that quotes the caption is kept with the quoted post, even when
+    the quoted text shares too few words to count as a copy; a quote of something else stands
+    on its own text."""
+    from lookup.models import Post
+    from tests.test_lookup import COPY as QCOPY
+    from tests.test_lookup import QUOTE_MD, SUBJ
+
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            return QUOTE_MD, {}
+
+    def verify(caption):
+        deps = Deps(oxylabs=Oxy(), nemotron=FakeReader())
+        job = Lookup("lk_q", LookupInput(image=_ref()), deps, image=JPEG)
+        job._add_upload_post()
+        job._caption = caption
+        cand = Post(id=f"x:{QCOPY}", platform="x", url=f"https://x.com/b/status/{QCOPY}")
+        return job, job._verify_x(job.add_post(cand), caption)
+
+    job, post = verify("the REAL reason for the ground stop")
+    assert post.role == "quote" and post.caption_match == ["the REAL reason for the ground stop"]
+    quoted = next(p for p in job.result.posts if p.id == f"x:{SUBJ}")
+    assert quoted.caption_match == ["the REAL reason for the ground stop"]
+    assert any(e.from_ == quoted.id and e.to == post.id for e in job.result.edges)
+
+    job, post = verify("nobody panics at the airport today")  # no 3 words in a row of either
+    assert post is None and [p.id for p in job.result.posts] == [job.result.subject_id]
