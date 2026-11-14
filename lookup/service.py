@@ -62,22 +62,22 @@ from sources.oxylabs import OxylabsError
 log = logging.getLogger(__name__)
 
 STEPS = [
-    ("input", "you", "Read the input"),
-    ("post", "oxylabs", "Read the post"),
-    ("author", "oxylabs", "Read the author's profile and recent posts"),
-    ("linked", "oxylabs", "Read the linked page"),
-    ("copies_web", "oxylabs", "Search the web for the same text"),
-    ("copies_x", "oxylabs", "Search X for the same text"),
-    ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
-    ("coverage", "oxylabs", "Find coverage of the story"),
-    ("reverse_image", "oxylabs", "Find the picture on the web (TinEye, Yandex)"),
-    ("variations", "nemotron", "Compare every copy with the upload"),
-    ("media", "nemotron", "Read the images with Nemotron VL"),
-    ("screenshot", "nemotron", "Find the real post a screenshot shows"),
-    ("verify", "oxylabs", "Read source pages and candidate copies on their own pages"),
-    ("monitor", "detector", "Check the clusters we monitor"),
-    ("assess", "nemotron", "Nemotron reads the receipts"),
-    ("second_reading", "gemini", "Gemini's second reading"),
+    ("input", "you", "Input read"),
+    ("post", "oxylabs", "Post read"),
+    ("author", "oxylabs", "Author's profile read"),
+    ("linked", "oxylabs", "Linked page read"),
+    ("copies_web", "oxylabs", "Web searched for the text"),
+    ("copies_x", "oxylabs", "X searched for the text"),
+    ("copies_bsky", "bluesky", "Bluesky searched for the text"),
+    ("coverage", "oxylabs", "Coverage searched"),
+    ("reverse_image", "oxylabs", "Web searched for the picture"),
+    ("variations", "nemotron", "Copies compared"),
+    ("media", "nemotron", "Images read"),
+    ("screenshot", "nemotron", "Screenshot's post traced"),
+    ("verify", "oxylabs", "Source pages read"),
+    ("monitor", "detector", "Clusters watched"),
+    ("assess", "nemotron", "Evidence weighed"),
+    ("second_reading", "gemini", "Second reading"),
 ]
 VERBATIM = 0.8
 COPY_MIN = 0.5
@@ -103,12 +103,8 @@ REPOST_HOSTS = (
 UPLOAD = "upload:"  # media_urls entry of an uploaded image: its bytes are in the job, not a CDN
 # an uploaded image's own step labels: there is no post, the image is the input
 IMAGE_LABELS = {
-    "media": "Read the uploaded image with Nemotron VL",
-    "copies_web": "Search the web for the text in the image",
-    "copies_x": "Search X for the text in the image",
-    "copies_bsky": "Find the text in the image on Bluesky",
-    "coverage": "Find pages about the image",
-    "verify": "Read source pages and candidate copies",
+    "media": "Image read",
+    "coverage": "Image coverage searched",
 }
 # Per-call caps (s) on Oxylabs, from the 2026-11-14 measurement (lookup/README.md): /scrape p50
 # 3.6 s, p90 7.2 s, one hang of 34 s; AI fact extraction up to 11.6 s; /search p90 2.6 s. A call

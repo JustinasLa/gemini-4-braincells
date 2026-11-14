@@ -227,8 +227,8 @@ tools `tineye`, `yandex`, and `fetch`: every engine request, download/redirect a
 call has a receipt, including failures and calls whose completion was not confirmed in time.
 
 Two steps are inserted between `coverage` and `media`:
-- `reverse_image`: **Find the picture on the web (TinEye, Yandex)**.
-- `variations`: **Compare every copy with the upload**.
+- `reverse_image`: **Web searched for the picture** (TinEye, Yandex).
+- `variations`: **Copies compared**.
 
 The trace starts before synchronous upload OCR, or just after the post read supplies its image
 URL, alongside the existing searches. TinEye, Yandex imageview and Yandex sites run in parallel

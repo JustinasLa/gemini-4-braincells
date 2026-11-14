@@ -14,11 +14,10 @@
 .meme-section h3 small { font: 500 10.5px/1.2 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
 .meme-count { font: 500 12px var(--mono); color: var(--text-3); }
 .meme-note, .meme-date { margin: 10px 0; font: 400 12.5px/1.5 var(--sans); color: var(--text-3); }
-.meme-empty { margin: 10px 0; padding-left: 12px; border-left: 2px solid var(--line-3); font: 400 13px/1.5 var(--sans); color: var(--text-2); }
+.meme-empty { margin: 10px 0; font: 400 13px/1.5 var(--sans); color: var(--text-2); }
 .meme-failure { padding: 10px 12px; border: 1px dashed rgba(226, 83, 60, 0.55); font: 400 13px/1.5 var(--sans); color: var(--text-2); }
 .meme-scanning { padding: 12px; font: 400 12px/1.5 var(--mono); color: var(--cv); border: 1px dashed rgba(63, 224, 122, 0.4); background: repeating-linear-gradient(120deg, rgba(63, 224, 122, 0.06) 0 12px, transparent 12px 24px); }
-.meme-group { margin: 14px 0; padding-left: 10px; border-left: 2px solid var(--line-2); }
-.meme-group.meme-edited, .meme-group.meme-cropped { border-color: var(--mutation); }
+.meme-group { margin: 14px 0; }
 .meme-group h4 { display: flex; justify-content: space-between; margin: 10px 0 8px; font: 500 10.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
 .meme-list-item { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; width: 100%; padding: 10px 12px; text-align: left; font: 600 14px/1.3 var(--sans); color: var(--text); border: 1px solid var(--line); transition: border-color 0.2s; }
 .meme-list-item + .meme-list-item { margin-top: 6px; }
@@ -145,8 +144,8 @@
   .meme-fact.wide { grid-column: 1 / -1; border-left: 0; padding-left: 0; }
 }
 
-.meme-finding { margin: 0 0 18px; padding: 12px 14px; border-left: 3px solid var(--vc); background: color-mix(in srgb, var(--vc) 9%, transparent); }
-.meme-finding .label { margin-bottom: 6px; }
-.meme-finding-word { font: 400 26px/1.1 var(--wide); letter-spacing: 0.2em; color: var(--vc); }
-.meme-finding p { margin: 8px 0 0; }
+/* same shape as the coordination verdict head: wordmark over a rule in the finding's colour, then the sentence */
+.meme-finding { margin: 0 0 22px; }
+.meme-finding-word { padding-bottom: 14px; border-bottom: 2px solid var(--vc); font: 400 26px/1.1 var(--wide); letter-spacing: 0.22em; color: var(--text); }
+.meme-finding p { margin: 14px 0 0; font: 400 15px/1.55 var(--sans); color: var(--text); }
 .meme-changes h3 .meme-direction { display: block; margin-top: 8px; font: 400 12px/1.5 var(--mono); letter-spacing: 0; text-transform: none; color: var(--text-2); }

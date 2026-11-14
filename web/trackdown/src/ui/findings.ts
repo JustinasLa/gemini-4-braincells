@@ -44,8 +44,7 @@ export function factualFindings(result: LookupResult): string {
     : "";
   const findings = readings.map((reading) => {
     const checks = reading.claim_checks ?? [];
-    return `<div class="receipt-meta">Model assessment · ${esc(reading.model)} · based on the collected sources, not a guarantee of truth</div>
-      ${checks.length ? checks.map((check) => `<section class="data-group"><h4>${esc(check.claim)}</h4><div class="label">${esc(FINDING[check.finding] ?? FINDING.unverified)}</div><p class="lookup-message">${esc(check.explanation)}</p>${sources(check.cites)}</section>`).join("") : ""}
+    return `${checks.length ? checks.map((check) => `<section class="data-group"><h4>${esc(check.claim)}</h4><div class="label">${esc(FINDING[check.finding] ?? FINDING.unverified)}</div><p class="lookup-message">${esc(check.explanation)}</p>${sources(check.cites)}</section>`).join("") : ""}
       ${reading.media_provenance ? `<div class="notice"><b>Media attribution.</b> ${esc(reading.media_provenance)}${sources(reading.media_provenance_cites ?? [])}</div>` : ""}`;
   }).join("");
   return `<section aria-label="Factual findings">
