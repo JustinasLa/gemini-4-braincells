@@ -352,3 +352,21 @@ def test_an_earlier_carrier_post_invalidates_the_stored_answer(find):
     t2 = {**t1, u2: NOW - timedelta(days=9)}  # an earlier post carrying the same image
     sr.receipt_rows([_finding()], _deps, existing=stored, created_at=t2, now=lambda: NOW)
     assert fake.calls == ["bafyshot"] and fake.anchors == [t2[u2]]
+
+
+def test_a_reused_answer_lists_new_carrier_posts(find):
+    find(Recorder())
+    row = sr.receipt_rows([_finding(uris=("r1",))], _deps, existing={}, now=lambda: NOW)[0]
+    key = row["detail"]["media_hash"]
+    stored = {key: _stored(row, checked_at=NOW - timedelta(hours=1))}
+
+    fake = find(Recorder())
+    same = sr.receipt_rows([_finding(uris=("r1",))], _deps, existing=stored, now=lambda: NOW)
+    assert same[0]["detail"] is stored[key]["detail"]  # nothing new: the upsert is a no-op
+
+    more = sr.receipt_rows([_finding(uris=("r1", "r2"))], _deps, existing=stored, now=lambda: NOW)
+    d = more[0]["detail"]
+    assert fake.calls == []  # the answer is reused...
+    assert d["n_posts"] == 2 and len(d["post_uris"]) == 2  # ...on every post carrying it
+    assert d["receipt"] == stored[key]["detail"]["receipt"]
+    assert d["checked_at"] == stored[key]["detail"]["checked_at"]

@@ -215,8 +215,20 @@ def _row(
 
 
 def _reused(finding, existing_row: dict[str, Any]) -> dict[str, Any] | None:
-    """The stored row as a row dict (detail untouched, so the upsert is a no-op)."""
-    detail = existing_row["detail"]
+    """The stored row as a row dict: its answer, receipt, fetches and checked_at as stored, the
+    posts carrying the screenshot as they are now (a new carrier gets the check too). With the
+    same carriers the detail is unchanged, so the upsert is a no-op."""
+    group = finding.group
+    stored = existing_row["detail"]
+    carriers = {
+        "post_uris": group.post_uris[:50],
+        "post_urls": (finding.detail().get("post_urls") or [])[:50],
+        "n_posts": len(group.post_uris),
+        "n_accounts": len(group.dids),
+    }
+    detail = (
+        stored if all(stored.get(k) == v for k, v in carriers.items()) else {**stored, **carriers}
+    )
     try:
         receipt = ScreenshotReceipt.model_validate(detail.get("receipt") or {})
     except ValueError:

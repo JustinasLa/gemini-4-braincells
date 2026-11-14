@@ -443,7 +443,9 @@ def test_find_original_resolver_exception(monkeypatch, caplog):
         raise ConnectionError("proxy down")
 
     fake(monkeypatch, "lookup.receipts_x", find_x)
-    r = find_original(shot(platform="x"), deps(oxylabs=object()), Budget.seconds(30))
+    r = find_original(
+        shot(platform="x", handle="hanna"), deps(oxylabs=object()), Budget.seconds(30)
+    )
     assert r.label == "unchecked"
     assert r.reason == "lookup failed: ConnectionError"
     assert any(rec.levelname == "WARNING" for rec in caplog.records)
@@ -664,7 +666,7 @@ def test_resolver_error_with_the_other_resolvers_candidates_is_unchecked(monkeyp
     fake(monkeypatch, "lookup.receipts_bsky", find_bsky)
     fake(monkeypatch, "lookup.receipts_x", find_x)
     d = deps(bsky=object(), oxylabs=object())
-    r = find_original(shot(platform="unknown"), d, Budget.seconds(30))
+    r = find_original(shot(platform="unknown", handle="hanna"), d, Budget.seconds(30))
     assert r.label == "unchecked" and "failed or ran out of time" in r.reason
 
 
@@ -712,7 +714,9 @@ def test_unknown_platform_with_one_resolver_unavailable_is_unchecked(monkeypatch
         return []
 
     fake(monkeypatch, "lookup.receipts_bsky", find_bsky)
-    r = find_original(shot(platform="unknown"), deps(bsky=object()), Budget.seconds(30))
+    r = find_original(
+        shot(platform="unknown", handle="hanna"), deps(bsky=object()), Budget.seconds(30)
+    )
     assert r.label == "unchecked"
     assert "looking up X posts is not configured" in r.reason
     no_fake(r)
@@ -740,3 +744,23 @@ def test_a_few_minutes_of_clock_skew_still_fits():
 def test_stop_word_only_post_matches_word_for_word():
     r = judge(shot(text="This is it."), [cand(text="This is it.")], ANCHOR)
     assert r.label == "matches" and r.similarity == 1.0
+
+
+# ---------------------------------------------------------------- review r8 regression
+
+
+def test_invalid_x_handle_is_unchecked_not_not_found(monkeypatch):
+    fake(monkeypatch, "lookup.receipts_x", boom)
+    sink = Sink()
+    s = shot(platform="x", handle="much_too_long_handle_x")
+    r = find_original(s, deps(sink, oxylabs=object()), Budget.seconds(30))
+    assert r.label == "unchecked" and "isn't a valid X handle" in r.reason
+    assert sink.calls == 0
+
+
+def test_unknown_platform_with_a_non_x_handle_searches_bluesky_only(monkeypatch):
+    fake(monkeypatch, "lookup.receipts_x", boom)
+    fake(monkeypatch, "lookup.receipts_bsky", lambda s, d, b: [cand()])
+    s = shot(platform="unknown", handle="hanna.bsky.social")
+    r = find_original(s, deps(bsky=object(), oxylabs=object()), Budget.seconds(30))
+    assert r.label == "matches"

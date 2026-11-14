@@ -40,6 +40,7 @@ log = logging.getLogger(__name__)
 NOT_FOUND = "no matching post found: it may be deleted, private or never posted"
 COUNTS_NOTE = "Counts change as people like and repost; shown as context, never as a verdict."
 SUPPORTED = ("x", "bluesky")
+_X_HANDLE = re.compile(r"[A-Za-z0-9_]{1,15}")  # what X allows (the @ is stripped first)
 
 
 class ShotTimeUp(RuntimeError):
@@ -185,12 +186,22 @@ def find_original(shot: ScreenshotPost, deps: ReceiptDeps, budget: Budget) -> Sc
                     "the real post with.",
                 )
             )
+        if "x" in targets and len(targets) > 1 and not _X_HANDLE.fullmatch(handle):
+            targets = [t for t in targets if t != "x"]  # can't be an X account: not an X post
         ready = [t for t in targets if _client(deps, t) is not None]
         unavailable = [t for t in targets if t not in ready]
         if not ready:
             what = " and ".join(_name(t) for t in targets)
             return done(
                 _unchecked(shot, f"Looking up {what} posts is not configured on this server.")
+            )
+        if ready == ["x"] and not _X_HANDLE.fullmatch(handle):
+            return done(
+                _unchecked(
+                    shot,
+                    f"The handle read from the screenshot (@{handle}) isn't a valid X handle, "
+                    "so the real post can't be looked up.",
+                )
             )
 
         def receipt(*args: Any, **kwargs: Any) -> int:
