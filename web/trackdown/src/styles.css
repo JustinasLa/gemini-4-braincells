@@ -533,6 +533,48 @@ input:focus-visible { outline: none; }
   .examples button { min-height: 48px; padding: 11px 12px; }
   .banner { height: 120px; }
   .banner .bt { font-size: 20px; }
+
+  /* Keep the verdict card, replay dock, and map controls in separate phone zones. */
+  .app[data-phase=done] .peek {
+    bottom: max(8px, env(safe-area-inset-bottom));
+    min-height: 56px;
+    height: auto;
+    padding: 10px 12px;
+  }
+  .peek .pk-t { min-width: 0; }
+  .peek .pk-t b {
+    display: -webkit-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.2;
+  }
+  .peek .pk-go { white-space: nowrap; }
+  .app[data-phase=done] .dock {
+    left: 8px;
+    right: 8px;
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 64px);
+    height: 112px;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 42px minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .app[data-phase=done] .dock-left { min-width: 0; gap: 10px; }
+  .app[data-phase=done] .dock .play { flex: none; width: 42px; height: 42px; }
+  .app[data-phase=done] .dock .clock { flex: 1; min-width: 0; gap: 4px; }
+  .app[data-phase=done] .dock .clock .d,
+  .app[data-phase=done] .dock .clock .rel {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .app[data-phase=done] .dock .clock .rel { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .app[data-phase=done] .dock .scrub { width: 100%; min-width: 0; height: 42px; }
+  .app[data-phase=done] .hud { bottom: calc(max(8px, env(safe-area-inset-bottom)) + 196px); }
+  .app[data-phase=done] .zoom { box-shadow: 0 0 0 1px #08080a; }
+  .app[data-phase=done] .zoom button[data-z=fit] { border-top: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
