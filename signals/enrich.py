@@ -48,15 +48,21 @@ def _get(client: httpx.Client, url: str, params=None, tries: int = 3):
     return None
 
 
-def fetch_profiles(client: httpx.Client, dids: list[str]) -> dict[str, dict]:
-    out = {}
-    for i in range(0, len(dids), 25):
-        chunk = dids[i : i + 25]
+def fetch_profiles(client: httpx.Client, dids: list[str], workers: int = 4) -> dict[str, dict]:
+    """getProfiles in chunks of 25 (the AppView limit), a few chunks in parallel."""
+    chunks = [dids[i : i + 25] for i in range(0, len(dids), 25)]
+
+    def one(chunk: list[str]) -> list[dict]:
         r = _get(client, APPVIEW, params=[("actors", d) for d in chunk])
         if r is None or r.status_code != 200:
-            continue
-        for p in r.json().get("profiles", []):
-            out[p["did"]] = p
+            return []
+        return r.json().get("profiles", [])
+
+    out = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for profiles in pool.map(one, chunks):
+            for p in profiles:
+                out[p["did"]] = p
     return out
 
 
@@ -95,7 +101,8 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
         """
         SELECT did FROM accounts WHERE did = ANY(%s) AND (
             profile_fetched_at IS NULL OR profile_fetched_at < now() - make_interval(hours => %s)
-            OR (plc_fetched_at IS NULL AND did LIKE 'did:plc:%%'))
+            OR (plc_fetched_at IS NULL AND did LIKE 'did:plc:%%')
+            OR (description IS NULL AND coalesce(description_len, 0) > 0))
         """,
         (dids, PROFILE_TTL_H),
     ).fetchall()
@@ -122,6 +129,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                     follows = coalesce(%(follows)s, follows),
                     posts_count = coalesce(%(posts)s, posts_count),
                     description_len = coalesce(%(desc)s, description_len),
+                    description = coalesce(%(descr)s, description),
                     has_avatar = coalesce(%(avatar)s, has_avatar),
                     profile_fetched_at = %(now)s,
                     did_created_at = coalesce(%(plc_created)s, did_created_at),
@@ -141,6 +149,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                     "follows": p.get("followsCount") if p else None,
                     "posts": p.get("postsCount") if p else None,
                     "desc": len(p.get("description") or "") if p else None,
+                    "descr": (p.get("description") or "")[:1000] if p else None,
                     "avatar": bool(p.get("avatar")) if p else None,
                     "plc_created": q["created"] if q else None,
                     "hc": q["handle_changes"] if q else None,

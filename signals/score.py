@@ -39,6 +39,7 @@ class AccountInfo:
     has_avatar: bool | None = None
     pds_host: str | None = None
     handle_changes: int | None = None
+    description: str | None = None
 
 
 @dataclass
@@ -619,6 +620,17 @@ def identity_signals(
 
 
 # ---------------------------------------------------------------- organic guards --------------
+_DECLARED_BOT = re.compile(
+    r"\b(bot|automated|auto[- ]?post(?:s|ed|ing)?|alerts?|feed|rss|mirror|traffic updates?)\b",
+    re.IGNORECASE,
+)
+
+
+def _uri_did(uri: str) -> str:
+    """at://did:plc:x/app.bsky.feed.post/abc -> did:plc:x"""
+    return uri[5:].split("/", 1)[0] if uri.startswith("at://") else ""
+
+
 def organic_guards(
     members: list[str],
     sk: list[Key],
@@ -712,6 +724,60 @@ def organic_guards(
                     polarity="against",
                 )
             )
+    # Declared automation: most accounts say in their bio or name that they are a bot, a feed or
+    # automated alerts, and they aren't new. Openly automated services (traffic, weather, news
+    # feeds) post in sync by design; that is not a covert campaign.
+    aged_text = [a for a in known if a.age_days is not None and (a.description or a.display_name)]
+    if len(aged_text) >= cfg.min_cluster_size:
+        declared = sorted(
+            a.did
+            for a in aged_text
+            if a.age_days >= 90
+            and _DECLARED_BOT.search(f"{a.display_name or ''} {a.description or ''}")
+        )
+        if len(declared) >= 2:
+            out.append(
+                Signal(
+                    "guard",
+                    "declared_automation",
+                    _r(len(declared) / len(aged_text)),
+                    f"{len(declared)} of {len(aged_text)} accounts say in their name or bio that "
+                    "they are a bot, a feed or automated alerts, and are over 90 days old: an "
+                    "openly automated service posts in sync by design",
+                    {"declared": len(declared), "with_bio_or_name": len(aged_text)},
+                    dids=declared,
+                    polarity="against",
+                )
+            )
+    # Members talking to each other: replies from one member to another member's post. Rings
+    # that broadcast (spam, like farms, reply floods into strangers' threads) almost never do;
+    # friend groups, fandoms and role-play communities do it all the time.
+    mset_c = set(members)
+    ix_c = wd.index()
+    to_members = [
+        (p.did, p.reply_to)
+        for d in sorted(mset_c)
+        for p in ix_c.posts_by_did.get(d, ())
+        if p.reply_to and _uri_did(p.reply_to) in mset_c and _uri_did(p.reply_to) != p.did
+    ]
+    if to_members:
+        replying = {a for a, _ in to_members}
+        m = len(members)
+        score = min(1.0, len(replying) / m) * min(1.0, len(to_members) / (2 * m))
+        out.append(
+            Signal(
+                "guard",
+                "members_converse",
+                _r(score),
+                f"{len(replying)} of {m} accounts reply to each other ({len(to_members)} replies "
+                "between members): a conversation among people who know each other, not a "
+                "broadcast",
+                {"members_replying": len(replying), "replies_between_members": len(to_members)},
+                uris=sorted({u for _, u in to_members})[:50],
+                dids=sorted(replying),
+                polarity="against",
+            )
+        )
     langs: dict[str, int] = {}
     mset = set(members)
     ix = wd.index()
