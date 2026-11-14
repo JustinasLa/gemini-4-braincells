@@ -147,18 +147,26 @@ def _label_pattern(label: str) -> str:  # "A: earlier" -> A\s*:\s*earlier, loose
 
 
 _LBL_EACH = tuple(re.compile(_label_pattern(label), re.I) for label in _PANEL_LABELS)
-_LBL = "(?:" + "|".join(_label_pattern(label) for label in _PANEL_LABELS) + ")"
-_LQ = rf"(?:'{_LBL}'|\"{_LBL}\"|\u2018{_LBL}\u2019|\u201c{_LBL}\u201d)"
+
+
+def _quoted(pattern: str) -> str:
+    return rf"(?:'{pattern}'|\"{pattern}\"|\u2018{pattern}\u2019|\u201c{pattern}\u201d)"
+
+
+# Panel-specific: A's label is the "before" side, B's the "after" side of a label report.
+_LQ_A, _LQ_B = (_quoted(_label_pattern(label)) for label in _PANEL_LABELS)
 _AUX = r"(?:(?:was|were|has\s+been|have\s+been)\s+)?"
 _SWAP = r"(?:changed|switched|replaced|updated)"
 _LABEL_ONLY = tuple(
     re.compile(form, re.I)
     for form in (
-        rf"(?:the\s+)?{_MOD}{_LNOUN}{_WHERE}\s+{_AUX}{_SWAP}\s+from\s+{_LQ}\s+to\s+{_LQ}\.?",
-        rf"(?:the\s+)?{_MOD}{_LNOUN}(?:\s+{_LQ})?{_WHERE}\s+{_AUX}{_SWAP}\s+(?:to|with)\s+{_LQ}"
+        rf"(?:the\s+)?{_MOD}{_LNOUN}{_WHERE}\s+{_AUX}{_SWAP}\s+from\s+{_LQ_A}\s+to\s+{_LQ_B}\.?",
+        rf"(?:the\s+)?{_MOD}{_LNOUN}(?:\s+{_LQ_A})?{_WHERE}\s+{_AUX}{_SWAP}\s+(?:to|with)\s+"
+        rf"{_LQ_B}{_WHERE}\.?",
+        rf"(?:the|an?)\s+{_MOD}{_LNOUN}\s+{_LQ_B}{_WHERE}\s+(?:was|were|has\s+been)\s+added"
         rf"{_WHERE}\.?",
-        rf"(?:the|an?)\s+{_MOD}{_LNOUN}\s+{_LQ}{_WHERE}\s+(?:was|were|has\s+been)\s+"
-        rf"(?:added|removed){_WHERE}\.?",
+        rf"(?:the|an?)\s+{_MOD}{_LNOUN}\s+{_LQ_A}{_WHERE}\s+(?:was|were|has\s+been)\s+removed"
+        rf"{_WHERE}\.?",
     )
 )
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
@@ -414,8 +422,8 @@ def _normalise(
         and any(_LBL_EACH[0].fullmatch(text) for text in before)
         and any(_LBL_EACH[1].fullmatch(text) for text in after)
     ):
-        before = [text for text in before if not _LBL_EACH[0].fullmatch(text)]
-        after = [text for text in after if not _LBL_EACH[1].fullmatch(text)]
+        before = _drop_first(before, _LBL_EACH[0])  # one overlay each; a repeat may be real
+        after = _drop_first(after, _LBL_EACH[1])
     flags = [flag.lower() for flag in _strings(payload.get("content_flags"))]
     _, flags = safe_description(" ".join(sentences + before + after), flags)
     kinds = payload.get("kinds", [])
@@ -471,6 +479,13 @@ class _OcrText:
 
 def _words(text: str) -> list[str]:
     return _WORD.findall(text.casefold())
+
+
+def _drop_first(lines: list[str], pattern: re.Pattern[str]) -> list[str]:
+    for index, line in enumerate(lines):
+        if pattern.fullmatch(line):
+            return lines[:index] + lines[index + 1 :]
+    return lines
 
 
 def _only_label_change(sentence: str) -> bool:

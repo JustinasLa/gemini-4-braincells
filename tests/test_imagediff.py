@@ -1318,6 +1318,10 @@ def test_more_label_only_wordings_dropped(images, sentence):
         "The caption changed from 'B: earlier' to 'A: later'.",  # never drawn
         "The label 'A: earlier' changed to 'B: later' and a hat was added.",
         "The top label was replaced with 'B: later' by a red sticker.",
+        "The caption changed to 'A: earlier'.",  # A's label as a destination: real text
+        "The caption changed from 'B: later' to 'A: earlier'.",  # wrong direction
+        "The text 'A: earlier' was added at the top.",  # A's label is never "added"
+        "The label 'B: later' was removed.",  # B's label is never "removed"
     ],
 )
 def test_undrawn_or_compound_label_wordings_kept(images, sentence):
@@ -1331,3 +1335,29 @@ def test_panel_labels_single_source():
 
     assert imagediff._PANEL_LABELS == ("A: earlier", "B: later")
     assert 'Ignore the "A: earlier" / "B: later" labels.' in imagediff.SYSTEM_PROMPT
+
+
+def test_label_cleanup_removes_one_overlay_each(images):
+    payload = {
+        **FULL,
+        "changes": ["The caption changed from 'A: earlier' to 'A: now'."],
+        "kinds": ["caption_changed"],
+        "text_before": ["A: earlier", "A: earlier"],
+        "text_after": ["B: later", "A: now"],
+    }
+    result, _ = compare(images, payload, layout="composite")
+    assert result.changes == payload["changes"]
+    assert result.text_before == ["A: earlier"] and result.text_after == ["A: now"]
+
+
+def test_caption_changed_to_a_label_text_is_kept(images):
+    payload = {
+        **FULL,
+        "changes": ["The caption changed to 'A: earlier'."],
+        "kinds": ["caption_changed"],
+        "text_before": ["SEE YOU SOON"],
+        "text_after": ["A: earlier"],
+    }
+    result, _ = compare(images, payload, layout="composite")
+    assert result.changes == payload["changes"] and result.kinds == ["caption_changed"]
+    assert result.text_after == ["A: earlier"]
