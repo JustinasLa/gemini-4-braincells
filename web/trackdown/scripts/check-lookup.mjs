@@ -193,6 +193,16 @@ try {
     assert.doesNotMatch(html, /href="javascript:/i);
   });
 
+  check("a known live verdict with missing confidence does not claim there is no call", () => {
+    const trace = clusterCase({ id: 8, status: "coordinated", score: 0.97, confidence: null,
+      synthetic: false, members: [], posts: [], evidence: [] });
+    const panel = Object.assign(Object.create(Panel.prototype), { c: trace, g: { selId: null } });
+    const html = panel.verdict(trace);
+    assert.equal(trace.status, "coordinated");
+    assert.match(html, /Not recorded/);
+    assert.doesNotMatch(html, /No call|doesn't settle/);
+  });
+
   const { fmtDur, fmtNum } = await server.ssrLoadModule("/src/ui/format.ts");
   check("format: rounding never shows 60 s, 60 min or 1000k", () => {
     assert.equal(fmtDur(59_700), "1 min");
