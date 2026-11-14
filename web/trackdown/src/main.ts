@@ -37,7 +37,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="mode" class="mode-btn" aria-label="Switch to Web layout">WEB</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="time" class="mode-btn on" aria-pressed="true" aria-label="Timeline layout">TIME</button><button data-z="web" class="mode-btn" aria-pressed="false" aria-label="Web layout">WEB</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
@@ -152,7 +152,7 @@ function railItem(c: TraceCase) {
   const th = c.historical ? { style: `background-image:url(${rhinoUrl});background-position:72% 40%;background-size:260%`, score: "1515" } : thumbStyle(c.id, 64);
   return `<button class="cat-item${current?.id === c.id ? " on" : ""}" data-case="${c.id}" style="--vc:${STATUS[c.status].css}">
     <span class="thumb" style="${th.style}" data-score="${th.score}"></span>
-    <span class="vd">${STATUS[c.status].short} · ${esc(c.kicker)}</span>
+    <span class="vd">${STATUS[c.status].short} · ${esc(SHORT_KICKER[c.kicker] ?? c.kicker)}</span>
     <span class="ttl">${esc(c.title)}</span>
     <span class="meta">${railSpan(ori?.t, sub?.t)}</span>
   </button>`;
@@ -167,6 +167,9 @@ function railSpan(a?: number, b?: number) {
   if (span > 86400000) return `${fmtShort(a)} → ${fmtShort(b)}`;
   return `${fmtShort(a)} · ${fmtDur(span)}`;
 }
+
+// rail captions are one line in a 300px rail: short forms of the case kickers
+const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Photo reuse", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live" };
 
 const USER_KEY = "soc-trackdown-traces";
 const userCases: TraceCase[] = (() => {
@@ -222,9 +225,11 @@ seg.addEventListener("click", (e) => {
   if (b) setMode(b.dataset.mode as Mode);
 });
 function setMode(m: Mode) {
-  const mb = stage.querySelector<HTMLElement>('[data-z="mode"]')!;
-  mb.textContent = m === "timeline" ? "WEB" : "TIME";
-  mb.setAttribute("aria-label", m === "timeline" ? "Switch to Web layout" : "Switch to Timeline layout");
+  stage.querySelectorAll<HTMLElement>(".mode-btn").forEach((b) => {
+    const on = (b.dataset.z === "time") === (m === "timeline");
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
   seg.querySelectorAll<HTMLElement>("[data-mode]").forEach((x) => {
     x.classList.toggle("on", x.dataset.mode === m);
     x.setAttribute("aria-pressed", String(x.dataset.mode === m));
@@ -255,7 +260,8 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
   if (z === "tools") app.classList.toggle("tools");
-  if (z === "mode") setMode(g.mode === "timeline" ? "web" : "timeline");
+  if (z === "time") setMode("timeline");
+  if (z === "web") setMode("web");
   stage.querySelector('[data-z="tools"]')!.setAttribute("aria-expanded", String(app.classList.contains("tools")));
 });
 
@@ -263,7 +269,13 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
 g.onSelect = (id) => {
   panel.showFolio(!!id);
   g.setHighlight(id ? g.lineage(id) : null);
-  if (id && phoneMq.matches) app.classList.add("sheet-open");
+  if (id && phoneMq.matches) {
+    const fromKeyboard = document.activeElement === stage;
+    app.classList.add("sheet-open");
+    syncDrawers();
+    // the sheet is modal: focus follows into it
+    if (fromKeyboard) $("#panel").querySelector<HTMLElement>('[data-tab="folio"]')?.focus();
+  }
   const n = id ? current?.nodes.find((x) => x.id === id) : null;
   $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated ? "" : `, ${fmtDate(n.t)}`}` : "";
 };

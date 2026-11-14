@@ -515,7 +515,7 @@ export class Graph {
         if (inCl.has(n) || n.drag) continue;
         const l = n.x + n.w / 2 - (x0 - gap);
         const r = x1 + gap - (n.x - n.w / 2);
-        const t = n.y + n.h / 2 - (y0 - gap);
+        const t = n.y + n.h / 2 - (y0 - gap - 24 / Math.max(this.k, 0.05)); // the tab sits above the box
         const b = y1 + gap - (n.y - n.h / 2);
         if (l <= 0 || r <= 0 || t <= 0 || b <= 0) continue;
         // in the timeline x is time, so prefer moving up or down
@@ -1071,8 +1071,11 @@ export class Graph {
         const must = rank(l.n) <= 3; // selected, hovered, submitted and earliest always get a label
         const hitsLabel = (b: { x0: number; x1: number; y0: number; y1: number }) => placed.some((p) => over(b, p));
         const hits = (b: { x0: number; x1: number; y0: number; y1: number }) => hitsLabel(b) || markers.some((m) => m.id !== l.n.d.id && over(b, m));
-        const vl = (0 - this.W / 2) / k + this.cx + w / 2 + 6 / k;
-        const vr = (this.W - this.W / 2) / k + this.cx - w / 2 - 6 / k;
+        const edgeL = (0 - this.W / 2) / k + this.cx;
+        const edgeR = (this.W - this.W / 2) / k + this.cx;
+        if (l.n.x < edgeL || l.n.x > edgeR) continue; // marker off screen: no orphan label
+        const vl = edgeL + w / 2 + 6 / k;
+        const vr = edgeR - w / 2 - 6 / k;
         const lx = vl < vr ? clamp(l.n.x, vl, vr) : l.n.x; // slide back inside the view, never clip
         const at = (y: number) => ({ y, x0: lx - w / 2 - 3 / k, x1: lx + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
         let box = at(l.n.y - l.r * 1.3 - 6 / k);

@@ -38,6 +38,7 @@ export class Panel {
       if (t.dataset.act === "close") {
         this.tab = "verdict";
         this.g.select(null);
+        this.el.querySelector<HTMLElement>('[data-tab="verdict"]')?.focus(); // keep keyboard position
       }
       if (t.dataset.act === "replay") this.onReplay();
       if (t.dataset.act === "sheet-close") this.onCloseSheet();
