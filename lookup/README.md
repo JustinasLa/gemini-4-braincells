@@ -95,19 +95,17 @@ GET  /api/lookup/{id}/image  -> the uploaded image, while the job lives (404 aft
 not the declared content type. The bytes stay in the job, in memory, for `LOOKUP_JOB_TTL_S`
 and are never written to disk or the database; the JSON carries only their sha256, type and
 size. The upload is the submitted post (`upload:<sha256[:16]>`, no author, no time). Nemotron
-reads it, and:
+reads it (its text goes on the card and into the monitor check and the reading), and:
 
-- with 5+ words of text in the image, that text drives the same searches as a post's text
-  (web, X, Bluesky; candidates read on their own pages). The earliest copy read on its own page
-  is `origin_id`; copies below 0.8 similarity are reworded variants, counted in a note. A meme
-  also gets " meme" added to the coverage query, which brings up meme pages.
-- with less text (a short caption), or none, there's no exact-phrase search. The coverage step
-  looks for pages about the image by its caption, or by Nemotron's description (never for adult
-  content). Those pages are role "coverage": about the image, never copies or the origin.
-- the upload is never its own origin: with no verified copy, `origin_id` is null.
+- the results are matches of the picture only. Its text and Nemotron's description are never
+  searched for: the web, X, Bluesky and coverage steps are skipped, so no post or page found by
+  its words joins the trace.
+- reverse-image search finds them: TinEye and Yandex find candidate pictures and optional local
+  visual matching compares them.
+- an upload Nemotron types a screenshot of a post still goes through the screenshot step, which
+  looks for the real post it shows.
+- the upload is never its own origin: with no dated match, `origin_id` is null.
 
-Reverse-image search runs alongside the text searches, including for captionless images:
-TinEye and Yandex find candidate pictures and optional local visual matching compares them.
 Uploads need a public URL: `LOOKUP_PUBLIC_BASE_URL`, or `https://{PUBLIC_HOST}`. The production
 host is `noise-radar.srv2159172.hstgr.cloud`. Without one, the reverse-image step explains why
 it is skipped. `LOOKUP_REVERSE_IMAGE=false` disables it (the API default is true). An uploaded
@@ -387,6 +385,7 @@ Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies
    and `media` (the images in parallel) all start at once. `screenshot` follows `media` on the
    same worker: each image Nemotron typed a screenshot is read as a post and checked against
    the real post (`lookup/receipts.py`); for an image-only post it runs alongside the searches.
+   An uploaded image skips the four searches: only `reverse_image` looks for it.
 3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
    (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
    verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read

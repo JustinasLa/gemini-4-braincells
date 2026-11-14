@@ -107,7 +107,7 @@ IMAGE_LABELS = {
     "copies_web": "Search the web for the text in the image",
     "copies_x": "Search X for the text in the image",
     "copies_bsky": "Find the text in the image on Bluesky",
-    "coverage": "Find pages about the image (meme pages, coverage)",
+    "coverage": "Find pages about the image",
     "verify": "Read source pages and candidate copies",
 }
 # Per-call caps (s) on Oxylabs, from the 2026-11-14 measurement (lookup/README.md): /scrape p50
@@ -272,9 +272,6 @@ class Lookup:
         self._card_url: str | None = None
         self._card_title: str | None = None
         self._media_urls: list[str] = []
-        # an uploaded image with too little text for an exact search: what to look for instead
-        self._image_query: str | None = None
-        self._upload_meme = False  # Nemotron typed the uploaded image a meme
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
@@ -597,13 +594,25 @@ class Lookup:
             return
         media_first = not textsim.phrase(self._subject_text) and self._media_urls
         if media_first:
-            # image-only post (or an uploaded image): read the image first, then search its text
+            # image-only post (or an uploaded image): read the image first (a post: then search
+            # its text)
             self._media(ocr_as_text=True)
-        x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
-        rest = [
-            pool.submit(self._copies_bsky),
-            pool.submit(lambda: (self._coverage(), self._queue_older_pages())),
-        ]
+        if kind == "image":
+            # an upload's results are matches of the picture itself (reverse image search,
+            # variations), never posts or pages found by its text or Nemotron's description
+            for sid in ("copies_web", "copies_x", "copies_bsky", "coverage"):
+                self.skip(sid, "an uploaded image: only matches of the picture are searched")
+            self.note(
+                "Only matches of the uploaded picture are shown; the text and description "
+                "Nemotron read in it are not searched for."
+            )
+            x_searches, rest = [], []
+        else:
+            x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
+            rest = [
+                pool.submit(self._copies_bsky),
+                pool.submit(lambda: (self._coverage(), self._queue_older_pages())),
+            ]
         if media_first:
             rest.append(pool.submit(self._screenshot))  # alongside the searches
         if kind != "web":
@@ -1230,13 +1239,12 @@ class Lookup:
         *,
         reference: str,
         min_sim: float = 0.0,
-        page_role: str | None = None,
     ) -> str | None:
         """Turn one search hit into a post or page; returns the new node id.
 
         X hits that share few words with the reference are dropped (search engines match loose
-        keywords); pages below `min_sim` too. `page_role` fixes a page's role (else: by how much
-        of the reference its snippet carries)."""
+        keywords); pages below `min_sim` too. A page's role is set by how much of the reference
+        its snippet carries."""
         snippet = textsim.strip_snippet(hit.snippets[0]) if hit.snippets else ""
         if m := X_STATUS_RE.match(hit.url):
             handle, sid = m.group(1), m.group(2)
@@ -1278,7 +1286,7 @@ class Lookup:
             Page(
                 id="",
                 url=hit.url,
-                role=page_role or ("reference" if sim >= COPY_MIN else "coverage"),
+                role="reference" if sim >= COPY_MIN else "coverage",
                 headline=hit.title or None,
                 snippet=snippet[:300] or None,
                 published_hint=hit.published_hint.isoformat() if hit.published_hint else None,
@@ -1684,20 +1692,13 @@ class Lookup:
 
     def _coverage(self) -> None:
         q = self._card_title or textsim.phrase(self._subject_text, 14)
-        # an upload with too little text: pages about the image, found by its caption or
-        # description. They describe the image; none of them is a copy or an origin.
-        about = not q and bool(self._image_query)
-        q = q or self._image_query
         if not q:
             self.skip("coverage", "nothing to search for")
             return
-        image = self.result.kind == "image"
-        if image and not about and self._upload_meme:
-            q += " meme"  # meme pages (template, first use, variants) over unrelated matches
         with self.step("coverage") as st:
             queries = [q.replace('"', "")]
             claim_query = (textsim.phrase(self._subject_text, 40) or "").replace('"', "")
-            if not about and claim_query and claim_query not in queries:
+            if claim_query and claim_query not in queries:
                 queries.append(claim_query)
             search_pool = ThreadPoolExecutor(max_workers=2)
             futures = [search_pool.submit(self._search, query, 10) for query in queries]
@@ -1723,13 +1724,7 @@ class Lookup:
                     rid = self.receipt(
                         "oxylabs",
                         "/search",
-                        (
-                            "Search for pages about the uploaded image"
-                            if image
-                            else "Coverage search"
-                        )
-                        + (" (by its text or description)" if about else "")
-                        + f": {len(hits)} results",
+                        f"Coverage search: {len(hits)} results",
                         query=query,
                         call=call,
                     )
@@ -1741,7 +1736,6 @@ class Lookup:
                             rid,
                             at,
                             reference=self._subject_text or query,
-                            page_role="coverage" if about else None,
                         )
                         if nid and nid.startswith("page:") and nid not in found:
                             found.append(nid)
@@ -1754,9 +1748,7 @@ class Lookup:
                 )
             st.found = found
             st.detail = (
-                f"{len(found)} pages "
-                + ("about the image" if image else "on the story")
-                + f" · {succeeded}/{len(queries)} searches completed"
+                f"{len(found)} pages on the story · {succeeded}/{len(queries)} searches completed"
             )
 
     # ---------------------------------------------------------------- media (Nemotron)
@@ -1785,38 +1777,16 @@ class Lookup:
         self._media_urls = [url]
 
     def _use_upload_reading(self, texts: list[str], a: Any) -> None:
-        """What the searches look for, from Nemotron's reading `a` of an uploaded image (None
-        when it wasn't read): its text when there are 5+ words of it. With less, the coverage
-        step looks for pages about the image by its short text (a meme caption), else by its
-        description; those pages are about the image, never copies of it."""
+        """The text Nemotron read in an uploaded image (`a`, None when it wasn't read): shown
+        on its card and, with 5+ words, the subject text the monitor check and the reading
+        see. No search looks for it: an upload's results are matches of the picture."""
         with self.lock:
             subj = next((p for p in self.result.posts if p.id == self.result.subject_id), None)
             if subj is not None and a is not None:
                 subj.text = "\n".join(a.extracted_text)[:2000]  # reading order, for the card
         joined = " ".join(texts)
-        self._upload_meme = a is not None and a.media_type == "meme"
         if textsim.phrase(joined):
             self._subject_text = joined
-            self.note("The searches look for the text Nemotron read inside the uploaded image.")
-            return
-        if a is None:
-            return
-        meme = self._upload_meme
-        words = joined.replace('"', "").split()
-        if len(words) >= 2:
-            short = " ".join(words[:8])
-            self._image_query = f"{short} meme" if meme else short
-        elif "adult" not in a.content_flags and a.description:
-            self._image_query = ("meme " if meme else "") + " ".join(a.description.split()[:30])
-        if not self._image_query:
-            self.note("The uploaded image has too little text to search for; nothing was searched.")
-            return
-        self.note(
-            "The uploaded image has too little text for an exact search; the pages found are "
-            "about the image (searched by its "
-            + ("text" if len(words) >= 2 else "description")
-            + "), not an image match and not copies."
-        )
 
     def _media(self, ocr_as_text: bool = False) -> None:
         urls = self._media_urls[: self.deps.media_max]
@@ -1858,10 +1828,7 @@ class Lookup:
                     texts.extend(a.extracted_text)
             if errors and not read:
                 if self.result.kind == "image":
-                    self.note(
-                        "Nemotron could not read the uploaded image, so there was no text to "
-                        "search for. Try again in a minute."
-                    )
+                    self.note("Nemotron could not read the uploaded image. Try again in a minute.")
                 raise errors[0]
             found = []
             # the longest line first: headers ("NETWORK & OPERATIONS", dates) make poor queries
@@ -1912,10 +1879,8 @@ class Lookup:
             st.detail = f"{read} image(s) read" + (
                 f" · OCR text found in {len(found)} places"
                 if ocr
-                else " · too little text to search for; looking for pages about it"
-                if self._image_query
                 else " · its text drives the searches"
-                if ocr_as_text and texts and self._phrase()
+                if ocr_as_text and texts and self._phrase() and self.result.kind != "image"
                 else ""
             )
 
@@ -2175,7 +2140,8 @@ class Lookup:
                     "X counts are what the logged-out page showed when it was read; X "
                     "hides zero counts. Post times come from the post ids."
                 )
-            self.note("Search results are a sample of where the text appears, not every copy.")
+            if not image:  # an upload's text is never searched
+                self.note("Search results are a sample of where the text appears, not every copy.")
             if self.result.status != "matched":
                 self.note(
                     "Not in the Bluesky clusters we monitor, so there is no coordination "
