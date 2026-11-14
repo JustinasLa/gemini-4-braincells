@@ -190,6 +190,18 @@ def test_snowflake_and_classify():
     assert classify("not a url") is None
 
 
+def test_classify_handleless_x_status_link():
+    # x.com/i/status/<id> names no author: "i" is not a handle to read a profile for
+    for link in (f"https://x.com/i/status/{SUBJ}", f"https://x.com/i/web/status/{SUBJ}"):
+        t = classify(link)
+        assert (t.kind, t.handle, t.post_id, t.url) == (
+            "x_post",
+            None,
+            SUBJ,
+            f"https://x.com/i/web/status/{SUBJ}",
+        )
+
+
 def test_parse_post_page_main_and_replies():
     page = parse_post_page(POST_MD, SUBJ)
     m = page.main
