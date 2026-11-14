@@ -276,7 +276,9 @@ match whose first-seen upper bound predates every dated verified post that may c
 copies; not text-only copies, the author's other posts or replies). TinEye crawl dates say
 the picture is at least that old, not when it was published or who created it; day-only dates
 use the following midnight as a conservative bound. Text origin and coordination status do
-not change. Visual differences are described as **edited**, with the observed changes.
+not change. Visual differences are described as **edited**, with the observed changes; an
+`edited` relation without listed changes is a pixel difference only (a strong colour filter can
+cause one), never on its own evidence that the content changed.
 
 ## Ad-hoc checks: `POST /api/analyze`
 

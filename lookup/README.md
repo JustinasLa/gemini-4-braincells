@@ -186,6 +186,9 @@ ImageMatch {
 `change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
 `element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.
 Only `edited`/`cropped` matches get Nemotron change descriptions; code decides the relation.
+`edited` comes from pixels alone (`media.variants`): a strong global brightness, contrast or
+gamma filter on an unchanged repost can come back `edited`, so `edited` without `changes` is a
+visual difference, not proof that the content changed.
 `crop_box` and `edited_region` are `(left, top, right, bottom)` fractions 0..1 of the uploaded
 image, the base of `media.variants.relate(upload, match)`, not pixels and not the match's own
 frame: `crop_box` is where the match sits inside the upload (null when the match is larger),

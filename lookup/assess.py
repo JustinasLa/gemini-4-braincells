@@ -50,6 +50,8 @@ Write a short, plain reading for a general audience:
 - image_matches: crawl_date is when an engine first saw the picture, not its publication
   date; it is at least that old and may be older. image_origin_id is separate from the text
   origin. Say "edited" and list observed changes, never "fake" or "deepfake"; cite receipt ids.
+  An "edited" match with no listed changes differs only in pixels (a strong colour or
+  brightness filter can do that): never present it alone as a change of content.
 - spread_pattern: describe the copies: how many accounts, how fast, verbatim or quoted,
   established or new accounts. Facts only.
 - counter_evidence: reasons the spread may be ordinary (famous author, news event, people

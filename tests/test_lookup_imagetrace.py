@@ -1294,3 +1294,75 @@ def test_empty_change_list_is_reported_as_no_visible_change():
     receipt = next(r for r in job.result.receipts if r.id == match.receipt_id)
     assert receipt.ok and receipt.summary.endswith("Nemotron saw no visible change")
     assert match.changes == []
+
+
+def test_real_media_variants_relate_through_the_trace():
+    """Part 1's real relate() (on main since #76) end to end: an identical copy is "same", a
+    smaller copy "resized", a re-captioned copy "edited", an unrelated picture is dropped."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    from media.variants import relate as real_relate
+
+    def picture(size=(320, 220)):
+        im = Image.new("RGB", size, (40, 90, 160))
+        d = ImageDraw.Draw(im)
+        d.ellipse((60, 40, 200, 180), fill=(230, 120, 40))
+        d.rectangle((210, 100, 300, 200), fill=(30, 160, 70))
+        return im
+
+    def jpeg(im):
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=92)
+        return buf.getvalue()
+
+    base = jpeg(picture())
+    captioned = picture()
+    ImageDraw.Draw(captioned).text((10, 180), "NEW CAPTION HERE", fill=(255, 255, 255))
+    other = Image.new("RGB", (320, 220), (250, 250, 250))
+    ImageDraw.Draw(other).line((0, 0, 320, 220), fill=(0, 0, 0), width=25)
+    served = {
+        "/same.jpg": base,
+        "/small.jpg": jpeg(picture().resize((160, 110))),
+        "/caption.jpg": jpeg(captioned),
+        "/other.jpg": jpeg(other),
+    }
+
+    def fetch(request):
+        return httpx.Response(
+            200, headers={"content-type": "image/jpeg"}, content=served[request.url.path]
+        )
+
+    hits = [hit(p.strip("/"), rank=i) for i, p in enumerate(served)]
+    searches = Searches(hits)
+    searches.yandex = lambda client, url, **kwargs: result("yandex", url, [])
+    ref = ImageRef(sha256=hashlib.sha256(base).hexdigest(), mime="image/jpeg", bytes=len(base))
+    job = Lookup(
+        "lk_real",
+        LookupInput(image=ref),
+        Deps(
+            oxylabs=TextSources(),
+            reverse_image=True,
+            public_base_url="https://public.example",
+            search_tineye=searches.tineye,
+            search_yandex=searches.yandex,
+            relate=real_relate,
+            describe_changes=describe_nothing,
+            nemotron=Reader(),
+            image_transport=httpx.MockTransport(fetch),
+            media_max=0,
+        ),
+        image=base,
+    )
+    run_trace(job)
+    got = {m.image_url.rsplit("/", 1)[-1]: m.relation for m in job.result.image_matches}
+    assert got == {"same.jpg": "same", "small.jpg": "resized", "caption.jpg": "edited"}
+    edited = next(m for m in job.result.image_matches if m.relation == "edited")
+    assert edited.edited_region and all(0.0 <= v <= 1.0 for v in edited.edited_region)
+    assert all(isinstance(m.distance, float) for m in job.result.image_matches)
+    assert job.result.image_origin_id is not None
+
+
+def describe_nothing(client, original, variant, *, timeout_s):
+    return None
