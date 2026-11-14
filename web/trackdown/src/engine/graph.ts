@@ -1,4 +1,5 @@
 // Trackdown graph engine: DOM cards over canvas layers, custom force physics, inertial camera.
+import { sameTextKey } from "../data/shared";
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
@@ -28,6 +29,9 @@ export interface VNode {
   tilt: number;
   last: string;
   drag: boolean;
+  /** posts with exactly the same text, oldest first: drawn as one fanned stack (null when alone) */
+  stack: VNode[] | null;
+  si: number; // place in the stack; 0 = the oldest, at the back
 }
 interface VEdge {
   e: TraceEdge;
@@ -207,7 +211,7 @@ export class Graph {
       }
       if (inSim != null && d.media) el.classList.add("matched");
       this.world.appendChild(el);
-      const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], aside: [], asideOf: null, tilt: 0, last: "", drag: false };
+      const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], aside: [], asideOf: null, tilt: 0, last: "", drag: false, stack: null, si: 0 };
       this.nodes.push(n);
       this.byId.set(d.id, n);
     }
@@ -215,6 +219,25 @@ export class Graph {
     for (const n of this.nodes) {
       n.w = n.el.offsetWidth;
       n.h = n.el.offsetHeight;
+    }
+    // posts that say exactly the same thing become one stack, like a hand of cards: each card sits a
+    // little lower than the one behind it, so every author's name strip stays readable
+    this.stacks = [];
+    const same = new Map<string, VNode[]>();
+    for (const n of this.nodes) {
+      const key = sameTextKey(n.d);
+      if (key) (same.get(`${n.compact ? "c" : "f"}|${key}`) ?? same.set(`${n.compact ? "c" : "f"}|${key}`, []).get(`${n.compact ? "c" : "f"}|${key}`)!).push(n);
+    }
+    for (const members of same.values()) {
+      if (members.length < 2) continue;
+      members.sort((a, b) => a.d.t - b.d.t);
+      members.forEach((n, i) => {
+        n.stack = members;
+        n.si = i;
+        n.el.classList.add("stacked");
+        n.el.style.setProperty("--sz", String(i));
+      });
+      this.stacks.push(members);
     }
     for (const e of c.edges) {
       const a = this.byId.get(e.from);
@@ -249,7 +272,8 @@ export class Graph {
    *  Bursts (posts < 2 min apart) become a time-ordered grid: columns left to right, so a
    *  31-account burst reads as one dense block instead of a 2000 px column. */
   private layoutTime() {
-    const sorted = [...this.nodes].sort((a, b) => a.d.t - b.d.t);
+    // a stack takes one place on the time axis, its oldest card's
+    const sorted = this.nodes.filter((n) => !n.si).sort((a, b) => a.d.t - b.d.t);
     const groups: VNode[][] = [];
     for (const n of sorted) {
       const g = groups[groups.length - 1];
@@ -271,7 +295,7 @@ export class Graph {
       if (gap > breakAt) this.timeBreaks.push({ x: x + dx / 2, gap });
       x += dx;
       const chips = g.filter((n) => n.compact).length;
-      if (g.length > 6 && chips >= g.length / 2) {
+      if (g.length > 6 && chips >= g.length / 2 && !g.some((n) => n.stack)) {
         const cols = Math.ceil(g.length / 8);
         const rows = Math.ceil(g.length / cols);
         const id = g[0].d.id;
@@ -295,6 +319,7 @@ export class Graph {
     // centre the axis on 0
     const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
     for (const n of this.nodes) n.tx -= mid;
+    for (const n of this.nodes) if (n.si) n.tx = n.stack![0].tx;
     for (const b of this.timeBreaks) b.x -= mid;
     this.timeMap = sorted.map((n) => [n.d.t, n.tx] as [number, number]);
     // keep the map monotonic for scrubbing
@@ -331,6 +356,11 @@ export class Graph {
       seen.add(n);
       const kids = [...n.children.filter((c) => c.parents[0] === n), ...n.aside.filter((c) => c.asideOf === n && tucked(c))].sort((a, b) => a.d.t - b.d.t);
       if (!kids.length) {
+        // a card further up a stack takes no slot of its own: it is placed with its stack below
+        if (n.si) {
+          n.py = slot;
+          return n.py;
+        }
         const gr = this.grid.get(n);
         if (gr) {
           const RH = 90;
@@ -343,7 +373,7 @@ export class Graph {
           n.py = top + gr.row * RH + RH / 2;
           return n.py;
         }
-        const gap = n.compact ? 90 : n.h + 40;
+        const gap = (n.compact ? 90 : n.h + 40) + (n.stack ? (n.stack.length - 1) * this.fan(n.stack) : 0);
         n.py = slot + gap / 2;
         slot += gap;
         return n.py;
@@ -357,6 +387,32 @@ export class Graph {
     this.nodes.filter((n) => !seen.has(n)).sort((a, b) => a.d.t - b.d.t).forEach(visit);
     const mid = slot / 2;
     for (const n of this.nodes) n.py -= mid;
+    for (const s of this.stacks) {
+      const step = this.fan(s);
+      const top = s[0].py - (s[0].h + (s.length - 1) * step) / 2;
+      for (const n of s) n.py = top + n.si * step + n.h / 2;
+    }
+  }
+  stacks: VNode[][] = [];
+  /** how far each card of a stack sits below the one behind it: its name strip, less in a tall stack */
+  private fan(stack: VNode[]): number {
+    return Math.max(22, Math.min(stack[0].compact ? 34 : 46, 320 / (stack.length - 1)));
+  }
+  /** A stack moves as one: its cards keep their places whatever pushed or dragged one of them. */
+  private holdStacks() {
+    for (const s of this.stacks) {
+      const shown = s.filter((n) => n.vis);
+      if (shown.length < 2) continue;
+      const step = this.fan(s);
+      const top = (n: VNode) => n.y - n.h / 2 - n.si * step;
+      const held = shown.find((n) => n.drag);
+      const x = held ? held.x : shown.reduce((sum, n) => sum + n.x, 0) / shown.length;
+      const y = held ? top(held) : shown.reduce((sum, n) => sum + top(n), 0) / shown.length;
+      for (const n of shown) {
+        n.x = x;
+        n.y = y + n.si * step + n.h / 2;
+      }
+    }
   }
 
   reheat(a = 0.6) {
@@ -396,14 +452,21 @@ export class Graph {
       if (want) {
         n.born = now;
         n.el.style.display = "";
+        const mate = n.stack?.find((m) => m !== n && m.vis);
+        if (mate) {
+          // a card joining its stack appears in its place there, not flying in from its parent
+          n.x = mate.x;
+          n.y = mate.y - mate.h / 2 + (n.si - mate.si) * this.fan(n.stack!) + n.h / 2;
+          n.vx = n.vy = 0;
+        }
         if (!instant) {
-          const src = (from && this.byId.get(from)) || n.parents.find((p) => p.vis) || n.children.find((c) => c.vis) || n.aside.find((c) => c.vis);
+          const src = mate ? null : (from && this.byId.get(from)) || n.parents.find((p) => p.vis) || n.children.find((c) => c.vis) || n.aside.find((c) => c.vis);
           if (src) {
             n.x = src.x + (Math.random() - 0.5) * 30;
             n.y = src.y + (Math.random() - 0.5) * 30;
             n.vx = (n.tx - n.x) * 0.06;
             n.vy = (n.py - n.y) * 0.06;
-          } else {
+          } else if (!mate) {
             n.x = n.tx;
             n.y = n.py;
           }
@@ -435,6 +498,7 @@ export class Graph {
       const p = ns[i];
       for (let j = i + 1; j < ns.length; j++) {
         const q = ns[j];
+        if (p.stack && p.stack === q.stack) continue; // cards of one stack overlap on purpose
         let dx = q.x - p.x;
         let dy = q.y - p.y;
         let d2 = dx * dx + dy * dy;
@@ -479,6 +543,7 @@ export class Graph {
         const p = ns[i];
         for (let j = i + 1; j < ns.length; j++) {
           const q = ns[j];
+          if (p.stack && p.stack === q.stack) continue;
           const ox = (p.w + q.w) / 2 + pad - Math.abs(q.x - p.x);
           if (ox <= 0) continue;
           const oy = (p.h + q.h) / 2 + pad - Math.abs(q.y - p.y);
@@ -524,6 +589,7 @@ export class Graph {
         else n.x += l < r ? -l * 0.5 : r * 0.5;
       }
     }
+    this.holdStacks();
     this.alpha += (this.alphaTarget - this.alpha) * (silent ? 0.03 : 0.012);
   }
 
