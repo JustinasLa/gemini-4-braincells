@@ -29,16 +29,6 @@ R = 1.0  # coin radius
 D = 0.17  # thickness
 
 
-def mat_metal(name, color, rough=0.22):
-    m = bpy.data.materials.new(name)
-    m.use_nodes = True
-    b = m.node_tree.nodes["Principled BSDF"]
-    b.inputs["Base Color"].default_value = (*color, 1)
-    b.inputs["Metallic"].default_value = 1.0
-    b.inputs["Roughness"].default_value = rough
-    return m
-
-
 def mat_enamel(name, color, rough=0.12):
     m = bpy.data.materials.new(name)
     m.use_nodes = True

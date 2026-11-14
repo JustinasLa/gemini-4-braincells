@@ -10,7 +10,13 @@ from signals.config import DEFAULT
 from signals.detect import detect
 from signals.graph import rarity
 from signals.keys import build_keys
-from signals.score import _max_in_window, content_signals, handle_shape, shared_keys
+from signals.score import (
+    _max_in_window,
+    content_signals,
+    handle_shape,
+    operator_domain,
+    shared_keys,
+)
 from signals.synth import SYNTH_PREFIX, campaign, empty_window, hard_negative, inject
 from signals.textnorm import text_hash
 from signals.window import WAction, WindowData, WPost
@@ -598,3 +604,128 @@ def test_japanese_copy_paste_and_paraphrase_become_content_keys():
     neardup = [k for kv, k in keys.items() if kv[0] == "neardup" and "did:plc:ja0" in k.accounts]
     assert text_keys and len(text_keys[0].accounts) == 3  # exact copies
     assert neardup and len(neardup[0].accounts) >= 5  # character shingles catch the paraphrases
+
+
+def test_clock_aligned_guard_states_the_span_it_counts():
+    """Posts up to 15 s before a half hour count as aligned, so the text and expected share must
+    cover that span too (105 of 1800 s, not 90)."""
+    from signals.keys import Key, Use
+    from signals.score import organic_guards
+
+    members = [f"did:plc:k{i}" for i in range(5)]
+    half_hour = 1_800_000_000.0  # a multiple of 1800
+    uses = [Use(d, half_hour - 10, f"at://{d}/app.bsky.feed.post/1") for d in members]
+    key = Key("text", "h", uses, set(members))
+    key.total_accounts = len(members)
+    g = next(
+        x
+        for x in organic_guards(members, [key], {}, WindowData(start=0, end=600), DEFAULT)
+        if x.name == "clock_aligned_posting"
+    )
+    assert g.detail["aligned"] == 5
+    assert g.detail["expected_share"] == round(105 / 1800, 4)
+    assert "15 s before" in g.summary and "6% expected" in g.summary
+
+
+def test_load_window_counts_active_posters_without_an_extra_query():
+    from datetime import UTC, datetime, timedelta
+
+    from signals.window import load_window
+
+    start = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    t = start.timestamp()
+    # One post seen from two Jetstream hosts (same uri), plus a second account's post.
+    posts = [
+        ("at://a/app.bsky.feed.post/1", "did:a", t + 5, "hi", None, [], [], None, None, None),
+        ("at://a/app.bsky.feed.post/1", "did:a", t + 3, "hi", None, [], [], None, None, None),
+        ("at://b/app.bsky.feed.post/2", "did:b", t + 9, "yo", None, [], [], None, None, None),
+    ]
+    posts = [(*r, None, False, ["en"]) for r in posts]
+    seen: list[str] = []
+
+    class Cur:
+        def execute(self, sql, params):
+            seen.append(sql)
+            return posts if "FROM posts WHERE" in sql and "text_hash" in sql else []
+
+    class Conn:
+        def cursor(self):
+            return Cur()
+
+    wd = load_window(Conn(), start, start + timedelta(minutes=10), DEFAULT)
+    assert [p.uri for p in wd.posts] == [
+        "at://a/app.bsky.feed.post/1",
+        "at://b/app.bsky.feed.post/2",
+    ]
+    assert wd.posts[0].t == t + 3  # earliest copy kept
+    assert wd.active_accounts == 2
+    assert not any("count(DISTINCT" in s for s in seen)
+
+
+@pytest.mark.parametrize(
+    "handle, expected",
+    [
+        ("alerts.weather.im", "weather.im"),
+        ("train.marta.fail", "marta.fail"),
+        ("news.bbc.co.uk", "bbc.co.uk"),
+        ("a.b.github.io", "b.github.io"),
+        ("joao.com.br", None),  # a person's own domain under a public suffix
+        ("bob.co.uk", None),
+        ("marta.fail", None),  # the operator's bare domain is not a subdomain of it
+        ("x.github.io", None),  # private suffix: x.github.io is its own registered domain
+    ],
+)
+def test_operator_domain_uses_the_public_suffix_list(handle, expected):
+    assert operator_domain(handle) == expected
+
+
+def test_people_under_one_public_suffix_are_not_one_operator():
+    from signals.score import AccountInfo, organic_guards
+
+    members = [f"did:plc:br{i}" for i in range(5)]
+    info = {
+        d: AccountInfo(did=d, handle=f"person{i}.com.br", age_days=900.0, followers=10)
+        for i, d in enumerate(members)
+    }
+    guards = organic_guards(members, [], info, WindowData(start=0, end=600), DEFAULT)
+    assert "transparent_automation" not in {g.name for g in guards}
+
+    feeds = {
+        d: AccountInfo(did=d, handle=f"feed{i}.weather.im", age_days=900.0, followers=10)
+        for i, d in enumerate(members)
+    }
+    g = next(
+        x
+        for x in organic_guards(members, [], feeds, WindowData(start=0, end=600), DEFAULT)
+        if x.name == "transparent_automation"
+    )
+    assert g.detail["domain"] == "weather.im" and g.score == 1.0
+
+
+def test_language_diversity_does_not_vouch_for_new_accounts():
+    from signals.score import AccountInfo, organic_guards
+
+    members = [f"did:plc:ml{i}" for i in range(8)]
+    langs = ["en", "es", "pt", "de", "fr", "it", "fi", "pl"]
+    wd = WindowData(start=0, end=600)
+    wd.posts = [
+        WPost(uri=f"at://{d}/app.bsky.feed.post/1", did=d, t=10.0 + i, text="x", langs=[langs[i]])
+        for i, d in enumerate(members)
+    ]
+
+    def guard(age):
+        info = {d: AccountInfo(did=d, age_days=age, followers=5) for d in members}
+        return next(
+            g
+            for g in organic_guards(members, [], info, wd, DEFAULT)
+            if g.name == "language_diversity"
+        )
+
+    assert guard(700.0).score == 1.0  # established people in 8 languages: independent
+    new = guard(3.0)
+    assert new.score == 0.0 and new.detail["settled_share"] == 0.0
+    assert "new accounts" in new.summary
+    unknown = next(
+        g for g in organic_guards(members, [], {}, wd, DEFAULT) if g.name == "language_diversity"
+    )
+    assert unknown.score == 1.0  # no account info: unchanged

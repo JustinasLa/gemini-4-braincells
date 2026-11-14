@@ -1,5 +1,6 @@
 // Live data: the team API (api/schemas.py). Everything here is optional; when the API is not
 // reachable the app runs on clearly-labelled simulated cases.
+import { highlightShared } from "./shared";
 import type { Receipt, Status, TraceCase, TraceEdge, TraceNode, Tool } from "../types";
 import { hashStr } from "./build";
 import { SHOT_FLAG, screenshotFacts, type LookupScreenshot } from "./lookup";
@@ -68,7 +69,7 @@ const toolFor = (model?: string | null, kind?: string): Tool =>
 
 /** Turn a cluster detail into a trace: each shared item's earliest post is the parent of later ones. */
 export async function liveCase(id: number): Promise<TraceCase> {
-  return clusterCase(await getJson<ClusterDetail>(`/api/clusters/${id}`));
+  return highlightShared(clusterCase(await getJson<ClusterDetail>(`/api/clusters/${id}`)));
 }
 
 /** A cluster's detail as a trace (pure: no network). */

@@ -161,7 +161,10 @@ def parse_count(value: Any) -> int | None:
     parts = re.split(r"[., ]", number)
     if len(parts) > 1 and not all(len(p) == 3 for p in parts[1:]):
         return None  # "1.5" without a suffix is not a count the UI shows
-    return int("".join(parts))
+    try:
+        return int("".join(parts))
+    except ValueError:  # over Python's int() digit limit (4300): a degenerate reply, not a count
+        return None
 
 
 def normalise_counts(raw: Any) -> dict[str, int | None]:

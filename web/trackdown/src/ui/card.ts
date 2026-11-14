@@ -1,8 +1,9 @@
 import { hashStr } from "../data/build";
 import type { Media, TraceNode } from "../types";
-import { esc, fmtDate, fmtNum, roleOf } from "./format";
+import { esc, fmtClock, fmtDate, fmtNum, markRuns, roleOf } from "./format";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
+import { imageCardHtml } from "./variations";
 
 export const PLATFORM: Record<string, string> = { text: "Submitted text", x: "𝕏", bluesky: "Bluesky", web: "Web page", news: "News", forum: "Forum", video: "Video", chat: "Chat", factcheck: "Web page", print: "Print", letter: "Letter" };
 
@@ -51,6 +52,7 @@ const flagClass = (f: string) => (/old|followers|templated|every|first seen|neve
 
 /** Dispatch (full card) or slip (compact cluster member). `no` is the catalogue number. */
 export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?: number): string {
+  if (n.imageMatch) return imageCardHtml(n);
   const a = n.author;
   const fresh = (a.ageDays ?? 999) < 30;
   const shield = cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: compact ? 22 : 30 });
@@ -58,19 +60,17 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
   const handle = a.handle === a.name ? "" : `${n.platform === "bluesky" || n.platform === "x" ? "@" : ""}${esc(a.handle.replace(/^@/, ""))}`;
   const unknownTime = n.undated || n.timeUnknown;
   if (compact) {
-    const t = new Date(n.t);
-    const clock = `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}:${String(t.getUTCSeconds()).padStart(2, "0")}`;
     return `<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div></header>
-      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${unknownTime ? "time unknown" : clock}</time></div>`;
+      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${unknownTime ? "time unknown" : fmtClock(n.t)}</time></div>`;
   }
   const role = roleOf(n.role);
   const mark = role.mark ? `<div class="rolemark">${esc(role.mark)}</div>` : "";
   const stamp = n.role === "submitted" ? `<div class="stamp">SUBMITTED</div>` : "";
   const flags = n.flags?.length ? `<div class="flags">${n.flags.map((f) => `<span class="flag${flagClass(f)}">${esc(f)}</span>`).join("")}</div>` : "";
-  const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${PLATFORM[n.platform] ?? n.platform}</span>`;
+  const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${esc(PLATFORM[n.platform] ?? n.platform)}</span>`;
   return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div>${n.platform === "x" ? '<span class="platform-x" aria-label="X post">𝕏</span>' : ""}${unknownTime ? "" : `<span class="catno">#${String(no).padStart(2, "0")}</span>`}</header>
     ${mark}
-    <p class="txt">${esc(n.text)}</p>
+    <p class="txt">${markRuns(n.text, n.textMatch)}</p>
     ${n.media ? mediaHtml(n.media, n.id, matchScore) : ""}
     ${flags}
     <footer>${eng}<time>${unknownTime ? "time unknown" : fmtDate(n.t)}</time></footer>`;
