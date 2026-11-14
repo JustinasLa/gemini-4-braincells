@@ -233,7 +233,8 @@ class Trace:
         # the same picture can come from another page, and any of them can date it)
         self.match_pages: dict[str, list[str]] = {}
         self.page_futures: list[Future] = []
-        self.settled = threading.Event()  # finish() has chosen the origin: no more page dates
+        # no more page dates: the family step read its copies' dates, or finish() chose the origin
+        self.settled = threading.Event()
 
     def _active(self) -> bool:
         return (
@@ -278,6 +279,12 @@ class Trace:
             and self.job._final is None
             and time.monotonic() < self.job._provider_deadline()
         )
+
+    def freeze_page_dates(self):
+        """No more page dates: the family step (lookup/family.py) has read its copies' dates,
+        and the image origin must rest on the same ones (job.lock held or not)."""
+        with self.job.lock:
+            self.settled.set()
 
     def _complete(
         self, rid, summary, *, ok=True, call=None, source_url=None, latency_ms=None, gate=None
@@ -374,6 +381,9 @@ class Trace:
                     ):
                         match.first_seen, match.time_source = hit.first_seen, hit.time_source
                         match.time_uncertainty_s = None
+                        if hit.page_url:  # the page shown is the one the date is about
+                            match.page_url = hit.page_url
+                            match.domain = hit.domain or domain(hit.page_url)
                         match.time_receipt_id = self._post_receipt(posted) if posted else None
                         match.engine = hit.engine
                     elif not match.first_seen and hit.engine == "tineye":
@@ -508,15 +518,18 @@ class Trace:
         """`match` dated by the earliest printed date of the pages it was found on, when that
         bound is earlier than the one it has; else `match` itself (job.lock held)."""
         got = [
-            self.page_dates[url]
+            (*self.page_dates[url], url)
             for url in self.match_pages.get(match.id) or [match.page_url]
             if url in self.page_dates
         ]
         if not got:
             return match
-        when, unc, rid = min(got, key=lambda d: d[0] + timedelta(seconds=d[1] or 0))
+        when, unc, rid, url = min(got, key=lambda d: d[0] + timedelta(seconds=d[1] or 0))
         dated = match.model_copy(
             update={
+                # the page shown is the one whose printed date this is
+                "page_url": url,
+                "domain": domain(url),
                 "first_seen": when,
                 "time_source": "page",
                 "time_uncertainty_s": unc,

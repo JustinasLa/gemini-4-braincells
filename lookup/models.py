@@ -91,6 +91,8 @@ class FamilyMember(BaseModel):
     # Archive's earliest capture of the page or image (also an upper bound); page / snowflake
     # as on ImageMatch
     time_source: Literal["crawl_date", "page", "snowflake", "wayback"] | None = None
+    # as ImageMatch.time_uncertainty_s (a page date's); None for the other sources
+    time_uncertainty_s: float | None = None
     archived_url: str | None = None
     # the proof it is the same photograph: geometrically consistent keypoints (media.align)
     inliers: int | None = None

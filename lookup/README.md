@@ -310,15 +310,19 @@ for at most `Deps.image_page_dates_max` (3) matched pages per lookup, best match
 earliest, then undated ones), skipping X posts, bare image files and matches compared as a
 different picture, each capped at 15 s (`imagetrace.PAGE_DATE_S`), started once TinEye has
 answered. They run beside the downloads and comparisons and are never waited for (the trace's
-end, which the family step waits on, does not move): a date counts if it lands before the origin
-is chosen after post verification; a later one is dropped and its receipt stays "date not
-confirmed". Each page is read once; its date applies to every match found on it (a match
-remembers every page it was found on, not only its `page_url`), and a match takes the earliest
-of its pages' dates. A page that now redirects to another host (a repurposed domain, another
-blog on the same service, even another subdomain: conservative) or to a front page (`/`,
-`/index.html`, `/home`, ...) gives no date. A page date before 1991 or in the future is ignored.
-`image_origin_id` is the same, resized or cropped match whose latest possible time is earliest
-and before every verified post that may carry the picture.
+end, which the family step waits on, does not move): a date counts if it lands before the family
+step (lookup/family.py) reads its copies' dates, after its picture reads, or else before the
+origin is chosen after post verification; a later one is dropped and its receipt stays "date not
+confirmed", so the family tree and `image_origin_id` rest on the same dates. The family step
+uses the same latest-possible-time rule (`FamilyMember.time_uncertainty_s`). Each page is read
+once; its date applies to every match found on it (a match remembers every page it was found on,
+not only its `page_url`), and a match takes the earliest of its pages' dates. `page_url` and
+`domain` follow the date: they name the page (or the engine hit) whose date `first_seen` is. A
+page that now redirects to another host (a repurposed domain, another blog on the same service,
+even another subdomain: conservative) or to a front page (`/`, `/index.html`, `/home`, ...)
+gives no date. A page date before 1991 or in the future is ignored. `image_origin_id` is the
+same, resized or cropped match whose latest possible time is earliest and before every verified
+post that may carry the picture.
 `receipt_id` identifies the engine result until comparison, then the downloaded/comparison
 receipt, or the Nemotron diff receipt; all earlier receipts remain in `receipts`.
 

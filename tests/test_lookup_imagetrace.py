@@ -1894,6 +1894,8 @@ def test_an_earlier_page_date_beats_a_post_id_time_in_either_order():
         match = next(m for m in job.result.image_matches if m.image_url == image)
         assert match.time_source == "page", order
         assert match.first_seen == datetime(2007, 3, 4, tzinfo=UTC), order
+        # the page shown is the one whose printed date it is, not the X post
+        assert (match.page_url, match.domain) == (blog, "blog.example"), order
 
 
 @pytest.mark.parametrize("sid", ["20000000000", "29700859247", str(imagetrace.MIN_DATED_ID - 1)])
@@ -1902,3 +1904,33 @@ def test_pre_snowflake_status_ids_give_no_time(sid):
     run_trace(job)
     assert job.result.image_matches[0].first_seen is None
     assert not any(r.tool == "x-id" for r in job.result.receipts)
+
+
+def test_a_post_id_or_crawl_date_that_wins_brings_its_own_page():
+    tweet = f"https://x.com/a/status/{status_id(datetime(2012, 5, 6, tzinfo=UTC))}"
+    image = "https://images.example/same.png"
+    hits = [
+        dated_hit("same", page="https://late.example/a", image=image, when=RECENT),
+        dated_hit("same", page=tweet, image=image, rank=1),
+    ]
+    job = job_for(Searches(hits), image_page_dates_max=0)
+    run_trace(job)
+    match = next(m for m in job.result.image_matches if m.image_url == image)
+    assert (match.time_source, match.page_url, match.domain) == ("snowflake", tweet, "x.com")
+
+
+def test_page_dates_stop_once_the_family_step_has_read_its_copies_dates():
+    page = "https://blog.example/post"
+    pages = PageSources({page: "2001-01-01"}, delay=0.3)
+    job = job_for(Searches([dated_hit("a", page=page, when=OLD)]), oxylabs=pages)
+    job._add_upload_post()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        trace = imagetrace.start(job, pool)
+        trace.future.result(timeout=5)
+        trace.freeze_page_dates()  # what lookup/family.py does before choosing its source
+        wait(trace.page_futures, timeout=5)
+        trace.finish()
+    match = next(m for m in job.result.image_matches if m.page_url == page)
+    assert match.time_source == "crawl_date"
+    read = next(r for r in job.result.receipts if r.tool == "oxylabs" and r.source_url == page)
+    assert not read.ok and "not confirmed" in read.summary
