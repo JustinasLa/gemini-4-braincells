@@ -212,3 +212,104 @@ def test_candidate_copy_is_verified_through_fxtwitter():
     assert (COPY, False) in fx.calls
     # the unrelated hit (x.com/zed/...) is not on FxTwitter: dropped, no page read either
     assert not any(p.id == "x:2121364193509277999" and p.verified for p in job.result.posts)
+
+
+# ---------------------------------------------------------------- review round 1
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["status"].update(author=["not", "a", "dict"]),
+        lambda d: d["status"].update(text=["a", "list"]),
+        lambda d: d["status"].update(id={"x": 1}),
+        lambda d: d.update(status="a string"),
+    ],
+)
+def test_malformed_main_post_is_an_fxtwitter_error(mutate):
+    data = json.loads(json.dumps(VG))
+    mutate(data)
+    with pytest.raises(FxTwitterError):
+        FxTwitterClient._conversation(data, with_replies=True)
+
+
+def test_malformed_optional_parts_do_not_lose_the_post():
+    data = json.loads(json.dumps(VG))
+    data["cursor"] = "not a dict"
+    data["replies"] = [{"id": "x"}, ["junk"], data["replies"][0]]
+    data["status"]["media"] = {"photos": [{"url": 5}, "junk", {"url": "http://evil.example/a"}]}
+    data["status"]["quote"] = {"id": None, "author": "x"}
+    conv = FxTwitterClient._conversation(data, with_replies=True)
+    assert conv.main.status_id == VG_ID and conv.main.media_urls == []
+    assert conv.main.quoted_id is None and conv.cursor is None
+    assert len(conv.replies) == 1  # only the well-formed reply
+
+
+def test_malformed_answer_falls_back_to_the_page_read():
+    bad = json.loads(json.dumps(VG))
+    bad["status"]["author"] = "nobody"
+
+    class BadFx(FakeFx):
+        def conversation(self, sid, *, cursor=None, deadline=None):
+            self.calls.append((sid, True))
+            return FxTwitterClient._conversation(bad, with_replies=True)
+
+    job, ox = _vg_job(BadFx())
+    assert ("scrape", f"https://x.com/visegrad24/status/{VG_ID}") in ox.calls
+    assert job.result.unreadable == "Hidden from logged-out view"
+
+
+def test_link_card_thumbnail_is_kept():
+    it = to_item(GT["status"]["quote"])
+    assert it.card_url == "https://standwithjensen.com"
+    assert it.card_image.startswith("https://pbs.twimg.com/card_img/")
+
+
+def test_call_metadata_is_per_thread():
+    import threading
+
+    gate = threading.Barrier(2)
+
+    def handler(req: httpx.Request):
+        gate.wait(timeout=5)  # both requests in flight at once
+        return httpx.Response(200, json=VG)
+
+    c = _client(handler)
+    seen = {}
+
+    def read(name):
+        c.status(VG_ID)
+        seen[name] = c.last_call
+
+    ts = [threading.Thread(target=read, args=(n,)) for n in ("a", "b")]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert seen["a"] is not seen["b"]
+    assert c.last_call == {}  # this thread made no call
+
+
+def test_fallback_shares_the_candidate_read_bound(monkeypatch):
+    """FxTwitter that takes the read's whole bound leaves no second bound for Oxylabs."""
+    import lookup.service as svc
+
+    clock = [1000.0]
+    monkeypatch.setattr(svc.time, "monotonic", lambda: clock[0])
+
+    class SlowFx(FakeFx):
+        def status(self, sid, *, deadline=None):
+            clock[0] += 8.0  # the whole verify_read_s
+            raise FxTwitterError("timed out")
+
+    ox = FakeOxylabs()
+    job = Lookup(
+        "lk_slow",
+        LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"),
+        Deps(oxylabs=ox, fxtwitter=SlowFx(), time_budget_s=600),
+    )
+    from lookup.models import Post
+
+    cand = Post(id=f"x:{COPY}", platform="x", url=f"https://x.com/cy_example/status/{COPY}")
+    assert job._verify_x(cand, TEXT) is None
+    assert not any(c == ("scrape", cand.url) for c in ox.calls)

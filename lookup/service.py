@@ -754,6 +754,8 @@ class Lookup:
     def _x_post(self) -> None:
         t = self.target
         with self.step("post") as st:
+            # one bound for the read, FxTwitter and its fallback together
+            read_end = time.monotonic() + PAGE_CAP_S
             conv, call, _gone = self._fx_read(t.post_id)
             if conv is not None and conv.main.status_id == t.post_id:
                 m, replies, ancestors = conv.main, conv.replies, []
@@ -767,7 +769,7 @@ class Lookup:
                         ancestors = [parent.main]
                 self._read_post(st, m, ancestors, replies, call, fx=True)
                 return
-            md, call = self._scrape_x(t.url)
+            md, call = self._scrape_x(t.url, cap_s=max(1.0, read_end - time.monotonic()))
             page: PostPage = parse_post_page(md, t.post_id)
             m = page.main
             if m is None:
@@ -1676,6 +1678,8 @@ class Lookup:
         sid = p.id.split(":", 1)[1]
         # a candidate copy is evidence, not the subject: a straggler stays an unread mention
         # rather than holding the reading (verify_read_s)
+        # one bound for the read (verify_read_s), FxTwitter and its fallback together
+        read_end = time.monotonic() + self.deps.verify_read_s
         conv, call, gone = self._fx_read(
             sid, cap_s=min(FX_CAP_S, self.deps.verify_read_s), replies=False
         )
@@ -1699,7 +1703,10 @@ class Lookup:
                 [],
             )
         else:
-            md, call = self._scrape_x(p.url, cap_s=self.deps.verify_read_s)
+            left = read_end - time.monotonic()
+            if left < 1.0:
+                return None  # FxTwitter used the read's time: an unread mention, not a hold-up
+            md, call = self._scrape_x(p.url, cap_s=left)
             page, fx = parse_post_page(md, sid), False
             m = page.main
         if m is None:

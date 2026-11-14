@@ -13,6 +13,7 @@ cursor for more; `/2/status/<id>` the post alone. A missing post is HTTP 404 wit
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -49,46 +50,72 @@ def _int(v: Any) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
 
 
+def _str(v: Any) -> str | None:
+    return v if isinstance(v, str) and v else None
+
+
+def _dict(v: Any) -> dict:
+    return v if isinstance(v, dict) else {}
+
+
+def _pbs(v: Any) -> str | None:
+    """An X image URL (pbs.twimg.com), else None: nothing else is downloaded from a reply."""
+    return v if isinstance(v, str) and v.startswith("https://pbs.twimg.com/") else None
+
+
 def _photos(st: dict) -> list[str]:
-    media = st.get("media") or {}
-    out = [p["url"] for p in media.get("photos") or [] if isinstance(p, dict) and p.get("url")]
-    for v in media.get("videos") or []:  # a video's poster frame, like the page's video thumb
-        if isinstance(v, dict) and isinstance(v.get("thumbnail_url"), str):
-            out.append(v["thumbnail_url"])
-    return [u for u in out if u.startswith("https://pbs.twimg.com/")]
+    media = _dict(st.get("media"))
+    photos = media.get("photos") if isinstance(media.get("photos"), list) else []
+    videos = media.get("videos") if isinstance(media.get("videos"), list) else []
+    out = [u for p in photos if (u := _pbs(_dict(p).get("url")))]
+    # a video's poster frame, like the page's video thumb
+    out += [u for v in videos if (u := _pbs(_dict(v).get("thumbnail_url")))]
+    return out
 
 
-def to_item(st: dict) -> XItem:
-    """One FxTwitter status as the XItem the page parser would give (lookup/xpage.py)."""
-    if not isinstance(st, dict) or not str(st.get("id") or "").isdigit():
+def _id(v: Any) -> str | None:
+    s = str(v) if isinstance(v, int | str) and not isinstance(v, bool) else ""
+    return s if s.isdigit() else None
+
+
+def to_item(st: Any) -> XItem:
+    """One FxTwitter status as the XItem the page parser would give (lookup/xpage.py).
+    Raises FxTwitterError when it isn't a readable post (malformed or missing fields)."""
+    st = _dict(st)
+    sid = _id(st.get("id"))
+    if not sid:
         raise FxTwitterError("FxTwitter returned no post id")
-    author = st.get("author") or {}
-    handle = author.get("screen_name")
-    if not isinstance(handle, str) or not handle:
+    author = _dict(st.get("author"))
+    handle = _str(author.get("screen_name"))
+    if not handle:
         raise FxTwitterError("FxTwitter returned no author")
-    q = st.get("quote") if isinstance(st.get("quote"), dict) else None
-    q_author = (q or {}).get("author") or {}
-    card = st.get("card") if isinstance(st.get("card"), dict) else {}
+    text = st.get("text")
+    if text is not None and not isinstance(text, str):
+        raise FxTwitterError("FxTwitter returned a malformed text")
+    q = _dict(st.get("quote"))
+    q_id = _id(q.get("id")) if q else None
+    card = _dict(st.get("card"))
     return XItem(
         handle=handle,
-        name=author.get("name") or None,
-        status_id=str(st["id"]),
-        text=st.get("text") or "",
-        avatar_url=author.get("avatar_url") or None,
+        name=_str(author.get("name")),
+        status_id=sid,
+        text=text or "",
+        avatar_url=_str(author.get("avatar_url")),
         is_main=True,
-        quoted_handle=q_author.get("screen_name") if q else None,
-        quoted_id=str(q["id"]) if q and str(q.get("id") or "").isdigit() else None,
-        quoted_text=(q.get("text") or None) if q else None,
+        quoted_handle=_str(_dict(q.get("author")).get("screen_name")) if q_id else None,
+        quoted_id=q_id,
+        quoted_text=_str(q.get("text")) if q_id else None,
         replies=_int(st.get("replies")),
         reposts=_int(st.get("reposts")),
         likes=_int(st.get("likes")),
         bookmarks=_int(st.get("bookmarks")),
         views=_int(st.get("views")),
         media_urls=_photos(st),
-        card_title=card.get("title") or None,
-        card_url=card.get("url") or None,
-        card_domain=card.get("domain") or None,
-        card_image=None,
+        card_title=_str(card.get("title")),
+        card_url=_str(card.get("url")),
+        card_domain=_str(card.get("domain")),
+        # the link card's thumbnail: read like the page's card image when there's no photo
+        card_image=_pbs(_dict(card.get("image")).get("url")),
     )
 
 
@@ -106,7 +133,13 @@ class FxTwitterClient:
         self._http = http or httpx.Client(headers={"User-Agent": UA}, follow_redirects=True)
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
-        self.last_call: dict = {}
+        self._local = threading.local()
+
+    @property
+    def last_call(self) -> dict:
+        """{endpoint, http_status, latency_ms, fetched_at} of this thread's latest call: the
+        lookup's workers share one client, so each reads its own call's metadata."""
+        return getattr(self._local, "last_call", {})
 
     def close(self) -> None:
         if self._own:
@@ -125,12 +158,12 @@ class FxTwitterClient:
         except httpx.HTTPError as exc:
             raise FxTwitterError(f"FxTwitter request failed: {type(exc).__name__}") from exc
         finally:
-            self.last_call = {
+            self._local.last_call = {
                 "endpoint": path.rsplit("/", 1)[0],
                 "latency_ms": int((time.monotonic() - t0) * 1000),
                 "fetched_at": _now(),
             }
-        self.last_call["http_status"] = r.status_code
+        self._local.last_call["http_status"] = r.status_code
         try:
             data = r.json()
         except ValueError as exc:
@@ -158,28 +191,35 @@ class FxTwitterClient:
 
     @staticmethod
     def _conversation(data: dict, *, with_replies: bool) -> Conversation:
-        st = data.get("status")
-        main = to_item(st)
-        parent = st.get("replying_to") if isinstance(st.get("replying_to"), dict) else {}
-        pid = str(parent.get("status") or "")
-        replies: list[XItem] = []
-        if with_replies:
-            for r in data.get("replies") or []:
+        """The answer as a Conversation. A malformed answer is an FxTwitterError (the caller
+        falls back to the page read); a malformed reply is skipped, not the whole post."""
+        try:
+            st = _dict(data.get("status"))
+            main = to_item(st)
+            parent = _dict(st.get("replying_to"))
+            pid = _id(parent.get("status"))
+            replies: list[XItem] = []
+            raw = data.get("replies") if with_replies else None
+            for r in raw if isinstance(raw, list) else []:
                 try:
                     it = to_item(r)
                 except FxTwitterError:
                     continue
                 it.is_main = False
                 replies.append(it)
-        cursor = (data.get("cursor") or {}).get("bottom") if with_replies else None
-        return Conversation(
-            main=main,
-            parent_id=pid if pid.isdigit() else None,
-            parent_handle=parent.get("screen_name") or None,
-            replies=replies,
-            cursor=cursor if isinstance(cursor, str) and cursor else None,
-            possibly_sensitive=bool(st.get("possibly_sensitive")),
-        )
+            cursor = _dict(data.get("cursor")).get("bottom") if with_replies else None
+            return Conversation(
+                main=main,
+                parent_id=pid,
+                parent_handle=_str(parent.get("screen_name")) if pid else None,
+                replies=replies,
+                cursor=_str(cursor),
+                possibly_sensitive=st.get("possibly_sensitive") is True,
+            )
+        except FxTwitterError:
+            raise
+        except Exception as exc:  # any other shape surprise: not a readable answer
+            raise FxTwitterError(f"FxTwitter answer not understood: {type(exc).__name__}") from exc
 
 
 def _now() -> datetime:
