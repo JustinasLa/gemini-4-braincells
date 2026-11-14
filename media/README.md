@@ -249,10 +249,11 @@ worker, is logged at ERROR here.
   sentence that is only a plain no-change statement ("The background is unchanged.", "Nothing
   else changed.") is dropped. A compound sentence is kept even if part of it says nothing
   changed: dropping a real edit would wrongly report no change. In the composite layout the panel
-  labels it draws are not reported: a sentence with a quoted span that is exactly "A: earlier"
-  or "B: later" is dropped, and transcribed lines that are exactly a label are removed (seen
-  once live in prod, lookup `lk_a83a7c2ff47c2545`: "The top label changed from 'A: earlier' to
-  'B: later'."). Real text such as 'LATER' or 'Plan A: earlier start' is kept. Adult or graphic media (model flag or the
+  labels it draws are not reported: a text-report sentence whose only quotes are exactly "A:
+  earlier" / "B: later" is dropped (seen once live in prod, lookup `lk_a83a7c2ff47c2545`: "The
+  top label changed from 'A: earlier' to 'B: later'."). Any sentence that quotes other text or
+  reports something else is kept, and transcriptions are never altered. Known limit: a real
+  caption change that is literally 'A: earlier' to 'B: later' would be dropped too. Adult or graphic media (model flag or the
   shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
   no text lists.
 

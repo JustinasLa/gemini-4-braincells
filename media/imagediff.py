@@ -129,8 +129,8 @@ _NO_CHANGE_FORMS = tuple(
     )
 )
 # The composite's own panel labels, read back as image text or as an edit (live, prod lookup
-# lk_a83a7c2ff47c2545: "The top label changed from 'A: earlier' to 'B: later'."). Only the
-# exact label text counts: a real caption "LATER" or "Plan A: earlier start" is image text.
+# lk_a83a7c2ff47c2545: "The top label changed from 'A: earlier' to 'B: later'."). Only a text
+# report quoting nothing but the exact labels counts; transcriptions are never altered.
 _LABEL = re.compile(r"\s*[AB]\s*:\s*(?:earlier|later)\s*", re.I)
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
@@ -380,9 +380,6 @@ def _normalise(
     sentences = [" ".join(" ".join(_strings([value])).split()) for value in raw]
     before = [text[:300] for text in _strings(payload.get("text_before"), limit=20)]
     after = [text[:300] for text in _strings(payload.get("text_after"), limit=20)]
-    if labelled:  # a transcribed line that is exactly one of our labels
-        before = [text for text in before if not _LABEL.fullmatch(text)]
-        after = [text for text in after if not _LABEL.fullmatch(text)]
     flags = [flag.lower() for flag in _strings(payload.get("content_flags"))]
     _, flags = safe_description(" ".join(sentences + before + after), flags)
     kinds = payload.get("kinds", [])
@@ -396,7 +393,7 @@ def _normalise(
         if (
             not sentence
             or _FORBIDDEN.search(unquoted)
-            or (labelled and _cites_label(sentence))
+            or (labelled and _only_label_change(sentence))
             or _says_no_change(sentence)
             or (marked and _MARKER.search(unquoted))
         ):
@@ -440,9 +437,16 @@ def _words(text: str) -> list[str]:
     return _WORD.findall(text.casefold())
 
 
-def _cites_label(sentence: str) -> bool:
-    """A quoted span of the sentence is exactly one of our panel labels ('A: earlier')."""
-    return any(_LABEL.fullmatch(m.group()[1:-1]) for m in _QUOTE.finditer(sentence))
+def _only_label_change(sentence: str) -> bool:
+    """The whole sentence is a text report whose every quote is one of our panel labels
+    ("The top label changed from 'A: earlier' to 'B: later'."). A sentence about anything
+    else, or quoting any other text, is kept: real image text is never dropped for this."""
+    for form in _TEXT_FORMS:
+        match = form.fullmatch(sentence)
+        if match is not None:
+            quotes = [q for q in match.groups() if q is not None]
+            return bool(quotes) and all(_LABEL.fullmatch(q[1:-1]) for q in quotes)
+    return False
 
 
 def _says_no_change(sentence: str) -> bool:

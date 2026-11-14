@@ -1194,7 +1194,7 @@ def test_real_rate_limiter_reserves_and_sleeps_within_budget(images):
     "sentence",
     [
         "The top label changed from 'A: earlier' to 'B: later'.",  # live, lk_a83a7c2ff47c2545
-        "The label \u201cA: Earlier\u201d was replaced with \u201cB: later\u201d.",
+        "The label changed from \u201cA: Earlier\u201d to \u201cB: later\u201d.",
         'The text "B: later" was added at the top.',
     ],
 )
@@ -1236,16 +1236,29 @@ def test_real_text_resembling_labels_is_kept(images, sentence):
     assert result.text_after == payload["text_after"]
 
 
-@pytest.mark.parametrize("layout", ["composite", "pair"])
-def test_exact_label_lines_removed_from_transcriptions_in_composite(images, layout):
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "In 'B: later', a sunflower inset was removed from the bottom right.",
+        "The top label changed from 'A: earlier' to 'B: later' and a hat was added.",
+        "The caption changed from 'A: earlier' to 'A: now'.",
+    ],
+)
+def test_label_quotes_alongside_real_edits_are_kept(images, sentence):
     payload = {
         **FULL,
-        "text_before": ["A: earlier", " a : Earlier ", "THEY SAID", "LATER"],
-        "text_after": ["B: later", "WAS AN ACCIDENT"],
+        "changes": [sentence],
+        "kinds": ["other"],
+        "text_before": ["A: earlier"],
+        "text_after": ["A: now"],
     }
-    result, _ = compare(images, payload, layout=layout)
-    if layout == "composite":
-        assert result.text_before == ["THEY SAID", "LATER"]
-        assert result.text_after == ["WAS AN ACCIDENT"]
-    else:
-        assert result.text_before == ["A: earlier", "a : Earlier", "THEY SAID", "LATER"]
+    result, _ = compare(images, payload, layout="composite")
+    assert result.changes == [sentence]
+    assert result.text_before == ["A: earlier"] and result.text_after == ["A: now"]
+
+
+def test_transcriptions_are_never_label_filtered(images):
+    payload = {**FULL, "text_before": ["A: earlier", "THEY SAID"], "text_after": ["B: later"]}
+    result, _ = compare(images, payload, layout="composite")
+    assert result.text_before == ["A: earlier", "THEY SAID"]
+    assert result.text_after == ["B: later"]
