@@ -48,7 +48,7 @@ const pictureKey = (match: ImageMatch) => JSON.stringify([match.image_url, match
 function factsHtml(match: ImageMatch): string {
   const page = pageUrl(match.page_url);
   const dimensions = Number.isFinite(match.width) && Number.isFinite(match.height) && match.width! > 0 && match.height! > 0 ? `${match.width} × ${match.height} px` : "Unknown";
-  const fact = (label: string, value: string, extra = "") => `<div class="meme-fact${extra}"><b>${value}</b><span>${label}</span></div>`;
+  const fact = (label: string, value: string, extra = "") => `<div class="meme-fact${extra}"><dt>${label}</dt><dd>${value}</dd></div>`;
   return fact("Relation", esc(humanLabel(relationOf(match))), " relation")
     + fact("Perceptual distance", Number.isFinite(match.distance) ? String(match.distance) : "Unknown")
     + fact("Search engine", esc(engineLabel(match)))
@@ -145,7 +145,7 @@ export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLEle
       <label class="meme-slider" hidden>Reveal match <output>50%</output><input type="range" min="0" max="100" value="50" aria-label="Reveal matched image" aria-valuetext="50 percent match revealed"></label>
       <div class="meme-box-key"><span>Solid green: edited region</span><span>Dashed white: the part of the submission a cropped match shows</span></div>
       <p class="meme-note">Boxes come from the pixel comparison of the two images. Slider alignment is visual only, not an image registration.</p>
-      <div class="meme-comparison-facts">${factsHtml(match)}</div>
+      <dl class="meme-comparison-facts">${factsHtml(match)}</dl>
       <section class="meme-changes" aria-live="polite">${changesHtml(trace, match)}</section>
     </div>`;
   renderPictures(dialog, trace, match);
