@@ -1076,15 +1076,23 @@ export class Graph {
         if (l.n.x < edgeL || l.n.x > edgeR) continue; // marker off screen: no orphan label
         const vl = edgeL + w / 2 + 6 / k;
         const vr = edgeR - w / 2 - 6 / k;
-        const lx = vl < vr ? clamp(l.n.x, vl, vr) : l.n.x; // slide back inside the view, never clip
-        const at = (y: number) => ({ y, x0: lx - w / 2 - 3 / k, x1: lx + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
-        let box = at(l.n.y - l.r * 1.3 - 6 / k);
-        if (hits(box)) {
-          const below = at(l.n.y + l.r * 1.3 + h + 2 / k);
-          if (!hits(below)) box = below;
-          else if (!must) continue;
-          else if (hitsLabel(box) && !hitsLabel(below)) box = below; // may cover a marker, never another label
+        let lx = vl < vr ? clamp(l.n.x, vl, vr) : l.n.x; // slide back inside the view, never clip
+        const at = (y: number, cx = lx) => ({ y, cx, x0: cx - w / 2 - 3 / k, x1: cx + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
+        // above, below, left, right of the marker; only a must-show label may finally cover a marker
+        const mid = l.n.y + h / 2 - 2 / k;
+        const side = l.r * 1.3 + 8 / k + w / 2;
+        const spots = [at(l.n.y - l.r * 1.3 - 6 / k), at(l.n.y + l.r * 1.3 + h + 2 / k), at(mid, l.n.x - side), at(mid, l.n.x + side)].filter(
+          (b) => b.x0 >= edgeL && b.x1 <= edgeR,
+        );
+        let box = spots.find((b) => !hits(b));
+        if (!box) {
+          if (!must) continue;
+          // may cover a marker, never another label: pick the spot that covers the least
+          const cover = (b: { x0: number; x1: number; y0: number; y1: number }) =>
+            markers.reduce((s, m) => (m.id === l.n.d.id ? s : s + Math.max(0, Math.min(b.x1, m.x1) - Math.max(b.x0, m.x0)) * Math.max(0, Math.min(b.y1, m.y1) - Math.max(b.y0, m.y0))), 0);
+          box = spots.filter((b) => !hitsLabel(b)).sort((a, b) => cover(a) - cover(b))[0] ?? at(l.n.y - l.r * 1.3 - 6 / k);
         }
+        lx = box.cx;
         const y = box.y;
         placed.push(box);
         c.globalAlpha = hl && !hl.has(l.n.d.id) ? 0.35 : clamp(1 - op * 1.7, 0, 1);

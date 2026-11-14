@@ -121,7 +121,7 @@ function setInsets() {
   const dock = $("#dock").getBoundingClientRect();
   const st = stage.getBoundingClientRect();
   g.insets.bottom = app.dataset.phase === "done" && dock.height ? Math.max(64, st.bottom - dock.top + 12) : 64;
-  g.insets.right = phone ? 12 : 72;
+  g.insets.right = phone ? 64 : 72; // the control column sits on the right
   g.insets.left = phone ? 12 : 24;
 }
 
@@ -169,7 +169,7 @@ function railSpan(a?: number, b?: number) {
 }
 
 // rail captions are one line in a 300px rail: short forms of the case kickers
-const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Photo reuse", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live" };
+const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Old photo", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live" };
 
 const USER_KEY = "soc-trackdown-traces";
 const userCases: TraceCase[] = (() => {

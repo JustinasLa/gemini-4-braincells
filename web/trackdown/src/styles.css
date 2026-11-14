@@ -320,6 +320,7 @@ input:focus-visible { outline: none; }
 .sheet-close { flex: none; width: 44px; height: 44px; margin-right: 6px; align-items: center; justify-content: center; color: var(--text-2); }
 .win-title { display: none; }
 .tabs { display: flex; padding: 0 12px; }
+.tabs { gap: 4px; }
 .tabs button { flex: 1; height: 46px; font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); border-bottom: 1px solid transparent; transition: color 0.2s, border-color 0.2s; }
 .tabs button:hover { color: var(--text-2); }
 .tabs button.on { color: var(--text); border-bottom-color: var(--text); }
@@ -493,6 +494,8 @@ input:focus-visible { outline: none; }
   .zoom button { width: 44px; height: 44px; }
   .zoom button[data-z="in"], .zoom button[data-z="out"] { display: none; }
   .zoom button[data-z="fit"] { border-top: 0; }
+  .tabs { padding: 0 6px; }
+  .tabs button { letter-spacing: 0.06em; padding: 0 2px; }
   .zoom .mode-btn { display: grid; } /* the header's Timeline/Web switch is hidden on phones */
   .app .panel { position: fixed; left: 0; right: 0; bottom: 0; height: 74vh; z-index: 45; border-left: 0; border-top: 1px solid var(--line-3); transform: translateY(100%); transition: transform 0.45s var(--ease-out), box-shadow 0.45s; }
   .app.sheet-open .panel { box-shadow: 0 -30px 80px rgba(0, 0, 0, 0.8); }
