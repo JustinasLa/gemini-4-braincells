@@ -47,9 +47,10 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
   - Drag a card: it follows the cursor elastically, tilts with its velocity, keeps its fling, and
     snaps back to its moment in time. Pan with inertia, wheel/pinch zoom around the cursor, double
     click to focus, double click the background to fit.
-  - Semantic zoom: until a card's text is readable (~0.9×) each post is a labelled marker in its
-    role colour; cluster members are small squares inside the cluster box, whose tab (verdict +
-    account count) stays 11px on screen. Labels avoid each other, markers and tabs.
+  - Semantic zoom: cards stay up as you zoom out; only near the zoom-out limit (under ~0.15×)
+    each post becomes a labelled marker in its role colour; cluster members are small squares
+    inside the cluster box, whose tab (verdict + account count) stays 11px on screen.
+    Labels avoid each other, markers and tabs.
   - Hover or select a card: its lineage (ancestors and descendants) lights up and particles flow
     along its edges. Clusters get a breathing hull labelled with the detector's numbers.
 - **Trackdown run** (`runTrace` in `src/main.ts`): the submitted card is scanned, then each step

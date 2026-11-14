@@ -871,9 +871,9 @@ export class Graph {
     const k = this.k;
     const ox = this.W / 2 - this.cx * k;
     const oy = this.H / 2 - this.cy * k;
-    // semantic zoom: until a card's smallest text renders at ~11px (~0.9x) it is a labelled marker
-    // cards only once their smallest evidence text renders at >= 11px (12px at layout scale)
-    const op = clamp((k - 0.84) / 0.08, 0, 1); // short crossfade: half-faded cards let lines show through
+    // semantic zoom: cards stay up through normal zooming out; only near the zoom-out limit
+    // (0.06x) do they fade into labelled markers (gone under 0.10x, full from 0.15x)
+    const op = clamp((k - 0.1) / 0.05, 0, 1); // short crossfade: half-faded cards let lines show through
     if (Math.abs(op - this.cardOpacity) > 0.001) {
       this.cardOpacity = op;
       this.world.style.setProperty("--card-op", op.toFixed(3));
