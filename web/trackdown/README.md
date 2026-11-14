@@ -114,6 +114,12 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   status. Cluster summaries do not identify memberships, so no lookup account is silently assigned
   to a monitored cluster. If several match, the first returned cluster supplies the headline status;
   all matched statuses remain visible in Provenance. Otherwise coordination says "Can't tell (yet)".
+- **Factual findings**: the lookup's Findings tab shows claim-level model assessments and
+  clickable source receipts separately from the coordination coin and its confidence. A missing
+  assessment is not treated as false content. Media descriptions do not authenticate the exact
+  image, and the earliest observed copy is not necessarily the original source. Older API
+  responses without `claim_checks` show an explicit unavailable-assessment message.
+  Run `npm test` for rendering, citation safety, legacy fallback, and verdict-separation tests.
 - **Fallbacks**: an unavailable lookup (404/503/network) tries `POST /api/analyze`; only if that
   path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
   rate limits (429), job failure and timeout show an error instead of silently inventing a trace.

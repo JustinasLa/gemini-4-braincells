@@ -64,7 +64,7 @@ STEPS = [
     ("coverage", "oxylabs", "Find coverage of the story"),
     ("media", "nemotron", "Read the images with Nemotron VL"),
     ("screenshot", "nemotron", "Find the real post a screenshot shows"),
-    ("verify", "oxylabs", "Read candidate copies on their own pages"),
+    ("verify", "oxylabs", "Read source pages and candidate copies on their own pages"),
     ("monitor", "detector", "Check the clusters we monitor"),
     ("assess", "nemotron", "Nemotron reads the receipts"),
     ("second_reading", "gemini", "Gemini's second reading"),
@@ -82,7 +82,7 @@ IMAGE_LABELS = {
     "copies_x": "Search X for the text in the image",
     "copies_bsky": "Find the text in the image on Bluesky",
     "coverage": "Find pages about the image (meme pages, coverage)",
-    "verify": "Read candidate copies on their own pages",
+    "verify": "Read source pages and candidate copies",
 }
 # Per-call caps (s) on Oxylabs, from the 2026-11-14 measurement (lookup/README.md): /scrape p50
 # 3.6 s, p90 7.2 s, one hang of 34 s; AI fact extraction up to 11.6 s; /search p90 2.6 s. A call
@@ -196,6 +196,7 @@ class Deps:
     media_cache: Any = None  # image hash -> MediaAnalysis, shared across lookups (lookup/cache.py)
     media_urls: Any = None  # image URL -> hash, so a known image is not downloaded again
     verify_max: int = 8
+    source_pages_max: int = 3
     profiles_max: int = 4
     replies_max: int = 8
     media_max: int = 2
@@ -384,7 +385,8 @@ class Lookup:
                         old.role = "linked"
                     # a "linked" page always comes from /scrape (_linked): it was read
                     if (
-                        pg.time_source == "page"
+                        pg.claims
+                        or pg.time_source == "page"
                         or pg.role == "linked"
                         or (pg.receipt_id and not old.publisher and pg.publisher)
                     ):
@@ -1071,6 +1073,8 @@ class Lookup:
                 st.found = [pid]
                 st.detail = detail
                 return
+            if facts.http_status is not None and facts.http_status >= 400:
+                raise ValueError(f"source page returned HTTP {facts.http_status}")
             pub = facts.published_at
             ptime, punc = _page_time(pub)
             # one critical section: the quick read may already have found X's tombstone notice
@@ -1323,14 +1327,41 @@ class Lookup:
         for p in cands:
             self._submit_verify(lambda p=p: self._safe_verify(p, ref))
 
-    def _queue_older_pages(self, n: int = 2) -> None:
-        """Up to `n` older-looking pages for the whole run (see _older_page_candidates)."""
+    def _source_page_candidates(self) -> list[Page]:
+        with self.lock:
+            read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
+            candidates = [
+                pg
+                for pg in self.result.pages
+                if pg.receipt_id not in read_ids
+                and pg.id != self.result.subject_id
+                and pg.id not in self._v_pages
+            ]
+        older_ids = {pg.id for pg in self._older_page_candidates()}
+        candidates.sort(
+            key=lambda pg: (
+                not domain(pg.url).endswith((".gov", ".edu", ".ac.uk", ".gov.uk")),
+                pg.id not in older_ids,
+            )
+        )
+        selected = []
+        hosts = set()
+        for page in candidates:
+            host = domain(page.url)
+            if host not in hosts:
+                selected.append(page)
+                hosts.add(host)
+        selected.extend(page for page in candidates if page not in selected)
+        return selected[: max(0, self.deps.source_pages_max - len(self._v_pages))]
+
+    def _queue_older_pages(self, n: int | None = None) -> None:
+        """Queue bounded source reads, prioritizing original records and older copies."""
         if not (self._subject_text or self._phrase()):
             return
         with self.lock:
-            pages = [pg for pg in self._older_page_candidates(n + len(self._v_pages))
-                     if pg.id not in self._v_pages]  # fmt: skip
-            pages = pages[: max(0, n - len(self._v_pages))]
+            pages = self._source_page_candidates()
+            if n is not None:
+                pages = pages[: max(0, n - len(self._v_pages))]
             self._v_pages += [pg.id for pg in pages]
         for pg in pages:
             self._submit_verify(lambda pg=pg: self._safe_verify_page(pg))
@@ -1372,7 +1403,7 @@ class Lookup:
         with self.lock:
             st = self._step("verify")
             if st.state == "pending":
-                st.state, st.detail = "skipped", "no candidate copies to read"
+                st.state, st.detail = "skipped", "no source pages or candidate copies to read"
                 return
             ids = list(self._v_posts)
             by_id = {p.id: p for p in self.result.posts}
@@ -1387,11 +1418,17 @@ class Lookup:
                 and p.id not in queued
             )
             read = self._v_read  # pages that came back; a timed-out or failed read isn't one
-            st.found = [i for i in ids if i in by_id]
+            read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
+            read_pages = [
+                pg.id for pg in self.result.pages
+                if pg.id in self._v_pages and pg.receipt_id in read_ids
+            ]
+            st.found = [i for i in ids if i in by_id] + read_pages
             st.detail = (
                 (f"{read} read" if read == len(ids) else f"{read} of {len(ids)} read")
                 + f": {kinds.count('copy') + kinds.count('origin')} copies"
                 f" · {kinds.count('quote')} quotes · {kinds.count('reply')} replies"
+                + f" · {len(read_pages)}/{len(self._v_pages)} source pages read"
                 + (f" · {unread} more candidates not read" if unread else "")
                 + (" · time budget used up" if out_of_time else "")
             )
@@ -1428,14 +1465,24 @@ class Lookup:
                 pg.url, deadline=self._provider_deadline(min(FACTS_CAP_S, self.deps.verify_read_s))
             )
             call = dict(self.deps.oxylabs.last_call)
+            if facts.unavailable:
+                raise ValueError(f"source page unavailable: {facts.unavailable}")
+            if facts.http_status is not None and facts.http_status >= 400:
+                raise ValueError(f"source page returned HTTP {facts.http_status}")
+        except BudgetExceeded:
+            self.note("Some source pages were not read because the time budget was used up.")
+            return
         except Exception as exc:
             log.info("verify page %s failed: %s", pg.url, exc)
+            self.note(
+                f"Source page could not be read: {pg.url}. Its search snippet is not verification."
+            )
             return
         t, unc = _page_time(facts.published_at)
         rid = self.receipt(
             "oxylabs",
             "/scrape",
-            f"Older page read: {facts.publisher or domain(facts.final_url)}"
+            f"Source page read: {facts.publisher or domain(facts.final_url)}"
             + (f", published {facts.published_at}" if facts.published_at else ", no date found"),
             source_url=facts.final_url or pg.url,
             call=call,
@@ -1445,10 +1492,10 @@ class Lookup:
             pg.publisher = facts.publisher or pg.publisher
             pg.author = facts.author or pg.author
             pg.published_at = facts.published_at
-            pg.claims = facts.claims or pg.claims
+            pg.headline = facts.headline or pg.headline
+            pg.claims = facts.claims
             pg.receipt_id = rid
-            if t is not None:
-                pg.time, pg.time_source, pg.time_uncertainty_s = t, "page", unc
+            pg.time, pg.time_source, pg.time_uncertainty_s = t, "page" if t else None, unc
 
     def _safe_verify(self, p: Post, reference: str) -> None:
         try:
@@ -1586,7 +1633,7 @@ class Lookup:
             st.detail = f"{len(found)} Bluesky posts with the same text"
 
     def _coverage(self) -> None:
-        q = self._card_title or textsim.phrase(self._subject_text, 14)
+        q = self._card_title or textsim.phrase(self._subject_text, 40)
         # an upload with too little text: pages about the image, found by its caption or
         # description. They describe the image; none of them is a copy or an origin.
         about = not q and bool(self._image_query)

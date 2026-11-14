@@ -36,6 +36,33 @@ the coordination verdict is then that cluster's detector status. Otherwise `stat
 shown as data (counts, times, accounts), never as a verdict. Search results are a sample, not a
 census: the notes say so.
 
+## Factual findings are separate from coordination
+
+The assessment returns up to six `claim_checks`, each with `claim`, `finding`
+(`supported`, `contradicted`, `mixed`, or `unverified`), `explanation`, and its own receipt
+`cites`. These are model readings of collected source text, not detector verdicts or guarantees
+of truth. An accurate claim can be amplified in a coordinated way; an inaccurate claim can
+spread organically. `status` and `llm_reading` keep their coordination meanings.
+
+Coverage searches retain up to 40 words of the claim, rather than only the caption opening.
+The verification phase reads up to three source pages (`Deps.source_pages_max`) within the
+existing provider deadline, prioritizing government/academic records and older candidate
+sources, and diversifying domains. Domain priority is a retrieval heuristic, not a guarantee
+of credibility. Failed or unread pages remain search leads, with limitations shown in notes.
+The prompt distinguishes read pages from search snippets and includes their source URLs.
+
+A decisive claim finding needs a citation to a successfully read page with extracted claim
+text, other than the submitted page itself. Unknown/failed receipt IDs are removed. Unsupported
+findings are downgraded to `unverified`, with a cautious replacement summary. This guard checks
+source availability, not semantic entailment: a model can still misinterpret a cited source.
+The prompt requires primary-source preference, conflicting evidence, procedural context,
+attributed estimates versus guaranteed results, and chronology versus causation.
+
+When the submitted post contains media, `assessment.media_provenance` explicitly says the
+exact media is not authenticated. OCR and visual descriptions cannot establish its creator,
+date, location, or caption. Origin means the earliest observed copy in the sample, never proof
+of first publication. Older clients remain compatible; missing claim checks default to `[]`.
+
 ## API
 
 ```
