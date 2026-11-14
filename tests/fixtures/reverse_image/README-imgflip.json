@@ -1,0 +1,14 @@
+{
+ "tineye": {
+  "url": "https://tineye.com/api/v1/result_json/?url=https%3A%2F%2Fi.imgflip.com%2F233stg.jpg&sort=crawl_date&order=asc",
+  "latency_ms": 16452
+ },
+ "yandex": {
+  "url": "https://yandex.com/images/search?rpt=imageview&url=https%3A%2F%2Fi.imgflip.com%2F233stg.jpg",
+  "latency_ms": 11110
+ },
+ "yandex_sites": {
+  "url": "https://yandex.com/images/search?rpt=imageview&url=https%3A%2F%2Fi.imgflip.com%2F233stg.jpg&cbir_page=sites",
+  "latency_ms": 11667
+ }
+}

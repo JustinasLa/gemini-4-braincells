@@ -1,0 +1,14 @@
+{
+ "tineye": {
+  "url": "https://tineye.com/api/v1/result_json/?url=https%3A%2F%2Fupload.wikimedia.org%2Fwikipedia%2Fen%2F1%2F11%2FDisaster_Girl.jpg&sort=crawl_date&order=asc",
+  "latency_ms": 2396
+ },
+ "yandex": {
+  "url": "https://yandex.com/images/search?rpt=imageview&url=https%3A%2F%2Fupload.wikimedia.org%2Fwikipedia%2Fen%2F1%2F11%2FDisaster_Girl.jpg",
+  "latency_ms": 13374
+ },
+ "yandex_sites": {
+  "url": "https://yandex.com/images/search?rpt=imageview&url=https%3A%2F%2Fupload.wikimedia.org%2Fwikipedia%2Fen%2F1%2F11%2FDisaster_Girl.jpg&cbir_page=sites",
+  "latency_ms": 4993
+ }
+}

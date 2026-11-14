@@ -12,9 +12,8 @@ graphics) and lists cautious manipulated-context cues. Each result becomes an
   each media evidence id, model id, description, bounded OCR (up to 600 characters), reuse and
   manipulation cues, account/post counts, and OCR-template shared/varying tokens and image counts.
   It can cite these rows like any other evidence; OCR is not proof of authorship or coordination.
-- **Link lookup (`lookup/`, incoming on `dev/lookup`).** The lookup path sends the images of a
-  submitted X/Bluesky post to Nemotron, then searches the OCR text to find where a screenshot
-  circulates. This integration is being merged separately; it is not part of this worker change.
+- **Link lookup (`lookup/`).** The lookup path sends the images of a submitted X/Bluesky post
+  to Nemotron, then searches the OCR text to find where a screenshot circulates.
 
 ```
 python -m media model                  # served model id + root, and the VL check
@@ -202,3 +201,126 @@ A stored answer is reused without any call for 24 h while the file, its read and
 that only moves counts or timings refreshes the row without a new `created_at`, so it isn't
 new evidence for the analyst. Trackdown's cluster view shows the check on each post carrying
 the screenshot.
+
+## Image diff (`imagediff-v1`)
+
+`describe_changes(client, original, variant, *, timeout_s, edited_region=None,
+layout="composite", max_tokens=2048) -> ImageDiff | None` (`media/imagediff.py`) says in plain sentences what changed between an earlier meme and a later
+variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, from
+`caption_changed`, `text_added`, `text_removed`, `element_added`, `element_removed`,
+`face_changed`, `cropped`, `recolored`, `watermark`, `other`), `text_before` / `text_after`
+(legible text in each), `confidence`, `model` (as the response returned it), `latency_ms`. No
+visible change gives `changes == []`.
+
+It never raises into the lookup. It returns None on: bad image bytes; a format other than JPEG
+(incl. MPO), PNG, GIF or WebP (ICO, for one, decodes inside `Image.open`); an image over 24 MP;
+timeout; an API error; a non-Super-VL response; a reply cut at `max_tokens` (a repaired cut could
+lose an unfinished `content_flags`); an unusable reply. A non-Super-VL response, which stops the
+worker, is logged at ERROR here.
+
+- **Untrusted images:** the 24 MP limit is checked before Pillow allocates anything. GIF and WebP
+  allocate their canvas inside `Image.open`, so their declared size is read from the raw bytes
+  first: WebP from its VP8X/VP8/VP8L header, GIF by walking the stream the way Pillow 13's
+  `GifImagePlugin` does (a differential test on 3000 mutated GIFs checks the walk never reports
+  less than Pillow). JPEGs decode at reduced scale (`draft`); colour-key PNGs are flattened
+  before resizing.
+- **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`; vLLM's
+  grammar rejects `uniqueItems`). `timeout_s` counts from entry: decoding, then the rate-limiter
+  wait, then the request, which gets what is left as its HTTP timeout. No request starts with
+  less than 0.5 s left. The HTTP timeout applies per read, so a reply completing after the
+  deadline is dropped. A bare 5xx gets one retry, with its own limiter slot, if at least 3 s are
+  left; a dropped connection does not (that inference may have run). Each request is logged by
+  `log_call_attempt` (`task=imagediff`) and must pass the Super VL check. It calls the OpenAI
+  client directly, not `NemotronClient._complete`, whose 4-try backoff cannot keep to a budget.
+- **Layout:** Verda accepts two images per request, so both were measured. The default is one
+  composite image: both scaled to one height, labelled "A: earlier" / "B: later", at most 2048 px
+  wide. `edited_region` (fractions of the variant) draws a red box on B after scaling. Only then
+  is the model told about the box, and a "red box/outline/border/frame" sentence is dropped as
+  our own marker. `media/variants.py`'s `Relation.edited_region` can be passed as is: it comes
+  only with an aligned "edited" relation, where fractions of the (EXIF-oriented) base and the
+  variant agree.
+- **Wording guards (code, after the prompt):** describes the media, never names a person. A
+  sentence with deepfake, fake, real, authentic, genuine, bot, shill, troll or propaganda in our
+  own words is dropped with its kind. Quoted image text is exempt only when the whole sentence is
+  one of the two text-report forms the prompt asks for ("The caption changed from 'X' to 'Y'." /
+  "The text 'X' was added/removed ...") and the reply's own transcription confirms the quote, so
+  a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported but scare quotes are not exempt. A
+  sentence that is only a plain no-change statement ("The background is unchanged.", "Nothing
+  else changed.") is dropped. A compound sentence is kept even if part of it says nothing
+  changed: dropping a real edit would wrongly report no change. In the composite layout the panel
+  labels it draws are not reported: a sentence that only reports them (a narrow grammar: position
+  words, a label noun, the exact quoted "A: earlier" / "B: later", a position-only location) is
+  dropped (seen once live in prod, lookup `lk_a83a7c2ff47c2545`: "The
+  top label changed from 'A: earlier' to 'B: later'."). Any sentence that quotes other text or
+  reports something else is kept. The grammar follows the panels: 'A: earlier' only as the
+  source or as removed, 'B: later' only as the destination or as added. When the transcriptions
+  hold both labels, each on its own panel ("A: earlier" in `text_before`, "B: later" in
+  `text_after`), one occurrence of each is removed (the UI would show them as a text change);
+  one alone, or a repeat, is kept as possible real text. Known limit: a real caption change to
+  literally 'B: later' (from 'A: earlier' or with no source quoted) is dropped too. Adult or graphic media (model flag or the
+  shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
+  no text lists.
+
+### Evaluation
+
+20 pairs made from 7 public-domain Wikimedia Commons photos (the images and pairs stay outside
+git): 3 caption swaps, 1 caption swap plus watermark, text added, text removed, an element added,
+2 elements removed, 2 face patches, 2 crops, a hue shift, a grayscale, a watermark added, a
+watermark removed, and 3 identical pairs (re-encoded at JPEG q55-70 and/or resized to 80-90%).
+Sequential calls, 2026-11-14. "Kind" = the expected kind is among `kinds`; "clean" = also no
+unrelated kind (a crop may also report what it cut off), and an identical pair returns no change.
+
+**Verda, `nemotron-3.5-super-vl` (Super VL confirmed), final prompt and code, 3 runs**
+(2026-11-14 ~12:55 UTC, after Verda's outage):
+
+| Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
+|---|---|---|---|---|---|---|
+| **composite (default)** | 60/60 | 56/60 | 53/60 | 12/12 | 0.31-0.33 s | 0.43-0.46 s |
+
+Per kind, composite, each of 3 runs: caption changed 4/4, text added 1/1, text removed 1/1,
+element added 1/1, element removed 1/2, face changed 2/2, cropped 2/2, recolored 2/2, watermark
+2/2, identical 3/3 (2/3 in one run). Not clean: the inset reads as added (3/3; the same reply
+also adds a spurious "cropped"), the portrait crop also claims a replaced face (3/3), and one
+identical pair read as cropped (1/3). No reply had a forbidden word, a person's name, panel
+words, our red box or our panel labels.
+
+**Earlier prompt (commit `7bda242`), Verda, 3 runs per layout.** It differs from the final
+prompt only in the red-box text: every call carried a system rule ("B may carry a thin red
+rectangle drawn by our tool ... never report it; look inside it for the change") and a per-call
+note ("Any red box only marks ..."), box or no box. The final prompt sends a reworded per-call
+note only when a box is drawn. The label rule was reworded but says the same.
+
+| Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
+|---|---|---|---|---|---|---|
+| composite | 60/60 | 57/60 | 57/60 | 12/12 | 0.24-0.30 s | 0.37-0.40 s |
+| pair (two images) | 60/60 | 53/60 | 55/60 | 12/12 | 0.27-0.38 s | 0.37-0.51 s |
+| composite + `edited_region` box (2 runs) | 40/40 | 37/40 | 34/40 | 8/8 | 0.29-0.36 s | 0.38-0.43 s |
+
+The final prompt is slightly less clean (53 vs 57 of 60). Its new error, a replaced face on the
+portrait crop, matches what the earlier prompt did only with a box drawn. That points at the
+dropped "look inside it for the change" rule, a lead for the next prompt version, not a cause
+proven here.
+
+**NVIDIA build API, Super VL not confirmed, 1 run, final prompt (smoke check only).** Same model
+id requested, but every reply is labelled `private/nvidia/nemotron-3.5-super-120b-a12b`, which
+`is_super_vl_model` rejects. The check was bypassed in a throwaway script, and nothing was stored.
+Composite: 19/20 valid (one 40 s timeout), kind right 17/20, clean 15/20, captions read 4/4, p50
+2.1 s, p90 3.1 s. Same misses as Verda (the inset reads as added) plus an identical pair read as
+cropped, a spurious "cropped", and a "caption ... is unchanged" sentence, which led to the
+no-change guard.
+
+What we learned:
+- vLLM's guided decoding rejects `uniqueItems` (HTTP 400 "Unimplemented keys" on every call).
+- Verda answers some calls with a bare HTTP 500, whatever the request shape (schema,
+  `json_object`, none): about 70% in one busy period, 0-10% otherwise. Hence the one retry.
+- Pair layout reported a crop that is not there in an identical pair (a re-encoded portrait) in
+  3 of 3 runs. Composite returned no change for the identical pairs in 9 of 9 cases with the
+  earlier prompt and 8 of 9 with the final one (3 pairs x 3 runs each).
+- With a red `edited_region` box, the first prompt reported the box as an added element (7 of
+  the 12 valid pair-layout replies). The prompt rule and the code guard brought that to 0, but
+  the box did not improve accuracy on these pairs.
+- An early composite prompt wrote "in the later image" / "left panel". Banning panel words fixed
+  that, but direction then needs its own rule ("in A but missing from B was removed").
+- Known limit: a colour sunflower inset pasted on a grayscale portrait, then removed, reads as
+  "added" in composite in every run. Removed sunglasses and a removed watermark read correctly.
+- Latency on Verda is far below the 4 s target: the reply is about 100 tokens with reasoning off.

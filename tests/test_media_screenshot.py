@@ -554,3 +554,10 @@ def test_literal_think_tags_inside_the_post_text_are_kept():
     )
     post = screenshot_from_payload(parse_content(reply), media_hash="h", model="m", latency_ms=1)
     assert post.text == "Example <think>working</think> answer"
+
+
+def test_count_over_the_int_digit_limit_is_none_and_keeps_the_read():
+    assert parse_count("1" * 5000) is None
+    payload = {**FULL, "counts": {"likes": "1" * 5000, "replies": "12"}}
+    post = _post(payload)
+    assert post.counts["likes"] is None and post.counts["replies"] == 12

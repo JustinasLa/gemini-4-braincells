@@ -41,7 +41,7 @@ def _get(client: httpx.Client, url: str, params=None, tries: int = 3):
             if r.status_code == 429 or r.status_code >= 500:
                 raise httpx.HTTPStatusError("retryable", request=r.request, response=r)
             return r
-        except (httpx.HTTPError, httpx.TimeoutException):
+        except httpx.HTTPError:
             if i == tries - 1:
                 return None
             time.sleep(0.5 * 2**i)

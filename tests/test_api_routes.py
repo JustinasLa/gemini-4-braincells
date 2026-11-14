@@ -384,3 +384,28 @@ def test_analyze_matches_twitter_stored_link(client, monkeypatch, host):
     body = c.post("/api/analyze", json={"url": f"https://{host}/a/status/1"}).json()
     assert body["status"] == "matched"
     assert [cluster["id"] for cluster in body["clusters"]] == [47]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"text": "\\ud800 one two three four five"}',
+        b'{"url": "https://example.com/\\udfff"}',
+        b'{"text": "one two\\u0000 three four five"}',
+    ],
+)
+def test_lookup_unencodable_input_is_a_400_and_starts_no_job(body):
+    from api.routes import lookup as lookup_route
+
+    class Jobs:
+        def start(self, inp, client):  # its snapshot could not be serialized: never reached
+            raise AssertionError("job started")
+
+    app.dependency_overrides[lookup_route.get_jobs] = lambda: Jobs()
+    try:
+        res = TestClient(app).post(
+            "/api/lookup", content=body, headers={"Content-Type": "application/json"}
+        )
+    finally:
+        app.dependency_overrides.pop(lookup_route.get_jobs, None)
+    assert res.status_code == 400

@@ -25,7 +25,6 @@ class Recorder:
         self._hour: str | None = None
         self._fh: gzip.GzipFile | None = None
         self._last_flush = time.monotonic()
-        self.lines = 0
 
     def write(self, raw: str, time_us: int) -> None:
         hour = datetime.fromtimestamp(time_us / 1e6, tz=UTC).strftime("%Y%m%d/%H")
@@ -33,7 +32,6 @@ class Recorder:
             self._open(hour)
         assert self._fh is not None
         self._fh.write(raw.encode() + b"\n")
-        self.lines += 1
         if time.monotonic() - self._last_flush > self.flush_every_s:
             self._fh.flush()
             self._last_flush = time.monotonic()

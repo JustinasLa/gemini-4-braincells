@@ -79,8 +79,8 @@ services:
       resources:
         limits: { cpus: "1.0", memory: 2G }
     healthcheck:
-      # Healthy while a detection pass has written or touched a cluster in the last 15 minutes,
-      # or there is simply nothing suspicious (then the check falls back to "process is up").
+      # Healthy while the database answers: a quiet stretch can leave no cluster to write, so
+      # cluster freshness can't tell a stuck worker from nothing suspicious.
       test: ["CMD", "python", "-c", "import os, psycopg; psycopg.connect(os.environ['DATABASE_URL']).execute('SELECT 1')"]
       interval: 60s
       start_period: 120s
