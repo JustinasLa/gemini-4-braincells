@@ -272,6 +272,9 @@ class Lookup:
         self._card_url: str | None = None
         self._card_title: str | None = None
         self._media_urls: list[str] = []
+        # an uploaded image's text in reading order: searched for, and a text hit joins the
+        # trace only with 3+ of its words in a row (textsim.caption_runs)
+        self._caption: str | None = None
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
@@ -598,15 +601,27 @@ class Lookup:
             # its text)
             self._media(ocr_as_text=True)
         if kind == "image":
-            # an upload's results are matches of the picture itself (reverse image search,
-            # variations), never posts or pages found by its text or Nemotron's description
-            for sid in ("copies_web", "copies_x", "copies_bsky", "coverage"):
-                self.skip(sid, "an uploaded image: only matches of the picture are searched")
-            self.note(
-                "Only matches of the uploaded picture are shown; the text and description "
-                "Nemotron read in it are not searched for."
-            )
-            x_searches, rest = [], []
+            # an upload's results are matches of the picture (reverse image search, variations)
+            # and posts or pages that carry 3+ words in a row of its text. Nemotron's
+            # description is never searched for, and nor is the loose coverage query.
+            self.skip("coverage", "an uploaded image: only its exact text is searched for")
+            if self._phrase():
+                self.note(
+                    "Results are matches of the uploaded picture, and posts or pages that carry "
+                    f"at least {textsim.RUN_MIN} words in a row of its text (highlighted). "
+                    "Nemotron's description of the image is never searched for."
+                )
+                x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
+                rest = [pool.submit(self._copies_bsky)]
+            else:
+                for sid in ("copies_web", "copies_x", "copies_bsky"):
+                    self.skip(sid, f"fewer than {textsim.RUN_MIN} words of text in the image")
+                self.note(
+                    "Results are matches of the uploaded picture only: it has fewer than "
+                    f"{textsim.RUN_MIN} words of text to search for, and Nemotron's "
+                    "description of it is never searched for."
+                )
+                x_searches, rest = [], []
         else:
             x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
             rest = [
@@ -1229,7 +1244,17 @@ class Lookup:
         return hits, dict(self.deps.oxylabs.last_call)
 
     def _phrase(self) -> str | None:
+        if self.result.kind == "image":  # even a three-word caption is searched for
+            return textsim.phrase(self._caption, min_words=textsim.RUN_MIN)
         return textsim.phrase(self._subject_text) or textsim.phrase(self._card_title)
+
+    def _caption_match(self, *texts: str | None) -> list[str]:
+        """An uploaded image's lookup: the parts of `texts` that repeat 3+ words in a row of
+        the image's text. A text hit without one doesn't join the trace."""
+        out: list[str] = []
+        for text in texts:
+            out += [r for r in textsim.caption_runs(text, self._caption) if r not in out]
+        return out
 
     def _classify_hit(
         self,
@@ -1244,8 +1269,10 @@ class Lookup:
 
         X hits that share few words with the reference are dropped (search engines match loose
         keywords); pages below `min_sim` too. A page's role is set by how much of the reference
-        its snippet carries."""
+        its snippet carries. For an uploaded image, a hit is kept only when it repeats 3+ words
+        in a row of the image's text, however few of its words it shares."""
         snippet = textsim.strip_snippet(hit.snippets[0]) if hit.snippets else ""
+        image = self.result.kind == "image"
         if m := X_STATUS_RE.match(hit.url):
             handle, sid = m.group(1), m.group(2)
             pid = f"x:{sid}"
@@ -1255,7 +1282,10 @@ class Lookup:
             sim_own = textsim.similarity(own, reference, truncated=True) if own else None
             sim_snip = textsim.similarity(snippet, reference, truncated=True) if snippet else 0.0
             sim = sim_own if sim_own is not None else sim_snip
-            if max(sim, sim_snip) < max(min_sim, X_MIN_SIM):
+            match = self._caption_match(own or snippet) if image else []
+            if image and not match:
+                return None
+            if not image and max(sim, sim_snip) < max(min_sim, X_MIN_SIM):
                 return None
             # a search hit is a candidate only; its own page decides copy/quote/reply (verify)
             post = self.add_post(
@@ -1271,6 +1301,7 @@ class Lookup:
                     role="mention",
                     similarity=round(sim, 2),
                     receipt_id=rid,
+                    caption_match=match,
                 )
             )
             return post.id
@@ -1279,7 +1310,8 @@ class Lookup:
         if re.match(r"https?://(?:www\.)?(?:x|twitter)\.com/", hit.url):
             return None  # profile or search pages, not posts
         sim = textsim.similarity(snippet, reference, truncated=True) if snippet else 0.0
-        if sim < min_sim:
+        match = self._caption_match(hit.title, snippet[:300]) if image else []
+        if (image and not match) or sim < min_sim:
             return None
         t, unc = snippet_time(hit.snippets[0] if hit.snippets else "", at)
         pg = self.add_page(
@@ -1294,6 +1326,7 @@ class Lookup:
                 time_source="search_hint" if t else None,
                 time_uncertainty_s=unc,
                 receipt_id=rid,
+                caption_match=match,
             )
         )
         return pg.id
@@ -1366,7 +1399,7 @@ class Lookup:
                 if p.platform == "x"
                 and not p.verified
                 and p.role == "mention"
-                and (p.similarity or 0) >= X_MIN_SIM
+                and ((p.similarity or 0) >= X_MIN_SIM or p.caption_match)
                 and p.id != self.result.subject_id
                 and p.id not in queued
             ]
@@ -1601,7 +1634,9 @@ class Lookup:
             role, sim = "copy", sim_own
         else:
             role, sim = "mention", sim_own
-        if role == "mention" and sim < X_MIN_SIM:
+        image = self.result.kind == "image"
+        match = self._caption_match(m.text, m.quoted_text) if image else []
+        if (not match) if image else (role == "mention" and sim < X_MIN_SIM):
             with self.lock:  # its own page shows it isn't about this text: drop the search hit
                 self.result.posts = [q for q in self.result.posts if q.id != p.id]
             return None
@@ -1628,8 +1663,10 @@ class Lookup:
         )
         if m.quoted_text and role == "quote":
             post.text = (m.text + "\n\n> " + m.quoted_text).strip()
+        post.caption_match = self._caption_match(post.text) if image else []
         post = self.add_post(post)
-        if quoted_other:
+        quoted_match = self._caption_match(m.quoted_text) if image and quoted_other else []
+        if quoted_other and (quoted_match or not image):
             # the quoted post's text and id were read on this page: it carries the text too
             q = self.add_post(
                 Post(
@@ -1644,15 +1681,21 @@ class Lookup:
                     similarity=round(sim_quoted, 2),
                     receipt_id=rid,
                     verified=True,
+                    caption_match=quoted_match,
                 )
             )
             self.add_edge(q.id, post.id, "quote", note="quotes this post")
-        elif subj and role in ("quote", "reply"):
+        elif subj and role in ("quote", "reply") and not quoted_other:
             self.add_edge(subj, post.id, role)
         return post
 
     def _copies_bsky(self) -> None:
-        phrase = textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
+        image = self.result.kind == "image"
+        phrase = (
+            textsim.phrase(self._caption, 8, min_words=textsim.RUN_MIN)
+            if image
+            else textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
+        )
         if not phrase or not self.deps.bsky:
             self.skip(
                 "copies_bsky",
@@ -1681,14 +1724,18 @@ class Lookup:
                 text = (pv.get("record") or {}).get("text") or ""
                 sim = textsim.similarity(text, ref)
                 sim = max(sim, textsim.similarity(text, ref, truncated=True) * 0.9)
-                if sim < COPY_MIN:
+                match = self._caption_match(text) if image else []
+                if (not match) if image else sim < COPY_MIN:
                     continue
-                bp = self.add_post(self._bsky_post_obj(pv, "bluesky", round(sim, 2), rid))
+                bp = self._bsky_post_obj(pv, "bluesky", round(sim, 2), rid)
+                bp = self.add_post(bp.model_copy(update={"caption_match": match}))
                 if bp.author_handle:
                     self._bsky_handles.add(bp.author_handle)
                 found.append(bp.id)
             st.found = found
-            st.detail = f"{len(found)} Bluesky posts with the same text"
+            st.detail = f"{len(found)} Bluesky posts with the same text" + (
+                f" (or {textsim.RUN_MIN}+ of its words in a row)" if image else ""
+            )
 
     def _coverage(self) -> None:
         q = self._card_title or textsim.phrase(self._subject_text, 14)
@@ -1778,12 +1825,14 @@ class Lookup:
 
     def _use_upload_reading(self, texts: list[str], a: Any) -> None:
         """The text Nemotron read in an uploaded image (`a`, None when it wasn't read): shown
-        on its card and, with 5+ words, the subject text the monitor check and the reading
-        see. No search looks for it: an upload's results are matches of the picture."""
+        on its card, searched for in reading order (`_caption`) and, with 5+ words, the subject
+        text the monitor check and the reading see. Its description is never searched for."""
         with self.lock:
             subj = next((p for p in self.result.posts if p.id == self.result.subject_id), None)
-            if subj is not None and a is not None:
-                subj.text = "\n".join(a.extracted_text)[:2000]  # reading order, for the card
+            if a is not None:
+                self._caption = "\n".join(a.extracted_text)[:2000] or None  # reading order
+                if subj is not None:
+                    subj.text = self._caption or ""  # for the card
         joined = " ".join(texts)
         if textsim.phrase(joined):
             self._subject_text = joined
@@ -1880,7 +1929,7 @@ class Lookup:
                 f" · OCR text found in {len(found)} places"
                 if ocr
                 else " · its text drives the searches"
-                if ocr_as_text and texts and self._phrase() and self.result.kind != "image"
+                if ocr_as_text and texts and self._phrase()
                 else ""
             )
 
@@ -2045,7 +2094,34 @@ class Lookup:
             )
 
     # ---------------------------------------------------------------- graph + assess
+    def _keep_caption_matches(self) -> None:
+        """An uploaded image's trace: every post or page found by its text must repeat 3+ words
+        in a row of it, in the text it finally shows (a read page can replace a snippet). The
+        others leave the trace with their edges; each kept one lists its runs to highlight."""
+        with self.lock:
+            posts, pages = [], []
+            for p in self.result.posts:
+                if p.role in ("submitted", "screenshotted"):
+                    posts.append(p)
+                elif match := self._caption_match(p.text):
+                    posts.append(p.model_copy(update={"caption_match": match}))
+            for pg in self.result.pages:
+                if match := self._caption_match(pg.headline, pg.snippet):
+                    pg.caption_match = match
+                    pages.append(pg)
+            ids = {p.id for p in posts} | {pg.id for pg in pages}
+            dropped = {p.id for p in self.result.posts} | {pg.id for pg in self.result.pages}
+            dropped -= ids
+            self.result.posts, self.result.pages = posts, pages
+            self.result.edges = [
+                e for e in self.result.edges if e.from_ not in dropped and e.to not in dropped
+            ]
+            for st in self.result.steps:
+                st.found = [i for i in st.found if i not in dropped]
+
     def _finish_graph(self) -> None:
+        if self.result.kind == "image":
+            self._keep_caption_matches()
         with self.lock:
             posts = self.result.posts
             subj = next((p for p in posts if p.id == self.result.subject_id), None)
@@ -2123,7 +2199,11 @@ class Lookup:
                             subj.id,
                             pg.id,
                             "cites",
-                            note="about the image" if image else "same story",
+                            note=(
+                                f"carries {textsim.RUN_MIN}+ words in a row of the image's text"
+                                if image
+                                else "same story"
+                            ),
                         )
             if image:
                 n_var = sum(1 for p in carriers if (p.similarity or 0) < VERBATIM)
@@ -2140,7 +2220,7 @@ class Lookup:
                     "X counts are what the logged-out page showed when it was read; X "
                     "hides zero counts. Post times come from the post ids."
                 )
-            if not image:  # an upload's text is never searched
+            if not image or self._phrase():
                 self.note("Search results are a sample of where the text appears, not every copy.")
             if self.result.status != "matched":
                 self.note(

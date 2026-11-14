@@ -411,6 +411,8 @@ input:focus-visible { outline: none; }
 .d-who .who b { font-size: 18px; }
 .d-who .who span { font-size: 12px; }
 .d-txt { margin: 12px 0 0; font: 400 15.5px/1.5 var(--sans); }
+/* the words a result shares with an uploaded image's caption (3+ in a row) */
+.caption-hit { background: var(--cv-2); color: var(--text); box-shadow: inset 0 -1.5px 0 var(--cv); border-radius: 2px; padding: 0 1px; }
 .d-src { display: inline-block; margin-top: 12px; font: 500 13px/1.3 var(--sans); color: var(--source); }
 .kv { display: grid; grid-template-columns: 1fr 1fr; margin-top: 12px; border-top: 1px solid var(--line); }
 .kv > div { padding: 9px 0; border-bottom: 1px solid var(--line); }

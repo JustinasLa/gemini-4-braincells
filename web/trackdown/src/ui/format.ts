@@ -52,6 +52,26 @@ export const initials = (name: string) =>
 
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+/** `text` escaped, with every occurrence of each of `runs` (exact parts of it, such as the
+ *  words an uploaded image's caption shares with this post) wrapped in a highlight. */
+export function markRuns(text: string, runs?: string[]): string {
+  const spans: [number, number][] = [];
+  for (const run of runs ?? []) {
+    if (!run) continue;
+    for (let i = text.indexOf(run); i >= 0; i = text.indexOf(run, i + run.length)) spans.push([i, i + run.length]);
+  }
+  if (!spans.length) return esc(text);
+  spans.sort((a, b) => a[0] - b[0]);
+  let out = "", at = 0;
+  for (const [start, end] of spans) {
+    if (end <= at) continue;
+    const from = Math.max(start, at);
+    out += esc(text.slice(at, from)) + `<mark class="caption-hit">${esc(text.slice(from, end))}</mark>`;
+    at = end;
+  }
+  return out + esc(text.slice(at));
+}
+
 export const httpUrl = (value?: string | null): string | undefined => {
   try {
     const url = new URL(value ?? "");

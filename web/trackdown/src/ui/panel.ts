@@ -3,7 +3,7 @@ import { hasVerdict, modelTool, readingsDisagree, readingsOf, type LookupAssessm
 import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
-import { clusterShort, esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, relOf, roleOf, STATUS, TOOL } from "./format";
+import { clusterShort, esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, markRuns, relOf, roleOf, STATUS, TOOL } from "./format";
 import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
@@ -266,7 +266,7 @@ export class Panel {
       <button class="close" data-act="close" aria-label="Close">${sm(icon.close, 13)}</button>
       <div class="label" style="color:${roleOf(n.role).color}">${esc(roleOf(n.role).label)}</div>
       <div class="d-who">${cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: 42 })}<div class="who"><b>${esc(a.name)}</b>${a.handle !== a.name ? `<span>${esc(a.handle)}</span>` : ""}</div></div>
-      <p class="d-txt">${esc(n.text)}</p>
+      <p class="d-txt">${markRuns(n.text, n.textMatch)}</p>
       ${n.media?.note ? `<div class="media-note">${esc(n.media.note)}</div>` : ""}
       <div class="kv">
         ${n.undated ? "" : `<div><div class="k2">Posted</div><div class="v2">${n.timeUnknown ? "Time unknown" : fmtDate(n.t)}</div></div>`}

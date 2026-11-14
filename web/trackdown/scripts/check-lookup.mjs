@@ -19,7 +19,8 @@ try {
   const { lookupCase } = await server.ssrLoadModule("/src/data/lookup.ts");
   const { mockLookupResult } = await server.ssrLoadModule("/src/data/mockLookup.ts");
   const { cardHtml } = await server.ssrLoadModule("/src/ui/card.ts");
-  const { isLineageEdge } = await server.ssrLoadModule("/src/ui/format.ts");
+  const formatMod = await server.ssrLoadModule("/src/ui/format.ts");
+  const { isLineageEdge } = formatMod;
   const { clusterCase } = await server.ssrLoadModule("/src/data/api.ts");
   const dump = process.argv.indexOf("--dump");
   if (dump > 0) writeFileSync(process.argv[dump + 1], JSON.stringify(mockLookupResult));
@@ -130,6 +131,19 @@ try {
     assert.ok(trace.edges.some((e) => e.rel === "variant"));
     assert.ok(!trace.edges.some((e) => e.rel === "variant" && isLineageEdge(e, trace.nodes.find((n) => n.id === e.from), trace.nodes.find((n) => n.id === e.to))));
     renderAll(lookupCase({ ...memeFixture("meme-blocked"), image_matches: [{ id: "img:bare" }], image_origin_id: "img:bare" }));
+  });
+  check("an upload's text hits highlight the 3+ caption words they share", () => {
+    const { markRuns } = formatMod;
+    assert.equal(markRuns("a <b> & c"), "a &lt;b&gt; &amp; c");
+    assert.equal(markRuns("so this is fine, this is fine", ["this is fine"]), 'so <mark class="caption-hit">this is fine</mark>, <mark class="caption-hit">this is fine</mark>');
+    assert.equal(markRuns("when the comets land", ["when the comets", "the comets land"]), '<mark class="caption-hit">when the comets</mark><mark class="caption-hit"> land</mark>');
+    const lookup = fixture();
+    const post = lookup.posts.find((p) => p.role !== "submitted");
+    post.text = "Look <here>: when the comets land, nobody tells you";
+    post.caption_match = ["when the comets land", "nobody tells you"];
+    const node = lookupCase(lookup).nodes.find((n) => n.id === post.id);
+    const html = cardHtml(node, false, 1);
+    assert.match(html, /Look &lt;here&gt;: <mark class="caption-hit">when the comets land<\/mark>, <mark class="caption-hit">nobody tells you<\/mark>/);
   });
 } finally {
   await server.close();

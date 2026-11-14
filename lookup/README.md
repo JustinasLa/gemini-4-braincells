@@ -97,11 +97,18 @@ and are never written to disk or the database; the JSON carries only their sha25
 size. The upload is the submitted post (`upload:<sha256[:16]>`, no author, no time). Nemotron
 reads it (its text goes on the card and into the monitor check and the reading), and:
 
-- the results are matches of the picture only. Its text and Nemotron's description are never
-  searched for: the web, X, Bluesky and coverage steps are skipped, so no post or page found by
-  its words joins the trace.
-- reverse-image search finds them: TinEye and Yandex find candidate pictures and optional local
-  visual matching compares them.
+- the results are matches of the picture, or posts and pages that carry at least 3 words in a
+  row of its text (`textsim.caption_runs`; case and punctuation don't matter, a run of only
+  stop words like "is in the" doesn't count).
+- reverse-image search finds the picture: TinEye and Yandex find candidate pictures and optional
+  local visual matching compares them.
+- with 3+ words of text, the web, X and Bluesky searches look for it as an exact phrase, in
+  reading order. A hit, and later the post read on its own page, joins the trace only with a
+  3-word run, however few of its words it otherwise shares; the others are dropped. Each kept
+  post or page lists its runs in `caption_match`, which Trackdown highlights in its text. The
+  earliest copy read on its own page is `origin_id`.
+- Nemotron's description is never searched for, and nor is the looser coverage query (skipped).
+  With fewer than 3 words of text, only the picture is searched for.
 - an upload Nemotron types a screenshot of a post still goes through the screenshot step, which
   looks for the real post it shows.
 - the upload is never its own origin: with no dated match, `origin_id` is null.
@@ -267,7 +274,9 @@ Post {
   "metrics_as_of": "...",             // when the page was read
   "card": {"title": "...", "domain": "wsj.com", "url": "https://t.co/..."},   // or null
   "media_urls": ["https://pbs.twimg.com/media/...jpg"],
-  "receipt_id": 3
+  "receipt_id": 3,
+  "caption_match": ["when the comets land"] // uploaded image only: parts of `text` that repeat
+                                      // 3+ words in a row of the image's text; else []
 }
 Account {
   "platform": "x", "handle": "lookner", "name": "Steve Lookner",
@@ -287,7 +296,8 @@ Page {
   "time": "2026-11-13T21:05:00Z",     // best known time (published_at, else search hint), or null
   "time_source": "page",              // page | search_hint | null
   "time_uncertainty_s": 86400,        // true time is in [time, time + this]; null if unknown
-  "receipt_id": 7
+  "receipt_id": 7,
+  "caption_match": []                 // as on Post, in `headline` or `snippet`
 }
 MediaFinding {
   "media_url": "...", "post_id": "x:...", "description": "...", "extracted_text": ["..."],
@@ -385,7 +395,8 @@ Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies
    and `media` (the images in parallel) all start at once. `screenshot` follows `media` on the
    same worker: each image Nemotron typed a screenshot is read as a post and checked against
    the real post (`lookup/receipts.py`); for an image-only post it runs alongside the searches.
-   An uploaded image skips the four searches: only `reverse_image` looks for it.
+   An uploaded image skips `coverage`; with fewer than 3 words of text in it, the other three
+   searches too.
 3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
    (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
    verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read
