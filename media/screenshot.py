@@ -58,12 +58,15 @@ _COUNT_ALIASES = {
     "saves": "bookmarks",
 }
 _SUFFIX = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
-_COUNT_RE = re.compile(r"^(\d+(?:[.,]\d+)*)\s*([kmb])?(?:\s*(?:views?|likes?|replies|reposts?))?$")
+_COUNT_RE = re.compile(r"^(\d+(?:[., ]\d+)*)\s*([kmb])?(?:\s*(?:views?|likes?|replies|reposts?))?$")
 _HANDLE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,99}$")
 # A UI-oddity note must describe the image, never the people (shared public evidence wording).
 _PEOPLE_CLAIMS = re.compile(
     r"\b(bots?|shill\w*|spammer\w*|scammer\w*|trolls?|fake accounts?|sock ?puppet\w*)\b", re.I
 )
+# The model judges dates against its own training cutoff ("the date is in the future"); a date
+# newer than the model is not a sign of editing.
+_DATE_JUDGEMENT = re.compile(r"\b(future|not yet happened|hasn'?t happened)\b", re.I)
 
 _MAX_TEXT = 4000
 _MAX_SHORT = 120
@@ -79,16 +82,20 @@ Rules:
 - If several posts are visible (a thread, replies, a quote), read the main one: the post the
   screenshot is centred on (usually the largest, with the full timestamp and counts). Do not
   copy replies, the quoted post, ads, trends or other UI chrome into text.
-- platform: from the UI look, one of {list(PLATFORMS)}. "unknown" if you cannot tell.
+- platform: from the UI look, one of {list(PLATFORMS)}. A platform not in that list (for
+  example Truth Social, Reddit, LinkedIn, Mastodon) is "other", never "x". "unknown" if you
+  cannot tell.
 - display_name, handle: as shown. handle without the leading @. null if not legible.
 - shown_time: the time or date exactly as shown ("3:14 PM · Nov 13, 2026", "2h"), else null.
 - text: the post's own text, verbatim, keeping line breaks as \\n. null if none is legible.
+  Text inside an image or video attached to the post is not the post's text.
   Never invent or complete unreadable words.
 - counts: replies, reposts, quotes, likes, views, bookmarks as shown ("2.5K", "1,204", 37).
   null for a count that is not shown. Never write 0 for a count that is not shown.
 - ui_oddities: visible signs the screenshot was edited or is not genuine: mixed fonts or
   sizes in one text block, misaligned or overlapping text, an odd or misplaced badge, UI that
-  does not match the platform, impossible numbers or dates. Be cautious: usually an empty list.
+  does not match the platform, impossible numbers. Be cautious: usually an empty list. Never
+  judge a date or time against your own knowledge: a date you think is in the future is normal.
   Describe the image only. Never call a person or account a bot, shill or spammer.
 - confidence: 0.0-1.0, how sure you are that the fields are read correctly.
 
@@ -140,11 +147,11 @@ def parse_count(value: Any) -> int | None:
     number, suffix = m.groups()
     if suffix:
         # "2.5K" / "2,5K" (decimal comma); a suffix count never has thousands separators
-        if number.count(".") + number.count(",") > 1:
+        if number.count(".") + number.count(",") > 1 or " " in number:
             return None
         return round(float(number.replace(",", ".")) * _SUFFIX[suffix])
     # no suffix: "1,204" / "1.204" / "1 204" are thousands separators, "12" is a plain integer
-    parts = re.split(r"[.,]", number)
+    parts = re.split(r"[., ]", number)
     if len(parts) > 1 and not all(len(p) == 3 for p in parts[1:]):
         return None  # "1.5" without a suffix is not a count the UI shows
     return int("".join(parts))
@@ -196,7 +203,9 @@ def _oddities(value: Any) -> list[str]:
     out = []
     for v in value:
         s = _text(v, 200)
-        if s and s.lower() not in {"none", "no oddities"} and not _PEOPLE_CLAIMS.search(s):
+        if not s or s.lower() in {"none", "no oddities"}:
+            continue
+        if not (_PEOPLE_CLAIMS.search(s) or _DATE_JUDGEMENT.search(s)):
             out.append(s)
     return list(dict.fromkeys(out))[:8]
 

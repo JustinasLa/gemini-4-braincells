@@ -300,6 +300,8 @@ class NemotronClient:
             rpm=settings.media_rpm,
             max_tokens=settings.media_max_tokens,
             reasoning=settings.media_reasoning,
+            screenshot_reasoning=settings.media_screenshot_reasoning,
+            screenshot_max_tokens=settings.media_screenshot_max_tokens,
         )
         if settings.verda_inference_key:
             return cls(

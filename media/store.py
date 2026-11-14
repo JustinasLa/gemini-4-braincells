@@ -127,4 +127,7 @@ def save_media_evidence(
 def _comparable(detail: dict[str, Any]) -> dict[str, Any]:
     """Detail minus fields that differ between a fresh call and a cache hit."""
     skip = {"latency_ms", "usage", "cached", "analyzed_at", "finish_reason", "source_uri"}
-    return {k: v for k, v in detail.items() if k not in skip}
+    out = {k: v for k, v in detail.items() if k not in skip}
+    if isinstance(out.get("screenshot"), dict):
+        out["screenshot"] = {k: v for k, v in out["screenshot"].items() if k != "latency_ms"}
+    return out
