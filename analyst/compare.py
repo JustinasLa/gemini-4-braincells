@@ -75,14 +75,14 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
     out = []
     with connect(timeout_s=10) as conn:
         for cid in cluster_ids:
-            ctx = store.load_context(conn, cid)
-            ctx = fit_evidence(ctx) if ctx is not None else ctx
+            full_ctx = store.load_context(conn, cid)  # the toolbox's URL allowlist uses all of it
+            ctx = fit_evidence(full_ctx) if full_ctx is not None else full_ctx
             rec = {"model": model, "mode": mode, "cluster_id": cid, "detector": ctx.status}
             started = time.monotonic()
             try:
                 if mode == "agent":
                     box = ToolBox(
-                        ctx,
+                        full_ctx,
                         web=web,
                         sink=MemorySink(),
                         cache=cache,
@@ -98,8 +98,8 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
                         SYSTEM, build_prompt(ctx), box
                     )
                     draft = res.draft
-                    known = ctx.evidence_ids | set(box.returned) | set(box.new_evidence)
-                    returned = {**box.returned, **box.new_evidence}
+                    known = ctx.evidence_ids | set(box.returned)
+                    returned = box.returned  # successful tool calls only
                     full = replace(
                         ctx,
                         evidence=[

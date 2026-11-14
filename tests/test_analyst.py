@@ -377,3 +377,38 @@ def test_refitting_keeps_the_omission_count():
     once = fit_evidence(replace(ctx(), evidence=items))
     assert once.evidence_omitted > 0
     assert fit_evidence(once).evidence_omitted == once.evidence_omitted
+
+
+def test_evidence_is_citable_only_after_the_tool_call_succeeded():
+    from analyst.context import EvidenceItem
+    from analyst.tools import Budget, ToolBox
+
+    class Sink:
+        pass
+
+    box = ToolBox(
+        ctx(),
+        web=None,
+        sink=Sink(),
+        cache=None,
+        budget=Budget(max_tool_calls=5, max_web_calls=5, max_seconds=60),
+    )
+    item = EvidenceItem(
+        id=777, kind="source", summary="s", detail={}, source_url=None, model="oxylabs"
+    )
+
+    def broken(args, rec):
+        box._remember(item, rec)
+        raise ValueError("processing failed after the fetch")
+
+    def fine(args, rec):
+        box._remember(item, rec)
+        return {"evidence_id": item.id}
+
+    box.declarations = lambda: [{"name": "search_web"}]  # no web client in this test
+    box._search_web = broken
+    box.call("search_web", {"query": "q"})
+    assert 777 not in box.returned
+    box._search_web = fine
+    box.call("search_web", {"query": "q"})
+    assert 777 in box.returned

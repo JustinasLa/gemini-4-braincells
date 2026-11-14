@@ -32,10 +32,8 @@ def investigate(ctx: ClusterContext, agent: GeminiAgent, tools: ToolBox) -> Verd
     # citable: what the prompt showed + everything a tool returned (also stored rows the prompt
     # had left out for size)
     shown = ctx.evidence_ids
-    returned = {**tools.returned, **tools.new_evidence}
-    full = replace(
-        ctx, evidence=[*ctx.evidence, *(e for i, e in returned.items() if i not in shown)]
-    )
+    extra = [e for i, e in tools.returned.items() if i not in shown]  # successful calls only
+    full = replace(ctx, evidence=[*ctx.evidence, *extra])
     verdict = enforce(result.draft, full, model=agent.name)
     return verdict.model_copy(
         update={
