@@ -206,7 +206,7 @@ export class Panel {
         return url.slice(0, 48);
       }
     };
-    const link = (url: string) => (c.synthetic ? `<div class="nolink">${esc(short(url))} · simulated, no live link</div>` : `<a class="src" href="${esc(url)}" target="_blank" rel="noopener">${esc(short(url))} ↗</a>`);
+    const link = (url: string) => (c.synthetic ? `<div class="nolink">${esc(short(url))} · simulated, no live link</div>` : httpUrl(url) ? `<a class="src" href="${esc(url)}" target="_blank" rel="noopener">${esc(short(url))} ↗</a>` : "");
     const ev = (r: (typeof c.receipts)[0], i: number) => `<div class="ev t-${r.tool}" ${r.id != null ? `id="receipt-${r.id}"` : ""} style="animation-delay:${i * 45}ms"><div class="by t-${r.tool}">${r.id != null ? `Receipt #${r.id} · ` : ""}${esc(TOOL[r.tool].long)}</div><p>${esc(r.text)}</p>${r.endpoint ? `<div class="receipt-meta">${esc(r.endpoint)}${r.latencyMs != null ? ` · ${r.latencyMs} ms` : ""}${r.requestId ? ` · request ${esc(r.requestId)}` : ""}</div>` : ""}${r.url ? link(r.url) : ""}</div>`;
     const pro = c.receipts.filter((r) => !r.against);
     const con = c.receipts.filter((r) => r.against);
@@ -270,7 +270,7 @@ export class Panel {
       ${n.media?.note ? `<div class="media-note">${esc(n.media.note)}</div>` : ""}
       <div class="kv">
         ${n.undated ? "" : `<div><div class="k2">Posted</div><div class="v2">${n.timeUnknown ? "Time unknown" : fmtDate(n.t)}</div></div>`}
-        <div><div class="k2">Where</div><div class="v2">${PLATFORM[n.platform] ?? n.platform}</div></div>
+        <div><div class="k2">Where</div><div class="v2">${esc(PLATFORM[n.platform] ?? n.platform)}</div></div>
         ${a.ageDays != null ? `<div><div class="k2">Account age</div><div class="v2${fresh ? " warn" : ""}">${fmtDur(a.ageDays * 86400000)}</div></div>` : ""}
         ${a.followers != null ? `<div><div class="k2">Followers</div><div class="v2${a.followers < 20 ? " warn" : ""}">${fmtNum(a.followers)}</div></div>` : ""}
       </div>
@@ -284,7 +284,7 @@ export class Panel {
         ${shotOf[0] ? `<button class="btn" data-go="${esc(shotOf[0].to)}">Real post in the screenshot ${sm(icon.arrowR)}</button>` : ""}
         ${shownIn[0] ? `<button class="btn" data-go="${esc(shownIn[0].from)}">${sm(icon.arrowL)} Post with the screenshot</button>` : ""}
       </div>
-      ${n.url && !c.synthetic ? `<a class="d-src" href="${esc(n.url)}" target="_blank" rel="noopener">Open the original ↗</a>` : c.synthetic ? `<div class="nolink">Simulated post: no live link.</div>` : ""}
+      ${c.synthetic ? `<div class="nolink">Simulated post: no live link.</div>` : httpUrl(n.url) ? `<a class="d-src" href="${esc(n.url!)}" target="_blank" rel="noopener">Open the original ↗</a>` : ""}
     </section>`;
   }
 }

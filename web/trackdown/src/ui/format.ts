@@ -22,9 +22,10 @@ export function fmtShort(t: number): string {
 export function fmtDur(ms: number): string {
   const a = Math.abs(ms);
   const s = a / 1000;
-  if (s < 60) return `${Math.round(s)} s`;
+  // compare the rounded value, so 59.7 s reads "1 min", not "60 s"
+  if (Math.round(s) < 60) return `${Math.round(s)} s`;
   const m = s / 60;
-  if (m < 60) return `${Math.round(m)} min`;
+  if (Math.round(m) < 60) return `${Math.round(m)} min`;
   const h = m / 60;
   if (h < 48) return `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)} h`;
   const d = h / 24;
@@ -36,20 +37,11 @@ export function fmtDur(ms: number): string {
 }
 export function fmtNum(n?: number): string {
   if (n == null) return "–";
-  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 999500) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
   if (n < 1000) return String(n);
   if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
   return Math.round(n / 1000) + "k";
 }
-export const initials = (name: string) =>
-  name
-    .replace(/[^\p{L}\p{N} ]/gu, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("") || "?";
-
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 export const httpUrl = (value?: string | null): string | undefined => {
@@ -132,6 +124,3 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   bluesky: { label: "bluesky", long: "Bluesky public AppView" },
   fetch: { label: "fetch", long: "Direct image download" },
 };
-
-export const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
-export const roman = (n: number) => ROMAN[n - 1] ?? String(n);
