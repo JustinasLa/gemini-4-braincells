@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import logging
+import struct
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -841,3 +842,95 @@ def test_min_budget_rechecked_after_limiter_wait(images, clock):
     client._limiter.wait.side_effect = lambda: clock.__setitem__(0, clock[0] + 1.7)
     assert describe_changes(client, *images, timeout_s=2.0) is None  # 0.3 s left after it
     assert client.requests == [] and client.calls == 0
+
+
+def test_connection_error_is_not_retried(images):
+    request = httpx.Request("POST", "https://example.test")
+    client = SequenceClient(
+        [openai.APIConnectionError(request=request), response(json.dumps(FULL))]
+    )
+    assert describe_changes(client, *images, timeout_s=20) is None
+    assert client.calls == len(client.requests) == 1
+
+
+def test_narration_quoting_a_transcribed_word_is_not_exempt(images):
+    """The image says FAKE; our own sentence about a face must still not say "fake"."""
+    payload = {
+        **FULL,
+        "changes": ['The face was replaced with a "fake" one.', "The caption 'FAKE' was added."],
+        "kinds": ["face_changed", "text_added"],
+        "text_before": [],
+        "text_after": ["FAKE"],
+    }
+    result, _ = compare(images, payload)
+    assert result.changes == ["The caption 'FAKE' was added."]
+
+
+def oversized_gif(screen=(5000, 5000), frame=(0, 0, 1, 1)):
+    return (
+        b"GIF89a"
+        + struct.pack("<HHBBB", *screen, 0, 0, 0)
+        + b"\x21\xf9\x04\x08\x00\x00\x00\x00"  # graphic control: disposal method 2
+        + b"\x2c"
+        + struct.pack("<HHHHB", *frame, 0)
+        + b"\x02\x02\x44\x01\x00\x3b"
+    )
+
+
+def oversized_webp(width=5000, height=5000):
+    vp8x = b"VP8X" + struct.pack("<I", 10) + b"\x02\x00\x00\x00"
+    vp8x += (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
+    return b"RIFF" + struct.pack("<I", 4 + len(vp8x)) + b"WEBP" + vp8x
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        oversized_gif(),
+        oversized_gif(screen=(10, 10), frame=(0, 0, 5000, 5000)),  # frame beyond the screen
+        oversized_webp(),
+        b"GIF89a\x01",  # truncated header
+        b"RIFF\x00\x00\x00\x00WEBPXXXX",  # unknown WebP chunk
+    ],
+)
+def test_gif_webp_canvas_checked_before_open(images, monkeypatch, data):
+    """Pillow allocates a GIF/WebP canvas inside Image.open: refuse from the header first."""
+    import media.imagediff as imagediff
+
+    opened = []
+    real = imagediff.Image.open
+    monkeypatch.setattr(imagediff.Image, "open", lambda *a, **k: opened.append(1) or real(*a, **k))
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, data, images[1], timeout_s=2) is None
+    assert opened == [] and client.requests == []
+
+
+@pytest.mark.parametrize("lossless", [False, True])
+def test_animated_and_lossless_webp_accepted(images, lossless):
+    frames = [Image.new("RGB", (64, 48), c) for c in ("white", "gray")]
+    buffer = io.BytesIO()
+    frames[0].save(
+        buffer, format="WEBP", save_all=True, append_images=frames[1:], lossless=lossless
+    )
+    compare((buffer.getvalue(), images[1]))
+    buffer = io.BytesIO()
+    frames[0].save(buffer, format="WEBP", lossless=lossless)
+    compare((buffer.getvalue(), images[1]))
+
+
+def test_declared_size_reads_real_headers():
+    from media.imagediff import _declared_size
+
+    assert _declared_size(oversized_gif()) == (5000, 5000)
+    assert _declared_size(oversized_gif((10, 10), (3, 4, 5000, 6000))) == (5003, 6004)
+    assert _declared_size(oversized_webp(4000, 3000)) == (4000, 3000)
+    for fmt, kwargs in [
+        ("GIF", {}),
+        ("WEBP", {}),
+        ("WEBP", {"lossless": True}),
+        ("WEBP", {"save_all": True, "append_images": [Image.new("RGB", (70, 50), "red")]}),
+    ]:
+        buffer = io.BytesIO()
+        Image.new("RGB", (70, 50), "white").save(buffer, format=fmt, **kwargs)
+        assert _declared_size(buffer.getvalue()) == (70, 50), (fmt, kwargs)
+    assert _declared_size(image_bytes()) is None  # PNG: header-only open, no preflight

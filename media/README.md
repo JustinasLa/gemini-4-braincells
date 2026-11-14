@@ -193,7 +193,9 @@ variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, fro
 (legible text in each), `confidence`, `model` (as the response returned it), `latency_ms`. No
 visible change gives `changes == []`. Inputs: JPEG (incl. MPO), PNG, GIF, WebP; formats that
 decode inside `Image.open` (ICO) are refused. It returns None, never raises, on bad image bytes,
-another format, an image over 24 MP (checked from the header, before decoding), timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
+another format, an image over 24 MP (checked from the header before Pillow allocates anything:
+for GIF and WebP the declared canvas is read from the raw bytes, since Pillow allocates it inside
+`Image.open`), timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
 could lose an unfinished `content_flags`) or an unusable reply. A non-Super-VL response, which
 stops the worker, is logged at ERROR here but still returns None: the lookup must not break.
 
@@ -202,7 +204,7 @@ stops the worker, is logged at ERROR here but still returns None: the lookup mus
   which gets what is left as its HTTP timeout. No request starts with less than 0.5 s left after
   the limiter's wait (None instead). The HTTP timeout applies per read, so a reply that completes
   after the deadline is dropped (None). A bare 5xx gets one retry, with its own limiter slot, if
-  at least 3 s of the budget is left. Each request is logged by `log_call_attempt` with
+  at least 3 s of the budget is left; a dropped connection does not (that inference may have run). Each request is logged by `log_call_attempt` with
   `task=imagediff`, and the Super VL check applies. It calls the OpenAI client directly, not `NemotronClient._complete`, whose 4-try
   backoff cannot keep to a lookup's budget.
 - **Layout:** Verda accepts two images per request, so both were measured. The default is one
@@ -212,9 +214,10 @@ stops the worker, is logged at ERROR here but still returns None: the lookup mus
   box/outline/border/frame" sentence is dropped as our own marker.
 - **Wording:** describes the media, never names a person. A sentence with deepfake, fake, real,
   authentic, genuine, bot, shill, troll or propaganda in our own words is dropped with its kind.
-  A quoted span is exempt only when the reply's own transcription confirms it is image text (a
-  whole transcribed line, or 2+ consecutive transcribed words), so a caption swap from 'REAL
-  NEWS' to 'FAKE NEWS' is reported, while scare quotes or a quoted 'red box' are not exempt. Adult or graphic
+  A quoted span is exempt only in a sentence about image text (caption, text, label, watermark,
+  ...) and only when the reply's own transcription confirms it (a whole transcribed line, or 2+
+  consecutive transcribed words). So a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported,
+  while scare quotes, quoted narration or a quoted 'red box' are not exempt. Adult or graphic
   media (model flag or the shared `safe_description` word list) gives exactly "Adult content." or
   "Graphic content." with no text lists.
 

@@ -8,6 +8,7 @@ import io
 import logging
 import math
 import re
+import struct
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast, get_args
@@ -69,6 +70,12 @@ _MARKER = re.compile(
 # exempt from the wording guard, so a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported.
 _QUOTED = re.compile(r"(?<!\w)'.*?'(?!\w)|\"[^\"]*\"|\u2018.*?\u2019(?!\w)|\u201c[^\u201d]*\u201d")
 _WORD = re.compile(r"[^\W_]+")
+# ...and only in a sentence about image text, not in our own narration of another edit.
+_TEXT_CONTEXT = re.compile(
+    r"\b(captions?|text|words?|lines?|watermarks?|handles?|labels?|titles?|headlines?"
+    r"|slogans?|signs?|banners?|logos?|urls?|hashtags?)\b",
+    re.I,
+)
 # Formats that read only the header on open, so the size check runs before any decoding
 # (ICO, for one, decodes its largest image inside Image.open). Memes and screenshots use these.
 _FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
@@ -144,7 +151,52 @@ class ImageDiff:
     latency_ms: int
 
 
+def _declared_size(data: bytes) -> tuple[int, int] | None:
+    """The canvas a GIF or WebP header declares; Pillow allocates it inside Image.open, before
+    any size check could run. None for other formats (they read only the header on open).
+    Raises ValueError for a GIF/WebP header it cannot read."""
+    try:
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            return _gif_size(data)
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return _webp_size(data)
+    except (IndexError, struct.error) as exc:
+        raise ValueError("unreadable GIF/WebP header") from exc
+    return None
+
+
+def _gif_size(data: bytes) -> tuple[int, int]:
+    """Logical screen, grown to the first frame's extent (Pillow grows it the same way)."""
+    width, height, flags = struct.unpack_from("<HHB", data, 6)
+    pos = 13 + (3 << ((flags & 7) + 1) if flags & 0x80 else 0)
+    while data[pos] == 0x21:  # extension blocks: skip their sub-blocks
+        pos += 2
+        while data[pos]:
+            pos += data[pos] + 1
+        pos += 1
+    if data[pos] == 0x2C:  # first image descriptor
+        left, top, w, h = struct.unpack_from("<HHHH", data, pos + 1)
+        width, height = max(width, left + w), max(height, top + h)
+    return width, height
+
+
+def _webp_size(data: bytes) -> tuple[int, int]:
+    chunk = data[12:16]
+    if chunk == b"VP8X":  # extended: the canvas (animation allocates two of these)
+        return 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+    if chunk == b"VP8 " and data[23:26] == b"\x9d\x01\x2a":  # lossy key frame
+        width, height = struct.unpack_from("<HH", data, 26)
+        return width & 0x3FFF, height & 0x3FFF
+    if chunk == b"VP8L" and data[20] == 0x2F:  # lossless
+        bits = int.from_bytes(data[21:25], "little")
+        return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+    raise ValueError("unreadable WebP header")
+
+
 def _image(data: bytes) -> Image.Image:
+    declared = _declared_size(data)
+    if declared and declared[0] * declared[1] > _MAX_PIXELS:
+        raise ValueError(f"image too large: {declared[0]}x{declared[1]}")
     with Image.open(io.BytesIO(data), formats=_FORMATS) as source:
         if source.width * source.height > _MAX_PIXELS:
             raise ValueError(f"image too large: {source.width}x{source.height}")
@@ -259,7 +311,9 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
     aligned: list[ChangeKind] = []
     ocr = _OcrText(before + after)
     for index, sentence in enumerate(sentences):
-        unquoted = _QUOTED.sub(lambda m: _image_text(m.group(), ocr), sentence)
+        unquoted = sentence
+        if _TEXT_CONTEXT.search(_QUOTED.sub("''", sentence)):  # a sentence about image text
+            unquoted = _QUOTED.sub(lambda m: _image_text(m.group(), ocr), sentence)
         if not sentence or _FORBIDDEN.search(unquoted) or (marked and _MARKER.search(unquoted)):
             continue
         sentence = sentence if sentence.endswith(".") else sentence + "."
@@ -385,12 +439,12 @@ def describe_changes(
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
                 break
-            except (openai.InternalServerError, openai.APIConnectionError) as exc:
+            except openai.InternalServerError as exc:
                 # Verda answers some calls with a bare 500 (any request shape, about 5-10%
                 # under load); a reply takes ~0.5 s, so one retry fits when budget is left.
+                # Not on a dropped connection: the server may have run that inference already.
                 if (
                     attempt == 2
-                    or isinstance(exc, openai.APITimeoutError)
                     or deadline - time.monotonic() < _RETRY_MIN_S
                     or not _fits(limiter, deadline)
                 ):
