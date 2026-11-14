@@ -78,6 +78,12 @@ export interface LookupSpread {
   min_gap_s: number | null;
   note: string;
 }
+export interface LookupAssessment {
+  model: string; summary: string; origin: string | null; corroboration: string | null; spread_pattern: string | null;
+  counter_evidence: string[]; would_change: string[]; cites: number[];
+  llm_reading: "organic_looking" | "copy_campaign_looking" | "unclear";
+  latency_ms: number | null; cost_usd: number | null;
+}
 export interface LookupResult {
   id: string;
   state: "running" | "done" | "failed";
@@ -97,12 +103,12 @@ export interface LookupResult {
   clusters: (ClusterSummary & { match?: string[]; verdict_applies?: boolean })[];
   spread: LookupSpread | null;
   receipts: { id: number; tool: LookupTool; endpoint: string; summary: string; source_url: string | null; query: string | null; request_id: string | null; latency_ms: number | null; cached: boolean; at: string }[];
-  assessment: {
-    model: string; summary: string; origin: string | null; corroboration: string | null; spread_pattern: string | null;
-    counter_evidence: string[]; would_change: string[]; cites: number[];
-    llm_reading: "organic_looking" | "copy_campaign_looking" | "unclear";
-    latency_ms: number | null; cost_usd: number | null;
-  } | null;
+  /** the primary model reading (Nemotron); a model inference, never the status */
+  assessment: LookupAssessment | null;
+  /** every model reading in arrival order (primary first); absent on older servers */
+  readings?: LookupAssessment[];
+  /** true when two readings' llm_reading differ: show both, neither sets the status */
+  readings_disagree?: boolean;
   steps: { id: string; tool: string; label: string; state: NonNullable<TraceStep["state"]>; detail: string | null; found: string[]; started_at: string | null; ended_at: string | null }[];
   notes: string[];
 }
@@ -111,13 +117,74 @@ export class LookupError extends Error {
   constructor(message: string, public unavailable = false) { super(message); }
 }
 
+const TIMEOUT_MS = 150000;
+/** fallback polling interval when the event stream is unavailable (was 1500 ms) */
+export const POLL_MS = 600;
+/** the server sends a snapshot as soon as the stream opens; none by then means a broken or buffered stream */
+const FIRST_SNAPSHOT_MS = 4000;
+/** a stream that stays silent this long is treated as stalled; polling takes over */
+const STALL_MS = 25000;
+
+const parseResult = (raw: string): LookupResult => {
+  let result: LookupResult;
+  try { result = JSON.parse(raw) as LookupResult; }
+  catch { throw new LookupError("The lookup service returned an unreadable response. Please try again later."); }
+  if (!result || !result.id || !["running", "done", "failed"].includes(result.state) || !Array.isArray(result.posts) || !Array.isArray(result.steps)) {
+    throw new LookupError("The lookup service returned an unexpected response. Please try again later.");
+  }
+  return result;
+};
+
+/** Live job updates over Server-Sent Events. Resolves with the final snapshot, or with null when the
+ * stream fails or stalls before one arrives (the caller then polls). Rejects only when aborted. */
+function streamLookup(id: string, emit: (raw: string, result: LookupResult) => void, signal: AbortSignal, abortError: () => LookupError): Promise<LookupResult | null> {
+  if (typeof EventSource === "undefined") return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const source = new EventSource(`/api/lookup/${encodeURIComponent(id)}/events`);
+    let finished = false;
+    let watchdog = 0;
+    const finish = (value: LookupResult | null, error?: LookupError) => {
+      if (finished) return;
+      finished = true;
+      source.close();
+      clearTimeout(watchdog);
+      signal.removeEventListener("abort", onAbort);
+      if (error) reject(error); else resolve(value);
+    };
+    const arm = (ms: number) => { clearTimeout(watchdog); watchdog = window.setTimeout(() => finish(null), ms); };
+    const onAbort = () => finish(null, abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) return onAbort();
+    arm(FIRST_SNAPSHOT_MS);
+    source.addEventListener("snapshot", (event) => {
+      const raw = (event as MessageEvent<string>).data;
+      let result: LookupResult;
+      try { result = parseResult(raw); } catch { return finish(null); } // a bad frame: polling re-reads the job
+      if (result.id !== id) return finish(null);
+      arm(STALL_MS);
+      emit(raw, result);
+      if (result.state !== "running") finish(result);
+    });
+    source.addEventListener("ping", () => arm(STALL_MS)); // optional named keep-alive; comment pings are invisible here
+    source.onerror = () => finish(null); // includes 404 and dropped connections; never let EventSource auto-reconnect
+  });
+}
+
 export async function startLookup(input: string, onUpdate: (result: LookupResult) => void = () => {}, signal?: AbortSignal): Promise<LookupResult> {
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener("abort", cancel, { once: true });
   if (signal?.aborted) cancel();
-  const timer = setTimeout(cancel, 150000);
-  const request = async (path: string, body?: { url: string } | { text: string }): Promise<LookupResult> => {
+  const timer = setTimeout(cancel, TIMEOUT_MS);
+  const abortError = () => new LookupError(signal?.aborted ? "Lookup cancelled." : "Lookup timed out after 150 seconds. Please try again later.");
+  let last = "";
+  // identical snapshots (polls between changes) are not re-rendered
+  const emit = (raw: string, result: LookupResult) => {
+    if (raw === last) return;
+    last = raw;
+    onUpdate(result);
+  };
+  const request = async (path: string, body?: { url: string } | { text: string }): Promise<{ raw: string; result: LookupResult }> => {
     let response: Response;
     try {
       response = await fetch(path, {
@@ -127,7 +194,7 @@ export async function startLookup(input: string, onUpdate: (result: LookupResult
         signal: controller.signal,
       });
     } catch {
-      if (controller.signal.aborted) throw new LookupError(signal?.aborted ? "Lookup cancelled." : "Lookup timed out after 150 seconds. Please try again later.");
+      if (controller.signal.aborted) throw abortError();
       throw new LookupError("The live lookup service could not be reached.", true);
     }
     if (response.status === 400) throw new LookupError("That input could not be read. Enter a valid http(s) link or some post text.");
@@ -136,29 +203,36 @@ export async function startLookup(input: string, onUpdate: (result: LookupResult
     if (response.status === 404) throw new LookupError("The lookup endpoint or job is unavailable (it may have expired).", true);
     if (!response.ok) throw new LookupError(`Lookup failed (HTTP ${response.status}). Please try again later.`);
     if (!response.headers.get("content-type")?.includes("json")) throw new LookupError("The lookup endpoint is unavailable on this server.", true);
-    let result: LookupResult;
-    try { result = await response.json() as LookupResult; }
-    catch { throw new LookupError("The lookup service returned an unreadable response. Please try again later."); }
-    if (!result.id || !["running", "done", "failed"].includes(result.state) || !Array.isArray(result.posts) || !Array.isArray(result.steps)) {
-      throw new LookupError("The lookup service returned an unexpected response. Please try again later.");
+    let raw: string;
+    try { raw = await response.text(); }
+    catch {
+      if (controller.signal.aborted) throw abortError();
+      throw new LookupError("The lookup service returned an unreadable response. Please try again later.");
     }
-    return result;
+    return { raw, result: parseResult(raw) };
   };
   try {
     const text = input.trim();
     if (!text) throw new LookupError("Enter a link or some post text first.");
-    let result = await request("/api/lookup", /^https?:\/\//i.test(text) ? { url: text } : { text });
-    onUpdate(result);
+    const first = await request("/api/lookup", /^https?:\/\//i.test(text) ? { url: text } : { text });
+    emit(first.raw, first.result);
+    let result = first.result;
+    if (result.state !== "running") return result;
+    const streamed = await streamLookup(result.id, (raw, next) => { result = next; emit(raw, next); }, controller.signal, abortError);
+    if (streamed) return streamed;
+    // fallback: poll the job (the stream failed, stalled or is not served here)
     while (result.state === "running") {
+      if (controller.signal.aborted) throw abortError();
+      const polled = await request(`/api/lookup/${encodeURIComponent(result.id)}`);
+      result = polled.result;
+      emit(polled.raw, result);
+      if (result.state !== "running") break;
       await new Promise<void>((resolve) => {
         const finish = () => { clearTimeout(poll); controller.signal.removeEventListener("abort", finish); resolve(); };
-        const poll = setTimeout(finish, 1500);
+        const poll = setTimeout(finish, POLL_MS);
         controller.signal.addEventListener("abort", finish, { once: true });
         if (controller.signal.aborted) finish();
       });
-      if (controller.signal.aborted) throw new LookupError(signal?.aborted ? "Lookup cancelled." : "Lookup timed out after 150 seconds. Please try again later.");
-      result = await request(`/api/lookup/${encodeURIComponent(result.id)}`);
-      onUpdate(result);
     }
     return result;
   } finally {
@@ -166,6 +240,16 @@ export async function startLookup(input: string, onUpdate: (result: LookupResult
     signal?.removeEventListener("abort", cancel);
   }
 }
+
+/** the primary reading is in: the trace may look finished while a second reading still runs */
+export const readingReady = (result: LookupResult) => result.state !== "running"
+  || result.steps.some((step) => step.id === "assess" && ["done", "failed", "skipped"].includes(step.state));
+/** every reading received so far, primary first (older servers send only `assessment`) */
+export const readingsOf = (result: LookupResult): LookupAssessment[] => result.readings?.length ? result.readings : result.assessment ? [result.assessment] : [];
+/** the readings differ (the server says so; older servers: compare their llm_reading) */
+export const readingsDisagree = (result: LookupResult) => result.readings_disagree ?? new Set(readingsOf(result).map((r) => r.llm_reading)).size > 1;
+/** which pipeline tool wrote a reading, from its model name */
+export const modelTool = (model: string | null | undefined): Tool => /nemotron/i.test(model ?? "") ? "nemotron" : /gemini/i.test(model ?? "") ? "gemini" : "archive";
 
 const toolFor = (tool: string): Tool => {
   if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you"].includes(tool)) return tool as Tool;
@@ -256,11 +340,13 @@ export function lookupCase(result: LookupResult): TraceCase {
     nodes, edges, clusters,
     receipts: [
       ...result.receipts.map((receipt) => ({ id: receipt.id, tool: toolFor(receipt.tool), text: receipt.summary, url: httpUrl(receipt.source_url), endpoint: receipt.endpoint, latencyMs: receipt.latency_ms, requestId: receipt.request_id })),
-      ...(result.assessment?.counter_evidence ?? []).map((text) => ({ tool: "gemini" as const, text, against: true })),
+      ...(result.assessment?.counter_evidence ?? []).map((text) => ({ tool: modelTool(result.assessment?.model), text, against: true })),
     ],
     wouldChange: result.assessment?.would_change ?? [],
     steps: result.steps.map((step) => ({ id: step.id, tool: toolFor(step.tool), text: step.label, state: step.state, detail: step.detail, found: step.found.map(resolve).filter((id) => nodeIds.has(id)) })),
-    summary: result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Can't tell: this link's footprint does not establish coordination."}`,
+    // two readings that differ are both shown in the panel; neither is put up front as the summary
+    summary: readingsDisagree(result) ? `Two model readings of these receipts differ; both are shown below. ${result.posts.length} posts and ${result.pages.length} pages collected.`
+      : result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Can't tell: this link's footprint does not establish coordination."}`,
     lookup: result,
   };
 }
