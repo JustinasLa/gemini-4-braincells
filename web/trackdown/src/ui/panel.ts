@@ -127,7 +127,7 @@ export class Panel {
     const hops = Math.max(0, this.g.pathToOrigin(c.submittedId).length - 1);
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
     const unscored = c.historical ? "Not scored" : "No call";
-    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.lookup ? "Coordination only: no conclusive detector verdict. See factual findings separately." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
+    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
     const notice = c.mock ? `<div class="notice"><b>Development mock.</b> All people, metrics and <span class="mono">.example</span> sources here are fictional. No live lookup was made.</div>` : c.synthetic
       ? `<div class="notice"><b>Simulated case.</b> Fictional accounts and <span class="mono">.example</span> sites, built to show how a trackdown works. Not a verdict on any real post.</div>`
       : c.historical
@@ -144,10 +144,9 @@ export class Panel {
     return `
       ${c.lookup ? factualFindings(c.lookup) : ""}
       <section class="verdict" style="--vc:${v.css}">
-        ${c.lookup ? '<div class="label">Coordination verdict · not a truth rating</div>' : ""}
         <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : esc(c.tag ?? v.tag)}${c.live ? " · live" : ""}</div></div></div>
         <p class="vs">${esc(c.lookup ? coordinationNote(c.lookup) : c.summary)}</p>
-        <div class="conf${scored ? "" : " abstain"}"><div class="row"><span class="label">${c.lookup ? "Coordination confidence" : "Confidence"}</span><b>${scored ? Math.round(c.confidence * 100) + "%" : unscored}</b></div><div class="bar"><i></i></div>${scored ? "" : `<div class="conf-note">${unscoredNote}</div>`}</div>
+        ${!scored && c.lookup ? "" : `<div class="conf${scored ? "" : " abstain"}"><div class="row"><span class="label">${c.lookup ? "Coordination confidence" : "Confidence"}</span><b>${scored ? Math.round(c.confidence * 100) + "%" : unscored}</b></div><div class="bar"><i></i></div>${scored ? "" : `<div class="conf-note">${unscoredNote}</div>`}</div>`}
         ${this.readings(c)}
         ${notice}
       </section>
@@ -226,7 +225,7 @@ export class Panel {
   private spread(c: TraceCase) {
     if (!c.lookup) return "";
     const spread = c.lookup.spread;
-    return `${spread ? `<div class="sect label">Spread · observed sample, not a verdict</div><section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd><dt>Smallest inter-account copy gap</dt><dd>${spread.min_gap_s == null ? "Unknown" : `${spread.min_gap_s} s`}</dd></dl></section>` : ""}`;
+    return `${spread ? `<section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd></dl></section>` : ""}`;
   }
 
   private detail(n: TraceNode) {

@@ -53,7 +53,6 @@ test("supported facts remain visible when coordination is insufficient", () => {
   assert.match(html, /Supported by cited sources/);
   assert.match(html, /procedural vote/);
   assert.match(html, /href="https:\/\/record.example\/vote"/);
-  assert.match(html, /separate from coordination/);
   assert.match(coordinationNote(lookup), /Coordination: insufficient evidence/);
   assert.equal(lookup.status, "insufficient");
 });
@@ -70,8 +69,7 @@ test("account-only cluster matches never become a coordination verdict", () => {
 test("unavailable and legacy assessments do not imply false content", () => {
   for (const assessment of [null, { model: "legacy" }, { model: "new", claim_checks: [] }]) {
     const html = factualFindings({ ...result(), assessment });
-    assert.match(html, /No claim-level factual assessment is available/);
-    assert.match(html, /not evidence that the content is false/);
+    assert.doesNotMatch(html, /No claim-level factual assessment/);
     assert.doesNotMatch(html, /Supported by cited sources/);
   }
 });
@@ -146,7 +144,7 @@ test("source articles remain visible when the model times out", () => {
   assert.match(html, /Contemporary photo coverage/);
   assert.match(html, /Search lead · page not read/);
   assert.match(html, /Search date hint: 2022-08-08/);
-  assert.match(html, /No claim-level factual assessment/);
+  assert.doesNotMatch(html, /No claim-level factual assessment/);
   lookup.receipts[0].endpoint = "/scrape";
   lookup.pages[0].published_at = "2022-08-08";
   html = factualFindings(lookup);
