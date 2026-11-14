@@ -134,7 +134,7 @@ export function storyBrief(trace: TraceCase & { lookup: LookupResult }) {
 }
 
 export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?: string): string {
-  const { lookup, family, members, variants, matches, versions, group, h } = summary(trace);
+  const { lookup, family, members, variants, matches, group, h } = summary(trace);
   const sub = family?.nodes.find((node) => node.kind === "submitted");
   // the reader's own file while it is at hand: it shows before the upload is answered and never reloads
   const stored = lookup.id === "lookup-pending" ? undefined : comparisonSource(trace);
