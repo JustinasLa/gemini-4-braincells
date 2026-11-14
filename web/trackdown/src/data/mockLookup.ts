@@ -59,7 +59,7 @@ mockLookupResult.readings = [primary, second];
 /** Development mock of the live job: collect, primary reading, then a later second reading that disagrees. */
 export async function runMockLookup(onUpdate: (result: LookupResult) => void, signal: AbortSignal): Promise<LookupResult> {
   const params = new URLSearchParams(location.search);
-  // "Trace it" on a mock swarm page traces an uploaded picture
+  // "Search" on a mock swarm page traces an uploaded picture
   const meme = params.get("mockLookup") ?? (params.has("mockSwarm") ? "meme-upload" : null);
   if (meme?.startsWith("meme")) return (await import("./mockMeme")).runMemeMock(meme, onUpdate, signal);
   const last = mockLookupResult.steps.length; // phase `last` is the finished job

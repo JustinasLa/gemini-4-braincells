@@ -10,12 +10,61 @@ const { outputFiles } = await build({
   platform: "node",
   format: "esm",
 });
-const { layoutTimeline, swarmChips, swarmAria, axisLabels, utcStamp, postStamp, durationWords, durationShort, firstWords, VERDICT, FAMILY_NAME } = await import(
+const { layoutTimeline, swarmChips, swarmAria, axisLabels, utcStamp, postStamp, swarmBackTarget, durationWords, durationShort, firstWords, VERDICT, FAMILY_NAME } = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
 const sig = (family, score, summary, polarity = "for") => ({ family, name: family, score, polarity, summary, numbers: {}, examples: [] });
 const point = (t, extra = {}) => ({ t, a: 0, k: "post", g: 0, burst: false, ...extra });
+
+const uiBundle = await build({
+  entryPoints: [fileURLToPath(new URL("../web/trackdown/src/ui/swarm.ts", import.meta.url))],
+  bundle: true,
+  write: false,
+  platform: "node",
+  format: "esm",
+  loader: { ".css": "empty" },
+});
+const { swarmStrip, swarmPageHtml } = await import(
+  `data:text/javascript;base64,${Buffer.from(uiBundle.outputFiles[0].text).toString("base64")}`
+);
+
+test("the picture page shows both signal strengths without inventing confidence or truth probabilities", () => {
+  const report = { verdict: "organic", score: 0.12, guard: 0.71, n_accounts: 14, signals: [], timeline: [] };
+  const html = swarmPageHtml({ report, picture: "https://image.example/meme.jpg", posts: [] }, true);
+  assert.match(html, /Chill<\/h2>/);
+  assert.match(html, /Confidence: <b>not calibrated<\/b>/);
+  assert.match(html, /role="group" aria-label="Confidence and signal strengths"/);
+  assert.match(html, /Swarm signal<\/dt><dd>12\/100/);
+  assert.match(html, /Organic signal<\/dt><dd>71\/100/);
+  assert.match(html, /The spread looks organic/);
+  assert.match(html, /signal strengths, not probabilities/);
+  assert.match(html, /Whether the content is true or false is not assessed here/);
+  assert.doesNotMatch(html, /%|88\/100/); // never treat 1 - swarm score as organic confidence
+});
+
+test("Can't tell keeps conflicting scores and the abstention reason visible; missing scores stay unknown", () => {
+  const report = { verdict: "unclear", score: 0.85, guard: 0.78, n_accounts: 5, why_unclear: "conflicting <signals>", signals: [sig("copy", 0.85, "same words ×4")], timeline: [] };
+  const html = swarmStrip(report);
+  assert.match(html, /Can&#39;t tell<\/h2>/);
+  assert.match(html, /85\/100/);
+  assert.match(html, /78\/100/);
+  assert.match(html, /insufficient or conflicting/);
+  assert.match(html, /conflicting &lt;signals&gt;/);
+  for (const value of [undefined, null, NaN, Infinity, -0.1, 1.1]) {
+    const missing = swarmStrip({ ...report, score: value, guard: value });
+    assert.equal((missing.match(/<dd>Unavailable<\/dd>/g) ?? []).length, 2);
+    assert.doesNotMatch(missing, /NaN|Infinity/);
+  }
+  const zero = swarmStrip({ ...report, verdict: "swarm", score: 1, guard: 0 });
+  assert.match(zero, /Swarm signal<\/dt><dd>100\/100/);
+  assert.match(zero, /Organic signal<\/dt><dd>0\/100/);
+  assert.match(zero, /spread shows signs of coordination/);
+  const unscored = swarmStrip({ ...report, n_accounts: 0, score: 0, guard: 0, why_unclear: "no posts of the picture" });
+  assert.equal((unscored.match(/<dd>Unavailable<\/dd>/g) ?? []).length, 2);
+  assert.match(unscored, /no posts of the picture/);
+  assert.doesNotMatch(unscored, /0\/100/);
+});
 
 test("verdict words and family names follow the product's words", () => {
   assert.equal(VERDICT.swarm.word, "Shill");
@@ -159,4 +208,16 @@ test("times are UTC like the rest of the app, with the day when it is not today"
 test("no readable time: no dots, no NaN", () => {
   assert.deepEqual(layoutTimeline([point(NaN), point(Infinity), { a: 0, k: "post", g: 0, burst: false }]).dots, []);
   assert.doesNotMatch(swarmAria({ verdict: "swarm", n_accounts: 3, burst: null, first_at: null, last_at: null, timeline: [point(NaN)] }), /NaN|Infinity/);
+});
+
+test("the swarm page's Back: the browser's Back over an in-app entry, else the home", () => {
+  // opened from a wall tile or "Live on Bluesky": main.ts pushed { swarm, inApp: true }
+  assert.equal(swarmBackTarget({ swarm: "88115b801161", inApp: true }), "history");
+  // opened from a link: no state, or a state the app did not push for this page
+  assert.equal(swarmBackTarget(null), "home");
+  assert.equal(swarmBackTarget(undefined), "home");
+  assert.equal(swarmBackTarget({ swarm: "88115b801161" }), "home");
+  assert.equal(swarmBackTarget({ home: true }), "home");
+  assert.equal(swarmBackTarget({ inApp: "yes" }), "home");
+  assert.equal(swarmBackTarget("inApp"), "home");
 });

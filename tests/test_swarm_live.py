@@ -216,6 +216,7 @@ def test_account_info_prefers_plc_date_and_drops_bridged_age():
     info = live.account_info(row)
     assert info.created_at == T0 and info.bio == "hi" and info.host.startswith("morel")
     assert info.following == 9 and info.has_avatar is False
+    assert info.name == "A"  # the display name: the one_publisher guard reads it
     bridged = live.account_info({**row, "handle": "x.mastodon.social.ap.brid.gy"})
     assert bridged.created_at is None
 

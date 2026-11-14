@@ -21,6 +21,7 @@ import { initTooltips } from "./ui/tooltip";
 import { comparisonSource } from "./ui/compare";
 import { initMemeTrace } from "./ui/variations";
 import { mountStory } from "./ui/story";
+import { swarmBackTarget } from "./data/swarm";
 import { mountSwarmPage, mountSwarmWall, swarmHref } from "./ui/swarm";
 import { PANEL_MIN, clampPanel, panelMax, parseSaved, stepPanel } from "./ui/panelwidth";
 
@@ -60,9 +61,14 @@ const app = $(".app");
 const story = mountStory(app);
 // the picture being traced, as a local address: the story shows it before the server has it
 let storyPreview: { url: string; lookup: string } | null = null;
-// the page of one live picture (?swarm=<id>), opened in-app (openSwarm); "Trace it" sends its
+// the page of one live picture (?swarm=<id>), opened in-app (openSwarm); "Search" sends its
 // picture down the upload path
-const swarmPage = mountSwarmPage(app, (file) => void startTrace(file, import.meta.env.DEV && new URLSearchParams(location.search).has("mockSwarm")), (id) => void openSwarm(id, true));
+const swarmPage = mountSwarmPage(app, (file) => void startTrace(file, import.meta.env.DEV && new URLSearchParams(location.search).has("mockSwarm")), (id) => void openSwarm(id, true), () => {
+  // opened over a screen of the app: the browser's Back restores it exactly (popstate); opened
+  // from a link: the home, with an address that no longer names the swarm page, no reload
+  if (swarmBackTarget(history.state) === "history") history.back();
+  else { dropSwarmParam(); showHome(); }
+});
 const nav = $("#judge-links");
 $("#judge-menu").addEventListener("click", () => { nav.hidden = !nav.hidden; nav.style.display = nav.hidden ? "none" : "flex"; $("#judge-menu").setAttribute("aria-expanded", String(!nav.hidden)); });
 const view = new URLSearchParams(location.search).get("view");
@@ -624,7 +630,7 @@ function showHome() {
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit, .sw-wall")] });
   const input = $<HTMLInputElement>("input", homeEl);
   // Do not summon the on-screen keyboard just because the home screen opened.
   // Desktop keeps the quick keyboard workflow; touch users can choose the field when ready.
@@ -730,7 +736,7 @@ async function openSwarm(id: string, push: boolean) {
   if (push) {
     // the entry it was opened from remembers whether that was the home
     if (homeEl && !swarmPage.isOpen()) history.replaceState({ ...(history.state ?? {}), home: true }, "");
-    history.pushState({ swarm: id }, "", swarmHref(id));
+    history.pushState({ swarm: id, inApp: true }, "", swarmHref(id));
   }
   const seq = ++navSequence;
   const result = await swarmPage.open(id, () => seq === navSequence);

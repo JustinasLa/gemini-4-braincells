@@ -2400,6 +2400,13 @@ class Lookup:
 
             with self.lock:
                 handles = list(self._bsky_handles)[:10]
+            # A submitted Bluesky post can belong to a monitored cluster even when the
+            # lookup's text/link retrieval does not surface the cluster's other posts.
+            target_post = (
+                (self.target.handle, self.target.post_id)
+                if self.target and self.target.kind == "bsky_post" and self.target.post_id
+                else None
+            )
             try:
                 store_cm = self.deps.store()
                 store = store_cm.__enter__()
@@ -2409,6 +2416,8 @@ class Lookup:
                     st.state, st.detail = "skipped", "monitor database unreachable right now"
                 return
             try:
+                if target_post:
+                    add(store.clusters_for_post(*target_post), "post")
                 if variants:
                     add(store.clusters_for_url(variants), "link")
                 if phrase:
@@ -2417,12 +2426,12 @@ class Lookup:
                     add(store.clusters_for_handle(h), "account")
             finally:
                 store_cm.__exit__(None, None, None)
-            # the verdict applies only when the cluster shared this link or this text
-            applies = {cid for cid, r in why.items() if r & {"link", "text"}}
+            # the verdict applies only when the cluster contains this post, link or text
+            applies = {cid for cid, r in why.items() if r & {"post", "link", "text"}}
             self.receipt(
                 "detector",
                 "db",
-                f"Monitored clusters checked: {len(applies)} share the link or text, "
+                f"Monitored clusters checked: {len(applies)} share the post, link or text, "
                 f"{len(found) - len(applies)} only share an account",
                 query=phrase,
             )
@@ -2443,7 +2452,7 @@ class Lookup:
                     "content. That is context about those accounts, not a verdict on this link."
                 )
             st.detail = (
-                f"the link or text is in {len(applies)} monitored cluster(s)"
+                f"the post, link or text is in {len(applies)} monitored cluster(s)"
                 if applies
                 else f"accounts seen here are in {len(found)} other cluster(s); not this link"
                 if found

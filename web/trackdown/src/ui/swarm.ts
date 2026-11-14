@@ -6,6 +6,7 @@
 import { axisLabels, fetchSwarmDetail, fetchSwarmWall, firstWords, GROUP_FILLS, layoutTimeline, postStamp, swarmAria, swarmChips, VERDICT, type SwarmCard, type SwarmDetail, type SwarmReport } from "../data/swarm";
 import { IMAGE_TYPES } from "../data/lookup";
 import { esc } from "./format";
+import { icon } from "./icons";
 import "./swarm.css";
 
 const PITCH = 10; // viewBox units per dot column / row
@@ -61,8 +62,18 @@ export function swarmStrip(report: SwarmReport, opts: { live?: string | null; st
   const chips = swarmChips(report);
   const why = report.verdict === "unclear" && report.why_unclear?.trim() ? `<p class="sw-why">${esc(report.why_unclear.trim())}</p>` : "";
   const note = !opts.stack && report.basis_note?.trim() ? `<p class="sw-note">${esc(report.basis_note.trim())}</p>` : "";
+  // score and guard measure different signals, not complementary probabilities or confidence.
+  const strength = (value: number) => report.n_accounts > 0 && Number.isFinite(value) && value >= 0 && value <= 1 ? `${Math.round(value * 100)}/100` : "Unavailable";
+  const meaning = report.verdict === "organic" ? "The spread looks organic."
+    : report.verdict === "swarm" ? "The spread shows signs of coordination."
+    : "The evidence is insufficient or conflicting.";
   return `<section class="st-sec sw${opts.stack ? " stack" : ""}" data-verdict="${esc(report.verdict)}" style="--vc:${v.css}" aria-labelledby="sw-word">
     <h2 class="sw-word" id="sw-word">${esc(v.word)}</h2>
+    <div class="sw-confidence" role="group" aria-label="Confidence and signal strengths">
+      <p class="sw-certainty">Confidence: <b>not calibrated</b></p>
+      <dl class="sw-scores"><div><dt>Swarm signal</dt><dd>${strength(report.score)}</dd></div><div><dt>Organic signal</dt><dd>${strength(report.guard)}</dd></div></dl>
+      <p class="sw-limit">${meaning} These are signal strengths, not probabilities. Whether the content is true or false is not assessed here.</p>
+    </div>
     ${plot(report)}
     <div class="sw-say">
       ${chips.length ? `<ul class="sw-chips">${chips.map((c) => `<li>${c.label ? `<b>${esc(c.label)}</b>` : ""}${esc(c.summary)}</li>`).join("")}</ul>` : why}
@@ -100,6 +111,31 @@ export async function mountSwarmWall(home: HTMLElement): Promise<void> {
   }, true);
   home.appendChild(el);
   home.classList.add("has-wall");
+  placeWall(home, el);
+  // the tiles' size follows the width, the hero's height follows "Simulated examples" opening
+  const hero = home.querySelector<HTMLElement>(".home-c");
+  const watch = new ResizeObserver(() => (home.isConnected && el.isConnected ? placeWall(home, el) : watch.disconnect()));
+  watch.observe(home);
+  if (hero) watch.observe(hero);
+}
+
+/** how much of the first row of tiles shows on the first screen: enough to read as pictures, and
+ *  to say there is more below without a word */
+const PEEK = 0.45;
+
+/** The wall sits over the bottom of the first screen, the heading and the top of the first row in
+ *  view; never over the hero (the search box does not move for it), and the painting's credit lifts
+ *  above it. Positions are in the home's scroll content, as the wall is absolute in it. */
+function placeWall(home: HTMLElement, el: HTMLElement): void {
+  const first = el.querySelector<HTMLElement>(".sw-tile");
+  if (!first) return;
+  const hero = home.querySelector<HTMLElement>(".home-c");
+  const below = hero ? hero.offsetTop + hero.offsetHeight : 0;
+  const top = Math.round(Math.max(home.clientHeight - (first.offsetTop + first.offsetHeight * PEEK), below));
+  el.style.top = `${top}px`;
+  const credit = home.querySelector<HTMLElement>(".credit");
+  const lift = credit ? Math.max(0, credit.offsetTop + credit.offsetHeight - top + 6) : 0;
+  home.style.setProperty("--sw-lift", `${lift}px`);
 }
 
 // ---------------------------------------------------------------- the page of one live picture
@@ -146,11 +182,12 @@ export function swarmPageHtml(detail: SwarmDetail, canTrace: boolean): string {
   // the list holds at most 30 links; the count is every post of the picture, as the chips count them
   const total = Math.max(posts.length, Number.isFinite(detail.n_posts) ? detail.n_posts : 0);
   return `<div class="st-wrap">
+    <button class="btn ghost sw-back" type="button" data-swarm-back>${icon.arrowL}<span>Back</span></button>
     <section class="st-hero sw-hero">
       <figure class="st-mine"><img src="${esc(detail.picture)}" alt="${esc(lines.join(" ") || "The picture")}" referrerpolicy="no-referrer" draggable="false"></figure>
       <div class="st-say">
         ${swarmStrip(detail.report, { stack: true })}
-        ${canTrace ? `<div class="st-actions"><button class="btn solid" type="button" data-swarm-trace>Trace it</button></div>` : ""}
+        ${canTrace ? `<div class="st-actions"><button class="btn solid" type="button" data-swarm-trace>Search</button></div>` : ""}
       </div>
     </section>
     ${posts.length ? `<section class="st-sec" aria-labelledby="sw-posts-h"><h2 id="sw-posts-h">Posts<span>${total}</span></h2>
@@ -165,7 +202,7 @@ const TRACE_TIMEOUT_MS = 15000;
 /** The page of one live picture over the map, in the story's layer. `onTrace` gets the picture as a
  *  file. `onLink` gets the id of a plain click on a wall tile or "Live on Bluesky" (anywhere on the
  *  page), so the caller opens it in-app; a click with a modifier key opens the link as usual. */
-export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void, onLink: (id: string) => void) {
+export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void, onLink: (id: string) => void, onBack: () => void) {
   const el = document.createElement("section");
   el.className = "story sw-page";
   el.setAttribute("aria-label", "Live picture");
@@ -181,6 +218,7 @@ export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void, 
     onLink(link.dataset.swarm);
   });
   el.addEventListener("click", async (event) => {
+    if ((event.target as HTMLElement).closest("[data-swarm-back]")) return onBack();
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-swarm-trace]");
     const detail = shown;
     if (!button || !detail) return;

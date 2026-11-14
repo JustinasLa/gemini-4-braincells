@@ -19,23 +19,30 @@ boosts whom. It never comes from one post, and a popular picture is not evidence
 
 ## Families and signals
 
-A family's score is the **max** of its signals: signals inside a family are correlated, so they
-are never added up. Share-based scores are the **Wilson 95% lower bound** of the share, not the
-raw share, so small groups need a near unanimous share ("5 of 5" scores about 0.57, "43 of 43"
-about 0.92). Each signal that needs a field counts only the accounts that have it, and its
-`numbers` say how many that was. Summaries are chips: a few words with the numbers. Every signal
-counts accounts, so one busy account cannot bring a family to 0.5. Only timing and copy signals
-carry `examples` (post links); accounts and boost signals and the guards never do.
+A family's score is the **max** of its signals: signals inside a family are correlated, so they are
+never added up. That holds for the accounts family too: fresh accounts, empty profiles, minted
+handles and copied bios usually come from the same accounts (a signup wave is both fresh and empty),
+so adding them would count one account several times. Share-based scores are the **Wilson 95% lower
+bound** of the share, not the raw share, so small groups need a near unanimous share ("5 of 5"
+scores about 0.57, "43 of 43" about 0.92). A share tested against a base rate (fresh accounts and
+empty profiles against the baseline, minted handles and copied bios against a small allowance)
+scores its **excess over that rate**: the Wilson bound rescaled so the base rate scores 0 and three
+quarters of the way from it to 100% scores 1 (`excess_full`). Against a 3% fresh baseline, 14 of 26
+fresh accounts scores 0.45 and 16 of 27 scores 0.52; the raw bound gave 0.36 and 0.41 whatever the
+base rate. Each signal that needs a field counts only the accounts that have it, and its `numbers`
+say how many that was. Summaries are chips: a few words with the numbers. Every signal counts
+accounts, so one busy account cannot bring a family to 0.5. Only timing and copy signals carry
+`examples` (post links); accounts and boost signals and the guards never do.
 
 | Family | Signal | Chip | What it measures |
 |---|---|---|---|
 | timing | `burst` | `31 accounts in 4 min` | accounts whose first post lands in the densest 1, 5 or 20 min, tested against a null (below) |
 | timing | `same_second` | `12 accounts paired within 3 s` | accounts with a post within 3 s of another account's, tested against a null |
 | timing | `clockwork` | `14 posts every 90 s` | a run of 8+ posts by 4+ accounts with near-equal gaps (a scheduler). A threshold, not a test: it has no p-value |
-| accounts | `same_cohort` | `20 of 25 under 30 days old` / `9 of 12 joined the same week` | more accounts under 30 days old than the baseline rate. Fires only with a baseline (n >= 100), binomial p <= 0.01 and 8+ accounts with a known age; otherwise capped at 0.45. "Joined the same week" is only the wording, used when 4+ accounts (and at least as many as are fresh) were created within one week, counting only accounts created in the 60 days before the first post; an old signup wave never counts |
-| accounts | `templated_handles` | `11 of 14 handles alike` | one handle shape with digits (`user482913` -> `a999999`), above a 25% allowance; needs 6+ handles |
-| accounts | `empty_profiles` | `9 of 12 no bio or avatar` | no avatar and no bio; same rule as `same_cohort` (baseline test, p <= 0.01, 8+ accounts to fire, else capped at 0.45) |
-| accounts | `same_bio` | `same bio x5` / `same name x5` | identical bios (3+ words) or display names, ignoring digits and emoji |
+| accounts | `same_cohort` | `20 of 25 under 30 days old` / `9 of 12 joined the same week` | more accounts under 30 days old than the baseline rate, scored as the **excess over that rate** (below). Fires only with a baseline (n >= 100), binomial p <= 0.01 and 8+ accounts with a known age; otherwise capped at 0.45. "Joined the same week" is only the wording, used when 4+ accounts (and at least as many as are fresh) were created within one week, counting only accounts created in the 60 days before the first post; an old signup wave never counts |
+| accounts | `templated_handles` | `11 of 14 handles alike` | handles minted from one stem plus a counter: a 5+ letter stem with only a number after it (`goodstuff01`, `nextbuy-2`, `nextbuy`), or a 2-4 letter tag after a name, right before the number (`logannb001`, `jodygood02`). A stem or tag counts when 4+ accounts hold it with distinct suffixes, at least 4 and half of them counters of 20 or less (or no number); the share of minted handles scores as its excess over a 5% allowance. Also one handle shape with digits (`user482913` -> `a999999`) above a 25% allowance. Needs 6+ handles. A shared word alone (`taylornation13`, `taylorgang`) or meaningful numbers (`swiftie13`, `swiftie1989`) are not minted |
+| accounts | `empty_profiles` | `9 of 12 no bio or avatar` | no avatar and no bio; same rule as `same_cohort` (excess over the baseline rate, p <= 0.01, 8+ accounts to fire, else capped at 0.45) |
+| accounts | `same_bio` | `same bio x5` / `same name x5` | identical bios (3+ words, full weight at 6) or display names (x0.7), ignoring digits and emoji. Measured among the accounts that have a bio (or name): an account without one says nothing about copying. Scored as the excess over a 2% allowance, so 6 of 7 bios scores 0.64 |
 | copy | `same_text` | `same words x12` | accounts whose normalised words equal another account's, weighted by length: `(words/8)^2`, so `lol` x30 counts almost nothing |
 | copy | `near_same_text` | `near-same words x16` | long texts (6+ words) that mostly overlap another account's (Jaccard >= 0.6 on word 3-shingles) |
 | copy | `same_file` | `same file x26` | accounts that posted the exact same upload (equal `media_key`); not computed with `selected_by_file` |
@@ -53,6 +60,7 @@ Organic guards (`polarity: "against"`); the strongest is `report.guard`:
 | `established_accounts` | `160 of 170 old accounts` | over a year old with 100+ followers |
 | `slow_spread` | `spread over 45 h` | many hours with no burst or clockwork; capped at 0.5, so it supports other guards but never decides alone (slow drip campaigns exist) |
 | `conversation` | `12 accounts talk to each other` | posters reply to or quote each other in their own words |
+| `one_publisher` | `5 accounts, one name` | the posting accounts openly carry one name, like an organisation's venue or branch accounts (`ahc-coventry`, `xcel-coventry`; `roofdepotkenosha`, `roofdepotjackson`). 60%+ (and 4+) of them hold one stem of 5+ letters in the handle or display name; the rest of each name is words (2+ letters), not a counter (`genlabs48` does not count); 60%+ of the holders were created within 31 days of each other; the stem is not a generic token (`news`, `official`, `bsky`, `the`, `real` ...). Scored as the raw share of holders. Computed only when the accounts family did not fire. Overrides fired families (below) |
 
 ## Timing null model
 
@@ -78,13 +86,23 @@ fired = families scoring >= 0.5
 swarm   : >= 2 fired, score >= 0.6, guard < 0.6, and if timing is one of exactly 2 fired, the
           timing signal that gave the family its score has p <= 0.01 (clockwork has no p, so it
           needs two other families)
+publisher (checked first): one_publisher >= 0.6 and the accounts family did not fire
+          -> organic when the posting accounts are long-standing (median age 1+ year, known for
+             2/3+ of them), else unclear ("one name, new accounts")
 organic : guard >= 0.6, no family fired, and (without a window) the timed posts span 20+ min
 unclear : everything else ("only one kind of sign", "signs both ways", "timing could be chance",
           "posts span only minutes", "no strong signs either way")
 ```
 
 "Unclear" is an answer, not an error: when in doubt, abstain. A fired family with strong guards
-is "signs both ways", never "organic".
+is "signs both ways", never "organic", with one exception: `one_publisher`. Accounts that openly
+carry one organisation's name and post its own announcement on a schedule (a leisure trust's
+venues posting one job advert at 09:00) are coordinated but not inauthentic, and same-second
+timing and identical words are what such a publisher shows anyway, so they are not evidence
+there. Long-standing accounts are then organic; younger ones are unclear, because a franchise's
+marketing accounts and an ad network look the same. A fired accounts family (fresh cohort,
+minted handles, copied bios, empty profiles) means a ring, not a publisher: the guard is not
+computed then. Every other guard still never overrides a fired family.
 
 ## Limits
 
@@ -100,12 +118,21 @@ is "signs both ways", never "organic".
   copied captions from established accounts are still held back by the guards.
 - **Same file can be organic.** Re-posting the exact bytes (or a platform reusing a media key) is
   not proof; it needs a second family, and with `selected_by_file` it is not counted at all.
+- **New communities.** A group in which 60%+ of the posters joined in the last 30 days (against
+  a 3% baseline) and copy one caption can come out swarm: in synthetic runs of 20 accounts that
+  are half new on average, 12% did, all with 60%+ new accounts. A community that moved to the
+  platform together looks like that too.
 - **Small groups.** With the Wilson bound, a group of 5 to 7 accounts needs every account to
   agree for a share signal to fire; tested account signals need 8+ accounts.
 - **Slow, varied campaigns** (aged or bought accounts, paraphrased text, spread over days) look
   organic or unclear here.
 - **Account fields are often missing**, and without a baseline the account shares are capped
   below 0.5; the accounts family is then "unknown", not "fine".
+- **Sockpuppets that openly share a name are excused.** Ten two-year-old accounts named
+  `patriotvoice<state>`, created together and posting one political message within a minute,
+  come out organic (200 of 200 synthetic runs). Fresh ones are still a swarm (the fresh test
+  fires), and without a baseline (lookups) the same accounts are unclear. The guard reads names,
+  not who runs the accounts.
 - **Hand-set thresholds.** Every value in `config.py` was set on synthetic cases
   (`tests/test_swarm_score.py`); there is no measured error rate on labelled swarms yet.
 - No signal names or labels a single account: examples are post links (timing and copy only),
