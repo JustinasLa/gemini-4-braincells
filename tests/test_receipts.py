@@ -87,7 +87,7 @@ def no_fake(r) -> None:
         "Nov 13, 2026 at 3:14 PM",
         "November 13, 2026 at 3:14 PM",
         "15:14 · 13 Nov 2026",
-        "3:14 PM · Nov 13, 2026 · 1.2M Views",
+        "Edited · 3:14 PM · Nov 13, 2026 · 1.2M Views",
     ],
 )
 def test_absolute_time_is_within_14h_either_way(shown):
@@ -769,15 +769,36 @@ def test_unknown_platform_with_a_non_x_handle_searches_bluesky_only(monkeypatch)
 # ---------------------------------------------------------------- edited X posts
 
 
-def test_last_edited_time_bounds_the_creation_from_above_only():
-    e, latest, note = shown_window("Last edited 3:14 PM · Nov 13, 2026", ANCHOR)
-    assert e is None
-    assert latest == datetime(2026, 11, 13, 15, 14, tzinfo=UTC) + TZ + timedelta(seconds=59)
-    assert "last edit" in note
-    # created two days before the edit: consistent, so the words decide
-    r = judge(
-        shot(shown_time="Last edited 3:14 PM · Nov 13, 2026"),
-        [cand(created_at=datetime(2026, 11, 11, 9, 0, tzinfo=UTC))],
-        ANCHOR,
+def _edited_candidate():
+    from lookup.receipts_x import _candidate
+    from lookup.xpage import parse_post_page
+    from tests.test_lookup import EDITED_MD
+
+    m = parse_post_page(EDITED_MD, "2121316314375749699").main
+    return _candidate(m, 1, "/search")  # its id is the edited version's: time = the edit
+
+
+@pytest.mark.parametrize(
+    "shown, anchor, check",
+    [
+        # 18:56 UTC edit, shown in a viewer's UTC+2: the normal +-14 h window applies
+        ("Last edited 8:56 PM · Nov 13, 2026", ANCHOR, "consistent"),
+        ("Last edited 6:56 PM · Nov 20, 2026", datetime(2026, 11, 21, tzinfo=UTC), "inconsistent"),
+        ("6:56 PM · Nov 13, 2026 · Not edited", ANCHOR, "consistent"),
+    ],
+)
+def test_edited_x_post_end_to_end_time(shown, anchor, check):
+    c = _edited_candidate()
+    assert c.edited and c.created_at == datetime(2026, 11, 13, 18, 56, 36, 155000, tzinfo=UTC)
+    r = judge(shot(platform="x", handle="ada_example", text=c.text, shown_time=shown), [c], anchor)
+    assert r.time_check == check
+
+
+def test_edited_real_post_that_differs_says_it_was_edited():
+    c = _edited_candidate()
+    s = shot(
+        platform="x", handle="ada_example", text=c.text.replace("6:40", "6:30"), shown_time=None
     )
-    assert (r.label, r.time_check) == ("matches", "consistent")
+    r = judge(s, [c], ANCHOR)
+    assert r.label == "differs"
+    assert any("may show an earlier version" in d for d in r.differences)

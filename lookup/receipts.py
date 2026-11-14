@@ -111,6 +111,9 @@ class Candidate:
     metrics: Metrics | None
     receipt_id: int | None
     source: str = ""  # how it was found: searchPosts | author_feed | /search | profile ...
+    # X shows "Last edited": its page (and id, so its time) is the latest version; a screenshot
+    # of an earlier version may differ from it
+    edited: bool = False
 
 
 MIN_SIMILARITY = 0.5  # below this no candidate is taken to be the post in the screenshot
@@ -409,6 +412,11 @@ def judge(
         r.differences.append(
             "Words in the real post missing from the screenshot: " + _quoted(post_only)
         )
+    if best.edited and (changes or r.time_check == "inconsistent"):
+        r.differences.append(
+            "The real post was edited (X shows 'Last edited'); the screenshot may show an "
+            "earlier version of it."
+        )
     if _after(best.created_at, anchor):
         r.differences.append(
             "The real post is newer than the post that carries the screenshot "
@@ -624,20 +632,6 @@ _UNIT_WORD = {
 
 
 def shown_window(
-    shown_time: str | None, anchor: datetime
-) -> tuple[datetime | None, datetime | None, str | None]:
-    """See _shown_window. "Last edited 8:56 PM · …" is when the post was last edited: it was
-    created before that, so the window keeps only its latest end."""
-    earliest, latest, note = _shown_window(shown_time, anchor)
-    if earliest is not None and latest is not None and _EDITED.search(shown_time or ""):
-        return None, latest, "the time shown is the last edit; the post was created before it"
-    return earliest, latest, note
-
-
-_EDITED = re.compile(r"\bedited\b", re.I)
-
-
-def _shown_window(
     shown_time: str | None, anchor: datetime
 ) -> tuple[datetime | None, datetime | None, str | None]:
     """The real times a shown time allows: (earliest, latest, note). None = open on that side.

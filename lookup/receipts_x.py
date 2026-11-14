@@ -368,6 +368,7 @@ def _candidate(it: XItem, rid: int | None, source: str) -> Candidate:
         ),
         receipt_id=rid,
         source=source,
+        edited=it.edited,
     )
 
 
