@@ -2,11 +2,9 @@
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
-import { clusterShort, fmtDur, isLineageEdge, isMatchRel, relOf, ROLE, roleOf } from "../ui/format";
+import { clusterShort, isLineageEdge, isMatchRel, relOf, ROLE, roleOf } from "../ui/format";
 
 
-
-export type Mode = "timeline" | "web";
 
 export interface VNode {
   d: TraceNode;
@@ -40,8 +38,6 @@ interface VEdge {
 }
 interface Ring {
   id: string;
-  x: number;
-  y: number;
   color: string;
   start: number;
   dur: number;
@@ -88,7 +84,7 @@ export class Graph {
   nodes: VNode[] = [];
   byId = new Map<string, VNode>();
   edges: VEdge[] = [];
-  mode: Mode = "timeline";
+  readonly mode = "timeline"; // the only layout since the Web layout was removed (#79); dock.ts still reads it
   alpha = 1;
   alphaTarget = 0;
 
@@ -122,7 +118,6 @@ export class Graph {
   onHover: (id: string | null) => void = () => {};
   onFrame: () => void = () => {};
   cardOpacity = 1;
-  private raf = 0;
   private lastT = performance.now();
 
   constructor(stage: HTMLElement) {
@@ -151,7 +146,7 @@ export class Graph {
     new ResizeObserver(() => this.resize()).observe(stage);
     this.resize();
     this.bind();
-    this.raf = requestAnimationFrame(this.frame);
+    requestAnimationFrame(this.frame);
   }
 
   private mkCanvas(z: number) {
@@ -364,12 +359,6 @@ export class Graph {
     for (const n of this.nodes) n.py -= mid;
   }
 
-  setMode(m: Mode) {
-    if (m === this.mode) return;
-    this.mode = m;
-    this.reheat(1);
-  }
-
   reheat(a = 0.6) {
     this.alpha = Math.max(this.alpha, a);
   }
@@ -415,7 +404,7 @@ export class Graph {
             n.vx = (n.tx - n.x) * 0.06;
             n.vy = (n.py - n.y) * 0.06;
           } else {
-            n.x = this.mode === "timeline" ? n.tx : this.cx + (Math.random() - 0.5) * 200;
+            n.x = n.tx;
             n.y = n.py;
           }
           n.el.classList.remove("enter");
@@ -441,7 +430,6 @@ export class Graph {
     const ns = this.nodes.filter((n) => n.vis);
     if (!ns.length) return;
     const a = this.alpha;
-    const tl = this.mode === "timeline";
     // pairwise repulsion
     for (let i = 0; i < ns.length; i++) {
       const p = ns[i];
@@ -456,13 +444,13 @@ export class Graph {
           dy = Math.random() - 0.5;
           d2 = 1;
         }
-        const f = ((tl ? 2600 : 9000) * a) / Math.max(d2, 900);
+        const f = (2600 * a) / Math.max(d2, 900);
         const d = Math.sqrt(d2);
         const fx = (dx / d) * f;
         const fy = (dy / d) * f;
-        p.vx -= fx * (tl ? 0.15 : 1);
+        p.vx -= fx * 0.15;
         p.vy -= fy;
-        q.vx += fx * (tl ? 0.15 : 1);
+        q.vx += fx * 0.15;
         q.vy += fy;
       }
     }
@@ -470,30 +458,14 @@ export class Graph {
     for (const e of this.edges) {
       if (!e.a.vis || !e.b.vis) continue;
       const { a: p, b: q } = e;
-      const dx = q.x - p.x;
       const dy = q.y - p.y;
-      if (tl) {
-        const k = 0.012 * a * (q.compact ? 0.5 : 1);
-        p.vy += dy * k * 0.4;
-        q.vy -= dy * k;
-      } else {
-        const d = Math.hypot(dx, dy) || 1;
-        const rest = (p.w + q.w) / 2 + (q.compact ? 40 : 90);
-        const f = (d - rest) * 0.02 * a;
-        p.vx += (dx / d) * f * 0.5;
-        p.vy += (dy / d) * f * 0.5;
-        q.vx -= (dx / d) * f;
-        q.vy -= (dy / d) * f;
-      }
+      const k = 0.012 * a * (q.compact ? 0.5 : 1);
+      p.vy += dy * k * 0.4;
+      q.vy -= dy * k;
     }
     for (const n of ns) {
-      if (tl) {
-        n.vx += (n.tx - n.x) * 0.05 * Math.max(a, 0.25);
-        n.vy += (n.py - n.y) * 0.004 * a;
-      } else {
-        n.vx += -n.x * 0.0016 * a;
-        n.vy += -n.y * 0.0022 * a;
-      }
+      n.vx += (n.tx - n.x) * 0.05 * Math.max(a, 0.25);
+      n.vy += (n.py - n.y) * 0.004 * a;
       if (n.drag) continue;
       n.vx *= 0.8;
       n.vy *= 0.8;
@@ -513,7 +485,7 @@ export class Graph {
           if (oy <= 0) continue;
           const wp = p.drag ? 0 : q.drag ? 1 : 0.5;
           const wq = 1 - wp;
-          if (oy < ox * (tl ? 1.6 : 1)) {
+          if (oy < ox * 1.6) {
             const s = (q.y >= p.y ? 1 : -1) * oy * 0.5;
             p.y -= s * wp * 2 * 0.5;
             q.y += s * wq * 2 * 0.5;
@@ -547,7 +519,7 @@ export class Graph {
         if (l <= 0 || r <= 0 || t <= 0 || b <= 0) continue;
         // in the timeline x is time, so prefer moving up or down
         const vert = Math.min(t, b);
-        const horiz = Math.min(l, r) * (tl ? 3 : 1);
+        const horiz = Math.min(l, r) * 3;
         if (vert <= horiz) n.y += t < b ? -t * 0.5 : b * 0.5;
         else n.x += l < r ? -l * 0.5 : r * 0.5;
       }
@@ -865,7 +837,7 @@ export class Graph {
   ring(id: string, color: string, r1 = 340, dur = 1300) {
     const n = this.byId.get(id);
     if (!n) return;
-    this.rings.push({ id, x: n.x, y: n.y, color, start: performance.now(), dur, r0: Math.max(n.w, n.h) / 2, r1 });
+    this.rings.push({ id, color, start: performance.now(), dur, r0: Math.max(n.w, n.h) / 2, r1 });
   }
 
   ghost(nearId: string, count: number, label = "NO MATCH") {
@@ -891,12 +863,8 @@ export class Graph {
     this.cameraStep(dt);
     this.render(t);
     this.onFrame();
-    this.raf = requestAnimationFrame(this.frame);
+    requestAnimationFrame(this.frame);
   };
-
-  destroy() {
-    cancelAnimationFrame(this.raf);
-  }
 
   private render(now: number) {
     const k = this.k;
@@ -922,7 +890,7 @@ export class Graph {
       }
     }
     this.drawUnder(now, ox, oy, op);
-    this.drawOver(now, ox, oy);
+    this.drawOver(now);
   }
 
   private lastBackdrop = "";
@@ -1181,7 +1149,7 @@ export class Graph {
   }
 
   /** machine-vision lock-on: corner brackets close in on the card, crosshair sweeps, label */
-  private drawOver(now: number, ox: number, oy: number) {
+  private drawOver(now: number) {
     const c = this.octx;
     const k = this.k;
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -1238,8 +1206,6 @@ export class Graph {
       c.textBaseline = "alphabetic";
     }
     c.globalAlpha = 1;
-    void ox;
-    void oy;
     this.rings = this.rings.filter((r) => now - r.start < r.dur);
   }
 
@@ -1397,12 +1363,5 @@ export class Graph {
     }
     c.restore();
     this.pendingTabs = [];
-  }
-
-  /** time-span label helper for UI */
-  spanLabel(): string {
-    if (!this.case) return "";
-    const ts = this.case.nodes.map((n) => n.t);
-    return fmtDur(Math.max(...ts) - Math.min(...ts));
   }
 }
