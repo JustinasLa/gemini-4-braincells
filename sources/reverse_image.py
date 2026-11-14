@@ -303,10 +303,8 @@ def parse_yandex_sites(md: str, query_image_url: str = "") -> ReverseResult:
 
 def search_tineye(client: Any, image_url: str, *, deadline: float | None = None) -> ReverseResult:
     """client: sources.oxylabs.OxylabsClient. deadline: time.monotonic() bound."""
-    request_url = tineye_url(image_url)
-    markdown, _ = client.scrape_markdown(request_url, deadline=deadline)
-    result = parse_tineye(markdown, image_url)
-    result.request_url = request_url
+    markdown, _ = client.scrape_markdown(tineye_url(image_url), deadline=deadline)
+    result = parse_tineye(markdown, image_url)  # sets request_url to the same tineye_url
     result.call = dict(client.last_call)
     return result
 
@@ -314,9 +312,7 @@ def search_tineye(client: Any, image_url: str, *, deadline: float | None = None)
 def search_yandex(
     client: Any, image_url: str, *, sites: bool = False, deadline: float | None = None
 ) -> ReverseResult:
-    request_url = yandex_url(image_url, sites=sites)
-    markdown, _ = client.scrape_markdown(request_url, deadline=deadline)
+    markdown, _ = client.scrape_markdown(yandex_url(image_url, sites=sites), deadline=deadline)
     result = (parse_yandex_sites if sites else parse_yandex)(markdown, image_url)
-    result.request_url = request_url
     result.call = dict(client.last_call)
     return result
