@@ -10,7 +10,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from eval.calibration_labels import load_hand_labels
-from eval.recall import LEVELS, _git_sha, _synthetic_info, judge, trial_seed, wilson
+from eval.recall import (
+    LEVELS,
+    _git_sha,
+    _synthetic_info,
+    judge,
+    load_base_rates,
+    trial_seed,
+    wilson,
+)
 from eval.slices import SLICE_ROOT, hour_files, iter_windows, split_hours, split_of_hour
 from eval.store import write_eval_run
 from signals.config import DEFAULT
@@ -256,6 +264,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=Path(os.environ.get("LABELS_DIR", "/srv/junction-espoo/data/labels")),
         help="read available agreed/adjudicated hand labels with eval.labels",
     )
+    parser.add_argument(
+        "--base-rates",
+        help="JSON with measured base rates (turns on the identity base-rate test, as live)",
+    )
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--database-url", help="opt-in persistence through eval.store")
     parser.add_argument("--write", action="store_true", help="use configured DATABASE_URL")
@@ -278,6 +290,7 @@ def main_args(args) -> int:
     else:
         version = DEFAULT.version
         commit = _git_sha()
+        rates = load_base_rates(args.base_rates) if args.base_rates else None
         human_cases, human_metadata = load_hand_labels(args.labels_dir, args.split, version)
         additional = json.loads(args.labels.read_text()) if args.labels else []
         if any(case["label_source"] != "human" for case in additional):
@@ -308,6 +321,7 @@ def main_args(args) -> int:
                         _synthetic_info(synthetic),
                         DEFAULT,
                         cache,
+                        base_rates=rates,
                     )
                     cases.append(snapshot(synthetic, result.clusters, window.start, seed))
             if args.max_windows and len(windows) >= args.max_windows:
@@ -321,6 +335,8 @@ def main_args(args) -> int:
             "repeats_per_kind": args.repeats,
             "adhoc": bool(args.max_windows),
             "eval_commit_at_start": commit,
+            # None: the identity base-rate test was off (the live worker measures base rates)
+            "base_rates": {**rates.as_dict(), "source": args.base_rates} if rates else None,
         }
     if not args.input:
         cases.extend(human_cases)

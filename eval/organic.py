@@ -37,9 +37,10 @@ from pathlib import Path
 
 import numpy as np
 
-from eval.recall import _git_sha  # shared: `git describe --always --dirty`
+from eval.recall import _git_sha, load_base_rates  # shared with the recall eval
 from ingest.normalize import Action, Delete, Post, normalize
 from ingest.recorder import read_events, recorded_files
+from signals.baseline import BaseRates
 from signals.config import DEFAULT, DetectorConfig
 from signals.detect import detect
 from signals.score import AccountInfo
@@ -612,7 +613,9 @@ def _job(w: int, kind: str | None, seed: int | None, live: list[dict]) -> tuple:
     at = float(w + WINDOW_S)
     results = []
     if kind is None:
-        res = detect(base, account_info_fn(profiles, at, budget=_G["budget"]), cfg)
+        res = detect(
+            base, account_info_fn(profiles, at, budget=_G["budget"]), cfg, base_rates=_G["rates"]
+        )
         for c in live:
             dids, _uris = case_accounts(data, w, c["type"], c["key"])
             if len(dids) != c["accounts"]:
@@ -623,7 +626,8 @@ def _job(w: int, kind: str | None, seed: int | None, live: list[dict]) -> tuple:
             )
     else:
         s = hard_negative(kind, base, seed=seed)
-        res = detect(inject(base, s), account_info_fn(profiles, at, s, _G["budget"]), cfg)
+        info = account_info_fn(profiles, at, s, _G["budget"])
+        res = detect(inject(base, s), info, cfg, base_rates=_G["rates"])
         outcome, hits = case_outcome(res.clusters, s.dids)
         stamp = datetime.fromtimestamp(w, UTC).strftime("%Y%m%dT%H%M")
         results.append(
@@ -649,9 +653,11 @@ def run_eval(
     workers: int = 4,
     budget: int = ENRICH_BUDGET,
     max_windows: int | None = None,
+    base_rates: BaseRates | None = None,
 ) -> tuple[list[CaseResult], list[dict], list[str]]:
     """Run every job on the complete windows of the requested split. Returns (results, per-pass
-    detector stats, slice files used)."""
+    detector stats, slice files used). `base_rates` turns on the identity base-rate test, as
+    the live worker runs it (None: off)."""
     from concurrent.futures import ProcessPoolExecutor
     from multiprocessing import get_context
 
@@ -680,7 +686,7 @@ def run_eval(
         # Live passes first, then the synthetic ones, so the forked workers of the second stage
         # start with the accounts the first stage looked up instead of all fetching them again.
         for jobs in (live_jobs, synth_jobs):
-            _G.update(data=data, profiles=profiles, cfg=cfg, budget=budget)
+            _G.update(data=data, profiles=profiles, cfg=cfg, budget=budget, rates=base_rates)
             if workers > 1:
                 with ProcessPoolExecutor(workers, mp_context=get_context("fork")) as pool:
                     outs = list(pool.map(_job, *zip(*jobs, strict=True)))
@@ -762,6 +768,10 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     r.add_argument("--json", type=Path, help="also write both eval rows as JSON here")
     r.add_argument("--write", action="store_true", help="insert into eval_runs")
     r.add_argument("--database-url", help="default: DATABASE_URL from the environment / .env")
+    r.add_argument(
+        "--base-rates",
+        help="JSON with measured base rates (turns on the identity base-rate test, as live)",
+    )
 
 
 def main_args(a: argparse.Namespace) -> int:
@@ -813,6 +823,7 @@ def main_args(a: argparse.Namespace) -> int:
         return 1
     fixture = json.loads(a.fixture.read_text())
     commit = _git_sha()  # at start: the tree may change while a long run goes
+    rates = load_base_rates(a.base_rates) if a.base_rates else None
     live = [c for c in fixture["cases"] if c["split"] == a.split]
     seeds = list(range(1000, 1000 + a.seeds)) if a.split == "heldout" else list(range(a.seeds))
     results, stats, files = run_eval(
@@ -824,6 +835,7 @@ def main_args(a: argparse.Namespace) -> int:
         workers=a.workers,
         budget=a.budget,
         max_windows=a.max_windows,
+        base_rates=rates,
     )
     # A fixture case whose window is no longer complete on disk (pruned, cut by --max-windows)
     # is not scored; say so instead of reporting the FPR on fewer cases.
@@ -849,7 +861,12 @@ def main_args(a: argparse.Namespace) -> int:
         rs = [r for r in results if r.dataset == dataset]
         summary = summarize(rs)
         details = build_details(dataset, summary, stats, files, extra)
-        details.update(eval_commit=commit, enrich_budget=a.budget)
+        details.update(
+            eval_commit=commit,
+            enrich_budget=a.budget,
+            # None: the identity base-rate test was off (the live worker measures base rates)
+            base_rates={**rates.as_dict(), "source": a.base_rates} if rates else None,
+        )
         rows.append(
             {
                 "dataset": dataset,
