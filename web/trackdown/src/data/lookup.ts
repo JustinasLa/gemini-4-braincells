@@ -339,6 +339,10 @@ export async function startLookup(input: LookupRequest, onUpdate: (result: Looku
 export const readingReady = (result: LookupResult) => result.state !== "running"
   || result.steps.some((step) => step.id === "assess" && ["done", "failed", "skipped"].includes(step.state));
 /** every reading received so far, primary first (older servers send only `assessment`) */
+/** A case has a coordination verdict to reveal: every non-lookup case (simulated, historical, a
+ *  monitored cluster), and a lookup only when it matched a monitored cluster. A lookup's
+ *  "insufficient" is the absence of a call, not a verdict, so it gets no coin. */
+export const hasVerdict = (c: Pick<TraceCase, "lookup" | "status">) => !c.lookup || c.status !== "insufficient";
 export const readingsOf = (result: LookupResult): LookupAssessment[] => result.readings?.length ? result.readings : result.assessment ? [result.assessment] : [];
 /** the readings differ (the server says so; older servers: compare their llm_reading) */
 export const readingsDisagree = (result: LookupResult) => result.readings_disagree ?? new Set(readingsOf(result).map((r) => r.llm_reading)).size > 1;

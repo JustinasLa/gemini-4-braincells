@@ -85,3 +85,8 @@
   .meme-comparison[data-view=overlay]:not(:has([data-unavailable])) { height: 270px; }
   .meme-section { padding: 12px; }
 }
+
+.meme-finding { margin: 0 0 18px; padding: 12px 14px; border-left: 3px solid var(--vc); background: color-mix(in srgb, var(--vc) 9%, transparent); }
+.meme-finding .label { margin-bottom: 6px; }
+.meme-finding-word { font: 400 26px/1.1 var(--wide); letter-spacing: 0.2em; color: var(--vc); }
+.meme-finding p { margin: 8px 0 0; }

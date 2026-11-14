@@ -1,4 +1,4 @@
-import { domainOf, firstSeenLabel, humanLabel, imageTraceState, pageUrl, relationOf } from "../data/imageTrace";
+import { domainOf, firstSeenLabel, humanLabel, imageTraceState, memeFinding, pageUrl, relationOf } from "../data/imageTrace";
 import type { TraceCase, TraceNode } from "../types";
 import { esc } from "./format";
 import { memeImage, installImageFallbacks } from "./memeImage";
@@ -33,9 +33,11 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
   if (!["verdict", "receipts"].includes(tab)) return;
   const count = state.groups.reduce((total, group) => total + group.matches.length, 0);
   const original = state.origin;
+  const finding = trace.lookup ? memeFinding(trace.lookup) : null;
   const button = (id: string, title: string, subtitle: string) => `<button class="meme-list-item" data-meme-compare="${esc(id)}"><span>${esc(title)}</span><small>${esc(subtitle)}</small><span class="meme-list-arrow" aria-hidden="true">↗</span></button>`;
   const html = `<section class="meme-section" aria-label="Meme trace">
     <h2 class="meme-eyebrow">// ${trace.mock ? "MOCK · " : ""}MEME TRACE</h2>
+    ${finding && finding !== "pending" ? `<div class="meme-finding" style="--vc:${finding.color}"><div class="label">What the image search found · not a coordination call</div><div class="meme-finding-word">${esc(finding.word.toUpperCase())}</div><p>${esc(finding.sentence)}</p></div>` : ""}
     <h3>Original <small>earliest match found</small></h3>
     ${state.searching ? '<p class="meme-scanning" role="status">Searching for earlier copies…</p>' : ""}
     ${original ? `${button(original.id, domainOf(original), firstSeenLabel(original))}<p class="meme-note">Earliest match returned, not proof of the first publication or authorship.</p>` : state.noEarlier ? '<p class="meme-empty">No earlier copy found</p>' : !state.searching ? '<p class="meme-note">No original established.</p>' : ""}

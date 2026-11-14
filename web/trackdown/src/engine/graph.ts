@@ -2,7 +2,7 @@
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
-import { fmtDur, isLineageEdge, isMatchRel, relOf, ROLE, roleOf, STATUS } from "../ui/format";
+import { clusterShort, fmtDur, isLineageEdge, isMatchRel, relOf, ROLE, roleOf } from "../ui/format";
 
 
 
@@ -1351,7 +1351,7 @@ export class Graph {
     const fs = 11 / k; // constant on screen: the verdict label must never become microtype
     c.font = `600 ${fs}px "JetBrains Mono", monospace`;
     // the tab never runs past its box: drop detail from the right until it fits
-    const parts = [STATUS[cl.status].short.toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
+    const parts = [clusterShort(cl.status, !!this.case?.lookup).toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
     let label = parts.join(" · ");
     while (parts.length > 2 && c.measureText(label).width + fs * 1.2 > x1 - x0) { // always keep verdict + count
       parts.pop();
