@@ -3,178 +3,910 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#08111f">
+  <meta name="theme-color" content="#050506">
+  <meta name="description" content="Noise Radar detects coordinated amplification on Bluesky, shows the evidence behind every call and publishes its own error rates.">
   <title>Noise Radar</title>
+  <link rel="icon" href="trackdown/coin/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Michroma&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    :root { --ink:#e7edf7; --muted:#93a4bd; --line:#21324a; --panel:#101d31; --panel-2:#15253d; --bg:#08111f; --cyan:#67e8f9; --green:#6ee7b7; --amber:#fbbf24; --red:#fb7185; --violet:#c4b5fd; }
-    * { box-sizing:border-box; }
-    body { margin:0; color:var(--ink); background:radial-gradient(circle at 80% -20%,#19365a 0,#08111f 42rem); font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    button,input,select { font:inherit; }
-    button { cursor:pointer; }
-    .shell { max-width:1280px; margin:auto; padding:24px; }
-    .topbar { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:34px; }
-    .brand { display:flex; gap:12px; align-items:center; }
-    .mark { width:38px; height:38px; border:1px solid #33587d; border-radius:12px; display:grid; place-items:center; color:var(--cyan); background:#102a43; box-shadow:0 0 28px #164e6355; font-weight:800; }
-    h1,h2,h3,p { margin-top:0; }
-    h1 { font-size:1.15rem; letter-spacing:.02em; margin-bottom:1px; }
-    .eyebrow { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.15em; }
-    nav { display:flex; gap:6px; flex-wrap:wrap; }
-    .nav-btn,.button { color:var(--muted); background:transparent; border:1px solid transparent; border-radius:9px; padding:9px 13px; }
-    .nav-btn:hover,.nav-btn.active,.button:hover { color:var(--ink); border-color:var(--line); background:#14243a; }
-    .button.primary { color:#06131d; background:var(--cyan); border-color:var(--cyan); font-weight:700; }
-    .button.primary:hover { background:#a5f3fc; }
-    .hero { display:flex; justify-content:space-between; align-items:end; gap:24px; margin-bottom:24px; }
-    .hero h2 { font-size:clamp(1.7rem,4vw,3rem); line-height:1.05; max-width:730px; margin-bottom:10px; }
-    .hero p { color:var(--muted); max-width:680px; margin-bottom:0; }
-    .health { display:flex; align-items:center; gap:8px; color:var(--muted); white-space:nowrap; font-size:.85rem; }
-    .dot { width:9px; height:9px; border-radius:50%; background:var(--amber); box-shadow:0 0 12px currentColor; }
-    .dot.good { background:var(--green); color:var(--green); }.dot.bad { background:var(--red); color:var(--red); }
-    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
-    .filters { display:flex; gap:8px; flex-wrap:wrap; }
-    select,input { color:var(--ink); background:#0d1a2c; border:1px solid var(--line); border-radius:8px; padding:9px 11px; outline:none; }
-    select:focus,input:focus { border-color:#4c819c; box-shadow:0 0 0 3px #164e6344; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
-    .card,.panel { background:linear-gradient(145deg,#122239dd,#0d192bdd); border:1px solid var(--line); border-radius:14px; }
-    .card { padding:17px; transition:transform .15s,border-color .15s; }.card:hover { transform:translateY(-2px); border-color:#3b5f80; }
-    .card-head,.row { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
-    .card h3 { font-size:1rem; margin-bottom:5px; }.meta,.muted { color:var(--muted); font-size:.84rem; }
-    .badge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
-    .badge.coordinated { color:#fecdd3; background:#7f1d2d88; }.badge.likely_organic { color:#bbf7d0; background:#14532d88; }.badge.insufficient { color:#fde68a; background:#78350f88; }.badge.matched { color:#bae6fd; background:#164e6388; }
-    .score { font-size:2rem; font-weight:800; letter-spacing:-.06em; color:var(--cyan); }.score small { color:var(--muted); font-size:.75rem; letter-spacing:0; }
-    .meter { height:6px; border-radius:99px; overflow:hidden; background:#20334c; margin:14px 0; }.meter span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--cyan),var(--violet)); }
-    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }.chip { color:#c8d6e8; background:#1b304a; border:1px solid #294666; border-radius:99px; padding:3px 7px; font-size:.72rem; }
-    .empty,.error { padding:32px; text-align:center; color:var(--muted); }.error { color:#fecdd3; }
-    .panel { padding:22px; }.panel + .panel { margin-top:16px; }
-    .detail-grid { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr); gap:16px; }.detail-grid > * { min-width:0; }
-    .back { margin-bottom:15px; }.section-title { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.13em; margin:0 0 10px; }
-    .signal { border-top:1px solid var(--line); padding:12px 0; }.signal:first-child { border-top:0; padding-top:0; }.signal strong { display:block; margin-bottom:3px; }.signal p { margin:0; color:#cbd5e1; font-size:.9rem; }
-    .evidence { border-top:1px solid var(--line); padding:13px 0; }.evidence:first-child { border-top:0; }.evidence p { margin:4px 0 0; color:#cbd5e1; }.evidence a { color:var(--cyan); word-break:break-all; }
-    .post { border-top:1px solid var(--line); padding:13px 0; }.post:first-child { border-top:0; }.post p { margin:5px 0; }.post a { color:var(--cyan); font-size:.83rem; }
-    .table-wrap { overflow:auto; }.metrics { width:100%; border-collapse:collapse; min-width:580px; }.metrics th,.metrics td { border-bottom:1px solid var(--line); text-align:left; padding:12px 10px; }.metrics th { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }
-    .metric-value { color:var(--green); font-weight:700; }.prose { max-width:800px; color:#cbd5e1; }.prose h3 { color:var(--ink); margin-top:24px; }.prose li { margin:7px 0; }
-    .analyze { display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:8px; }.analysis-result { margin-top:16px; }.live-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:16px; }.stat { padding:14px; background:#0d1a2c; border:1px solid var(--line); border-radius:10px; }.stat-value { display:block; font-size:1.45rem; font-weight:800; color:var(--cyan); }.stat-label { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }.evidence-grid { display:grid; gap:10px; }.evidence-kind { color:var(--cyan); text-transform:uppercase; font-size:.7rem; letter-spacing:.1em; }.evidence-detail { color:#cbd5e1; font-size:.86rem; }.media-preview { border:1px solid #294666; border-radius:9px; padding:10px; background:#0b1727; }.source-link { display:block; margin-top:8px; }.verdict-grid { display:grid; gap:8px; margin-top:14px; }.verdict-item { padding:10px; border-left:2px solid #365a78; background:#0d1a2c; }.footer { color:var(--muted); font-size:.78rem; padding:28px 0 8px; }
-    @media (max-width:760px) { .shell{padding:16px}.topbar,.hero{align-items:flex-start; flex-direction:column}.detail-grid{grid-template-columns:1fr}.analyze{grid-template-columns:1fr}.health{white-space:normal} }
+    /* One visual language with Trackdown (web/trackdown/src/styles.css): same type, colours, square
+       edges, cut-corner primary button and verdict chips. */
+    :root {
+      --black: #050506; --surface: #0d0d10; --surface-2: #16161a; --hover: #18181d;
+      --line: rgba(255,255,255,.1); --line-2: rgba(255,255,255,.18); --line-3: rgba(255,255,255,.32);
+      --text: #f2efe9; --text-2: #b4b0a8; --text-3: #908c84;
+      --cv: #3fe07a; --shill: #e2533c; --chill: #5fc9a8; --unsure: #9aa6bf;
+      --wide: "Michroma", "Eurostile", ui-sans-serif, sans-serif;
+      --sans: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      --cut: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-padding-top: 80px; }
+    body { margin: 0; background: var(--black); color: var(--text); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--cv); outline-offset: 2px; }
+    main:focus { outline: none; }
+    ::selection { background: rgba(63,224,122,.3); }
+    h1, h2, h3, p { margin: 0; }
+    ul { margin: 0; padding-left: 18px; }
+    [hidden] { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .label { font: 500 11px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
+    .muted { color: var(--text-3); }
+    .small { font-size: 13px; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    /* top bar */
+    .topbar { position: sticky; top: 0; z-index: 10; height: 60px; display: flex; align-items: center; gap: 28px; padding: 0 24px; background: rgba(5,5,6,.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+    .wordmark { font: 13px/1 var(--wide); letter-spacing: .28em; text-decoration: none; white-space: nowrap; }
+    .nav { display: flex; gap: 2px; }
+    .nav a { padding: 8px 12px; color: var(--text-2); text-decoration: none; font-weight: 500; border-bottom: 2px solid transparent; }
+    .nav a:hover { color: var(--text); }
+    .nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--cv); }
+    .top-right { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+    .live { display: flex; align-items: center; gap: 8px; font: 12px/1 var(--mono); color: var(--text-3); white-space: nowrap; }
+    .live .dot { width: 7px; height: 7px; background: var(--text-3); }
+    .live.ok .dot { background: var(--cv); box-shadow: 0 0 0 3px rgba(63,224,122,.18); }
+    .live.down .dot { background: var(--shill); }
+
+    /* buttons and inputs: Trackdown's */
+    .btn { height: 36px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: 700 11px/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; text-decoration: none; color: var(--text); background: var(--black); border: 1px solid var(--line-3); }
+    .btn:hover { background: var(--surface-2); border-color: var(--text-2); }
+    .btn.solid { background: var(--text); color: var(--black); border-color: var(--text); clip-path: var(--cut); }
+    .btn.solid:hover { background: #fff; }
+    .btn.solid:focus-visible { clip-path: none; }
+    .field { flex: 1; min-width: 0; height: 44px; padding: 0 14px; font-size: 15px; background: var(--surface); border: 1px solid var(--line-3); outline: none; }
+    .field::placeholder { color: var(--text-3); }
+    .field:focus { border-color: var(--cv); box-shadow: 0 0 0 1px var(--cv); }
+    .linkish { background: none; border: 0; padding: 0; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; font-size: 14px; }
+    .linkish:hover { color: var(--text); }
+
+    .page { max-width: 1200px; margin: 0 auto; padding: 44px 24px 72px; }
+    .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; margin-bottom: 36px; }
+    .page-head h1 { font-size: clamp(26px, 3.2vw, 36px); line-height: 1.1; letter-spacing: -.02em; font-weight: 600; max-width: 640px; }
+    .page-head p { color: var(--text-2); margin-top: 12px; max-width: 620px; }
+
+    .trace { width: 420px; flex: none; }
+    .trace form { display: flex; gap: 8px; }
+    .trace .btn { height: 44px; padding: 0 20px; }
+    .trace p { margin-top: 8px; font-size: 13px; color: var(--text-3); }
+
+    /* verdict chip: Trackdown's .vchip */
+    .chip { --c: var(--text-2); display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px; font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; color: var(--c); border: 1px solid var(--c); }
+    .chip::before { content: ""; width: 6px; height: 6px; background: currentColor; flex: none; }
+    .chip.lg { height: 28px; padding: 0 11px; font-size: 12.5px; }
+    .s-coordinated { --c: var(--shill); } .s-likely_organic { --c: var(--chill); } .s-insufficient { --c: var(--unsure); }
+    .tag { display: inline-block; font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 4px 6px; border: 1px solid var(--line-2); color: var(--text-2); vertical-align: 2px; margin-left: 8px; }
+
+    /* status filter */
+    .filters { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); background: var(--surface); color: var(--text-2); }
+    .tab:hover { border-color: var(--line-3); color: var(--text); }
+    .tab[aria-pressed="true"] { border-color: var(--c, var(--text)); color: var(--text); box-shadow: inset 0 -2px 0 var(--c, var(--text)); }
+    .tab b { font-size: 20px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+    .tab-all { --c: var(--text-2); }
+    .scope { font-size: 13px; color: var(--text-3); text-align: right; }
+    .tab-note { color: var(--text-3); font-size: 14px; margin-bottom: 18px; }
+    .warn { font-size: 14px; color: var(--text); padding: 10px 14px; border: 1px solid var(--unsure); margin-bottom: 14px; }
+
+    /* cluster list */
+    .list { border: 1px solid var(--line); background: var(--surface); }
+    .rows { list-style: none; margin: 0; padding: 0; }
+    .rows li { border-bottom: 1px solid var(--line); }
+    .rows li:last-child { border-bottom: 0; }
+    .list-head, .row { display: grid; grid-template-columns: 138px minmax(0,1fr) 76px 132px 136px 92px; gap: 18px; align-items: center; padding: 0 18px; }
+    .list-head { height: 40px; border-bottom: 1px solid var(--line); }
+    .r { text-align: right; }
+    .row { min-height: 70px; padding-top: 12px; padding-bottom: 12px; text-decoration: none; }
+    .row:hover { background: var(--hover); }
+    .row:hover .headline { text-decoration: underline; text-decoration-color: var(--text-3); text-underline-offset: 3px; }
+    .c-main { min-width: 0; display: block; }
+    .headline { font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .sub { display: block; font-size: 13px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meter { display: flex; align-items: center; gap: 10px; }
+    .bar { flex: 1; height: 4px; background: var(--line-2); overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--text-2); }
+    .opinion { font-size: 13px; color: var(--text-2); }
+    .when { font-size: 13px; color: var(--text-3); }
+    .c-meta { display: none; }
+    .more { display: flex; justify-content: center; padding: 16px; border-top: 1px solid var(--line); }
+    .state { padding: 48px 24px; text-align: center; color: var(--text-2); }
+    .state h2 { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .state .btn { margin-top: 16px; }
+
+    /* cluster detail */
+    .back { display: inline-flex; gap: 6px; color: var(--text-2); text-decoration: none; font-size: 14px; margin-bottom: 22px; }
+    .back:hover { color: var(--text); }
+    .detail-head { display: grid; gap: 12px; margin-bottom: 30px; justify-items: start; }
+    .detail-head h1 { font-size: clamp(22px, 2.6vw, 30px); line-height: 1.2; letter-spacing: -.015em; font-weight: 600; max-width: 900px; }
+    .facts { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 14px; color: var(--text-2); }
+    .detail { display: grid; grid-template-columns: minmax(0,1fr) 380px; gap: 20px; align-items: start; }
+    .col { display: grid; gap: 20px; min-width: 0; }
+    .card { background: var(--surface); border: 1px solid var(--line); padding: 22px; min-width: 0; }
+    .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+    .card-head h2 { font-size: 16px; font-weight: 600; white-space: nowrap; }
+    .card-head .label { text-align: right; }
+
+    .metrics4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+    .metric { background: var(--surface); padding: 14px; }
+    .metric b { display: block; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; }
+    .metric small { display: block; color: var(--text-3); font-size: 12px; margin-top: 2px; line-height: 1.35; }
+    .rules { display: grid; gap: 8px; margin-top: 16px; }
+    .rule { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: baseline; padding: 10px 12px; border: 1px solid var(--line); font-size: 14px; color: var(--text-3); }
+    .rule .mono { font: 12.5px/1.5 var(--mono); }
+    .rule.met { border-color: var(--c); color: var(--text-2); }
+    .rule .chip { justify-self: start; }
+    .rule .lbl { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+
+    .sig { padding: 14px 0; border-top: 1px solid var(--line); }
+    .sig:first-child { border-top: 0; padding-top: 0; }
+    .sig-top { display: grid; grid-template-columns: minmax(0,1fr) 120px; gap: 16px; align-items: baseline; }
+    .sig-name { font-weight: 600; }
+    .sig-name .label { margin-left: 8px; }
+    .sig p { color: var(--text-2); font-size: 14px; margin-top: 2px; }
+    .sig .meter { font-size: 13px; }
+    .sig.off .sig-name { color: var(--text-2); }
+    .group-label { margin: 24px 0 12px; }
+    .group-label:first-of-type { margin-top: 0; }
+    details > summary { cursor: pointer; font-size: 13px; color: var(--text-3); width: fit-content; }
+    details > summary:hover { color: var(--text); }
+    details.fold { margin-top: 14px; }
+    details.fold > summary { margin-bottom: 4px; }
+    details.fold[open] > summary { margin-bottom: 14px; }
+    .receipt-body { margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--line-2); font-size: 13px; color: var(--text-2); display: grid; gap: 8px; overflow-wrap: anywhere; }
+    .links { display: flex; flex-wrap: wrap; gap: 6px; }
+    .links a { font: 12px/1 var(--mono); padding: 6px 8px; background: var(--surface-2); border: 1px solid var(--line); text-decoration: none; color: var(--text-2); }
+    .links a:hover { color: var(--text); border-color: var(--line-3); }
+    .flash { animation: flash 1.6s ease-out; }
+    @keyframes flash { from { background: rgba(63,224,122,.14); } to { background: transparent; } }
+
+    /* charts: HTML, so labels stay readable at every width */
+    .hist { position: relative; height: 120px; display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line-2); margin-top: 6px; }
+    .hist i { flex: 1; background: #5a5650; min-height: 0; }
+    .hist .obs { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--shill); }
+    .axis { display: flex; justify-content: space-between; gap: 12px; font: 11.5px/1.4 var(--mono); color: var(--text-3); margin-top: 6px; }
+    .chart-caption { font-size: 14px; color: var(--text-2); margin-top: 12px; }
+    .key { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: var(--text-3); margin-top: 8px; }
+    .key i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
+    .tl { position: relative; margin-top: 8px; border-bottom: 1px solid var(--line-2); }
+    .tl span { position: absolute; width: 8px; height: 8px; border-radius: 50%; transform: translate(-50%, -50%); }
+
+    .opinion-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .notice { font-size: 13px; color: var(--text-2); padding: 10px 12px; background: var(--surface-2); border-left: 2px solid var(--unsure); margin-top: 14px; }
+    .notice strong { color: var(--text); }
+    .reasons { display: grid; gap: 18px; margin-top: 18px; }
+    .reasons h3 { margin-bottom: 6px; }
+    .reasons li { margin: 5px 0; color: var(--text-2); font-size: 14px; }
+    .cite { font: 12px var(--mono); color: var(--text-3); text-decoration: none; white-space: nowrap; }
+    a.cite:hover { color: var(--text); text-decoration: underline; }
+    .foot-meta { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); font: 12px/1.5 var(--mono); color: var(--text-3); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+    .item { padding: 14px 0; border-top: 1px solid var(--line); display: grid; gap: 6px; overflow-wrap: anywhere; }
+    .item:first-of-type { border-top: 0; padding-top: 0; }
+    .item p { font-size: 14px; color: var(--text-2); }
+    a.out { font-size: 13px; color: var(--text-2); text-underline-offset: 3px; }
+    a.out:hover { color: var(--text); }
+    .thumb { position: relative; display: block; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); height: 180px; padding: 0; width: 100%; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; filter: blur(22px) saturate(.6); transform: scale(1.15); transition: filter .25s; }
+    .thumb span { position: absolute; inset: 0; display: grid; place-items: center; font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text); background: rgba(5,5,6,.35); }
+    .thumb.shown img { filter: none; transform: none; }
+    .thumb.shown span { display: none; }
+    .hits { display: grid; gap: 4px; font-size: 13px; }
+    .hits a { color: var(--text-2); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hits a:hover { color: var(--text); text-decoration: underline; }
+    details .hits a { white-space: normal; }
+    .hits b { color: var(--text-3); font: 500 11px var(--mono); margin-right: 8px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; font: 500 11px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); padding: 0 8px 10px 0; }
+    td { padding: 9px 8px 9px 0; border-top: 1px solid var(--line); color: var(--text-2); }
+    td a { color: var(--text); text-decoration: none; }
+    td a:hover { text-decoration: underline; }
+    th.r, td.r { padding-left: 14px; }
+    th:last-child, td:last-child { padding-right: 0; }
+    td.r { white-space: nowrap; }
+    .handle { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .post { padding: 14px 0; border-top: 1px solid var(--line); }
+    .post:first-of-type { border-top: 0; padding-top: 0; }
+    .post-meta { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--text-3); }
+    .post-meta a { color: var(--text-2); text-decoration: none; white-space: nowrap; }
+    .post-meta a:hover { color: var(--text); text-decoration: underline; }
+    .post-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .post p { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* accuracy */
+    .acc-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 20px; }
+    .acc .q { font-size: 18px; font-weight: 600; line-height: 1.3; white-space: normal; }
+    .acc .what { color: var(--text-2); font-size: 14px; }
+    .big { display: flex; align-items: baseline; gap: 12px; margin: 22px 0 4px; flex-wrap: wrap; }
+    .big b { font-size: 44px; line-height: 1; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .big span { color: var(--text-2); }
+    .ci { font-size: 14px; color: var(--text-3); }
+    .ci-track { position: relative; height: 6px; background: var(--surface-2); margin: 16px 0 4px; }
+    .ci-track i { position: absolute; top: 0; bottom: 0; background: rgba(242,239,233,.32); min-width: 3px; }
+    .ci-track em { position: absolute; top: -4px; width: 2px; height: 14px; background: var(--text); }
+    .ci-scale { display: flex; justify-content: space-between; font: 11px var(--mono); color: var(--text-3); }
+    .levels { display: grid; gap: 12px; margin-top: 20px; }
+    .level { display: grid; grid-template-columns: 30px minmax(0,1fr) 120px; gap: 12px; align-items: center; font-size: 14px; }
+    .level small { display: block; color: var(--text-3); font-size: 12px; }
+    .split { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 4px 7px; color: var(--cv); border: 1px solid rgba(63,224,122,.5); white-space: nowrap; }
+    .split.dev { color: var(--text-2); border-color: var(--line-2); }
+    .acc-intro { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 20px; margin-bottom: 30px; }
+    .acc-intro div { border-top: 1px solid var(--line-2); padding-top: 12px; font-size: 14px; color: var(--text-2); }
+    .acc-intro strong { display: block; color: var(--text); margin-bottom: 2px; }
+    .planned { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+    .planned div { background: var(--surface); padding: 16px 18px; display: grid; gap: 4px; }
+    .planned strong { font-weight: 600; }
+    .planned p { color: var(--text-2); font-size: 14px; }
+
+    /* method */
+    .method { max-width: 980px; }
+    .method .text { max-width: 720px; }
+    .method h2 { font-size: 20px; font-weight: 600; margin: 44px 0 14px; }
+    .method p, .method li { color: var(--text-2); }
+    .method li { margin: 7px 0; }
+    .method li strong { color: var(--text); font-weight: 600; }
+    .method a { color: var(--text); }
+    .steps { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 24px; }
+    .step { border-top: 2px solid var(--line-2); padding-top: 14px; }
+    .step .label { color: var(--cv); }
+    .step h3 { font-size: 16px; font-weight: 600; margin: 8px 0 6px; line-height: 1.3; }
+    .step p { font-size: 14px; }
+    .outcomes { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); max-width: 720px; }
+    .outcome { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: start; padding: 16px 18px; background: var(--surface); }
+    .outcome .chip { justify-self: start; margin-top: 1px; }
+    .outcome p { font-size: 14px; }
+
+    footer { max-width: 1200px; margin: 0 auto; padding: 24px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-3); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+    @media (max-width: 1000px) {
+      .page-head { flex-direction: column; align-items: stretch; }
+      .trace { width: 100%; }
+      .acc-grid, .acc-intro { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .list-head, .row { grid-template-columns: 132px minmax(0,1fr) 64px 112px 84px; }
+      .c-op { display: none; }
+      /* one column: the explanation comes before the raw material */
+      .detail { grid-template-columns: minmax(0,1fr); }
+    }
+    @media (max-width: 720px) {
+      /* backdrop-filter would make the topbar the containing block of the fixed bottom nav */
+      .topbar { gap: 12px; padding: 0 16px; backdrop-filter: none; background: var(--black); }
+      .wordmark { font-size: 11px; letter-spacing: .22em; }
+      .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; padding: 0 8px env(safe-area-inset-bottom); background: var(--black); border-top: 1px solid var(--line); }
+      .nav a { flex: 1; text-align: center; padding: 14px 0 12px; border-bottom: 0; border-top: 2px solid transparent; }
+      .nav a[aria-current="page"] { border-top-color: var(--cv); }
+      .live .txt { display: none; }
+      .top-right .btn { padding: 0 12px; }
+      .page { padding: 28px 16px 100px; }
+      footer { padding: 20px 16px 100px; }
+      .filters { align-items: stretch; }
+      .tab { flex: 1 1 calc(50% - 8px); }
+      .scope { text-align: left; }
+      .list-head { display: none; }
+      .row { grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "st when" "main main" "meta meta"; gap: 8px; padding: 14px 16px; }
+      .c-st { grid-area: st; } .c-when { grid-area: when; } .c-main { grid-area: main; }
+      .c-acc, .c-score, .c-op { display: none; }
+      .c-meta { grid-area: meta; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--text-3); }
+      .sub { white-space: normal; }
+      .metrics4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .rule { grid-template-columns: 1fr; gap: 6px; }
+      .steps { grid-template-columns: 1fr; }
+      .outcome { grid-template-columns: 1fr; gap: 8px; }
+      .card { padding: 18px; }
+      .level { grid-template-columns: 26px minmax(0,1fr) 88px; }
+      .sig-top { grid-template-columns: minmax(0,1fr) 92px; gap: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
   </style>
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar">
-      <div class="brand"><div class="mark">NR</div><div><h1>Noise Radar</h1><div class="eyebrow">Coordination intelligence for Bluesky</div></div></div>
-      <nav aria-label="Primary navigation">
-        <button class="nav-btn active" data-page="feed">Live feed</button>
-        <button class="nav-btn" data-page="metrics">Metrics</button>
-        <button class="nav-btn" data-page="methodology">Methodology</button>
-        <a class="button" href="trackdown/" title="Trace any X, Bluesky or news link with live data">Trace a link</a>
-      </nav>
-    </header>
-    <section class="hero"><div><div class="eyebrow">Read the pattern, not the opinion</div><h2>Find coordinated amplification before it becomes noise.</h2><p>Noise Radar detects unusual coordination between accounts, shows the evidence behind every cluster, and abstains when the evidence is not strong enough.</p></div><div class="health"><span class="dot" id="health-dot"></span><span id="health-text">Connecting to monitor…</span></div></section>
-    <section id="app" aria-live="polite"></section>
-    <div class="footer">Evidence is read-only and model-assisted. A cluster is a behavioural signal, not a claim about a person or viewpoint.</div>
-  </main>
+  <header class="topbar">
+    <a class="wordmark" href="#/" aria-label="Noise Radar: live monitor">NOISE RADAR</a>
+    <nav class="nav" aria-label="Main">
+      <a href="#/" data-nav="monitor">Monitor</a>
+      <a href="#/accuracy" data-nav="accuracy">Accuracy</a>
+      <a href="#/method" data-nav="method">Method</a>
+    </nav>
+    <div class="top-right">
+      <div class="live" id="live" role="status"><span class="dot"></span><span class="txt">Connecting…</span></div>
+      <a class="btn" href="trackdown/">Trace a link</a>
+    </div>
+  </header>
+  <main id="app" class="page" tabindex="-1"></main>
+  <footer>
+    <span>A cluster is a behavioural signal, not a claim about a person or a viewpoint.</span>
+    <span>Read-only analysis of public Bluesky posts.</span>
+  </footer>
 <script>
 (() => {
-  const state = { page: 'feed', clusters: [], metrics: [], selected: null, filter: 'all', minScore: 0, loading: false, error: null, metricsError: null, health: null, loadedAt: null };
-  const app = document.querySelector('#app');
-  const esc = (v) => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const pct = (v) => v == null ? '—' : `${Math.round(Number(v) * 100)}%`;
-  const date = (v) => v ? new Intl.DateTimeFormat(undefined, { dateStyle:'medium', timeStyle:'short' }).format(new Date(v)) : '—';
-  const api = async (path, options) => { const r = await fetch(path, options); const body = await r.json().catch(() => ({})); if (!r.ok) throw new Error(body.detail || `Request failed (${r.status})`); return body; };
-  const badge = (status) => `<span class="badge ${esc(status)}">${esc(String(status || 'unknown').replace('_',' '))}</span>`;
-  const signalChips = (signals = []) => signals.length ? `<div class="chips">${signals.map(s => `<span class="chip">${esc(s.name || s.family || 'signal')} ${s.score == null ? '' : pct(s.score)}</span>`).join('')}</div>` : '';
+  'use strict';
+  const app = document.getElementById('app');
+  const PAGE = 30;
+  const state = { clusters: [], metrics: [], health: null, loaded: false, error: null, metricsError: null, filter: 'coordinated', shown: PAGE, details: new Map(), feedAt: null };
 
-  function setHealth(ok, text) { document.querySelector('#health-dot').className = `dot ${ok ? 'good' : 'bad'}`; document.querySelector('#health-text').textContent = text; }
-  function filtered() { return state.clusters.filter(c => (state.filter === 'all' || c.status === state.filter) && Number(c.score || 0) >= state.minScore); }
-  function render() {
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.page === state.page));
-    if (state.page === 'metrics') return renderMetrics();
-    if (state.page === 'methodology') return renderMethodology();
-    if (state.selected) return renderDetail(state.selected);
-    return renderFeed();
-  }
-  function renderFeed() {
-    const items = filtered();
-    app.innerHTML = `<div class="toolbar"><div><h2>Live cluster feed</h2><div class="muted">Newest detector results appear here. Select a cluster to inspect its evidence.</div></div><div class="filters"><select id="status-filter" aria-label="Filter by detector status"><option value="all">All detector calls</option><option value="coordinated">Coordinated</option><option value="likely_organic">Likely organic</option><option value="insufficient">Insufficient evidence</option></select><select id="score-filter" aria-label="Minimum score"><option value="0">Any score</option><option value="0.5">Score >= 50%</option><option value="0.7">Score >= 70%</option><option value="0.9">Score >= 90%</option></select><button class="button" id="refresh">Refresh</button></div></div>${liveSummary()}<div class="grid" id="cluster-grid">${state.error ? `<div class="error">${esc(state.error)}</div>` : items.length ? items.map(clusterCard).join('') : '<div class="empty">No clusters match the current filters.</div>'}</div><div class="panel" style="margin-top:16px"><div class="section-title">Ask the monitor</div><form class="analyze" id="analyze-form"><input name="text" placeholder="Paste a post or claim" maxlength="5000"><input name="url" type="url" placeholder="https://example.com/story"><input name="handle" placeholder="@handle or DID"><button class="button primary">Check input</button></form><div class="muted" style="margin-top:8px">Got an X, Bluesky or news link? <a id="trace-link" href="trackdown/">Trace it with live data &rarr;</a></div><div id="analysis-result" class="analysis-result"></div></div>`;
-    document.querySelector('#status-filter').value = state.filter; document.querySelector('#score-filter').value = state.minScore;
-    document.querySelector('#status-filter').onchange = e => { state.filter = e.target.value; render(); };
-    document.querySelector('#score-filter').onchange = e => { state.minScore = Number(e.target.value); render(); };
-    document.querySelector('#refresh').onclick = load;
-    document.querySelectorAll('[data-cluster]').forEach(b => b.onclick = () => openCluster(Number(b.dataset.cluster)));
-    document.querySelector('#analyze-form').onsubmit = analyze;
-    const traceLink = document.querySelector('#trace-link');
-    if (traceLink) traceLink.onclick = () => { const u = document.querySelector('#analyze-form [name=url]')?.value?.trim(); traceLink.href = u ? `trackdown/?lookup=${encodeURIComponent(u)}` : 'trackdown/'; };
-  }
-  function liveSummary() {
-    const coordinated = state.clusters.filter(c => c.status === 'coordinated').length;
-    const verdicts = state.clusters.filter(c => c.verdict).length;
-    const updated = state.loadedAt ? date(state.loadedAt) : 'not yet';
-    const health = state.health && state.health.ok ? 'Online' : 'Unavailable';
-    return `<div class="live-stats"><div class="stat"><span class="stat-value">${state.clusters.length}</span><span class="stat-label">Loaded clusters</span></div><div class="stat"><span class="stat-value">${coordinated}</span><span class="stat-label">Coordinated calls</span></div><div class="stat"><span class="stat-value">${verdicts}</span><span class="stat-label">Analyst verdicts</span></div><div class="stat"><span class="stat-value">${esc(health)}</span><span class="stat-label">Monitor status</span></div><div class="stat"><span class="stat-value" style="font-size:1rem">${esc(updated)}</span><span class="stat-label">Feed refreshed</span></div></div>`;
-  }
+  // ---------- formatting
+  const esc = (v) => String(v ?? '').replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+  const num = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+  const clamp01 = (v) => Math.max(0, Math.min(1, num(v) || 0));
+  const fix2 = (v) => (num(v) == null ? '–' : num(v).toFixed(2));
+  const pct = (v, d = 0) => (num(v) == null ? '–' : `${(num(v) * 100).toFixed(d)}%`);
+  const pval = (v) => (num(v) == null ? '–' : num(v) < 0.001 ? '< 0.001' : num(v).toFixed(3));
+  const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+  const dtf = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const tf = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+  const tfs = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const when = (v) => (v ? dtf.format(new Date(v)) : '–');
+  const ago = (v) => {
+    if (!v) return '–';
+    const s = Math.max(0, (Date.now() - new Date(v).getTime()) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+    return `${Math.floor(s / 86400)} d ago`;
+  };
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+  const ext = (href, text, cls = '') => `<a${cls ? ` class="${cls}"` : ''} href="${esc(href)}" target="_blank" rel="noreferrer noopener">${text}</a>`;
+  const shortDid = (d) => (String(d).length > 22 ? `${String(d).slice(0, 18)}…` : String(d));
 
-  function clusterCard(c) { const verdict = c.verdict ? `<div class="muted">Analyst: ${esc(c.verdict.status)} · ${pct(c.verdict.confidence)}</div>` : '<div class="muted">Analyst verdict pending</div>'; return `<button class="card" data-cluster="${Number(c.id)}" style="text-align:left;color:inherit"><div class="card-head"><div><h3>Cluster #${Number(c.id)}</h3><div class="meta">${esc(c.window_kind || 'window')} · ${date(c.window_end)}</div></div>${badge(c.status)}</div><div class="row" style="align-items:end;margin-top:12px"><div><div class="score">${pct(c.score)} <small>score</small></div>${c.confidence == null ? '<div class="muted">Confidence not available</div>' : `<div class="muted">Confidence ${pct(c.confidence)}</div>`}</div><div class="meta">${c.size == null ? '—' : Number(c.size)} accounts</div></div><div class="meter"><span style="width:${Math.max(0,Math.min(100,Number(c.score || 0) * 100))}%"></span></div>${verdict}${signalChips(c.top_signals)}</button>`; }
-  async function openCluster(id) { state.loading = true; render(); try { state.selected = await api(`/api/clusters/${encodeURIComponent(id)}`); } catch (e) { state.error = e.message; } finally { state.loading = false; render(); } }
-  function renderDetail(c) {
-    const signals = (c.evidence || []).filter(e => e.kind === 'signal');
-    const media = (c.evidence || []).filter(e => e.kind === 'media');
-    const sources = (c.evidence || []).filter(e => e.kind === 'source');
-    app.innerHTML = `<button class="button back" id="back">Back to feed</button>${proofFlow(c, c.evidence || [])}<div class="detail-grid"><div><div class="panel"><div class="card-head"><div><div class="eyebrow">Cluster detail</div><h2>Cluster #${Number(c.id)}</h2><div class="meta">${date(c.window_start)} to ${date(c.window_end)} / ${esc(c.window_kind || 'window')}</div></div>${badge(c.status)}</div><div class="row" style="align-items:end;margin-top:18px"><div><div class="score">${pct(c.score)} <small>detector score</small></div><div class="muted">${c.confidence == null ? 'Confidence unavailable' : `Detector confidence ${pct(c.confidence)}`}</div></div><div class="meta">${c.size == null ? 'unknown' : Number(c.size)} accounts / ${c.families_fired == null ? 'unknown' : Number(c.families_fired)} signal families</div></div><div class="meter"><span style="width:${Math.max(0,Math.min(100,Number(c.score || 0) * 100))}%"></span></div></div><div class="panel"><div class="section-title">Signal evidence</div>${signals.length ? signals.map(evidenceBlock).join('') : '<div class="empty">No stored signal evidence.</div>'}</div><div class="panel"><div class="section-title">Observed posts</div>${(c.posts || []).length ? c.posts.map(postBlock).join('') : '<div class="empty">No post snapshot available.</div>'}</div></div><aside><div class="panel"><div class="section-title">Analyst verdict</div>${c.analyst ? verdictBlock(c.analyst) : '<div class="empty">No analyst verdict yet.</div>'}</div><div class="panel"><div class="section-title">Media evidence and reuse</div>${renderMedia(c, media)}</div><div class="panel"><div class="section-title">Source checks</div>${sources.length ? `<div class="evidence-grid">${sources.map(sourceEvidenceBlock).join('')}</div>` : '<div class="empty">No source evidence attached.</div>'}</div><div class="panel"><div class="section-title">Accounts</div>${(c.members || []).length ? `<div class="chips">${c.members.map(m => `<a class="chip" href="${esc(m.profile_url)}" target="_blank" rel="noreferrer">${esc(m.handle || m.did)}${m.role ? ` / ${esc(m.role)}` : ''}</a>`).join('')}</div>` : '<div class="empty">No members available.</div>'}</div></aside></div>`;
-    document.querySelector('#back').onclick = () => { state.selected = null; state.error = null; render(); };
-  }
+  const STATUS = {
+    coordinated: { word: 'Coordinated', note: 'Accounts that acted together in a way that chance and organic crowds don’t explain.' },
+    insufficient: { word: 'Can’t tell', note: 'Something looked unusual, but not enough to make a call, so the detector abstains instead of guessing.' },
+    likely_organic: { word: 'Likely organic', note: 'Activity that looks like a real crowd: established accounts, or a wider conversation.' },
+  };
+  const word = (s) => (STATUS[s] || { word: s || 'Unknown' }).word;
+  const chip = (s, cls = '') => `<span class="chip s-${esc(s)} ${cls}">${esc(word(s))}</span>`;
 
-  function evidenceBlock(e) {
-    const detail = e.detail || {};
-    const text = e.summary || detail.description || detail.headline || detail.claim || 'Evidence recorded by the pipeline.';
-    return `<div class="evidence"><div class="row"><span class="evidence-kind">${esc(e.kind)}</span><span class="muted">${date(e.created_at)}</span></div><p>${esc(text)}</p>${detailRows(detail)}${e.model ? `<div class="muted">Model: ${esc(e.model)}</div>` : ''}${e.source_url ? `<a class="source-link" href="${esc(e.source_url)}" target="_blank" rel="noreferrer">Open source</a>` : ''}</div>`;
-  }
-  function detailRows(detail, excluded = []) {
-    const ignored = new Set(['description','headline','claim',...excluded]);
-    const rows = Object.entries(detail || {}).filter(([key, value]) => !ignored.has(key) && value != null && value !== '' && (!Array.isArray(value) || value.length));
-    return rows.slice(0, 8).map(([key, value]) => `<div class="evidence-detail"><strong>${esc(key.replaceAll('_', ' '))}:</strong> ${esc(formatValue(value))}</div>`).join('');
-  }
-  function formatValue(value) { return Array.isArray(value) ? value.map(v => typeof v === 'object' ? JSON.stringify(v) : v).join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value); }
-  function linkList(title, urls, limit = 8) { const values = [...new Set((urls || []).filter(Boolean))].slice(0, limit); return values.length ? `<div class="media-links"><strong>${esc(title)}</strong>${values.map(url => `<a href="${esc(url)}" target="_blank" rel="noreferrer">Open &rarr;</a>`).join('')}</div>` : ''; }
-  function renderMedia(c, evidence) { const posts = c.posts || []; const byHash = new Map(evidence.map(e => [e.detail && e.detail.media_hash, e])); const expected = [...new Set(posts.flatMap(p => p.media_hashes || []))]; const pending = expected.filter(hash => !byHash.has(hash)); const blocks = evidence.map(mediaEvidenceBlock); const pendingBlocks = pending.map(hash => `<div class="evidence"><div class="row"><strong>Media ${esc(hash.slice(0, 16))}&hellip;</strong>${badge('pending')}</div><p>Waiting for the Nemotron worker to fetch and analyze this media.</p><div class="media-hashes">CID: ${esc(hash)}</div></div>`); return blocks.concat(pendingBlocks).join('') || '<div class="empty">No media attached to the observed posts.</div>'; }
-  function mediaEvidenceBlock(e) { const detail = e.detail || {}; const status = detail.status || 'complete'; const template = detail.type === 'ocr_template'; if (status === 'failed') return `<div class="evidence"><div class="row"><strong>Media ${esc(String(detail.media_hash || '').slice(0, 16))}&hellip;</strong>${badge('failed')}</div><p class="media-description">${esc(detail.error || e.summary || 'Media analysis failed.')}</p>${detail.profile_url ? `<a href="${esc(detail.profile_url)}" target="_blank" rel="noreferrer">Open posting profile &rarr;</a>` : ''}</div>`; const description = template ? (e.summary || 'OCR template match detected.') : (detail.description || e.summary || 'Media analyzed by Nemotron.'); const ocr = Array.isArray(detail.extracted_text) ? detail.extracted_text : []; const varying = Array.isArray(detail.varying_tokens) ? detail.varying_tokens : []; const shared = Array.isArray(detail.shared_tokens) ? detail.shared_tokens : []; const model = e.model || detail.model; const mediaUrl = detail.media_url; return `<div class="evidence"><div class="row"><strong>${template ? 'OCR/template match' : `Media ${esc(String(detail.media_hash || '').slice(0, 16))}&hellip;`}</strong>${badge('matched')}</div><p class="media-description">${esc(description)}</p>${!template && ocr.length ? `<div class="media-detail"><strong>OCR text</strong><p>${esc(ocr.join(' / '))}</p></div>` : ''}${template ? `<div class="media-detail"><strong>Shared OCR tokens</strong><p>${esc(shared.join(', ') || '-')}</p><strong>Words that vary</strong><p>${esc(varying.join(', ') || '-')}</p></div>` : ''}<div class="muted">Model: ${esc(model || '-')}${detail.prompt_version ? ` &middot; Prompt: ${esc(detail.prompt_version)}` : ''}${detail.confidence == null ? '' : ` &middot; Confidence: ${pct(detail.confidence)}`}</div>${mediaUrl ? `<div class="media-links"><a href="${esc(mediaUrl)}" target="_blank" rel="noreferrer">Open media &rarr;</a></div>` : ''}${linkList('Posts', detail.post_urls || (e.source_url ? [e.source_url] : []))}${linkList('Profiles', detail.profile_urls || (detail.profile_url ? [detail.profile_url] : []))}<div class="media-hashes">${template ? `${Number(detail.n_images || 0)} images &middot; ${Number(detail.n_accounts || 0)} accounts` : `${Number(detail.n_accounts || 0)} accounts &middot; ${Number(detail.n_posts || 0)} posts${detail.cached ? ' &middot; cached analysis' : ''}`}</div></div>`; }
-  function sourceEvidenceBlock(e) {
-    const detail = e.detail || {};
-    const title = detail.headline || detail.title || e.summary || 'Source check';
-    return `<div class="evidence"><div class="row"><span class="evidence-kind">${esc(detail.type || 'source check')}</span><span class="muted">${date(e.created_at)}</span></div><p><strong>${esc(title)}</strong></p>${detailRows(detail, ['type','headline','title'])}${e.model ? `<div class="muted">Model: ${esc(e.model)}</div>` : ''}${e.source_url ? `<a class="source-link" href="${esc(e.source_url)}" target="_blank" rel="noreferrer">${esc(e.source_url)}</a>` : '<div class="muted">No source URL was recorded.</div>'}</div>`;
-  }
+  const FAMILY = { content: 'Content', timing: 'Timing', network: 'Network', identity: 'Identity', guard: 'Safeguard' };
+  const SIGNAL = {
+    shared_link: 'Same link', duplicate_text: 'Identical text', near_duplicate_text: 'Near-identical text',
+    semantic_duplicate: 'Same message, reworded', duplicate_media: 'Same image', burst_synchrony: 'Posting in bursts',
+    clockwork_posting: 'Clockwork timing', repeated_co_engagement: 'Repeated co-engagement', mutual_amplification: 'Boosting each other',
+    templated_handles: 'Templated handles', fresh_accounts: 'New accounts', empty_profiles: 'Empty profiles',
+    established_accounts: 'Established accounts', part_of_wider_crowd: 'Part of a wider crowd', clock_aligned_posting: 'Scheduled on the hour',
+    members_converse: 'Accounts talk to each other', declared_automation: 'Declared bot',
+  };
+  const sigName = (n) => SIGNAL[n] || String(n || 'Signal').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  const WINDOW = { '10m': '10-minute windows', '1h': '1-hour windows' };
+  const fired = (s) => num(s.score) > 0;
+  // display-only tidy of detector prose: comparison signs and "1 shared items"
+  const tidy = (t) => String(t || '').replace(/>=/g, '≥').replace(/<=/g, '≤').replace(/(^|[^\d.,])1 ((?:shared |member |)(?:item|post|account|action|link|image|key|file))s\b/g, (m, pre, noun) => `${pre}1 ${noun}`);
 
-  function evidenceUrl(e) { const d = e.detail || {}; return e.source_url || d.final_url || d.url || d.source_url || (d.post_urls || [])[0] || (d.profile_urls || [])[0] || null; }
-  function provenance(e) { const d = e.detail || {}; if (e.kind === 'signal') return 'Detector signal engine'; if (e.kind === 'media') return e.model || 'Media inspection'; if (e.kind === 'source') return d.type === 'web_search' ? 'Oxylabs web search' : d.type === 'linked_page' ? 'Oxylabs page check' : 'Source check'; return e.model || 'Pipeline evidence'; }
-  function decisionStatusBlock(c) { if (!c.analyst) return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>Automated coordination signal from the live detector.</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4><div class="muted">Pending</div><p>The analyst has not reviewed this cluster yet.</p></div></div>`; const v = c.analyst; const assessment = v.llm_assessment || v.status; const agrees = v.agrees_with_detector == null ? assessment === c.status : v.agrees_with_detector; return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>${c.confidence == null ? 'Confidence unavailable.' : `Score confidence ${pct(c.confidence)}.`}</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4>${badge(assessment)}<p>${v.model ? `Model: ${esc(v.model)}${v.tool_calls ? ` - ${Number(v.tool_calls)} tool calls` : ''}` : 'Evidence review complete.'}</p></div></div><div class="agreement ${agrees ? '' : 'disagreement'}">${agrees ? 'Analyst agrees with the detector.' : `Analyst disagrees with the detector: ${esc(v.disagreement_reason || 'reason recorded in the verdict')}`}</div>${v.summary ? `<p>${esc(v.summary)}</p>` : ''}${listBlock('Strongest evidence', (v.evidence || []).map(x => x.why || x.summary).filter(Boolean))}${listBlock('Counter-evidence', v.counter_evidence)}${listBlock('Would change the verdict', v.would_change_verdict)}`; }
-  function decisionStatusBlock(c) { if (!c.analyst) return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>Automated coordination signal from the live detector.</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4><div class="muted">Pending</div><p>The analyst has not reviewed this cluster yet.</p></div></div>`; const v = c.analyst; const assessment = v.llm_assessment || v.status; const agrees = v.agrees_with_detector == null ? assessment === c.status : v.agrees_with_detector; return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>${c.confidence == null ? 'Confidence unavailable.' : `Score confidence ${pct(c.confidence)}.`}</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4>${badge(assessment)}<p>${v.model ? `Model: ${esc(v.model)}${v.tool_calls ? ` - ${Number(v.tool_calls)} tool calls` : ''}` : 'Evidence review complete.'}</p></div></div><div class="agreement ${agrees ? '' : 'disagreement'}">${agrees ? 'Analyst agrees with the detector.' : `Analyst disagrees with the detector: ${esc(v.disagreement_reason || 'reason recorded in the verdict')}`}</div>${v.summary ? `<p>${esc(v.summary)}</p>` : ''}${listBlock('Strongest evidence', (v.evidence || []).map(x => x.why || x.summary).filter(Boolean))}${listBlock('Counter-evidence', v.counter_evidence)}${listBlock('Would change the verdict', v.would_change_verdict)}`; }
-  function receiptBlock(e) { const detail = e.detail || {}; const text = e.summary || detail.description || detail.headline || detail.claim || 'Evidence recorded by the pipeline.'; const url = evidenceUrl(e); return `<div class="receipt"><div class="receipt-id">Receipt #${Number(e.id)} - ${esc(e.kind)}<span class="provenance">${esc(provenance(e))}</span></div><p>${esc(text)}</p><div class="muted">Recorded ${date(e.created_at)}${e.model ? ` - ${esc(e.model)}` : ''}</div>${url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">Open provenance URL: ${esc(url)} -&gt;</a>` : '<div class="muted">No external URL attached to this receipt.</div>'}</div>`; }
-  function sourceBlock(e) { const url = evidenceUrl(e); return `<div class="receipt"><div class="receipt-id">Receipt #${Number(e.id)} - source<span class="provenance">${esc(provenance(e))}</span></div>${url ? `<a class="source-link" href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)} -&gt;</a>` : '<div class="muted">No URL recorded</div>'}<div class="muted">${esc(e.summary || 'Source checked by the pipeline.')}</div></div>`; }
-  function metricsBlock() { if (state.metricsError) return `<div class="error">Metrics unavailable: ${esc(state.metricsError)}</div>`; if (!state.metrics.length) return '<div class="empty">No evaluation runs are available yet.</div>'; return `<table class="metrics"><thead><tr><th>Dataset</th><th>Split</th><th>Precision</th><th>Recall</th><th>F1</th><th>FPR</th></tr></thead><tbody>${state.metrics.map(m => `<tr><td>${esc(m.dataset)}</td><td>${esc(m.split)}</td><td class="metric-value">${pct(m.precision)}</td><td class="metric-value">${pct(m.recall)}</td><td class="metric-value">${pct(m.f1)}</td><td class="metric-value">${pct(m.fpr)}</td></tr>`).join('')}</tbody></table>`; }
-  function proofFlow(c, evidence) {
-    const receipts = evidence.filter(e => e.kind !== 'source');
-    const sources = evidence.filter(e => e.kind === 'source');
-    return `<div class="proof-flow"><section class="proof-step"><div class="proof-step-head"><span class="proof-number">1</span><h3>Decision status</h3></div>${decisionStatusBlock(c)}</section><section class="proof-step"><div class="proof-step-head"><span class="proof-number">2</span><h3>Evidence receipts</h3><span class="step-count">${receipts.length} stored</span></div>${receipts.length ? receipts.map(receiptBlock).join('') : '<div class="empty">No stored evidence receipts.</div>'}</section><section class="proof-step"><div class="proof-step-head"><span class="proof-number">3</span><h3>External source trail</h3><span class="step-count">${sources.length} checked</span></div>${sources.length ? `<div class="source-list">${sources.map(sourceBlock).join('')}</div>` : '<div class="empty">No source URLs attached.</div>'}</section><section class="proof-step proof-metrics"><div class="proof-step-head"><span class="proof-number">4</span><h3>Measured metrics</h3></div>${metricsBlock()}</section></div>`;
+  // ---------- data
+  const api = async (path) => {
+    const r = await fetch(path, { headers: { accept: 'application/json' } });
+    const body = await r.json().catch(() => null);
+    if (!r.ok) throw new Error((body && body.detail) || `The server answered ${r.status}`);
+    return body;
+  };
+  async function load() {
+    const [health, clusters, metrics] = await Promise.allSettled([api('/api/health'), api('/api/clusters?limit=200'), api('/api/metrics')]);
+    state.health = health.status === 'fulfilled' ? health.value : { ok: false };
+    if (clusters.status === 'fulfilled') { state.clusters = Array.isArray(clusters.value) ? clusters.value : []; state.error = null; state.feedAt = new Date(); }
+    else state.error = clusters.reason.message;
+    if (metrics.status === 'fulfilled') { state.metrics = Array.isArray(metrics.value) ? metrics.value : []; state.metricsError = null; }
+    else state.metricsError = metrics.reason.message;
+    state.loaded = true;
+    renderLive();
   }
-  function postBlock(p) { return `<div class="post"><div class="muted">${esc(p.did)} · ${date(p.seen_at || p.created_at)}</div><p>${esc(p.text || '[no text]')}</p>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noreferrer">Open on Bluesky ↗</a>` : ''}${p.media_hashes && p.media_hashes.length ? `<div class="chips">${p.media_hashes.map(h => `<span class="chip">media ${esc(h.slice(0,12))}</span>`).join('')}</div>` : ''}</div>`; }
-  function verdictBlock(v) {
-    const evidence = Array.isArray(v.evidence) ? v.evidence : [];
-    const analystStatus = v.llm_assessment && v.llm_assessment !== v.status ? `<div class="verdict-item"><strong>Analyst model call:</strong> ${badge(v.llm_assessment)}${v.agrees_with_detector === false && v.disagreement_reason ? `<p>${esc(v.disagreement_reason)}</p>` : ''}</div>` : '';
-    return `<div>${badge(v.status)}<div class="score" style="font-size:1.7rem;margin-top:10px">${pct(v.confidence)} <small>confidence</small></div>${v.summary ? `<p>${esc(v.summary)}</p>` : ''}${analystStatus}<div class="verdict-grid">${listBlock('Strongest evidence', evidence.map(x => x.why || x.summary).filter(Boolean))}${listBlock('Counter-evidence', v.counter_evidence)}${listBlock('Would change the verdict', v.would_change_verdict)}</div>${v.tool_calls ? `<div class="muted">${Number(v.tool_calls)} live analyst tool calls</div>` : ''}${v.model ? `<div class="muted">Model: ${esc(v.model)}</div>` : ''}</div>`;
+  function renderLive() {
+    const el = document.getElementById('live');
+    const h = state.health;
+    const ok = h && h.ok;
+    el.className = `live ${ok ? 'ok' : 'down'}`;
+    el.querySelector('.txt').textContent = ok ? (h.last_event_at ? `Live · last post ${ago(h.last_event_at)}` : 'Live') : 'Monitor offline';
+    el.title = ok && h.last_event_at ? `Last post ingested ${when(h.last_event_at)}` : '';
   }
 
-  function listBlock(title, values) { return values && values.length ? `<div style="margin-top:16px"><div class="section-title">${esc(title)}</div><ul>${values.map(v => `<li>${esc(v)}</li>`).join('')}</ul></div>` : ''; }
-  function renderMetrics() {
-    const values = state.metrics.filter(m => m && (m.precision != null || m.recall != null || m.f1 != null || m.fpr != null));
-    const best = (key) => values.filter(m => m[key] != null).sort((a, b) => Number(b[key]) - Number(a[key]))[0];
-    const card = (label, key) => { const m = best(key); return `<div class="stat"><span class="stat-value">${m ? pct(m[key]) : '?'}</span><span class="stat-label">Best ${label}${m ? ` / ${esc(m.dataset)} / ${esc(m.split)}` : ''}</span></div>`; };
-    app.innerHTML = `<div class="toolbar"><div><h2>Measured performance</h2><div class="muted">Latest evaluation runs returned by the backend. Values below are live records, not demo constants.</div></div><button class="button" id="refresh">Refresh</button></div><div class="live-stats">${card('precision','precision')}${card('recall','recall')}${card('F1','f1')}${card('false-positive rate','fpr')}</div><div class="panel table-wrap">${state.error ? `<div class="error">${esc(state.error)}</div>` : values.length ? `<table class="metrics"><thead><tr><th>Dataset</th><th>Split</th><th>Precision</th><th>Recall</th><th>F1</th><th>False-positive rate</th><th>Samples</th></tr></thead><tbody>${values.map(m => `<tr><td>${esc(m.dataset)}</td><td>${esc(m.split)}</td><td class="metric-value">${pct(m.precision)}</td><td class="metric-value">${pct(m.recall)}</td><td class="metric-value">${pct(m.f1)}</td><td class="metric-value">${pct(m.fpr)}</td><td>${m.n == null ? 'n/a' : Number(m.n)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No evaluation runs are available yet.</div>'}</div>`;
-    document.querySelector('#refresh').onclick = load;
+  // The headline is the strongest reason for the call: a coordination signal, or for "likely
+  // organic" the safeguard that held. Parentheticals are method detail; the Evidence card keeps them.
+  const headline = (c, sigs = c.top_signals || []) => {
+    const list = sigs.filter((s) => s.summary).slice().sort((a, b) => (num(b.score) || 0) - (num(a.score) || 0));
+    const guard = c.status === 'likely_organic' && list.find((s) => s.polarity === 'against' && fired(s));
+    const best = guard || list.find((s) => s.polarity !== 'against' && fired(s)) || list[0];
+    return best ? tidy(best.summary).replace(/\s*\([^)]*\)\s*$/, '').replace(/^./, (x) => x.toUpperCase()) : `${plural(c.size || 0, 'account')} grouped together`;
+  };
+
+  // ---------- router
+  function route() {
+    const [page, arg] = location.hash.replace(/^#\/?/, '').split('/');
+    document.querySelectorAll('[data-nav]').forEach((a) => {
+      const on = (page || 'monitor') === a.dataset.nav || (page === 'cluster' && a.dataset.nav === 'monitor');
+      if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+    if (page === 'cluster' && /^\d+$/.test(arg || '')) return showCluster(Number(arg));
+    if (page === 'accuracy') { document.title = 'Accuracy · Noise Radar'; return renderAccuracy(); }
+    if (page === 'method') { document.title = 'Method · Noise Radar'; return renderMethod(); }
+    document.title = 'Noise Radar · Live monitor';
+    return renderMonitor();
+  }
+  window.addEventListener('hashchange', () => { route(); window.scrollTo(0, 0); app.focus({ preventScroll: true }); });
+
+  // ---------- monitor
+  function renderMonitor() {
+    const counts = { coordinated: 0, insufficient: 0, likely_organic: 0 };
+    state.clusters.forEach((c) => { if (c.status in counts) counts[c.status] += 1; });
+    const items = state.clusters.filter((c) => state.filter === 'all' || c.status === state.filter);
+    const tab = (key, label) => `<button class="tab ${key === 'all' ? 'tab-all' : `s-${key}`}" data-filter="${key}" aria-pressed="${state.filter === key}"><b>${key === 'all' ? state.clusters.length : counts[key]}</b>${label}</button>`;
+    const note = state.filter === 'all' ? 'Every call the detector made, newest first.' : STATUS[state.filter].note;
+    const staleWarn = state.error && state.feedAt ? `<p class="warn" role="alert">Couldn’t refresh the feed. Showing results from ${esc(tf.format(state.feedAt))}.</p>` : '';
+    let body;
+    if (!state.loaded) body = `<div class="list"><div class="state">Loading the live feed…</div></div>`;
+    else if (state.error && !state.clusters.length) body = `<div class="list"><div class="state" role="alert"><h2>The live feed is unavailable</h2><p>${esc(state.error)}</p><button class="btn" data-retry>Try again</button></div></div>`;
+    else if (!items.length) body = `${staleWarn}<div class="list"><div class="state"><h2>No ${state.filter === 'all' ? '' : esc(word(state.filter).toLowerCase()) + ' '}clusters ${state.error ? 'in the last update' : 'right now'}</h2><p>None of the newest ${state.clusters.length} clusters. New windows are scored every few minutes.</p></div></div>`;
+    else body = `${staleWarn}
+      <div class="list">
+        <div class="list-head" aria-hidden="true"><span class="label">Call</span><span class="label">What the accounts did</span><span class="label r">Accounts</span><span class="label">Coordination</span><span class="label c-op">Gemini</span><span class="label r">Last active</span></div>
+        <ul class="rows">${items.slice(0, state.shown).map((c) => `<li>${row(c)}</li>`).join('')}</ul>
+        ${items.length > state.shown ? `<div class="more"><button class="btn" data-more>Show ${Math.min(PAGE, items.length - state.shown)} more of ${items.length}</button></div>` : ''}
+      </div>`;
+
+    app.innerHTML = `
+      <section class="page-head">
+        <div>
+          <h1>Coordinated amplification on Bluesky, caught live.</h1>
+          <p>Noise Radar groups accounts that act together, tests their timing against chance and says “can’t tell” when the evidence is thin. Every call opens to its receipts.</p>
+        </div>
+        <div class="trace">
+          <form id="trace" role="search" aria-label="Trace a post or link">
+            <label class="sr-only" for="trace-input">Post, link or @handle</label>
+            <input class="field" id="trace-input" name="q" placeholder="Paste a post, a link or an @handle" autocomplete="off" maxlength="2000">
+            <button class="btn solid" type="submit">Trace it</button>
+          </form>
+          <p>Opens Trackdown, Noise Radar’s tracing view: where a post came from and whether its spread was coordinated.</p>
+        </div>
+      </section>
+      <div class="filters">
+        <div class="tabs" role="group" aria-label="Filter by the detector’s call">${tab('coordinated', 'Coordinated')}${tab('insufficient', 'Can’t tell')}${tab('likely_organic', 'Likely organic')}${tab('all', 'All')}</div>
+        <div class="scope">Newest ${state.clusters.length} clusters${state.feedAt ? ` · updated ${esc(tf.format(state.feedAt))}` : ''}<br>Refreshes every 30 s</div>
+      </div>
+      <p class="tab-note">${esc(note)}</p>
+      ${body}`;
+    app.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { state.filter = b.dataset.filter; state.shown = PAGE; renderMonitor(); app.querySelector(`[data-filter="${state.filter}"]`).focus(); }));
+    const more = app.querySelector('[data-more]');
+    if (more) more.onclick = () => { const at = state.shown; state.shown += PAGE; renderMonitor(); const next = app.querySelectorAll('.row')[at]; if (next) next.focus(); };
+    const retry = app.querySelector('[data-retry]');
+    if (retry) retry.onclick = () => load().then(renderMonitor);
+    app.querySelector('#trace').onsubmit = (e) => {
+      e.preventDefault();
+      const q = e.target.q.value.trim();
+      location.href = q ? `trackdown/?lookup=${encodeURIComponent(q)}` : 'trackdown/';
+    };
   }
 
-  function renderMethodology() { app.innerHTML = `<div class="panel prose"><div class="eyebrow">Methodology and limits</div><h2>Behaviour first. Evidence always.</h2><p>Noise Radar looks for coordination between accounts across a time window. It does not decide whether a viewpoint is true, false, popular, or politically acceptable.</p><h3>What can raise a cluster</h3><ul><li>Repeated or near-duplicate text, links, or media across distinct accounts.</li><li>Synchronized bursts and repeated co-engagement.</li><li>Account identity patterns and network amplification.</li><li>Signals that remain unusual after an account-level timing null model.</li></ul><h3>What lowers confidence</h3><ul><li>Large organic events such as breaking news, sports, or fandom activity.</li><li>Weak evidence, too few accounts, or conflicting signals.</li><li>Missing profiles, media, source checks, or analyst evidence.</li></ul><h3>Abstention is a result</h3><p>“Insufficient evidence” means the detector chose not to make a coordination claim. Model-generated explanations are limited to evidence already collected by the pipeline.</p><h3>Data handling</h3><p>Bluesky analysis is read-only. Posts and profile links are shown to explain a cluster; the system does not create accounts or publish content.</p></div>`; }
-  async function analyze(e) { e.preventDefault(); const form = new FormData(e.target); const body = Object.fromEntries([...form.entries()].filter(([,v]) => String(v).trim())); const output = document.querySelector('#analysis-result'); output.innerHTML = '<div class="muted">Checking live evidence…</div>'; try { const result = await api('/api/analyze', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) }); output.innerHTML = `<div class="panel">${badge(result.status)}${result.notes && result.notes.length ? `<ul>${result.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}${result.clusters && result.clusters.length ? `<div class="chips">${result.clusters.map(c => `<button class="chip" data-cluster="${Number(c.id)}">Cluster #${Number(c.id)} · ${pct(c.score)}</button>`).join('')}</div>` : ''}${result.web_findings && result.web_findings.length ? result.web_findings.map(f => `<div class="evidence"><strong>${esc(f.summary)}</strong>${f.source_url ? `<br><a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">${esc(f.source_url)} ↗</a>` : ''}</div>`).join('') : ''}</div>`; output.querySelectorAll('[data-cluster]').forEach(b => b.onclick = () => openCluster(Number(b.dataset.cluster))); } catch (err) { output.innerHTML = `<div class="error">${esc(err.message)}</div>`; } }
-  async function load() { state.error = null; try { const [health, clusters, metrics] = await Promise.all([api('/api/health'), api('/api/clusters?limit=200&include_synthetic=true'), api('/api/metrics')]); state.health = health; state.loadedAt = new Date().toISOString(); state.clusters = Array.isArray(clusters) ? clusters : []; state.metrics = Array.isArray(metrics) ? metrics : []; setHealth(Boolean(health.ok), health.ok ? `Monitor online${health.last_event_at ? `; last event: ${date(health.last_event_at)}` : ''}` : 'Monitor unavailable'); } catch (e) { state.error = e.message; state.health = null; setHealth(false, 'Monitor unavailable'); } render(); }
+  // VerdictBrief.status is the detector's call at review time. If it has changed since, the review
+  // is about an earlier call: say so instead of reporting a disagreement that never happened.
+  const opinionOf = (c) => {
+    const v = c.verdict;
+    if (!v) return null;
+    const call = v.llm_assessment || v.status;
+    if (v.status && v.status !== c.status) return { call, stale: true };
+    return { call, agrees: v.agrees_with_detector != null ? Boolean(v.agrees_with_detector) : call === c.status };
+  };
+  function row(c) {
+    const size = c.size == null ? '–' : c.size;
+    const names = (c.top_signals || []).filter((s) => s.polarity !== 'against' && fired(s)).map((s) => sigName(s.name).toLowerCase());
+    const sub = [`#${Number(c.id)}`, names.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
+    const op = opinionOf(c);
+    const opCell = !op ? '<span class="opinion muted">Not reviewed</span>' : op.stale ? '<span class="opinion muted" title="Gemini reviewed this cluster before the detector’s call changed">Earlier call</span>' : op.agrees ? '<span class="opinion">Agrees</span>' : `<span class="opinion" title="Gemini reads this cluster differently">Says ${esc(word(op.call).toLowerCase())}</span>`;
+    const opText = !op ? 'not reviewed by Gemini' : op.stale ? 'Gemini reviewed an earlier call' : op.agrees ? 'Gemini agrees' : `Gemini says ${word(op.call).toLowerCase()}`;
+    return `<a class="row" href="#/cluster/${Number(c.id)}" aria-label="${esc(`${word(c.status)}: ${headline(c)}. ${size} accounts, coordination ${fix2(c.score)}, ${opText}, ${ago(c.window_end)}.`)}">
+      <span class="c-st">${chip(c.status)}</span>
+      <span class="c-main"><span class="headline">${esc(headline(c))}${c.synthetic ? '<span class="tag">Test data</span>' : ''}</span><span class="sub">${esc(sub)}</span></span>
+      <span class="c-acc r num">${size}</span>
+      <span class="c-score meter"><span class="num">${fix2(c.score)}</span><span class="bar"><i style="width:${clamp01(c.score) * 100}%"></i></span></span>
+      <span class="c-op">${opCell}</span>
+      <span class="c-when r when" title="${esc(when(c.window_end))}">${ago(c.window_end)}</span>
+      <span class="c-meta" aria-hidden="true"><span>${size} accounts</span><span>coordination ${fix2(c.score)}</span><span>${esc(opText.replace(/^./, (x) => x.toUpperCase()))}</span></span>
+    </a>`;
+  }
 
-  document.querySelectorAll('.nav-btn').forEach(b => b.onclick = () => { state.page = b.dataset.page; state.selected = null; state.error = null; render(); });
-  load(); setInterval(load, 30000);
+  // ---------- cluster detail
+  // one column on narrow screens, in reading order, so focus order matches what is on screen
+  const oneCol = matchMedia('(max-width: 1000px)');
+  const openClusterId = () => { const m = location.hash.match(/^#\/?cluster\/(\d+)$/); return m ? Number(m[1]) : null; };
+  oneCol.addEventListener('change', () => { const c = state.details.get(openClusterId()); if (c) renderCluster(c); });
+  async function showCluster(id) {
+    document.title = `Cluster #${id} · Noise Radar`;
+    const cached = state.details.get(id);
+    if (cached) renderCluster(cached);
+    else app.innerHTML = `<a class="back" href="#/">← All clusters</a><div class="card state">Loading cluster #${id}…</div>`;
+    try {
+      const c = await api(`/api/clusters/${encodeURIComponent(id)}`);
+      state.details.set(id, c);
+      const changed = !cached || cached.updated_at !== c.updated_at || JSON.stringify(cached.analyst) !== JSON.stringify(c.analyst);
+      if (openClusterId() === id && changed) { const y = window.scrollY; renderCluster(c); window.scrollTo(0, y); }
+    } catch (e) {
+      if (openClusterId() !== id || cached) return;
+      app.innerHTML = `<a class="back" href="#/">← All clusters</a><div class="card state" role="alert"><h2>Couldn’t open cluster #${id}</h2><p>${esc(e.message)}</p><button class="btn" data-retry>Try again</button></div>`;
+      app.querySelector('[data-retry]').onclick = () => showCluster(id);
+    }
+  }
+
+  function renderCluster(c) {
+    const sig = c.signals || {};
+    const evidence = c.evidence || [];
+    const signals = Array.isArray(sig.signals) && sig.signals.length ? sig.signals : c.top_signals || [];
+    const byId = new Map(evidence.map((e) => [e.id, e]));
+    const handles = new Map((c.members || []).map((m) => [m.did, m.handle || m.did]));
+    const span = c.window_start && c.window_end ? `${when(c.window_start)} – ${tf.format(new Date(c.window_end))}` : '';
+    const win = sig.window && sig.window.start && sig.window.end ? `${tf.format(new Date(sig.window.start))} – ${tf.format(new Date(sig.window.end))}` : '';
+    // evidence ids that get an anchor on this page, so citations only link to things that exist
+    const anchored = new Set([...signals.map((s) => s.evidence_id), ...evidence.filter((e) => e.kind === 'media' || e.kind === 'source').map((e) => e.id)].filter(Boolean));
+    app.innerHTML = `
+      <a class="back" href="#/">← All clusters</a>
+      <section class="detail-head">
+        <div>${chip(c.status, 'lg')}${c.synthetic ? '<span class="tag">Test data</span>' : ''}</div>
+        <h1>${esc(headline(c, signals))}</h1>
+        <div class="facts num"><span>Cluster #${Number(c.id)}</span><span>${plural(c.size || 0, 'account')}</span><span>Tracked ${esc(span)}</span>${win ? `<span>Latest window ${esc(win)}</span>` : c.window_kind ? `<span>Scored in ${esc(WINDOW[c.window_kind] || c.window_kind)}</span>` : ''}${sig.detector_version ? `<span>Detector ${esc(sig.detector_version)}</span>` : ''}</div>
+      </section>
+      ${oneCol.matches
+        ? `<div class="detail"><div class="col">${callCard(c)}${opinionCard(c, anchored)}${signalsCard(signals, byId, win)}${timingCard(c, handles, win)}${mediaCard(c, evidence)}${sourcesCard(evidence)}${accountsCard(c)}${postsCard(c, handles)}</div></div>`
+        : `<div class="detail"><div class="col">${callCard(c)}${signalsCard(signals, byId, win)}${timingCard(c, handles, win)}${postsCard(c, handles)}</div><div class="col">${opinionCard(c, anchored)}${mediaCard(c, evidence)}${sourcesCard(evidence)}${accountsCard(c)}</div></div>`}`;
+    app.querySelectorAll('[data-showall]').forEach((b) => (b.onclick = () => showAll(b)));
+    app.querySelectorAll('.thumb').forEach((t) => (t.onclick = () => { t.classList.add('shown'); t.setAttribute('aria-pressed', 'true'); }));
+  }
+  function showAll(btn) {
+    const fold = btn.closest('[data-fold]');
+    fold.querySelectorAll('[hidden]').forEach((x) => x.removeAttribute('hidden'));
+    btn.remove();
+  }
+
+  function callCard(c) {
+    const sig = c.signals || {};
+    const rules = sig.status_rule || {};
+    const fam = Array.isArray(sig.families_fired) ? sig.families_fired : [];
+    const famTotal = Object.keys(sig.family_scores || {}).length || 4;
+    const combined = sig.null_model && sig.null_model.combined;
+    const ruleRow = (key) => (rules[key] ? `<div class="rule s-${key} ${c.status === key ? 'met' : ''}"><span class="lbl">${chip(key)}${c.status === key ? '<span class="small">rule met</span>' : '<span class="small">not met</span>'}</span><span class="mono">${esc(tidy(rules[key]))}</span></div>` : '');
+    const hasRules = rules.coordinated || rules.likely_organic;
+    return `<section class="card o-call" aria-labelledby="h-call">
+      <div class="card-head"><h2 id="h-call">The detector’s call</h2><span class="label">Rule-based decision</span></div>
+      <div class="metrics4">
+        <div class="metric"><span class="label">Coordination</span><b>${fix2(c.score)}</b><small>score from 0 to 1, not a probability</small></div>
+        <div class="metric"><span class="label">${combined ? 'Combined p' : 'Timing p'}</span><b>${pval(c.p_value ?? sig.p_value)}</b><small>${combined ? 'timing and identity tests, corrected for multiple tests' : 'timing vs. shuffled timing'}</small></div>
+        <div class="metric"><span class="label">Families fired</span><b>${fam.length} of ${famTotal}</b><small>${fam.length ? esc(fam.join(', ')) : 'none'}</small></div>
+        <div class="metric"><span class="label">Organic safeguard</span><b>${fix2(sig.organic_guard_score)}</b><small>high means it looks like a real crowd</small></div>
+      </div>
+      ${hasRules ? `<div class="rules">${ruleRow('coordinated')}${ruleRow('likely_organic')}${c.status === 'insufficient' ? `<div class="rule s-insufficient met"><span class="lbl">${chip('insufficient')}<span class="small">result</span></span><span>Neither rule holds, so the detector abstains.</span></div>` : ''}</div>` : `<p class="muted" style="margin-top:14px">${esc(STATUS[c.status] ? STATUS[c.status].note : '')}</p>`}
+    </section>`;
+  }
+
+  function receipt(e) {
+    if (!e) return '';
+    const d = e.detail || {};
+    const posts = d.post_urls || [];
+    const profiles = d.profile_urls || [];
+    const facts = [];
+    if (d.test) facts.push(`Test: ${esc(d.test)}${d.p_value != null ? ` · p = ${pval(d.p_value)}` : ''}`);
+    if (d.key && d.key_kind === 'url') facts.push(`Link: ${ext(d.key, esc(d.key), 'out')}`);
+    if (!facts.length && !posts.length && !profiles.length) return '';
+    const counts = [posts.length && plural(posts.length, 'post'), profiles.length && plural(profiles.length, 'profile')].filter(Boolean).join(' · ');
+    return `<details class="receipts"><summary>Receipts${counts ? ` · ${counts}` : ''}</summary><div class="receipt-body">
+      ${facts.map((f) => `<div>${f}</div>`).join('')}
+      ${posts.length ? `<div class="links">${posts.slice(0, 8).map((u, i) => ext(u, `post ${i + 1} ↗`)).join('')}${posts.length > 8 ? `<span class="muted small">+${posts.length - 8} more</span>` : ''}</div>` : ''}
+      ${profiles.length ? `<div class="links">${profiles.slice(0, 8).map((u, i) => ext(u, `profile ${i + 1} ↗`)).join('')}${profiles.length > 8 ? `<span class="muted small">+${profiles.length - 8} more</span>` : ''}</div>` : ''}
+      <span class="muted" style="font:11px var(--mono)">evidence #${Number(e.id)}</span>
+    </div></details>`;
+  }
+  function signalsCard(all, byId, win) {
+    if (!all.length) return '';
+    const byScore = (a, b) => (num(b.score) || 0) - (num(a.score) || 0);
+    const forCo = all.filter((s) => s.polarity !== 'against' && fired(s)).sort(byScore);
+    const guards = all.filter((s) => s.polarity === 'against' && fired(s)).sort(byScore);
+    const quiet = all.filter((s) => !fired(s));
+    const one = (s) => `<div class="sig ${fired(s) ? '' : 'off'}"${s.evidence_id ? ` id="ev-${Number(s.evidence_id)}"` : ''}>
+        <div class="sig-top"><div class="sig-name">${esc(sigName(s.name))}<span class="label">${esc(FAMILY[s.family] || s.family || '')}</span></div>
+        <div class="meter"><span class="num">${fix2(s.score)}</span><span class="bar"><i style="width:${clamp01(s.score) * 100}%"></i></span></div></div>
+        <p>${esc(tidy(s.summary))}</p>${receipt(byId.get(s.evidence_id))}</div>`;
+    return `<section class="card o-sig" aria-labelledby="h-sig">
+      <div class="card-head"><h2 id="h-sig">Evidence</h2><span class="label">${win ? 'Latest window' : plural(all.length, 'check')}</span></div>
+      <h3 class="label group-label">Points to coordination <span style="white-space:nowrap">· ${forCo.length} of ${all.length} signals</span></h3>
+      ${forCo.length ? `<div>${forCo.map(one).join('')}</div>` : '<p class="muted">No coordination signal fired.</p>'}
+      ${guards.length ? `<h3 class="label group-label">Organic safeguards that held</h3><div>${guards.map(one).join('')}</div>` : ''}
+      ${quiet.length ? `<details class="fold"><summary>${plural(quiet.length, 'check')} found nothing: ${esc(quiet.map((s) => sigName(s.name).toLowerCase()).join(', '))}</summary><div>${quiet.map(one).join('')}</div></details>` : ''}
+    </section>`;
+  }
+
+  function timingCard(c, handles, win) {
+    const sig = c.signals || {};
+    const nd = sig.null_distribution;
+    const tl = Array.isArray(sig.timeline) ? sig.timeline.filter((p) => num(p.t) != null) : [];
+    const parts = [];
+    if (nd && Array.isArray(nd.counts) && Array.isArray(nd.bin_edges) && nd.counts.length) {
+      const max = Math.max(...nd.counts, 1);
+      const lo = nd.bin_edges[0], hi = nd.bin_edges[nd.bin_edges.length - 1];
+      const obs = Math.min(hi, Math.max(lo, num(nd.observed) || 0));
+      const left = ((obs - lo) / (hi - lo || 1)) * 100;
+      const worlds = nd.worlds || nd.counts.reduce((a, b) => a + b, 0);
+      const k = nd.worlds_at_least_observed;
+      const timingP = sig.null_model && sig.null_model.p_value;
+      parts.push(`<div class="hist" role="img" aria-label="Synchrony in ${worlds} shuffled worlds; the real accounts score ${fix2(nd.observed)}.">
+          ${nd.counts.map((n) => `<i style="height:${(n / max) * 100}%"></i>`).join('')}
+          <span class="obs" style="left:calc(${left}% - 1px)"></span></div>
+        <div class="axis" aria-hidden="true"><span>${fix2(lo)}</span><span>${fix2(hi)}</span></div>
+        <p class="muted small" style="margin-top:4px">Horizontal axis: share of the accounts’ actions that fall in the same tight burst.</p>
+        <div class="key"><span><i style="background:#5a5650"></i>Shuffled timing</span><span><i style="background:var(--shill)"></i>Real accounts: ${fix2(nd.observed)}</span></div>
+        <p class="chart-caption">We shuffled each account’s activity in time ${worlds.toLocaleString()} times.${k != null ? ` <strong>${k.toLocaleString()}</strong> of those shuffles were as synchronised as the real accounts` : ''}${timingP != null ? ` (timing p = ${pval(timingP)}).` : '.'}</p>`);
+    }
+    if (tl.length > 1) {
+      const nodes = (sig.member_graph && sig.member_graph.nodes) || [];
+      const rows = [...new Set(tl.map((p) => p.n))];
+      const keys = [...new Set(tl.map((p) => p.key))];
+      const palette = ['#e2533c', '#e4b36a', '#7aa2f0', '#5fc9a8', '#c792ea', '#f2efe9'];
+      const t0 = Math.min(...tl.map((p) => p.t)), t1 = Math.max(...tl.map((p) => p.t));
+      const rowH = Math.max(10, Math.min(16, 200 / rows.length));
+      const fmt = (t) => (t1 - t0 < 120 ? tfs : tf).format(new Date(t * 1000));
+      const x = (t) => (t1 === t0 ? 50 : 2 + ((t - t0) / (t1 - t0)) * 96);
+      const dots = tl.map((p) => {
+        const ki = keys.indexOf(p.key);
+        return `<span style="left:${x(p.t).toFixed(2)}%;top:${(rows.indexOf(p.n) * rowH + rowH / 2).toFixed(1)}px;background:${ki < palette.length ? palette[ki] : '#8f8b84'}" title="${esc(handles.get(nodes[p.n]) || 'account')} · ${esc(fmt(p.t))}"></span>`;
+      }).join('');
+      const grid = `background:repeating-linear-gradient(to bottom, transparent 0 ${rowH / 2 - 0.5}px, rgba(255,255,255,.06) ${rowH / 2 - 0.5}px ${rowH / 2 + 0.5}px, transparent ${rowH / 2 + 0.5}px ${rowH}px)`;
+      parts.push(`<h3 class="label group-label" style="margin-top:28px">Who acted when</h3>
+        <div class="tl" role="img" aria-label="${tl.length} actions by ${rows.length} accounts between ${esc(fmt(t0))} and ${esc(fmt(t1))}" style="height:${Math.round(rows.length * rowH)}px;${grid}">${dots}</div>
+        <div class="axis" aria-hidden="true"><span>${esc(fmt(t0))}</span><span>${esc(fmt(t1))}</span></div>
+        <div class="key"><span>One row per account. One colour per shared link, text or image${keys.length > palette.length ? `; grey for the other ${keys.length - palette.length}` : ''}.</span></div>`);
+    }
+    if (!parts.length) return '';
+    return `<section class="card o-time" aria-labelledby="h-time"><div class="card-head"><h2 id="h-time">Timing test</h2><span class="label">${win ? 'Latest window' : 'Against chance'}</span></div>${parts.join('')}</section>`;
+  }
+
+  function opinionCard(c, anchored) {
+    const v = c.analyst;
+    const a = v || c.verdict;
+    if (!a) return `<section class="card o-op" aria-labelledby="h-op"><div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div><p class="muted">Gemini hasn’t reviewed this cluster. Reviews go to the strongest clusters first, within an hourly budget.</p></section>`;
+    const call = a.llm_assessment || a.status;
+    const reviewedAt = (c.verdict && c.verdict.created_at) || a.created_at || null;
+    const thenStatus = v && v.detector_status;
+    const callChanged = thenStatus && thenStatus !== c.status;
+    const agrees = a.agrees_with_detector != null && !callChanged ? Boolean(a.agrees_with_detector) : call === c.status;
+    const older = v && v.cluster_updated_at && c.updated_at && new Date(v.cluster_updated_at) < new Date(c.updated_at) - 1000;
+    // "evidence_id 123" in model prose becomes the same citation link as the cited list
+    const cite = (id) => (anchored.has(Number(id)) ? `<a class="cite" href="#ev-${Number(id)}" data-jump="${Number(id)}">#${Number(id)}</a>` : `<span class="cite">#${Number(id)}</span>`);
+    const prose = (t) => esc(tidy(t).replace(/['"‘“](coordinated|insufficient|likely_organic)['"’”]/g, (m, k) => `“${word(k)}”`).replace(/\blikely_organic\b/g, 'likely organic'))
+      .replace(/evidence_ids?[\s:=]*(\d+(?:(?:\s*,\s*|\s+and\s+)\d+)*)/g, (m, ids) => ids.replace(/\d+/g, (id) => cite(id)).replace(/\s+and\s+/g, ' and '));
+    const cited = (v && Array.isArray(v.evidence) ? v.evidence : []).filter((x) => x.why || x.summary);
+    const list = (title, xs) => (xs.length ? `<div><h3 class="label">${title}</h3><ul>${xs.map((x) => `<li>${x}</li>`).join('')}</ul></div>` : '');
+    const tools = Array.isArray(v && v.tool_calls) ? v.tool_calls.length : (a.tool_calls || 0);
+    return `<section class="card o-op" aria-labelledby="h-op">
+      <div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div>
+      <p class="opinion-line">${chip(call)}<span>${callChanged ? (call === c.status ? 'Matches the detector’s current call' : 'Reviewed an earlier call') : agrees ? 'Agrees with the detector' : 'Reads it differently'}</span></p>
+      <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.${older && !callChanged ? ` Reviewed${reviewedAt ? ` ${esc(when(reviewedAt))}` : ''} on an earlier snapshot, so its counts may differ from the evidence on this page.` : ''}</p>
+      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> At the time of this review the detector said “${esc(word(thenStatus))}”, and its counts come from that earlier snapshot.</p>` : ''}
+      ${a.summary ? `<p style="margin-top:14px">${prose(a.summary)}</p>` : ''}
+      ${!agrees && !callChanged && a.disagreement_reason ? `<p class="notice"><strong>Why it disagrees:</strong> ${prose(a.disagreement_reason)}</p>` : ''}
+      <div class="reasons">
+        ${list('What it cites', cited.map((x) => `${prose(x.why || x.summary)}${x.evidence_id ? ` ${cite(x.evidence_id)}` : ''}`))}
+        ${list('What points the other way', ((v && v.counter_evidence) || []).map(prose))}
+        ${list('What would change its mind', ((v && v.would_change_verdict) || []).map(prose))}
+      </div>
+      <div class="foot-meta">${a.model ? `<span>${esc(a.model)}</span>` : ''}${tools ? `<span>${plural(tools, 'tool call')}</span>` : ''}${v && v.cost_usd != null ? `<span>$${Number(v.cost_usd).toFixed(3)}</span>` : ''}${reviewedAt && !(older && !callChanged) ? `<span>reviewed ${esc(when(reviewedAt))}</span>` : ''}</div>
+    </section>`;
+  }
+
+  function mediaCard(c, evidence) {
+    const media = evidence.filter((e) => e.kind === 'media');
+    const failed = media.filter((e) => (e.detail || {}).status === 'failed');
+    const read = media.filter((e) => (e.detail || {}).status !== 'failed').sort((a, b) => Number((b.detail || {}).n_accounts || 0) - Number((a.detail || {}).n_accounts || 0));
+    const seen = new Set(media.map((e) => (e.detail || {}).media_hash));
+    const unread = [...new Set((c.posts || []).flatMap((p) => p.media_hashes || []))].filter((h) => !seen.has(h)).length;
+    if (!media.length && !unread) return '';
+    const items = read.map((e) => {
+      const d = e.detail || {};
+      if (d.type === 'ocr_template') return `<div class="item" id="ev-${Number(e.id)}"><span class="label">Same text template in different images</span><p>${esc(e.summary || '')}</p>${(d.varying_tokens || []).length ? `<p class="muted">Words that change: ${esc(d.varying_tokens.join(', '))}</p>` : ''}</div>`;
+      const ocr = Array.isArray(d.extracted_text) ? d.extracted_text.join(' / ') : '';
+      return `<div class="item" id="ev-${Number(e.id)}">
+        ${d.media_url ? `<button class="thumb" type="button" aria-pressed="false" aria-label="Show the image"><img src="${esc(d.media_url)}" alt="${esc(d.description || 'Image posted by the cluster')}" loading="lazy" referrerpolicy="no-referrer"><span>Show image</span></button>` : ''}
+        <p>${esc(d.description || e.summary || '')}</p>
+        ${ocr ? `<p class="muted">Text in image: “${esc(ocr)}”</p>` : ''}
+        <span class="muted small">${Number(d.n_accounts || 0) > 1 ? `Same file from ${plural(Number(d.n_accounts), 'account')}${d.n_posts ? ` in ${plural(Number(d.n_posts), 'post')}` : ''}` : 'Posted by one account'}${e.source_url ? ` · ${ext(e.source_url, 'first post ↗', 'out')}` : ''}</span>
+      </div>`;
+    });
+    const notes = [];
+    if (failed.length) notes.push(`<details class="fold"><summary>${plural(failed.length, 'file')} couldn’t be read (videos or other non-image files)</summary><div class="receipt-body">${failed.map((e) => `<div id="ev-${Number(e.id)}">${esc((e.detail || {}).error || e.summary || '')}</div>`).join('')}</div></details>`);
+    if (unread) notes.push(`<p class="muted small" style="margin-top:12px">${plural(unread, 'image')} in these posts ${unread === 1 ? 'hasn’t' : 'haven’t'} been read by the model yet.</p>`);
+    return `<section class="card o-media" aria-labelledby="h-media"><div class="card-head"><h2 id="h-media">Images</h2><span class="label">Nemotron Super VL</span></div>
+      ${items.join('')}${notes.join('')}</section>`;
+  }
+
+  function sourcesCard(evidence) {
+    const src = evidence.filter((e) => e.kind === 'source');
+    if (!src.length) return '';
+    const items = src.map((e, i) => {
+      const d = e.detail || {};
+      const allHits = Array.isArray(d.hits) ? d.hits : [];
+      const hit = (h) => `<a href="${esc(h.url)}" target="_blank" rel="noreferrer noopener"><b>${esc(h.domain || host(h.url))}</b>${esc(h.title || h.url)}</a>`;
+      const by = d.requested_by && String(d.requested_by).startsWith('gemini') ? `<p class="muted small">Requested by Gemini${d.why ? `: ${esc(d.why)}` : ''}</p>` : '';
+      const url = e.source_url || d.final_url || d.url;
+      return `<div class="item" id="ev-${Number(e.id)}"${i >= 4 ? ' hidden' : ''}><p style="color:var(--text)">${esc(e.summary || d.title || 'Web check')}</p>${by}
+        ${allHits.length ? `<div class="hits">${allHits.slice(0, 3).map(hit).join('')}</div>` : ''}
+        ${allHits.length > 3 ? `<details><summary>${allHits.length - 3} more ${allHits.length - 3 === 1 ? 'result' : 'results'}</summary><div class="hits" style="margin-top:6px">${allHits.slice(3).map(hit).join('')}</div></details>` : ''}
+        <span class="muted small">${url ? `${ext(url, `${esc(host(url))} ↗`, 'out')} · ` : 'No source URL recorded · '}checked ${esc(when(e.created_at))}</span></div>`;
+    });
+    return `<section class="card o-src" aria-labelledby="h-src" data-fold><div class="card-head"><h2 id="h-src">On the web</h2><span class="label">Oxylabs, live</span></div>${src.some((e) => /account/i.test(e.summary || '')) ? '<p class="muted small" style="margin:-6px 0 14px">Each check’s account counts are as of the time it ran.</p>' : ''}
+      ${items.join('')}${items.length > 4 ? `<button class="linkish" data-showall style="margin-top:10px">Show all ${items.length}</button>` : ''}</section>`;
+  }
+
+  function accountsCard(c) {
+    const ms = c.members || [];
+    if (!ms.length) return '';
+    const age = (d) => { if (!d) return '–'; const days = Math.max(0, Math.floor((Date.now() - new Date(d)) / 864e5)); return `${days.toLocaleString()} d`; };
+    const rows = ms.map((m, i) => `<tr${i >= 10 ? ' hidden' : ''}><td class="handle">${ext(m.profile_url, esc(m.handle || shortDid(m.did)))}</td><td class="r num">${age(m.account_created_at)}</td><td class="r num">${m.followers == null ? '–' : Number(m.followers).toLocaleString()}</td></tr>`).join('');
+    return `<section class="card o-acc" aria-labelledby="h-acc" data-fold><div class="card-head"><h2 id="h-acc">Accounts</h2><span class="label">${ms.length}</span></div>
+      <table><thead><tr><th>Handle</th><th class="r" title="Account age in days">Age</th><th class="r">Followers</th></tr></thead><tbody>${rows}</tbody></table>
+      ${ms.length > 10 ? `<button class="linkish" data-showall style="margin-top:12px">Show all ${ms.length}</button>` : ''}</section>`;
+  }
+
+  function postsCard(c, handles) {
+    const ps = c.posts || [];
+    if (!ps.length) return '';
+    const items = ps.map((p, i) => `<article class="post"${i >= 4 ? ' hidden' : ''}>
+        <div class="post-meta"><span title="${esc(p.did)}">${esc(handles.get(p.did) || shortDid(p.did))}</span>${p.url ? ext(p.url, `${esc(when(p.created_at || p.seen_at))} ↗`) : `<span>${esc(when(p.created_at || p.seen_at))}</span>`}</div>
+        <p>${esc(p.text || '(no text)')}</p>
+        ${(p.embed_urls || []).length ? `<div class="links" style="margin-top:8px">${p.embed_urls.slice(0, 3).map((u) => ext(u, `${esc(host(u))} ↗`)).join('')}</div>` : ''}
+      </article>`).join('');
+    return `<section class="card o-posts" aria-labelledby="h-posts" data-fold><div class="card-head"><h2 id="h-posts">Posts</h2><span class="label">${ps.length} captured</span></div>${items}
+      ${ps.length > 4 ? `<button class="linkish" data-showall style="margin-top:12px">Show all ${ps.length}</button>` : ''}</section>`;
+  }
+
+  // ---------- accuracy
+  const DATASETS = {
+    organic_live: { order: 1, q: 'Does it flag real organic crowds?', what: 'Real bursts of organic activity in recorded windows, picked by a fixed rule that never looks at the detector.', metric: 'fpr', unit: 'called coordinated', items: 'organic bursts' },
+    organic_synth: { order: 2, q: 'Does it flag look-alike organic crowds?', what: 'Synthetic viral, news-link, live-event and fandom bursts injected into real traffic.', metric: 'fpr', unit: 'called coordinated', items: 'organic bursts' },
+    synthetic_campaigns: { order: 3, q: 'Does it catch planted campaigns?', what: 'Synthetic campaigns of three difficulty levels injected into real traffic.', metric: 'recall', unit: 'caught', items: 'campaigns' },
+    live_hand_labels: { order: 4, q: 'Do people agree when it says coordinated?', what: 'Live clusters labelled blind by two people; precision is measured against their agreed label.', metric: 'precision', unit: 'confirmed by the agreed human label', items: 'flagged clusters' },
+    bluesky_takedowns: { order: 5, q: 'Does Bluesky later act on the accounts it flags?', what: 'Flagged accounts that Bluesky takes down or suspends afterwards, compared with random active accounts.', metric: null, items: 'accounts' },
+    calibration: { order: 6, q: 'Is its confidence calibrated?', what: 'How well the score and the verdict confidence match labelled outcomes.', metric: null, items: 'cases' },
+  };
+  const LEVELS = { L1: 'Copy-paste text, brand-new templated accounts, burst under a minute', L2: 'Light paraphrase, weeks-old accounts, minutes of jitter', L3: 'Heavy paraphrase, aged accounts with followers, slow drip' };
+  const METRIC_WORD = { fpr: 'false-positive rate', recall: 'recall', precision: 'precision', f1: 'F1' };
+
+  function ciBar(ci, value) {
+    if (!Array.isArray(ci) || ci.length !== 2) return '';
+    const [lo, hi] = ci.map(clamp01);
+    return `<div class="ci-track" aria-hidden="true"><i style="left:${lo * 100}%;width:${Math.max(0, hi - lo) * 100}%"></i><em style="left:calc(${clamp01(value) * 100}% - 1px)"></em></div><div class="ci-scale" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></div>`;
+  }
+  function accCard(ds, runs) {
+    const meta = DATASETS[ds] || { q: ds.replace(/_/g, ' '), what: '', metric: null, items: 'items' };
+    const main = runs.find((r) => r.split === 'heldout') || runs[0];
+    const others = runs.filter((r) => r !== main);
+    const d = main.details || {};
+    const metric = meta.metric || ['fpr', 'recall', 'precision', 'f1'].find((m) => main[m] != null);
+    let big;
+    if (metric && main[metric] != null) {
+      // live_hand_labels keeps its own k/n/interval per metric (weighted); never derive k from a rate there
+      const sub = d.metrics && d.metrics[metric];
+      const exact = sub && num(sub.k) != null && num(sub.n) != null && Number.isInteger(Number(sub.k));
+      const n = exact ? num(sub.n) : num(main.n);
+      const k = exact ? num(sub.k) : (n != null && metric !== 'precision' ? Math.round(num(main[metric]) * n) : null);
+      const ci = d[`${metric}_ci95`] || (sub && sub.ci95);
+      big = `<div class="big"><b>${pct(main[metric], 1)}</b><span>${METRIC_WORD[metric]}</span></div>
+        <div class="ci">${k != null && meta.unit ? `${k} of ${n.toLocaleString()} ${meta.items} ${meta.unit}` : n != null ? `n = ${n.toLocaleString()}` : ''}${Array.isArray(ci) ? ` · 95% interval ${pct(ci[0], 1)} to ${pct(ci[1], 1)}` : ''}</div>
+        ${ciBar(ci, main[metric])}`;
+    } else if (ds === 'bluesky_takedowns' && d.headline) {
+      const h = d.headline;
+      big = `<div class="big"><b>${pct(h.coordinated_moderated_rate, 1)}</b><span>of flagged accounts taken down</span></div><div class="ci">vs. ${pct(h.random_active_moderated_rate, 1)} of random active accounts${d.horizon_h ? ` · within ${Number(d.horizon_h)} h` : ''}</div>`;
+    } else {
+      big = `<div class="big"><b>${main.n == null ? '–' : Number(main.n).toLocaleString()}</b><span>${esc(meta.items)}</span></div>`;
+    }
+    const extra = [];
+    if (d.clustered != null && main.n != null) extra.push(`<p class="ci" style="margin-top:14px">${Number(d.clustered)} of ${Number(main.n)} were grouped into a cluster at all; the rest were never surfaced.</p>`);
+    if (d.per_level) {
+      extra.push(`<div class="levels">${Object.entries(d.per_level).map(([lv, x]) => {
+        const r = x.recall || {};
+        return `<div class="level"><span style="font:12px var(--mono)">${esc(lv)}</span><span>${esc(LEVELS[lv] || '')}<small>${r.k ?? '–'} of ${r.n ?? '–'} caught</small></span><span class="meter"><span class="num">${pct(r.rate)}</span><span class="bar"><i style="width:${clamp01(r.rate) * 100}%"></i></span></span></div>`;
+      }).join('')}</div>`);
+    }
+    const otherTxt = others.map((r) => `${esc(r.split)} split: ${metric && r[metric] != null ? pct(r[metric], 1) : '–'}${r.n != null ? ` (n = ${Number(r.n).toLocaleString()})` : ''}`).join(' · ');
+    return `<section class="card acc">
+      <div class="card-head" style="margin-bottom:6px"><h2 class="q">${esc(meta.q)}</h2><span class="split ${main.split === 'heldout' ? '' : 'dev'}">${main.split === 'heldout' ? 'held-out' : `${esc(main.split)} split`}</span></div>
+      <p class="what">${esc(meta.what)}</p>
+      ${big}${extra.join('')}
+      <div class="foot-meta">${d.detector_version ? `<span>detector ${esc(d.detector_version)}</span>` : ''}${d.eval_commit ? `<span>eval ${esc(d.eval_commit)}</span>` : ''}<span>run ${esc(when(main.created_at))}</span>${otherTxt ? `<span>${otherTxt}</span>` : ''}</div>
+    </section>`;
+  }
+  function renderAccuracy() {
+    const groups = new Map();
+    state.metrics.filter((m) => m && m.dataset).forEach((r) => { if (!groups.has(r.dataset)) groups.set(r.dataset, []); groups.get(r.dataset).push(r); });
+    const ordered = [...groups.keys()].sort((a, b) => ((DATASETS[a] || {}).order || 99) - ((DATASETS[b] || {}).order || 99));
+    const missing = Object.entries(DATASETS).filter(([k]) => !groups.has(k)).map(([, m]) => m);
+    const head = (p) => `<section class="page-head"><div><h1>How often is it wrong?</h1><p>${p}</p></div></section>`;
+    if (!state.loaded) { app.innerHTML = head('Loading evaluation runs…'); return; }
+    if (state.metricsError) { app.innerHTML = `${head('Error rates measured by the evaluation harness.')}<div class="card state" role="alert"><h2>Evaluation results are unavailable</h2><p>${esc(state.metricsError)}</p></div>`; return; }
+    if (!ordered.length) {
+      app.innerHTML = `${head('No evaluation runs have been published to this deployment yet, and we don’t show numbers we haven’t measured. Once the evaluation harness writes its results, this page answers:')}
+        <div class="planned">${Object.values(DATASETS).map((m) => `<div><strong>${esc(m.q)}</strong><p>${esc(m.what)}</p></div>`).join('')}</div>`;
+      return;
+    }
+    app.innerHTML = `${head('Every number on this page is read from the evaluation runs stored with this deployment. None is typed in by hand.')}
+      <div class="acc-intro">
+        <div><strong>False positives first</strong>Calling a real crowd “coordinated” is the costly mistake, so those tests come first.</div>
+        <div><strong>Held-out results lead</strong>Odd UTC hours are held out and never used for tuning. Results on the development split are labelled as such.</div>
+        <div><strong>Read the interval</strong>Small samples get wide 95% intervals. The range matters as much as the number.</div>
+      </div>
+      <div class="acc-grid">${ordered.map((ds) => accCard(ds, groups.get(ds))).join('')}</div>
+      ${missing.length ? `<h2 class="label" style="margin:40px 0 12px">Not measured on this deployment yet</h2><div class="planned">${missing.map((m) => `<div><strong>${esc(m.q)}</strong><p>${esc(m.what)}</p></div>`).join('')}</div>` : ''}`;
+  }
+
+  // ---------- method
+  function renderMethod() {
+    app.innerHTML = `<div class="method">
+      <section class="page-head" style="margin-bottom:28px"><div><h1>How a call is made</h1><p>Noise Radar judges behaviour, not opinions. It never decides whether a post is true, popular or acceptable, only whether the accounts behind it acted together.</p></div></section>
+      <div class="steps">
+        <div class="step"><span class="label">01 · Group</span><h3>Find accounts acting together</h3><p>The live Bluesky stream is cut into time windows. Accounts that share the same links, text, images or engagement form a cluster.</p></div>
+        <div class="step"><span class="label">02 · Test</span><h3>Check four signal families</h3><p>Content, timing, network and identity. Timing is compared with the same accounts’ activity shuffled in time.</p></div>
+        <div class="step"><span class="label">03 · Decide</span><h3>Apply a written rule</h3><p>Code makes the call. Organic safeguards, such as established accounts or a wider crowd, hold it back.</p></div>
+        <div class="step"><span class="label">04 · Explain</span><h3>Attach the receipts</h3><p>Gemini writes a second opinion citing the evidence. Nemotron reads the images. Oxylabs checks the web live.</p></div>
+      </div>
+      <div class="text">
+        <h2>Three possible calls</h2>
+        <div class="outcomes">
+          <div class="outcome">${chip('coordinated')}<p>Several independent signal families fired, the timing beats chance, and no organic safeguard holds.</p></div>
+          <div class="outcome">${chip('insufficient')}<p>Something looked unusual, but not enough for a call. Abstaining is a result, not a failure: it keeps false accusations down.</p></div>
+          <div class="outcome">${chip('likely_organic')}<p>An organic safeguard holds: established accounts, or a crowd much wider than the cluster.</p></div>
+        </div>
+        <h2>Who decides what</h2>
+        <ul>
+          <li><strong>The detector decides.</strong> Its rules are code. Every cluster page shows the exact rule and the measured values.</li>
+          <li><strong>Gemini explains.</strong> It may disagree, and the page says so when it does, but it never changes the call.</li>
+          <li><strong>Nemotron Super VL reads images.</strong> It describes what they show, reads the text inside them and spots different images that share one template.</li>
+          <li><strong>Oxylabs fetches the web live.</strong> It finds where a link or text appeared before, and every result keeps its source URL.</li>
+        </ul>
+        <h2>Limits</h2>
+        <ul>
+          <li>Big organic moments such as breaking news, sport and fandom can look coordinated. The safeguards and the held-out false-positive tests exist for this.</li>
+          <li>Slow, careful campaigns run from aged accounts are hard to see in one window. The <a href="#/accuracy">Accuracy</a> page shows how many we miss.</li>
+          <li>A cluster is evidence of coordinated behaviour, not proof of who is behind it or why.</li>
+        </ul>
+        <h2>Data</h2>
+        <p>Read-only: Noise Radar reads the public Bluesky stream and never posts, follows or reports. Posts and profiles are shown only to explain a cluster.</p>
+      </div>
+    </div>`;
+  }
+
+  // ---------- boot
+  app.addEventListener('click', (e) => {
+    const j = e.target.closest('[data-jump]');
+    if (!j) return;
+    e.preventDefault();
+    const el = document.getElementById(`ev-${j.dataset.jump}`);
+    if (!el) return;
+    if (el.closest('[hidden]')) { const btn = el.closest('[data-fold]') && el.closest('[data-fold]').querySelector('[data-showall]'); if (btn) showAll(btn); }
+    for (let p = el.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+    const own = el.querySelector(':scope > details'); if (own) own.open = true;
+    el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  });
+  const page = () => location.hash.replace(/^#\/?/, '').split('/')[0];
+  // Re-render the list pages after new data; cluster pages fetch their own detail.
+  function refreshView() {
+    if (page() === 'accuracy') return renderAccuracy();
+    if (page() !== '') return;
+    const a = document.activeElement;
+    if (a && a.matches('input, textarea')) return;
+    const keyOf = (el) => (!el || !app.contains(el) ? null : ['href', 'data-filter', 'data-more', 'data-retry'].map((k) => (el.hasAttribute(k) ? `[${k}="${CSS.escape(el.getAttribute(k))}"]` : null)).find(Boolean));
+    const key = keyOf(a);
+    const y = window.scrollY;
+    renderMonitor();
+    window.scrollTo(0, y);
+    const f = key && app.querySelector(key);
+    if (f) f.focus({ preventScroll: true });
+  }
+  async function poll() {
+    try { await load(); refreshView(); } finally { setTimeout(poll, 30000); }
+  }
+  route();
+  load().then(refreshView).finally(() => setTimeout(poll, 30000));
+  setInterval(renderLive, 10000);
 })();
 </script>
 </body>
