@@ -275,6 +275,8 @@ class Lookup:
         # an uploaded image's text in reading order: searched for, and a text hit joins the
         # trace only with 3+ of its words in a row (textsim.caption_runs)
         self._caption: str | None = None
+        self._upload_read = False  # Nemotron read the uploaded image (its text may be empty)
+        self._page_seq = 0
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
@@ -447,7 +449,8 @@ class Lookup:
                         old.headline = pg.headline or old.headline
                         old.receipt_id = pg.receipt_id
                     return old
-            pg.id = f"page:{len(self.result.pages) + 1}"
+            self._page_seq += 1  # a counter: an upload's trace can drop pages (ids stay unique)
+            pg.id = f"page:{self._page_seq}"
             self.result.pages.append(pg)
             return pg
 
@@ -614,12 +617,21 @@ class Lookup:
                 x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
                 rest = [pool.submit(self._copies_bsky)]
             else:
+                why = (
+                    f"fewer than {textsim.RUN_MIN} words of text in the image"
+                    if self._upload_read
+                    else "the image's text could not be read"
+                )
                 for sid in ("copies_web", "copies_x", "copies_bsky"):
-                    self.skip(sid, f"fewer than {textsim.RUN_MIN} words of text in the image")
+                    self.skip(sid, why)
                 self.note(
-                    "Results are matches of the uploaded picture only: it has fewer than "
-                    f"{textsim.RUN_MIN} words of text to search for, and Nemotron's "
-                    "description of it is never searched for."
+                    "Results are matches of the uploaded picture only: "
+                    + (
+                        f"it has fewer than {textsim.RUN_MIN} words of text to search for, and "
+                        "Nemotron's description of it is never searched for."
+                        if self._upload_read
+                        else "its text could not be read, so no text was searched for."
+                    )
                 )
                 x_searches, rest = [], []
         else:
@@ -650,6 +662,8 @@ class Lookup:
         # the link, text and Bluesky accounts are known now; verify adds only X posts
         self._monitor()
         self._join_verify()
+        if kind == "image":
+            self._keep_caption_matches()  # before the image origin is chosen from the posts
         trace.finish()
 
     def _wait_text(self, futures: list[Future]) -> None:
@@ -1635,7 +1649,19 @@ class Lookup:
         else:
             role, sim = "mention", sim_own
         image = self.result.kind == "image"
-        match = self._caption_match(m.text, m.quoted_text) if image else []
+        if image and quoted_pid and quoted_pid != subj:
+            # an upload: the quoted post joins the trace only with its own caption run, and
+            # then this post quotes it; else this post stands on its own text
+            quoted_match = self._caption_match(m.quoted_text)
+            if quoted_match:
+                role, sim, quoted_other = "quote", sim_quoted, quoted_pid
+            elif role == "quote":
+                role = "copy" if sim_own >= COPY_MIN else "mention"
+                sim, quoted_other = sim_own, None
+        own_text = (m.text or "") + (
+            "\n\n> " + m.quoted_text if m.quoted_text and role == "quote" else ""
+        )
+        match = self._caption_match(own_text.strip()) if image else []
         if (not match) if image else (role == "mention" and sim < X_MIN_SIM):
             with self.lock:  # its own page shows it isn't about this text: drop the search hit
                 self.result.posts = [q for q in self.result.posts if q.id != p.id]
@@ -1665,8 +1691,7 @@ class Lookup:
             post.text = (m.text + "\n\n> " + m.quoted_text).strip()
         post.caption_match = self._caption_match(post.text) if image else []
         post = self.add_post(post)
-        quoted_match = self._caption_match(m.quoted_text) if image and quoted_other else []
-        if quoted_other and (quoted_match or not image):
+        if quoted_other:
             # the quoted post's text and id were read on this page: it carries the text too
             q = self.add_post(
                 Post(
@@ -1681,11 +1706,11 @@ class Lookup:
                     similarity=round(sim_quoted, 2),
                     receipt_id=rid,
                     verified=True,
-                    caption_match=quoted_match,
+                    caption_match=self._caption_match(m.quoted_text) if image else [],
                 )
             )
             self.add_edge(q.id, post.id, "quote", note="quotes this post")
-        elif subj and role in ("quote", "reply") and not quoted_other:
+        elif subj and role in ("quote", "reply"):
             self.add_edge(subj, post.id, role)
         return post
 
@@ -1830,6 +1855,7 @@ class Lookup:
         with self.lock:
             subj = next((p for p in self.result.posts if p.id == self.result.subject_id), None)
             if a is not None:
+                self._upload_read = True
                 self._caption = "\n".join(a.extracted_text)[:2000] or None  # reading order
                 if subj is not None:
                     subj.text = self._caption or ""  # for the card
@@ -2097,7 +2123,8 @@ class Lookup:
     def _keep_caption_matches(self) -> None:
         """An uploaded image's trace: every post or page found by its text must repeat 3+ words
         in a row of it, in the text it finally shows (a read page can replace a snippet). The
-        others leave the trace with their edges; each kept one lists its runs to highlight."""
+        others leave the trace with their edges and their authors' profiles; each kept one
+        lists its runs to highlight. Runs again at the end for reads that landed late."""
         with self.lock:
             posts, pages = [], []
             for p in self.result.posts:
@@ -2113,6 +2140,10 @@ class Lookup:
             dropped = {p.id for p in self.result.posts} | {pg.id for pg in self.result.pages}
             dropped -= ids
             self.result.posts, self.result.pages = posts, pages
+            authors = {(p.platform, (p.author_handle or "").lower()) for p in posts}
+            self.result.accounts = [
+                a for a in self.result.accounts if (a.platform, a.handle.lower()) in authors
+            ]
             self.result.edges = [
                 e for e in self.result.edges if e.from_ not in dropped and e.to not in dropped
             ]

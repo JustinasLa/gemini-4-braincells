@@ -138,8 +138,8 @@ def test_uploaded_meme_keeps_hits_with_3_caption_words_in_a_row():
     reader = FakeReader()
     job = _run(reader)
     r = job.result
-    assert r.kind == "image" and r.input.image.sha256 == _ref().sha256
-    assert reader.calls and reader.calls[0][0] == JPEG
+    assert r.state == "done" and r.kind == "image" and r.input.image.sha256 == _ref().sha256
+    assert reader.calls == [(JPEG, None)]  # the uploaded bytes, read once, no post text
     st = {s.id: s for s in r.steps}
     assert st["post"].state == st["author"].state == st["linked"].state == "skipped"
     assert st["media"].label.startswith("Read the uploaded image")
@@ -263,6 +263,10 @@ def test_unreadable_upload_says_so():
     assert r.state == "done" and {s.id: s.state for s in r.steps}["media"] == "failed"
     assert any("could not read the uploaded image" in n for n in r.notes)
     assert job.deps.oxylabs.queries == []
+    # it says the text couldn't be read, not that the image has too little of it
+    assert {s.id: s.detail for s in r.steps}["copies_x"] == "the image's text could not be read"
+    assert any("its text could not be read" in n for n in r.notes)
+    assert not any("fewer than" in n for n in r.notes)
 
 
 def test_rate_limited_client_is_refused_before_the_body_is_read(monkeypatch):
@@ -291,3 +295,33 @@ def test_rate_limited_client_is_refused_before_the_body_is_read(monkeypatch):
             time.sleep(0.05)
     finally:
         app.dependency_overrides.pop(lookup_route.get_jobs, None)
+
+
+def test_upload_quote_whose_quoted_post_carries_the_caption_keeps_both():
+    """Entire review: a post that quotes the caption is kept with the quoted post, even when
+    the quoted text shares too few words to count as a copy; a quote of something else stands
+    on its own text."""
+    from lookup.models import Post
+    from tests.test_lookup import COPY as QCOPY
+    from tests.test_lookup import QUOTE_MD, SUBJ
+
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            return QUOTE_MD, {}
+
+    def verify(caption):
+        deps = Deps(oxylabs=Oxy(), nemotron=FakeReader())
+        job = Lookup("lk_q", LookupInput(image=_ref()), deps, image=JPEG)
+        job._add_upload_post()
+        job._caption = caption
+        cand = Post(id=f"x:{QCOPY}", platform="x", url=f"https://x.com/b/status/{QCOPY}")
+        return job, job._verify_x(job.add_post(cand), caption)
+
+    job, post = verify("the REAL reason for the ground stop")
+    assert post.role == "quote" and post.caption_match == ["the REAL reason for the ground stop"]
+    quoted = next(p for p in job.result.posts if p.id == f"x:{SUBJ}")
+    assert quoted.caption_match == ["the REAL reason for the ground stop"]
+    assert any(e.from_ == quoted.id and e.to == post.id for e in job.result.edges)
+
+    job, post = verify("nobody panics at the airport today")  # no 3 words in a row of either
+    assert post is None and [p.id for p in job.result.posts] == [job.result.subject_id]
