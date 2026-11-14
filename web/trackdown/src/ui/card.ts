@@ -58,7 +58,7 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
     const t = new Date(n.t);
     const clock = `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}:${String(t.getUTCSeconds()).padStart(2, "0")}`;
     return `<header>${shield}<div class="who"><b>${esc(a.name)}</b><span>${handle}</span></div></header>
-      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} D OLD</span>` : ""}${a.followers != null ? `<span>${a.followers} FOL.</span>` : ""}<time>${clock}</time></div>`;
+      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${clock}</time></div>`;
   }
   const mark = ROLE[n.role].mark ? `<div class="rolemark">${esc(ROLE[n.role].mark!)}</div>` : "";
   const stamp = n.role === "submitted" ? `<div class="stamp">SUBMITTED</div>` : "";

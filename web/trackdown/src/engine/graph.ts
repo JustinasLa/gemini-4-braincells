@@ -556,12 +556,13 @@ export class Graph {
       y1 = Math.max(y1, n.y + n.h / 2);
     }
     const { top, bottom, left, right } = this.insets;
-    const aw = this.W - left - right - 40;
-    const ah = this.H - top - bottom - 40;
+    // labels (~70px each side) and cluster tabs (~26px on top) are drawn in screen space around the boxes
+    const aw = this.W - left - right - 40 - Math.min(140, this.W * 0.16);
+    const ah = this.H - top - bottom - 40 - 40;
     const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.08, maxK);
     // shift centre so the box sits in the inset area
     const offX = (left - right) / 2 / k;
-    const offY = (top - bottom) / 2 / k;
+    const offY = (top + 26 - bottom) / 2 / k; // room for cluster tabs above the content
     this.flyTo((x0 + x1) / 2 - offX, (y0 + y1) / 2 - offY, k, dur);
   }
 
@@ -1289,10 +1290,10 @@ export class Graph {
     }
     c.stroke();
     // tab label on the top edge, like a detector's class + score
-    const fs = 11 / Math.max(k, 0.14);
+    const fs = 11 / k; // constant on screen: the verdict label must never become microtype
     c.font = `600 ${fs}px "JetBrains Mono", monospace`;
     // the tab never runs past its box: drop detail from the right until it fits
-    const parts = [STATUS[cl.status].short, ...cl.stat.split(" · ")].map((x) => x.toUpperCase());
+    const parts = [STATUS[cl.status].short.toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
     let label = parts.join(" · ");
     while (parts.length > 2 && c.measureText(label).width + fs * 1.2 > x1 - x0) { // always keep verdict + count
       parts.pop();

@@ -58,6 +58,11 @@ const syncDrawers = () => {
   rail.inert = !app.classList.contains("rail-open");
   const sheet = phone && app.classList.contains("sheet-open");
   pnl.inert = phone ? !sheet : !app.classList.contains("panel-open");
+  if (sheet) {
+    pnl.setAttribute("role", "dialog");
+    pnl.setAttribute("aria-modal", "true");
+    pnl.setAttribute("aria-label", "Verdict and evidence");
+  } else ["role", "aria-modal", "aria-label"].forEach((a) => pnl.removeAttribute(a));
   // an open sheet covers the page: nothing behind it may take focus
   $(".topbar").inert = sheet;
   stage.inert = sheet;
@@ -147,7 +152,7 @@ function railItem(c: TraceCase) {
     <span class="thumb" style="${th.style}" data-score="${th.score}"></span>
     <span class="vd">${STATUS[c.status].short} · ${esc(c.kicker)}</span>
     <span class="ttl">${esc(c.title)}</span>
-    <span class="meta">${ori ? fmtShort(ori.t) : ""} → ${sub ? fmtShort(sub.t) : ""}${sub && ori ? ` · ${fmtDur(sub.t - ori.t)}` : ""}</span>
+    <span class="meta"><span class="nw">${ori ? fmtShort(ori.t) : ""} → ${sub ? fmtShort(sub.t) : ""}</span>${sub && ori ? ` <span class="nw">· ${fmtDur(sub.t - ori.t)}</span>` : ""}</span>
   </button>`;
 }
 
@@ -585,6 +590,23 @@ function toast(msg: string) {
 
 // ---------------------------------------------------------------- keyboard
 document.addEventListener("keydown", (e) => {
+  // focus stays inside the open phone sheet (a modal dialog)
+  if (e.key === "Tab" && phoneMq.matches && app.classList.contains("sheet-open")) {
+    const items = [...$("#panel").querySelectorAll<HTMLElement>('button:not([tabindex="-1"]), a[href], [tabindex="0"]')].filter((x) => x.offsetParent !== null);
+    if (items.length) {
+      const first = items[0];
+      const last = items[items.length - 1];
+      const inside = $("#panel").contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    return;
+  }
   if ((e.target as HTMLElement).closest("textarea,input")) return;
   // Space and Enter belong to the focused control; arrows belong to the tab list
   if ((e.key === " " || e.key === "Enter") && (e.target as HTMLElement).closest("button,a,[role=tab]")) return;
