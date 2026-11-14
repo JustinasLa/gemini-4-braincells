@@ -692,3 +692,28 @@ def test_bluesky_retry_never_starts_after_the_deadline():
     with pytest.raises((httpx.HTTPStatusError, BlueskyTimeUp)):
         c.search("q", deadline=_time.monotonic() + 1.2)  # first try ok, retry would be late
     assert len(calls) == 1
+
+
+def test_undated_scrape_still_merges_its_facts():
+    from lookup.models import Page
+
+    job = _job()
+    job.add_page(Page(id="", url="https://news.example/b", role="coverage", snippet="s"))
+    job.add_page(
+        Page(
+            id="",
+            url="https://news.example/b",
+            role="linked",
+            author="A. Writer",
+            final_url="https://news.example/b?x=1",
+            claims=["c"],
+            receipt_id=9,
+        )
+    )
+    (pg,) = job.result.pages
+    assert (pg.author, pg.final_url, pg.claims, pg.receipt_id) == (
+        "A. Writer",
+        "https://news.example/b?x=1",
+        ["c"],
+        9,
+    )

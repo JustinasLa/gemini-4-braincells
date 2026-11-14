@@ -272,8 +272,11 @@ class Lookup:
                 if old.url == pg.url or (pg.final_url and old.final_url == pg.final_url):
                     if pg.role == "linked":
                         old.role = "linked"
-                    if pg.time_source == "page" or (
-                        pg.receipt_id and not old.publisher and pg.publisher
+                    # a "linked" page always comes from /scrape (_linked): it was read
+                    if (
+                        pg.time_source == "page"
+                        or pg.role == "linked"
+                        or (pg.receipt_id and not old.publisher and pg.publisher)
                     ):
                         # the page was read: its own facts beat a search snippet's
                         for f in (
