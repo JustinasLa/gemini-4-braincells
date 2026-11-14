@@ -43,5 +43,7 @@ class Verdict(VerdictDraft):
     model_calls: list[dict] = Field(default_factory=list)
     cost_usd: float | None = None  # model cost estimate from analyst/pricing.py
     # Decision gate (analyst/decide.py) for candidate clusters: P(web check matters), threshold,
-    # latency and the route taken ("single" = tools skipped, low-thinking verdict; "agent").
+    # decision-1 status, latency and the route: "nemotron" (its verdict agreed with decision-1),
+    # "escalated" (Nemotron disagreed or failed: GEMINI_MODEL single-shot), "single" (no
+    # Nemotron configured: GEMINI_MODEL single-shot) or "agent".
     gate: dict | None = None

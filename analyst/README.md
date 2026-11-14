@@ -22,8 +22,9 @@ clusters + evidence ─▶ prompt ─▶ Gemini ──(function call)──▶ t
 | `agent.py` | The function-calling loop. Every turn offers the tools and the `VerdictDraft` JSON schema; Gemini either calls tools or returns the verdict. On budget or turn limit, one last turn with calling switched off forces the verdict. |
 | `tools.py` | `search_web`, `scrape_url` (live Oxylabs), `get_cluster_posts`, `get_account` (read-only DB). `Budget`, `WebCache`, evidence sinks. |
 | `guard.py` | Checks every draft: unknown evidence ids dropped, fewer than 2 valid citations → the model's assessment becomes `insufficient`, status is always the detector's. |
-| `runner.py` | Routing: `coordinated`/`insufficient` clusters → decision gate, then the verdict model with tools (or one low-thinking call when the gate says the web cannot matter); `likely_organic` → cheap batch model, single shot, no web calls. |
-| `decide.py` | Decision gate: one Gemini Decisions API call (`gemini-decision-1`) estimates whether a web check could change the call. |
+| `runner.py` | Routing: `coordinated`/`insufficient` clusters → decision gate, then the verdict model with tools, or (when the web cannot matter) Nemotron cross-checked by decision-1, escalated to the verdict model on disagreement; `likely_organic` → cheap batch model, single shot, no web calls. |
+| `decide.py` | Decision gate: one Gemini Decisions API call (`gemini-decision-1`): could a web check change the call, and decision-1's own status. |
+| `nemotron.py` | Nemotron 3.5 Super VL single-shot verdict (Verda, reasoning off, JSON schema). |
 | `gemini.py`, `prompt.py`, `service.py`, `store.py` | Single-shot model, prompt, verdict pipeline, DB reads/writes. |
 | `pricing.py` | Gemini list prices for cost estimates (source and date inside). |
 | `compare.py` | Model comparison on real clusters (below). Writes nothing to the DB. |
@@ -56,50 +57,76 @@ Rules the code enforces:
   every tool call (tool, args, endpoint, URL, evidence id, cached, latency) is logged and kept in
   the verdict as `model_calls` / `tool_calls`, plus `cost_usd`.
 
-## Decision gate: skip the tool loop where the web cannot matter
+## Decision gate: fast where the web cannot matter, cross-checked where it is fast
 
 Most of a verdict's time is the verdict turn, not the tools: in production a tool-calling turn
-averaged 5.1 s and the verdict-writing turn 18.1 s (about 1,100 thinking tokens). So before a
-candidate cluster's agent run, `decide.py` asks the **Gemini Decisions API** one calibrated
-yes/no question over the same system prompt and evidence: *could a live web check change the
-assessment?* (~0.27 s p50, no output tokens). When `P(web) < ANALYST_GATE_MAX_P_WEB` (0.1), the
-verdict model (`GEMINI_MODEL`) answers once, without tools, at `ANALYST_FAST_THINKING=LOW`.
-Otherwise the full agent runs at default thinking, unchanged.
+averaged 5.1 s and the verdict-writing turn 18.1 s (about 1,100 thinking tokens). So a candidate
+cluster's verdict goes:
 
-- The gate never sets a status. The verdict model still makes its own call and guard still
-  checks every citation. The verdict keeps the trace in `gate` (`p_web`, `threshold`,
-  `latency_ms`, `route`: `single` or `agent`).
-- It fails open: any gate error (timeout, 404, Google's input filter) runs the full agent and
-  stores `gate.error`.
+```
+decision-1 (Gemini Decisions API, ~0.3 s): P(web check could change the call), own status
+  ├─ P(web) ≥ 0.1 ─▶ GEMINI_MODEL agent with tools, default thinking (unchanged)
+  └─ P(web) < 0.1 ─▶ Nemotron single shot (~2 s)
+                       ├─ same assessment as decision-1 ─▶ Nemotron's verdict
+                       └─ differs, or Nemotron fails ───▶ GEMINI_MODEL single shot, default thinking
+```
+
+- Two independent models must agree before the fast verdict stands; a disagreement is the case
+  worth Hydrogen's time. Neither model sets the status (the detector does), and guard checks
+  every citation as before. `gate` in the verdict keeps `p_web`, decision-1's `status`,
+  `latency_ms` and the `route` (`nemotron`, `escalated`, `single` when there is no Nemotron,
+  `agent`).
+- Failures take the slower path: a gate error (timeout, Google's input filter) runs the agent; a
+  Nemotron error, timeout or wrong model id escalates to GEMINI_MODEL.
+- Nemotron runs like the lookup reading (`lookup/assess.py`): the Verda endpoint
+  (`VERDA_INFERENCE_KEY`), reasoning off, VerdictDraft as the guided-decoding schema. Without the
+  key, or with `ANALYST_FAST_NEMOTRON=false`, the gated path is GEMINI_MODEL single shot.
 - The Decisions API runs only on `models/gemini-decision-1` (Hydrogen and the other generate
   models return 404), and only on `v1beta`: google-genai 3.3 defaults to `/v1/decisions`, which
   returns a bare 404, so `decide.py` passes `api_version="v1beta"`.
 - Off: `GEMINI_DECISION_MODEL=` (empty).
 
-Measured with `python -m analyst.compare --modes agent` and `--modes gated` (two processes, so
-no shared web cache) on the 15 tool-routed clusters from both runs below. Raw runs:
-`compare_results_gate.json`.
+### Correctness, scored against Bluesky's own takedowns
 
-| mode | model | JSON valid | citations valid | usable | agrees w/ detector | latency p50 / max (s) | cost / cluster | tool calls (mean) | tool evidence cited |
-|---|---|---|---|---|---|---|---|---|---|
-| agent | gemini-4-hydrogen | 15/15 | 100% | 15/15 | 6/15 | 29.2 / 49.5 | $0.0540 | 2.5 | 8 |
-| gated | gemini-4-hydrogen | 15/15 | 100% | 15/15 | 11/15 | 26.0 / 64.0 | $0.0436 | 1.9 | 10 |
+There are no hand labels yet (`eval/labels.py` has a frozen sample, unlabelled). The external
+signal we have is Bluesky moderation: a cluster counts as *taken down* when a member account was
+taken down or suspended within 24 h after the cluster was created (accounts actioned before
+are left out, as in `eval/takedowns.py`). It is a lower bound (moderation misses many bad
+accounts), and "no takedown" is not proof of organic. Sample: all 28 `coordinated`/`insufficient`
+clusters with a takedown, plus 32 random ones without. Every option ran single shot on the same
+prompt, with no web (where the web can matter, the agent runs in every design). Raw runs:
+`gate_takedown_results.json`.
 
-- **Gated clusters get 2.9x faster.** The gate sent 6 of 15 to the single call (149, 394, 405,
-  846, 37, 182; `p_web` 0.03-0.08): 125.6 s in total in agent mode, 43.5 s gated (about 21 s →
-  7 s each). The other 9 ran the same agent (337.0 s vs 326.5 s, within run-to-run noise). This
-  sample picks link-sharing clusters first, so the p50 moves little.
-- **None of the gated clusters needed the web.** In the earlier comparison runs Hydrogen cited
-  web evidence on 7 of these clusters. All 7 had `p_web` ≥ 0.148, and the gate sent them all to
-  the agent.
-- **Production mix**: the gate alone, run on the 120 most recent candidate clusters with a
-  verdict, would skip the tools on 33% (28/42 `coordinated`, 11/76 `insufficient`). Two
-  prompts were blocked by Google's input filter, and both went to the agent.
-- **Low thinking is less decisive.** On the gated clusters Hydrogen at LOW said `insufficient`
-  more often (846, 37, 182 went from `coordinated` to `insufficient`, which agrees with the
-  detector on all three). In a separate single-shot test, LOW changed the assessment on 3 of
-  15 clusters compared with default thinking.
+| option | coordinated, taken down (of 28) | coordinated, no takedown (of 32) | latency p50 / mean |
+|---|---|---|---|
+| detector status | 10 | 3 | – |
+| Hydrogen, default thinking | 17 | 4 | 11.8 / 12.1 s |
+| Hydrogen, LOW thinking | 15 | 3 | 6.2 / 6.4 s |
+| Nemotron alone | 12 | 3 | 1.8 / 1.8 s |
+| decision-1's status alone | 18 | 3 | 0.3 s (no explanation) |
+| **cascade (this code), live run** | **18** | **3 of 31** | **2.1 / 5.2 s** |
 
+- Nemotron alone is fast but mostly repeats the detector (16 of the 28 taken-down clusters
+  `insufficient`). LOW thinking costs Hydrogen accuracy. The cascade escalated 12 of 59 clusters
+  (20%) and matched the best option in both columns, at $0.0055 of Gemini per cluster.
+- On the clusters the gate actually sends to the fast path (`p_web` < 0.1, 12 here), the
+  cascade called all 7 taken-down clusters coordinated and none of the other 5.
+- The live run forced the fast path on all 60 (Google's input filter blocked one gate call, so
+  59 were scored). In the worker, only gated clusters take it.
+
+### Speed
+
+On the 15 tool-routed clusters of the model comparison (`--modes agent` vs `--modes gated` in
+two processes, so no shared web cache; raw runs `compare_results_gate.json`, measured with an
+earlier version whose fast path was LOW-thinking Hydrogen), the gate sent 6 clusters to the fast
+path (`p_web` 0.03-0.08) and 9 to the agent. The agent runs were unchanged (337.0 s vs 326.5 s in
+total, within run-to-run noise). The 7 of those 15 clusters where Hydrogen cited web evidence in
+the earlier runs all had `p_web` ≥ 0.148. In agent mode the 6 gated clusters took about 21 s
+each; the fast path now takes about 2 s (Nemotron), or about 14 s when it escalates. On the 120
+most recent candidate clusters with a verdict, the gate would send 33% to the fast path (28/42
+`coordinated`, 11/76 `insufficient`).
+
+## Verdict: the detector decides, Gemini explains
 
 `status` is always the detector's status. Gemini's own call is `llm_assessment`, with
 `agrees_with_detector` and `disagreement_reason`. A disagreement (for example Gemini finds the

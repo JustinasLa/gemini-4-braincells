@@ -5,11 +5,12 @@ The Gemini Decisions API answers calibrated questions about a shared input in on
 gemini-4-hydrogen return 404) and only on v1beta: google-genai defaults to /v1/decisions, which
 404s, so every call passes `api_version="v1beta"`.
 
-One question per cluster: could a live web check change the assessment? When P(web) is below
-the threshold, the runner skips the agent's tool loop and asks the verdict model once with low
-thinking (about 2x faster: the verdict turn, not the tool turns, is where the time goes). The
-gate never decides a status: the verdict model still makes its own call and guard still checks
-it. Any gate failure falls back to the full agent.
+Two questions per cluster, in the same call:
+- needs_web: could a live web check change the assessment? Below the threshold the runner skips
+  the agent's tool loop (the verdict turn, not the tool turns, is where the time goes).
+- status: decision-1's own calibrated call. The fast path uses it only as a cross-check: a
+  Nemotron verdict that disagrees with it is escalated to Hydrogen (analyst/runner.py).
+The gate never sets a status. Any gate failure falls back to the full agent.
 """
 
 import logging
@@ -45,6 +46,16 @@ NEEDS_WEB = {
     },
 }
 
+STATUS = {
+    "type": "choice",
+    "instructions": "Your own assessment of the behaviour evidence.",
+    "criteria": {
+        "coordinated": "the behaviour evidence shows accounts acting in concert",
+        "likely_organic": "the evidence fits independent people reacting to the same thing",
+        "insufficient": "the evidence does not support either call with confidence",
+    },
+}
+
 
 @dataclass
 class GateResult:
@@ -53,6 +64,8 @@ class GateResult:
     threshold: float
     latency_ms: int
     input_tokens: int | None
+    status: str | None = None  # decision-1's own call (cross-check only)
+    status_confidence: float | None = None
 
     @property
     def skip_tools(self) -> bool:
@@ -86,10 +99,11 @@ class DecisionGate:
                 api_version=API_VERSION,
                 model=f"models/{self.name}",
                 input=f"{system}\n\n{prompt}",
-                questions={"needs_web": NEEDS_WEB},
+                questions={"needs_web": NEEDS_WEB, "status": STATUS},
                 timeout=self._timeout_s,
             )
             p_web = float(res.answers["needs_web"].noul)
+            status = res.answers.get("status")
         except Exception as exc:  # the gate is an optimisation: never block a verdict on it
             log.warning(
                 "decision gate failed (%s: %s); running the full agent", type(exc).__name__, exc
@@ -102,13 +116,19 @@ class DecisionGate:
             threshold=self.threshold,
             latency_ms=int((time.monotonic() - started) * 1000),
             input_tokens=getattr(usage, "total_input_tokens", None),
+            status=getattr(status, "choice", None),
+            status_confidence=(
+                round(status.confidence, 4) if getattr(status, "confidence", None) else None
+            ),
         )
         log.info(
-            "decision gate model=%s p_web=%.3f threshold=%.2f skip_tools=%s latency_ms=%d",
+            "decision gate model=%s p_web=%.3f threshold=%.2f skip_tools=%s status=%s "
+            "latency_ms=%d",
             result.model,
             result.p_web,
             result.threshold,
             result.skip_tools,
+            result.status,
             result.latency_ms,
         )
         return result

@@ -19,10 +19,11 @@ class Settings(BaseSettings):
     analyst_max_web_calls: int = 4  # live Oxylabs requests per cluster (cache hits are free)
     analyst_time_budget_s: float = 120.0
     # Decision gate (analyst/decide.py): gemini-decision-1 skips the tool loop for candidate
-    # clusters where a web check cannot change the call; those get one low-thinking verdict.
+    # clusters where a web check cannot change the call. Those get a Nemotron verdict (Verda),
+    # escalated to GEMINI_MODEL single-shot when it disagrees with decision-1's own call.
     gemini_decision_model: str = "gemini-decision-1"  # "" turns the gate off
     analyst_gate_max_p_web: float = 0.1  # skip tools when P(web check matters) is below this
-    analyst_fast_thinking: str = "LOW"  # thinking level of the gated single-shot verdict
+    analyst_fast_nemotron: bool = True  # needs VERDA_INFERENCE_KEY; off = Hydrogen single-shot
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_media_model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b"

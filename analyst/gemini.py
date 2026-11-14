@@ -27,7 +27,6 @@ class GeminiVerdictModel:
         model: str,
         *,
         temperature: float = 0.2,
-        thinking_level: str | None = None,
         client=None,
     ):
         if client is None:
@@ -37,7 +36,6 @@ class GeminiVerdictModel:
         self._client = client
         self.name = model
         self._temperature = temperature
-        self._thinking_level = thinking_level or None  # None = the model's default
         self.last_call: dict = {}
 
     @classmethod
@@ -55,11 +53,6 @@ class GeminiVerdictModel:
                 response_mime_type="application/json",
                 response_schema=VerdictDraft,
                 temperature=self._temperature,
-                thinking_config=(
-                    types.ThinkingConfig(thinking_level=self._thinking_level)
-                    if self._thinking_level
-                    else None
-                ),
             ),
         )
         usage = res.usage_metadata
