@@ -47,6 +47,11 @@ Write a short, plain reading for a general audience:
   publisher, event date and publication date. Distinguish each date and cite those pages in
   media_provenance_cites. Call a search-only match a lead, not verified provenance. If no
   attribution was read, leave this null. Attribution is not an exact-image comparison.
+- image_matches: crawl_date is when an engine first saw the picture, not its publication
+  date; it is at least that old and may be older. image_origin_id is separate from the text
+  origin. Say "edited" and list observed changes, never "fake" or "deepfake"; cite receipt ids.
+  An "edited" match with no listed changes differs only in pixels (a strong colour or
+  brightness filter can do that): never present it alone as a change of content.
 - spread_pattern: describe the copies: how many accounts, how fast, verbatim or quoted,
   established or new accounts. Facts only.
 - counter_evidence: reasons the spread may be ordinary (famous author, news event, people
@@ -190,6 +195,21 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
             for x in r.receipts
         ],
         "notes": r.notes,
+        "image_origin_id": r.image_origin_id,
+        "image_matches": [
+            {
+                "id": match.id,
+                "engine": match.engine,
+                "domain": match.domain,
+                "page_url": match.page_url,
+                "first_seen": match.first_seen,
+                "time_source": match.time_source,
+                "relation": match.relation,
+                "changes": match.changes[:4],
+                "receipt_id": match.receipt_id,
+            }
+            for match in r.image_matches[:12]
+        ],
     }
     return json.dumps(data, default=str, ensure_ascii=False)
 

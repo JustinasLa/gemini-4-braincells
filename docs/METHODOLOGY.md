@@ -265,6 +265,21 @@ that id is not a VL model. The model is told to describe only what is visible, n
 intent, and not to describe sexual images (a code guard enforces that too). Prompt iterations and
 their measured effect: `media/README.md`.
 
+For ad-hoc image lookups, `lookup/imagetrace.py` also asks TinEye and Yandex through Oxylabs
+for visual candidates, independently of OCR. Downloaded candidates are compared in code;
+unrelated pictures are dropped, and Nemotron describes changes in edited/cropped copies.
+Every request has a receipt. Downloads check public DNS addresses, pin the checked IP, check
+redirects, and bound time/bytes. Optional comparison modules may be unavailable; then candidates
+remain explicitly `unknown`. The separate `image_origin_id` requires a same/resized/cropped
+match whose first-seen upper bound predates every dated verified post that may carry the picture
+(the submitted post and its copies with an image, or any post showing one of the picture's own
+copies; not text-only copies, the author's other posts or replies). TinEye crawl dates say
+the picture is at least that old, not when it was published or who created it; day-only dates
+use the following midnight as a conservative bound. Text origin and coordination status do
+not change. Visual differences are described as **edited**, with the observed changes; an
+`edited` relation without listed changes is a pixel difference only (a strong colour filter can
+cause one), never on its own evidence that the content changed.
+
 ## Ad-hoc checks: `POST /api/analyze`
 
 Anyone can submit a handle, link or text. The answer keeps two questions apart:
