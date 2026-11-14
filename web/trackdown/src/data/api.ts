@@ -49,7 +49,7 @@ async function getJson<T>(url: string, init?: RequestInit, ms = 6000): Promise<T
 
 export async function listLive(limit = 12): Promise<ClusterSummary[]> {
   try {
-    const rows = await getJson<ClusterSummary[]>(`api/clusters?limit=${limit}`);
+    const rows = await getJson<ClusterSummary[]>(`/api/clusters?limit=${limit}`);
     return Array.isArray(rows) ? rows : [];
   } catch {
     return [];
@@ -69,7 +69,7 @@ const toolFor = (model?: string | null, kind?: string): Tool =>
 
 /** Turn a cluster detail into a trace: each shared item's earliest post is the parent of later ones. */
 export async function liveCase(id: number): Promise<TraceCase> {
-  const d = await getJson<ClusterDetail>(`api/clusters/${id}`);
+  const d = await getJson<ClusterDetail>(`/api/clusters/${id}`);
   const members = new Map(d.members.map((m) => [m.did, m]));
   const posts = [...d.posts].filter((p) => p.created_at || p.seen_at).sort((a, b) => Date.parse(a.seen_at ?? a.created_at!) - Date.parse(b.seen_at ?? b.created_at!));
   const nodes: TraceNode[] = posts.map((p) => {
@@ -149,7 +149,7 @@ export async function analyze(input: string): Promise<TraceCase | null> {
   const body = /^https?:\/\//.test(input.trim()) ? { url: input.trim() } : /^@?[\w-]+(\.[\w-]+)+$/.test(input.trim()) ? { handle: input.trim().replace(/^@/, "") } : { text: input };
   let res: AnalyzeResponse;
   try {
-    res = await getJson<AnalyzeResponse>("api/analyze", { method: "POST", body: JSON.stringify(body) }, 45000);
+    res = await getJson<AnalyzeResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body) }, 45000);
   } catch {
     return null;
   }

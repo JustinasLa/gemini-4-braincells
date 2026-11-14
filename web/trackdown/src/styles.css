@@ -60,6 +60,28 @@ a { color: inherit; }
 .app:not(.tools) .minimap, .app:not(.tools) .legend { display: none; }
 .app.tools .zoom button[data-z="tools"] { color: var(--cv); }
 .term { display: none; }
+.term.lookup-progress { display: block; }
+.lookup-active .st-skip { display: none; }
+.lookup-active .panel { border-left-color: var(--line); }
+@media (min-width: 860px) {
+  .app.lookup-active { grid-template-columns: 0px 1fr 400px; }
+}
+.term .txt small { display: block; color: var(--text-3); line-height: 1.5; }
+.term [data-state="failed"], .lookup-error { color: var(--shill); }
+.term [data-state="pending"], .term [data-state="skipped"] { opacity: .6; }
+.lookup-message { color: var(--text-2); font: 400 13px/1.6 var(--sans); white-space: pre-line; }
+.receipt-meta { margin: 8px 0; color: var(--text-3); font: 400 10px/1.6 var(--mono); overflow-wrap: anywhere; }
+.data-group { margin: 12px 0; padding: 12px; border: 1px solid var(--line); }
+.data-group h4 { margin: 0 0 10px; font: 500 13px var(--sans); }
+.data-group dl { margin: 0; font: 400 12px/1.6 var(--sans); }
+.data-group dt { color: var(--text-3); margin-top: 7px; }
+.data-group dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+.data-group .src { font: 400 11px/1.6 var(--mono); color: var(--source); overflow-wrap: anywhere; }
+.platform-x { margin-left: auto; font: 600 20px var(--sans); color: var(--text); }
+.card.plat-x { border-top-color: #777; }
+.media.source-photo { height: auto; background: none; }
+.source-photo img { display: block; width: 100%; max-height: 190px; object-fit: contain; }
+.t-bluesky, .ev.t-bluesky { --tc: #6caaff; }
 
 /* ---------- top bar (Junction site) ---------- */
 .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 22px; padding: 0 16px 0 22px; background: rgba(5, 5, 6, 0.96); border-bottom: 1px solid var(--line); position: relative; z-index: 30; }

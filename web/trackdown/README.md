@@ -10,9 +10,13 @@ npm install
 npm run dev                         # http://127.0.0.1:3001 (proxies /api to API_ORIGIN, default :8000)
 API_ORIGIN=http://127.0.0.1:8020 npm run dev
 npm run build                       # static files in dist/ (relative paths, works under any prefix)
+npm run ship                        # build and copy to ../public/trackdown/ for Caddy
 ```
 
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
+`?lookup=<URL-encoded link>` starts a live lookup. In the Vite development server only,
+`?mockLookup` runs a progressive fictional fixture; the header, panel and console label it MOCK.
+The fixture is excluded from production builds and never runs by default.
 
 ## Look
 
@@ -67,14 +71,34 @@ Keys: `N` trace a post · `Space` play/pause · `F` fit · `T` timeline/web · `
   *Historical record*. It is not scored and was not run through the detector. Its one present-day
   repost is marked as illustrative. It shows the honesty point: a picture can be wrong without its
   spread being coordinated.
-- **Live clusters**: when `GET api/clusters` answers, they're listed under "From the monitor" and
+- **Live clusters**: when `GET /api/clusters` answers, they're listed under "From the monitor" and
   converted by `liveCase()` (`src/data/api.ts`) from the `ClusterDetail` shape in
   `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
   them. Parent links are inferred: a post's parent is the earliest earlier post sharing its link,
   image hash or normalised text.
-- **Trace a post** calls `POST api/analyze`. `matched` opens that cluster; `insufficient` shows
-  the web findings as source cards with no verdict. If the API isn't reachable, the app runs a
-  simulated trace with the user's text and says so (toast, badge, verdict text).
+- **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise,
+  then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
+  the step console, cards and receipts. The verdict coin is revealed only for a completed job;
+  failures and timeouts leave partial receipts available without a final verdict. Starting another
+  trace cancels the previous client polling. All API paths are absolute so `/trackdown/` works.
+- **Real lookup data**: posts, platform engagement snapshots, profile facts, linked pages and
+  their exact timestamps come from the backend contract in `lookup/README.md`. Selected cards
+  show source URLs and receipt ids, plus each receipt's endpoint, latency and request id. X
+  snowflake timestamps are labelled "time from post id". Missing facts stay unknown; cards with
+  missing times use the submitted time (or lookup start) for layout only and say "time unknown".
+  Nemotron descriptions/OCR and the cited Gemini reading are model inferences, not verified facts.
+- **Samples, not a census**: copy-search results and recent profile posts are sampled. Spread
+  counts, first-hour accounts, times and gaps describe only that sample; notes stay visible.
+  A group of three or more accounts copying text is labelled as a copy sample with `insufficient`
+  status, never a coordination verdict. Only a matched monitored cluster supplies the detector
+  status. Cluster summaries do not identify memberships, so no lookup account is silently assigned
+  to a monitored cluster. If several match, the first returned cluster supplies the headline status;
+  all matched statuses remain visible in Provenance. Otherwise coordination says "Can't tell (yet)".
+- **Fallbacks**: an unavailable lookup (404/503/network) tries `POST /api/analyze`; only if that
+  path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
+  rate limits (429), job failure and timeout show an error instead of silently inventing a trace.
+- **Hosting**: `npm run ship` refreshes `web/public/trackdown/`. Caddy redirects `/trackdown` to
+  `/trackdown/` and uses `/trackdown/index.html` for that app's fallback, not the main dashboard.
 - Wording: "Shill" labels a cluster's spread. Cards in a cluster are called "In coordinated
   cluster"; no account is ever called a shill.
 

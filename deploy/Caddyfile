@@ -4,6 +4,12 @@
 	handle /api/* {
 		reverse_proxy api:8000
 	}
+	redir /trackdown /trackdown/ 308
+	handle /trackdown/* {
+		root * /srv/web
+		try_files {path} /trackdown/index.html
+		file_server
+	}
 	handle {
 		root * /srv/web
 		try_files {path} /index.html
