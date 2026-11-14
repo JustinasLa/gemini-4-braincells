@@ -111,6 +111,9 @@ class Candidate:
     metrics: Metrics | None
     receipt_id: int | None
     source: str = ""  # how it was found: searchPosts | author_feed | /search | profile ...
+    # X shows "Last edited": its page (and id, so its time) is the latest version; a screenshot
+    # of an earlier version may differ from it
+    edited: bool = False
 
 
 MIN_SIMILARITY = 0.5  # below this no candidate is taken to be the post in the screenshot
@@ -408,6 +411,11 @@ def judge(
     if post_only:
         r.differences.append(
             "Words in the real post missing from the screenshot: " + _quoted(post_only)
+        )
+    if best.edited and (changes or r.time_check == "inconsistent"):
+        r.differences.append(
+            "The real post was edited (X shows 'Last edited'); the screenshot may show an "
+            "earlier version of it."
         )
     if _after(best.created_at, anchor):
         r.differences.append(

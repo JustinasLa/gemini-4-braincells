@@ -764,3 +764,50 @@ def test_unknown_platform_with_a_non_x_handle_searches_bluesky_only(monkeypatch)
     s = shot(platform="unknown", handle="hanna.bsky.social")
     r = find_original(s, deps(bsky=object(), oxylabs=object()), Budget.seconds(30))
     assert r.label == "matches"
+
+
+# ---------------------------------------------------------------- edited X posts
+
+
+def _edited_candidate():
+    from lookup.receipts_x import _candidate
+    from lookup.xpage import parse_post_page
+    from tests.test_lookup import EDITED_MD
+
+    m = parse_post_page(EDITED_MD, "2121316314375749699").main
+    return _candidate(m, 1, "/search")  # its id is the edited version's: time = the edit
+
+
+@pytest.mark.parametrize(
+    "shown, anchor, check",
+    [
+        # 18:56 UTC edit, shown in a viewer's UTC+2: the normal +-14 h window applies
+        ("Last edited 8:56 PM · Nov 13, 2026", ANCHOR, "consistent"),
+        ("Last edited 6:56 PM · Nov 20, 2026", datetime(2026, 11, 21, tzinfo=UTC), "inconsistent"),
+        ("6:56 PM · Nov 13, 2026 · Not edited", ANCHOR, "consistent"),
+    ],
+)
+def test_edited_x_post_end_to_end_time(shown, anchor, check):
+    c = _edited_candidate()
+    assert c.edited and c.created_at == datetime(2026, 11, 13, 18, 56, 36, 155000, tzinfo=UTC)
+    r = judge(shot(platform="x", handle="ada_example", text=c.text, shown_time=shown), [c], anchor)
+    assert r.time_check == check
+    noted = any("may show an earlier version" in d for d in r.differences)
+    assert noted == (check == "inconsistent")  # only when it differs
+
+
+def test_no_edit_note_for_a_post_that_was_not_edited():
+    s = shot(text=TEXT.replace("spring", "autumn"))
+    r = judge(s, [cand()], ANCHOR)
+    assert r.label == "differs"
+    assert not any("earlier version" in d for d in r.differences)
+
+
+def test_edited_real_post_that_differs_says_it_was_edited():
+    c = _edited_candidate()
+    s = shot(
+        platform="x", handle="ada_example", text=c.text.replace("6:40", "6:30"), shown_time=None
+    )
+    r = judge(s, [c], ANCHOR)
+    assert r.label == "differs"
+    assert any("may show an earlier version" in d for d in r.differences)
