@@ -78,6 +78,13 @@ export interface SwarmDetail extends SwarmCard {
 
 export interface SwarmWall { items: SwarmCard[]; as_of: string | null; window_h: number | null }
 
+/** The swarm page's Back control: "history" when the app opened the page over one of its own
+ *  screens (a wall tile, "Live on Bluesky": main.ts pushes `{ swarm, inApp: true }`), so the
+ *  browser's Back restores that screen exactly; "home" when it was opened from a link. */
+export function swarmBackTarget(state: unknown): "history" | "home" {
+  return !!state && typeof state === "object" && (state as { inApp?: unknown }).inApp === true ? "history" : "home";
+}
+
 /** a lookup's pointer to the live Bluesky group of the same picture (its page is ?swarm=<id>) */
 export interface SwarmLiveRef { id: string; verdict: SwarmVerdict; n_accounts: number }
 

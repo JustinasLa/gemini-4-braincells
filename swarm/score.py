@@ -8,10 +8,13 @@ correlated, so they are never added up), plus organic guards that point the othe
   accounts  same_cohort, empty_profiles (tested against a baseline), templated_handles, same_bio
   copy      same_text, near_same_text, same_file (not when the group was picked by its file)
   boost     closed_loop, fast_boost, repeat_posters, boost_ratio
-  guards    own_words, own_files, established_accounts, slow_spread, conversation
+  guards    own_words, own_files, established_accounts, slow_spread, conversation,
+            one_publisher
 
 Share-based scores are the Wilson 95% lower bound of the share, so a small group needs a near
-unanimous share to score at all ("5 of 5" ~0.57, "43 of 43" ~0.92).
+unanimous share to score at all ("5 of 5" ~0.57, "43 of 43" ~0.92). A share tested against a base
+rate (fresh accounts and empty profiles against the baseline, minted handles and identical bios
+against a small allowance) scores its excess over that rate, not the share itself.
 
 Verdict, by rule:
 
@@ -21,6 +24,9 @@ Verdict, by rule:
            of only two)
   organic  no family fired and guard >= guard_strong (and, without an observation window, the
            timed posts span at least organic_min_span_s)
+  publisher  the one exception: when the one_publisher guard is strong and the accounts family
+           did not fire, timing and copy are not evidence: organic for long-standing accounts,
+           else unclear ("one name, new accounts")
   unclear  everything else, and always below min_accounts posting accounts
 
 A popular picture is not evidence: no signal counts posts or likes on their own. Signals describe
@@ -113,6 +119,15 @@ def _wilson(k: float, n: int, z: float) -> float:
     centre = p + z2 / (2 * n)
     margin = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
     return max(0.0, (centre - margin) / (1 + z2 / n))
+
+
+def _excess(lb: float, base: float, cfg: SwarmConfig) -> float:
+    """A share's excess over a base rate: 0 at the base rate, 1 at excess_full of the way from it
+    to 100% (lb is the share's Wilson lower bound)."""
+    span = (1 - base) * cfg.excess_full
+    if span <= 0:
+        return 0.0
+    return min(1.0, max(0.0, (lb - base) / span))
 
 
 def _binom_sf(k: int, n: int, p: float) -> float:
@@ -510,20 +525,63 @@ def _handle_shape(handle: str) -> str:
 def _tested_share(
     ctx: _Ctx, k: int, n: int, rate: float | None, baseline: Baseline | None
 ) -> tuple[float, float | None]:
-    """(score, p) of a share tested against a baseline rate. It fires (full Wilson bound) only
-    with a baseline, p <= p_strong and n >= min_tested_accounts; a weaker or untested share is
-    capped below family_fire; a share the baseline calls ordinary (p > p_weak) scores 0."""
+    """(score, p) of a share tested against a baseline rate. The score is the share's excess over
+    the base rate (_excess of its Wilson bound), not the raw share: 14 of 26 against 3% is far
+    stronger than 14 of 26 against 40%. It can fire only with a baseline, p <= p_strong and
+    n >= min_tested_accounts; a weaker share is capped below family_fire; a share the baseline
+    calls ordinary (p > p_weak) scores 0. Without a baseline the raw bound, capped, is shown."""
     cfg = ctx.cfg
     lb = ctx.wilson(k, n)
     if baseline is None or baseline.n < cfg.baseline_min_n or rate is None:
         return min(cfg.no_baseline_cap, lb), None
     p0 = (rate * baseline.n + 1) / (baseline.n + 2)
     p = _binom_sf(k, n, p0)
+    score = _excess(lb, p0, cfg)
     if p <= cfg.p_strong and n >= cfg.min_tested_accounts:
-        return lb, p
+        return score, p
     if p <= cfg.p_weak:
-        return min(cfg.no_baseline_cap, lb), p
+        return min(cfg.no_baseline_cap, score), p
     return 0.0, p
+
+
+_STEM = re.compile(r"^([a-z]+)((?:[-_]?\d+)(?:[-_]\d+)*)?$")
+_TAG = re.compile(r"^([a-z]+)(\d+)$")
+
+
+def _minted(handles: list[tuple[str, str]], cfg: SwarmConfig) -> set[str]:
+    """Accounts whose handles look minted from one stem plus a counter (see config). Each family
+    needs min_template_accounts accounts with distinct suffixes, and at least
+    min_template_accounts and half of them small counters (<= minted_counter_max, or no number).
+    Fans' handles share words or meaningful numbers, not counters (taylornation13, swiftie1989)."""
+    small_max = cfg.minted_counter_max
+    lo, hi = cfg.minted_tag_letters
+    groups: dict[tuple[str, str], list[tuple[str, str, int]]] = defaultdict(list)
+    for a, h in handles:
+        local = _local(h)[0]
+        m = _STEM.match(local)
+        if m and len(m.group(1)) >= cfg.minted_stem_min_letters:
+            suffix = m.group(2) or ""
+            nums = _DIGITS.findall(suffix)
+            groups[("stem", m.group(1))].append((a, suffix, int(nums[-1]) if nums else 0))
+        m = _TAG.match(local)
+        if m:
+            letters, digits = m.groups()
+            for n in range(lo, hi + 1):
+                if len(letters) >= n + cfg.minted_tag_min_name:
+                    groups[("tag", letters[-n:])].append((a, digits, int(digits)))
+    out: set[str] = set()
+    for key in sorted(groups):
+        members = groups[key]
+        accs = {a for a, _, _ in members}
+        if len(accs) < cfg.min_template_accounts:
+            continue
+        if len({suffix for _, suffix, _ in members}) < cfg.min_template_accounts:
+            continue
+        small = sum(1 for _, _, v in members if v <= small_max)
+        if small < cfg.min_template_accounts or 2 * small < len(members):
+            continue
+        out |= accs
+    return out
 
 
 def _accounts(ctx: _Ctx, baseline: Baseline | None) -> list[SwarmSignal]:
@@ -531,6 +589,10 @@ def _accounts(ctx: _Ctx, baseline: Baseline | None) -> list[SwarmSignal]:
     out: list[SwarmSignal] = []
     known = [(a, ctx.info[a]) for a in ctx.accounts if a in ctx.info]
     base_ok = baseline is not None and baseline.n >= cfg.baseline_min_n
+
+    # One family, scored as its strongest signal: fresh accounts, empty profiles, minted handles
+    # and copied bios come from the same accounts and move together (a signup wave is both fresh
+    # and empty), so adding them would count one account several times.
 
     # same_cohort: more fresh accounts than the baseline. A same-week bunch is only the wording
     # when the fresh accounts also joined together; an old signup wave is ordinary.
@@ -571,7 +633,8 @@ def _accounts(ctx: _Ctx, baseline: Baseline | None) -> list[SwarmSignal]:
                     )
                 )
 
-    # templated_handles: one handle shape with digits (user482913 -> a999999)
+    # templated_handles: one handle shape with digits (user482913 -> a999999), or handles minted
+    # from one stem plus a counter (nextbuy01, nextbuy-2, logannb001, scottnb002)
     handles = [(a, i.handle) for a, i in known if i.handle and i.handle.lower() != "handle.invalid"]
     if len(handles) >= cfg.min_template_handles:
         shapes: dict[str, list[str]] = defaultdict(list)
@@ -582,15 +645,27 @@ def _accounts(ctx: _Ctx, baseline: Baseline | None) -> list[SwarmSignal]:
         best = max(sorted(shapes), key=lambda s: len(shapes[s]), default=None)
         top = shapes[best] if best else []
         lb = ctx.wilson(len(top), len(handles))
-        score = max(0.0, (lb - cfg.handle_background) / (1 - cfg.handle_background))
-        if len(top) >= cfg.min_template_accounts and score > 0:
+        shape_score = max(0.0, (lb - cfg.handle_background) / (1 - cfg.handle_background))
+        if len(top) < cfg.min_template_accounts:
+            shape_score = 0.0
+        minted = _minted(handles, cfg)
+        minted_score = _excess(ctx.wilson(len(minted), len(handles)), cfg.minted_background, cfg)
+        alike = len(minted) if minted_score > shape_score else len(top)
+        score = max(shape_score, minted_score)
+        if score > 0:
             out.append(
                 _signal(
                     "accounts",
                     "templated_handles",
                     score,
-                    f"{len(top)} of {len(handles)} handles alike",
-                    {"alike": len(top), "with_handle": len(handles), "shape": best},
+                    f"{alike} of {len(handles)} handles alike",
+                    {
+                        "alike": alike,
+                        "with_handle": len(handles),
+                        "shape": best,
+                        "shape_count": len(top),
+                        "minted": len(minted),
+                    },
                 )
             )
 
@@ -642,7 +717,10 @@ def _accounts(ctx: _Ctx, baseline: Baseline | None) -> list[SwarmSignal]:
             weight = (
                 min(1.0, len(g.split()) / cfg.bio_full_words) if kind == "bio" else cfg.name_weight
             )
-            score = ctx.wilson(len(members), len(keyed)) * weight
+            # measured among the accounts that have one (no bio says nothing about copying),
+            # as the excess over identical bios by chance: 6 of 7 is most of the bios there are
+            lb = ctx.wilson(len(members), len(keyed))
+            score = _excess(lb, cfg.same_bio_background, cfg) * weight
             if best_sig is None or score > best_sig.score:
                 best_sig = _signal(
                     "accounts",
@@ -1029,6 +1107,109 @@ def _guards(ctx: _Ctx, timing_score: float) -> list[SwarmSignal]:
     return out
 
 
+def _name_parts(info: AccountInfo) -> list[str]:
+    """Letter runs of the handle's local part, and the display name's letters joined
+    ("AT7-Coventry" -> ["at", "coventry"]; "Roof Depot Milwaukee" -> "roofdepotmilwaukee")."""
+    parts: list[str] = []
+    if info.handle and info.handle.lower() != "handle.invalid":
+        parts += _LETTERS.findall(unicodedata.normalize("NFKC", _local(info.handle)[0]))
+    if info.name:
+        joined = _profile_norm(info.name).replace(" ", "")
+        if joined:
+            parts.append(joined)
+    return [x[:40] for x in parts]
+
+
+def _is_counter(handle: str | None, stem: str) -> bool:
+    """The handle without the stem is a number, not a word (genlabs48, yourmuscleshop21)."""
+    if not handle:
+        return False
+    rest = _local(handle)[0].replace(stem, "", 1)
+    return bool(_DIGITS.search(rest)) and len("".join(_LETTERS.findall(rest))) < 2
+
+
+def _publisher(ctx: _Ctx, accounts_score: float) -> list[SwarmSignal]:
+    """one_publisher (guard, accounts family): the posting accounts openly carry one name, like
+    an organisation's venue or branch accounts (ahc-coventry, xcel-coventry; roofdepotkenosha,
+    roofdepotjackson). Most posting accounts hold one stem of publisher_stem_min+ letters (not a
+    generic token) in the handle or display name, the rest of each name is words rather than a
+    counter, and most holders were created together. Never computed when the accounts family
+    fired: minted handles, a fresh cohort or copied bios are a ring, not a publisher.
+
+    numbers["established"] says whether the posting accounts are long-standing (median age at
+    least publisher_established_days, known for most of them); the verdict reads it."""
+    cfg = ctx.cfg
+    if accounts_score >= cfg.family_fire or ctx.n < cfg.min_accounts:
+        return []
+    generic = sorted(set(cfg.publisher_generic), key=len, reverse=True)
+
+    def meaningful(stem: str) -> bool:
+        rest = stem
+        for g in generic:
+            rest = rest.replace(g, "")
+        return len(rest) >= 4
+
+    known = [(a, ctx.info[a]) for a in ctx.accounts if a in ctx.info]
+    holders_of: dict[str, set[str]] = defaultdict(set)
+    k = cfg.publisher_stem_min
+    for a, i in known:
+        subs = {
+            part[x : x + n]
+            for part in _name_parts(i)
+            for n in range(k, len(part) + 1)
+            for x in range(len(part) - n + 1)
+        }
+        for sub in subs:
+            holders_of[sub].add(a)
+    need = max(cfg.publisher_min_accounts, math.ceil(cfg.publisher_min_share * ctx.n))
+    ranked = sorted(
+        (sub for sub, h in holders_of.items() if len(h) >= need and meaningful(sub)),
+        key=lambda sub: (-len(holders_of[sub]), -len(sub), sub),
+    )
+    for stem in ranked[:20]:
+        holders = sorted(a for a in holders_of[stem] if not _is_counter(ctx.info[a].handle, stem))
+        if len(holders) < need:
+            continue
+        created = sorted(
+            _ts(ctx.info[a].created_at) for a in holders if ctx.info[a].created_at is not None
+        )
+        together = _densest(np.array(created), cfg.publisher_created_days * DAY)[0]
+        if together < cfg.publisher_min_accounts or together < (
+            cfg.publisher_together_share * len(created)
+        ):
+            continue
+        ages = sorted(
+            ctx.ref_t[a] - _ts(i.created_at)
+            for a, i in known
+            if i.created_at is not None and a in ctx.ref_t
+        )
+        median_days = float(np.median(ages)) / DAY if ages else None
+        established = (
+            median_days is not None
+            and len(ages) >= cfg.publisher_known_share * ctx.n
+            and median_days >= cfg.publisher_established_days
+        )
+        return [
+            _signal(
+                "accounts",
+                "one_publisher",
+                # the raw share, not a Wilson bound: the evidence is the structure above (4+
+                # holders, word names, created together, no ring signs), not a sampled rate
+                len(holders) / ctx.n,
+                f"{len(holders)} accounts, one name",
+                {
+                    "accounts": len(holders),
+                    "posting_accounts": ctx.n,
+                    "created_together": together,
+                    "median_age_days": _r(median_days) if median_days is not None else None,
+                    "established": int(established),
+                },
+                against=True,
+            )
+        ]
+    return []
+
+
 # ---------------------------------------------------------------- timeline --------------------
 def _timeline(
     ctx: _Ctx, sightings: list[Sighting], burst: Burst | None, flag_burst: bool
@@ -1227,6 +1408,7 @@ def score_swarm(
     sigs += _boost(ctx)
     fam = {f: max([s.score for s in sigs if s.family == f], default=0.0) for f in FAMILIES}
     guards = _guards(ctx, fam["timing"])
+    guards += _publisher(ctx, fam["accounts"])
 
     fired = [f for f in FAMILIES if fam[f] >= cfg.family_fire]
     top2 = sorted(fam.values(), reverse=True)[:2]
@@ -1249,8 +1431,22 @@ def score_swarm(
         and t_info["span_s"] < cfg.organic_min_span_s
     )
 
+    # The one exception to "a guard never overrides a fired family" (review finding 5): accounts
+    # that openly carry one name are one publisher (a leisure trust's venue accounts posting the
+    # same job advert at 09:00). Its own scheduled, identical posts are what timing and copy show
+    # anyway, so they are not evidence of a swarm. Long-standing accounts: organic. Younger ones:
+    # unclear, as a franchise's marketing accounts and an ad network look the same. Never when
+    # the accounts family fired (minted handles, a fresh cohort, copied bios).
+    pub = next((g for g in guards if g.name == "one_publisher"), None)
+    publisher = pub is not None and pub.score >= cfg.guard_strong and "accounts" not in fired
+
     if len(accs) < cfg.min_accounts:
         verdict, why = "unclear", f"only {_accounts_word(len(accs))}"
+    elif publisher:
+        if pub.numbers.get("established"):
+            verdict, why = "organic", ""
+        else:
+            verdict, why = "unclear", "one name, new accounts"
     elif (
         len(fired) >= cfg.min_families_swarm
         and score >= cfg.min_score_swarm

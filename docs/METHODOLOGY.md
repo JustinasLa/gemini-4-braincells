@@ -300,7 +300,7 @@ A second, separate question about one picture: is it being pushed by a swarm (bo
 astroturfing, brigading), or did people find it and post it themselves? The input is the posts
 that carry the picture, the boosts of those posts, and whatever is known about the accounts
 (`swarm/model.py`). The scorer is `swarm/score.py`; its settings are in `swarm/config.py`, and
-their version (`swarm-v2`) is stored on every report. `swarm/README.md` lists every signal.
+their version (`swarm-v3`) is stored on every report. `swarm/README.md` lists every signal.
 
 - **Four families**, each scored as the max of its signals, like the clusters above: `timing`
   (bursts, posts seconds apart, clockwork gaps), `accounts` (many new accounts, alike handles,
@@ -320,19 +320,33 @@ their version (`swarm-v2`) is stored on every report. `swarm/README.md` lists ev
   tested and combined with Bonferroni.
 - **Account signals are tested against a baseline.** Many new accounts or many empty profiles
   count only against the rate in a random sample of active accounts (binomial p <= 0.01, 8+
-  accounts); without a baseline they stay below the firing level. Accounts that joined in the
-  same week long ago (Bluesky had large signup waves) are ordinary.
+  accounts), and score how far the share is above that rate, not the share itself; without a
+  baseline they stay below the firing level. Accounts that joined in the same week long ago
+  (Bluesky had large signup waves) are ordinary. Handles minted from one stem plus a counter
+  (`goodstuff01`, `nextbuy-2`, `logannb001`) and identical bios (measured among the accounts that
+  have a bio) count as their excess over a small allowance; a shared word in fans' handles does
+  not. The accounts family is still its strongest signal, not a sum: these signs usually come
+  from the same accounts.
 - **Reused words weigh by length.** Thirty accounts writing "lol" is not evidence; thirty
   accounts writing the same sentence is. Empty text is never reuse.
 - **Organic guards**: most accounts wrote their own words, many different files of the picture
   (capped: bots re-upload too; not used on X, where every upload has its own key), old accounts
-  with followers, a slow spread with no burst (capped, never decides alone), and posters talking
-  to each other.
+  with followers, a slow spread with no burst (capped, never decides alone), posters talking
+  to each other, and one publisher: most posting accounts openly carry one name stem followed by
+  words, not counters (venue or branch accounts such as `ahc-coventry`, `xcel-coventry`), and were
+  created together.
 - **Verdict**: Shill (`swarm`) needs at least two families, a combined score of 0.6, no strong
   guard, and a tested timing signal with p <= 0.01 when timing is one of only two families.
   Chill (`organic`) needs a strong guard and no family at all, and a sample spanning 20+ minutes.
   Anything else, and anything with fewer than 5 posting accounts, is Can't tell (`unclear`),
   with a few words on why.
+- **One exception: one publisher.** Accounts that openly belong to one organisation and post its
+  own announcement on a schedule are coordinated but not inauthentic; for them same-second timing
+  and identical words are not evidence. When the one-publisher guard is strong and the accounts
+  family did not fire, the verdict is Chill for long-standing accounts (median age a year or
+  more) and Can't tell ("one name, new accounts") for younger ones, where marketing accounts and
+  an ad network look the same. A fresh cohort, minted handles or copied bios mean a ring, and then
+  the guard does not apply. No other guard overrides a fired family.
 - **Privacy**: no signal names an account. Only timing and copy signals link example posts.
 
 What it can't do:
@@ -346,6 +360,10 @@ What it can't do:
   a second family to become a swarm.
 - **Copied captions can be organic**: people copy a meme's caption. It never counts as a swarm
   without a second family.
+- **Sockpuppets that openly share a name** and are a year or more old are excused as one
+  publisher: the guard reads names and creation dates, not who runs the accounts.
+- **New communities**: a group mostly made of accounts that joined in the last month and copy one
+  caption can come out swarm, as a community that moved to the platform together would.
 - **Small groups** (5 to 7 accounts) need every account to agree before a share signal fires.
 - **Slow, varied campaigns** with aged accounts and paraphrased text, spread over days, come out
   unclear or organic.

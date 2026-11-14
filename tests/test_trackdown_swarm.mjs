@@ -10,7 +10,7 @@ const { outputFiles } = await build({
   platform: "node",
   format: "esm",
 });
-const { layoutTimeline, swarmChips, swarmAria, axisLabels, utcStamp, postStamp, durationWords, durationShort, firstWords, VERDICT, FAMILY_NAME } = await import(
+const { layoutTimeline, swarmChips, swarmAria, axisLabels, utcStamp, postStamp, swarmBackTarget, durationWords, durationShort, firstWords, VERDICT, FAMILY_NAME } = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
@@ -159,4 +159,16 @@ test("times are UTC like the rest of the app, with the day when it is not today"
 test("no readable time: no dots, no NaN", () => {
   assert.deepEqual(layoutTimeline([point(NaN), point(Infinity), { a: 0, k: "post", g: 0, burst: false }]).dots, []);
   assert.doesNotMatch(swarmAria({ verdict: "swarm", n_accounts: 3, burst: null, first_at: null, last_at: null, timeline: [point(NaN)] }), /NaN|Infinity/);
+});
+
+test("the swarm page's Back: the browser's Back over an in-app entry, else the home", () => {
+  // opened from a wall tile or "Live on Bluesky": main.ts pushed { swarm, inApp: true }
+  assert.equal(swarmBackTarget({ swarm: "88115b801161", inApp: true }), "history");
+  // opened from a link: no state, or a state the app did not push for this page
+  assert.equal(swarmBackTarget(null), "home");
+  assert.equal(swarmBackTarget(undefined), "home");
+  assert.equal(swarmBackTarget({ swarm: "88115b801161" }), "home");
+  assert.equal(swarmBackTarget({ home: true }), "home");
+  assert.equal(swarmBackTarget({ inApp: "yes" }), "home");
+  assert.equal(swarmBackTarget("inApp"), "home");
 });
