@@ -48,15 +48,21 @@ def _get(client: httpx.Client, url: str, params=None, tries: int = 3):
     return None
 
 
-def fetch_profiles(client: httpx.Client, dids: list[str]) -> dict[str, dict]:
-    out = {}
-    for i in range(0, len(dids), 25):
-        chunk = dids[i : i + 25]
+def fetch_profiles(client: httpx.Client, dids: list[str], workers: int = 4) -> dict[str, dict]:
+    """getProfiles in chunks of 25 (the AppView limit), a few chunks in parallel."""
+    chunks = [dids[i : i + 25] for i in range(0, len(dids), 25)]
+
+    def one(chunk: list[str]) -> list[dict]:
         r = _get(client, APPVIEW, params=[("actors", d) for d in chunk])
         if r is None or r.status_code != 200:
-            continue
-        for p in r.json().get("profiles", []):
-            out[p["did"]] = p
+            return []
+        return r.json().get("profiles", [])
+
+    out = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for profiles in pool.map(one, chunks):
+            for p in profiles:
+                out[p["did"]] = p
     return out
 
 
