@@ -85,11 +85,25 @@ def _seed(cfg: DetectorConfig, members: list[str], wd: WindowData) -> int:
     return int.from_bytes(h.digest(), "big")
 
 
-def shared_keys(members: list[str], keys: dict) -> list[Key]:
+def key_index(keys: dict) -> dict[str, list[tuple[str, str]]]:
+    """did -> the keys it used. Built once per window so shared_keys doesn't scan every key."""
+    idx: dict[str, list[tuple[str, str]]] = {}
+    for kv, k in keys.items():
+        for d in k.accounts:
+            idx.setdefault(d, []).append(kv)
+    return idx
+
+
+def shared_keys(members: list[str], keys: dict, index: dict | None = None) -> list[Key]:
     """Keys used by >= 2 members, with uses restricted to members. Sorted for determinism."""
     mset = set(members)
+    if index is None:
+        candidates = keys.keys()
+    else:
+        candidates = {kv for d in members for kv in index.get(d, ())}
     out = []
-    for (kind, value), k in sorted(keys.items()):
+    for kind, value in sorted(candidates):
+        k = keys[(kind, value)]
         acc = k.accounts & mset
         if len(acc) >= 2:
             sub = Key(kind, value, [u for u in k.uses if u.did in mset], acc)
@@ -152,10 +166,11 @@ def content_signals(m: int, sk: list[Key], cfg: DetectorConfig) -> list[Signal]:
 
 
 def _semantic_posts(members: list[str], wd: WindowData, cfg: DetectorConfig) -> list:
-    mset = set(members)
+    ix = wd.index()
     per: dict[str, list] = {}
-    for p in sorted(wd.posts, key=lambda p: (-p.t, p.uri)):
-        if p.did in mset and len(normalize_text(p.text).split()) >= cfg.semantic_min_tokens:
+    mine = [p for d in set(members) for p in ix.posts_by_did.get(d, ())]
+    for p in sorted(mine, key=lambda p: (-p.t, p.uri)):
+        if len(normalize_text(p.text).split()) >= cfg.semantic_min_tokens:
             lst = per.setdefault(p.did, [])
             if len(lst) < cfg.semantic_posts_per_member:
                 lst.append(p)
@@ -325,13 +340,11 @@ def timing_signals(
         )
 
     # Clockwork posting: low variation of each account's inter-event intervals.
-    times: dict[str, list[float]] = {d: [] for d in members}
-    for p in wd.posts:
-        if p.did in times:
-            times[p.did].append(p.t)
-    for a in wd.actions:
-        if a.did in times:
-            times[a.did].append(a.t)
+    ix = wd.index()
+    times: dict[str, list[float]] = {
+        d: [p.t for p in ix.posts_by_did.get(d, ())] + [a.t for a in ix.actions_by_did.get(d, ())]
+        for d in members
+    }
     cvs = {}
     for d, ts in times.items():
         if len(ts) >= cfg.regularity_min_events:
@@ -409,7 +422,8 @@ def network_signals(
             )
         )
     # Reply flood: the same (near-)duplicate text posted as replies into many different threads.
-    by_uri = {p.uri: p for p in wd.posts if p.did in mset}
+    ix = wd.index()
+    by_uri = {p.uri: p for d in mset for p in ix.posts_by_did.get(d, ())}
     flood_dids, roots, flood_uris = set(), set(), set()
     for k in sk:
         if k.kind not in ("text", "neardup"):
@@ -442,11 +456,9 @@ def network_signals(
     # Mutual amplification: members liking/reposting each other's posts.
     amp = [
         a
-        for a in wd.actions
-        if a.kind in ("like", "repost")
-        and a.did in mset
-        and a.subject_did in mset
-        and a.subject_did != a.did
+        for d in sorted(mset)
+        for a in ix.actions_by_did.get(d, ())
+        if a.kind in ("like", "repost") and a.subject_did in mset and a.subject_did != a.did
     ]
     if amp:
         actors = {a.did for a in amp}
@@ -702,8 +714,9 @@ def organic_guards(
             )
     langs: dict[str, int] = {}
     mset = set(members)
-    for p in wd.posts:
-        if p.did in mset and p.langs:
+    ix = wd.index()
+    for p in (p for d in mset for p in ix.posts_by_did.get(d, ())):
+        if p.langs:
             langs[p.langs[0]] = langs.get(p.langs[0], 0) + 1
     if sum(langs.values()) >= cfg.min_cluster_size and len(langs) >= 3:
         total = sum(langs.values())
@@ -839,9 +852,10 @@ def score_cluster(
     cfg: DetectorConfig,
     embed: EmbedFn | None = None,
     rates: BaseRates | None = None,
+    index: dict | None = None,
 ) -> ClusterScore:
     rng = np.random.default_rng(_seed(cfg, members, wd))
-    sk = shared_keys(members, keys)
+    sk = shared_keys(members, keys, index)
     sigs: list[Signal] = []
     sigs += content_signals(len(members), sk, cfg)
     if embed is not None:

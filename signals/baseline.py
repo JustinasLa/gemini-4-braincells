@@ -75,6 +75,7 @@ def load_rates(
                  a.followers
           FROM baseline_accounts b JOIN accounts a USING (did)
           WHERE b.sampled_at > %(now)s - make_interval(hours => %(h)s)
+            AND b.sampled_at <= %(now)s  -- no look-ahead: replays/eval never see later samples
         ) s
         """,
         {"now": now, "fd": cfg.fresh_account_days, "h": hours},

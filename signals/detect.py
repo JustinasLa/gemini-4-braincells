@@ -18,6 +18,7 @@ from signals.keys import MinHashCache, build_keys
 from signals.score import (
     AccountInfo,
     ClusterScore,
+    key_index,
     score_cluster,
     semantic_candidate_posts,
     semantic_signal,
@@ -63,7 +64,8 @@ def detect(
     t2 = time.monotonic()
     # Pass 1 without account info. Then fetch account info only for clusters where something
     # looked suspicious (strongest first: the enrichment budget is limited) and rescore those.
-    clusters = [score_cluster(g, keys, wd, {}, cfg) for g in groups]
+    idx = key_index(keys)
+    clusters = [score_cluster(g, keys, wd, {}, cfg, index=idx) for g in groups]
     suspicious = sorted(
         (i for i, c in enumerate(clusters) if max(c.family_scores.values()) >= cfg.family_fire),
         key=lambda i: (-clusters[i].score, len(clusters[i].members), clusters[i].members[0]),
@@ -94,7 +96,9 @@ def detect(
             if sem is None or sem.score < cfg.family_fire:
                 continue
         if embed is not None or any(d in info for d in clusters[i].members):
-            clusters[i] = score_cluster(groups[i], keys, wd, info, cfg, embed, base_rates)
+            clusters[i] = score_cluster(
+                groups[i], keys, wd, info, cfg, embed, base_rates, index=idx
+            )
     t4 = time.monotonic()
     by_status: dict[str, int] = {}
     for c in clusters:
