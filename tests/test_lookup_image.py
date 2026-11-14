@@ -476,7 +476,14 @@ def test_platform_addresses_and_file_names_are_not_searched():
     assert domain_hits("The information is incorrect", ["information.com"]) == []
     # a file name is not another ending of the site
     assert domain_hits("remove analytics.js and analytics.pdf", ["analytics.com"]) == []
-    for name in ("analytics.min.js", "analytics.bundle.js", "end of analytics. Then"):
+    for name in (
+        "analytics.min.js",
+        "analytics.bundle.js",
+        "end of analytics. Then",
+        "analytics.track_event()",
+        "analytics.online_backup",
+        "analytics.onlineé",
+    ):
         assert domain_hits(name, ["analytics.com"]) == [], name
     assert domain_hits("analytics.co.uk too", ["analytics.com"]) == ["analytics"]
     assert domain_hits("analytics.online is a lookalike", ["analytics.com"]) == ["analytics"]

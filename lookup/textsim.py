@@ -148,8 +148,8 @@ def _other_site(text: str, end: int) -> bool:
     """`text[end:]` continues a name into another site address (".online", ".co.uk"), not a
     file name (".js", ".min.js", ".bundle.js") or the end of a sentence."""
     m = _DOTTED.match(text, end)
-    if not m:
-        return False
+    if not m or re.match(r"[\w-]", text[m.end() : m.end() + 1]):
+        return False  # none, or it runs on into an identifier (analytics.track_event())
     last = m.group().rsplit(".", 1)[-1].lower()
     return last.isalpha() and 2 <= len(last) <= 24 and last not in _NOT_TLD
 
