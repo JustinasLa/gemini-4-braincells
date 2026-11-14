@@ -216,4 +216,9 @@ Earlier fixes from the same kind of review: weather feeds sharing a custom handl
 - Independent scheduled bots (clock, weather, news feeds) look synchronized; guards catch the
   ones that post on the hour or share a declared domain, not all.
 - Short texts (< 5 tokens) are ignored as content keys; copy-paste of one-liners isn't caught.
+- Japanese, Chinese, Thai and other unspaced scripts get content keys since v1.8 (about one word
+  per two characters; near-duplicates on character 3-grams). Like word 3-grams for English, this
+  also links templated share posts that differ in one word. Their posts are still never embedded
+  for semantic similarity (that gate counts words by spaces). `POST /api/lookup` (Trackdown)
+  still needs 5 space-separated words of text; `POST /api/analyze` accepts 10+ characters.
 - Identity signals depend on enrichment, which is limited per pass and only for suspicious groups.
