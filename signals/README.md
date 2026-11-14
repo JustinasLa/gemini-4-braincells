@@ -34,7 +34,10 @@ uv run pytest tests/test_signals.py
 
    Organic guards produce counter-evidence (`polarity: "against"`): `established_accounts`,
    `part_of_wider_crowd`, `language_diversity`, `transparent_automation` (accounts openly share one
-   custom handle domain), `clock_aligned_posting` (top-of-the-hour schedulers).
+   custom handle domain), `clock_aligned_posting` (top-of-the-hour schedulers),
+   `members_converse` (members reply to each other's posts: a conversation, not a broadcast;
+   v1.6) and `declared_automation` (accounts over 90 days old whose name or bio says bot, feed or
+   automated alerts; v1.6, needs the bio text stored by migration 004).
 5. **Null models** (combined with Bonferroni: p = min(1, m x smallest p) over the m tests run):
    - Timing: each member's whole activity is shifted by its own random offset (circular in the
      window), which keeps every account's own rhythm and breaks cross-account alignment. p = share
@@ -159,6 +162,30 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
   two families; the embeddings add the "same message" evidence the analyst cites. Accounts that
   only say the same thing and share no action at all never form a cluster: semantic similarity
   is not used to build the graph (cost), a known gap.
+
+## Error analysis (live review, Sat 14 Nov 03:30-04:00)
+
+Every `coordinated` cluster stored by v1.5 in the previous 40 minutes (36) was read by hand:
+posts, handles, ages, signals.
+
+- Clearly right (most): affiliate-shop spam rings (Shopee "achadinhos" accounts, one link,
+  paraphrased product posts), escort and porn ad rings on fresh accounts with identical media,
+  OnlyFans / Instagram redirect bots with templated handles, a franchise ad network posting the
+  same text and image within seconds, one spam text in several languages from templated handles.
+- Wrong class 1, **openly automated public services**: `wv511*` (West Virginia 511 traffic
+  alerts, 12 accounts, 8-22 months old) post the same alert in sync. They share no custom domain,
+  so `transparent_automation` missed them. Fix: `declared_automation` reads the bio/name.
+- Wrong class 2, **friend groups and role-play communities**, sometimes on new accounts (a K-pop
+  role-play group of 2-8 day old accounts chatting in Portuguese; a fan group sending birthday
+  wishes): they like each other in bursts. Measured: spam rings had 0 replies between members;
+  these groups had 7-8 members replying to each other 20-60 times. Fix: `members_converse`.
+  Effect on a live hour: 1 of 18 `coordinated` clusters (the role-play group) became
+  `insufficient`, 1 `insufficient` became `likely_organic`; nothing else changed.
+- Kept as a known limit: spam from old, followed accounts (bought or hijacked) looks organic on
+  identity and timing.
+
+Earlier fixes from the same kind of review: weather feeds sharing a custom handle domain
+(`transparent_automation`, v1.1) and hourly clock bots (`clock_aligned_posting`, v1.2).
 
 ## Known limits (honest list)
 

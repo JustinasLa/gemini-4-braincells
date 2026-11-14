@@ -101,7 +101,8 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
         """
         SELECT did FROM accounts WHERE did = ANY(%s) AND (
             profile_fetched_at IS NULL OR profile_fetched_at < now() - make_interval(hours => %s)
-            OR (plc_fetched_at IS NULL AND did LIKE 'did:plc:%%'))
+            OR (plc_fetched_at IS NULL AND did LIKE 'did:plc:%%')
+            OR (description IS NULL AND coalesce(description_len, 0) > 0))
         """,
         (dids, PROFILE_TTL_H),
     ).fetchall()
@@ -128,6 +129,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                     follows = coalesce(%(follows)s, follows),
                     posts_count = coalesce(%(posts)s, posts_count),
                     description_len = coalesce(%(desc)s, description_len),
+                    description = coalesce(%(descr)s, description),
                     has_avatar = coalesce(%(avatar)s, has_avatar),
                     profile_fetched_at = %(now)s,
                     did_created_at = coalesce(%(plc_created)s, did_created_at),
@@ -147,6 +149,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                     "follows": p.get("followsCount") if p else None,
                     "posts": p.get("postsCount") if p else None,
                     "desc": len(p.get("description") or "") if p else None,
+                    "descr": (p.get("description") or "")[:1000] if p else None,
                     "avatar": bool(p.get("avatar")) if p else None,
                     "plc_created": q["created"] if q else None,
                     "hc": q["handle_changes"] if q else None,

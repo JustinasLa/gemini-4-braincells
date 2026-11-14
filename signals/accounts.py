@@ -17,7 +17,8 @@ def load_account_info(
         """
         SELECT did, handle, display_name, least(did_created_at, created_at) AS born, followers,
                follows, posts_count, description_len, has_avatar, pds_host, handle_changes,
-               profile_fetched_at IS NOT NULL OR plc_fetched_at IS NOT NULL AS enriched
+               profile_fetched_at IS NOT NULL OR plc_fetched_at IS NOT NULL AS enriched,
+               description
         FROM accounts WHERE did = ANY(%s)
         """,
         (dids,),
@@ -38,5 +39,6 @@ def load_account_info(
             has_avatar=r[8],
             pds_host=r[9],
             handle_changes=r[10],
+            description=r[12],
         )
     return out

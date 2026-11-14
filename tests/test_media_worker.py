@@ -127,7 +127,6 @@ def test_worker_reads_each_cid_once_caps_media_and_keeps_failures():
     assert run.findings[0].source_url() == "https://bsky.app/profile/did:a/post/r1"
 
 
-
 def test_failed_media_is_exposed_as_retryable_evidence():
     run = process_cluster_media(
         [_post(1, "did:a", "missing")], FakeClient(), FakeFetcher(missing={"missing"})
@@ -141,6 +140,7 @@ def test_failed_media_is_exposed_as_retryable_evidence():
         "did": "did:a",
         "profile_url": "https://bsky.app/profile/did:a",
     }
+
 
 def test_stored_analysis_is_reused_without_fetch_or_model_call():
     stored = _analysis("same").evidence_detail() | {"media_kind": "image", "media_url": "u"}
@@ -229,7 +229,6 @@ def test_backed_off_media_is_counted_as_deferred_then_retried():
     fetcher.missing.clear()
     third = process_cluster_media(posts, FakeClient(), fetcher, skip=backoff)
     assert third.deferred == 0 and {f.group.media_hash for f in third.findings} == {"flaky", "ok"}
-
 
 
 def test_cluster_progress_holds_incomplete_clusters_back_for_a_while():
