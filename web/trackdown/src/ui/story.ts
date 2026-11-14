@@ -101,9 +101,15 @@ function origin(family: Family, members: Map<string, FamilyMember>): string {
 
 function spread(trace: TraceCase & { lookup: LookupResult }): string {
   if (trace.lookup.state === "running") return "";
-  return hasVerdict(trace)
-    ? `<p class="st-call" style="--vc:${STATUS[trace.status].css}"><b>${esc(STATUS[trace.status].word)}</b> ${esc(STATUS[trace.status].tag)}, in a group we watch</p>`
-    : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
+  if (!hasVerdict(trace)) return `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
+  // the watched group whose posts carry this text: the same one the verdict was taken from
+  const applying = trace.lookup.clusters.filter((cluster) => cluster.verdict_applies);
+  const hit = applying.find((cluster) => cluster.status === trace.status) ?? applying[0];
+  const v = STATUS[trace.status];
+  const what = trace.status === "coordinated" && hit?.size ? `${hit.size} accounts pushing this text` : v.tag;
+  return hit
+    ? `<a class="st-call st-hit" href="/?cluster=${encodeURIComponent(String(hit.id))}" style="--vc:${v.css}"><b>${esc(v.word)}</b> ${esc(what)}<span>See the group →</span></a>`
+    : `<p class="st-call" style="--vc:${v.css}"><b>${esc(v.word)}</b> ${esc(v.tag)}</p>`;
 }
 
 /** What a picture trace found, worked out once for the result page and for the map's panel. */
