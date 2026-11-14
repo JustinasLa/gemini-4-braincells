@@ -1,28 +1,32 @@
 # Mobile judge walkthrough
 
-Live site: https://noise-radar.srv2159172.hstgr.cloud/. The home screen is Trackdown. It is not a cluster dashboard; use the API links below to browse the monitor feed and metrics.
+This walkthrough covers the deployed Trackdown interface and the mobile judge destinations.
 
 ## Walkthrough
 
-1. **Open the cluster feed.** On a phone, open /api/clusters?status=coordinated&include_synthetic=false&limit=50 for current coordinated clusters. For likely-organic examples, change status=coordinated to status=likely_organic. The JSON route includes synthetic clusters by default, so this URL opts out; these responses are not a card feed in the site. The Atom alternative is /api/feed.atom?status=coordinated; change the status for likely-organic entries. The Atom feed is convenient in a feed reader and links entries to their cluster.
-2. **Open one cluster.** Take its numeric id from the JSON and open https://noise-radar.srv2159172.hstgr.cloud/?cluster=<id> (replace <id> with the number). Trackdown draws the cluster's posts and spread. Tap the verdict strip at the bottom to open the mobile sheet. Its available tabs are Verdict, Chain when a chain exists, Evidence, and Post when a card is selected. Evidence includes signal receipts, source links, media findings and analyst evidence where present. Tap source URLs to inspect them; use the sheet close control to return to the map. Try one coordinated and one likely_organic cluster to compare suspicious signals with the organic counter-evidence.
-3. **Find metrics and method.** Open /api/metrics for the published evaluation rows. There is no Accuracy or Metrics dashboard page in the current web app. The explanation of datasets, splits, metric definitions and limits is in docs/METHODOLOGY.md#how-the-metrics-are-made. An empty API response means no published run is available; live precision and confidence calibration require hand-labelled live clusters and are not reported until those labels exist.
-4. **Try judge input.** Return to the site home, paste a post, URL or @handle into the input, then tap **Trace it**. The current UI starts /api/lookup and shows collected receipts; it does not present a dedicated /api/analyze form or guarantee a detector verdict for arbitrary input. A detector status applies only when the lookup matches a monitored cluster. Otherwise, treat source findings as web context, not a coordination verdict. The older /api/analyze API remains implemented as a fallback: matching input returns its monitored cluster(s); unmatched input returns insufficient plus optional live web findings, never a new coordination verdict.
+1. **Open the judging destinations.** From Trackdown, tap **Explore** in the top bar. Choose **Live cluster feed**, **Measured accuracy**, or **Methodology & limits**. These views can also be opened directly with `?view=feed`, `?view=metrics`, and `?view=methodology`.
+2. **Browse clusters.** Live cluster feed loads real detector clusters from `/api/clusters?include_synthetic=false&limit=50`; synthetic evaluation clusters are excluded. Each row links to **Open receipts**, which opens Trackdown with `?cluster=<id>`. The Atom feed is linked from the page. If the API returns no rows, there are no clusters to browse at that moment.
+3. **Inspect a cluster on the map.** On a phone, tap the verdict strip at the bottom to open the **Verdict and evidence** sheet. The sheet has a Verdict tab and may show Chain when a chain exists, Evidence for collected receipts and source/media/analyst evidence, and Post after selecting a map card. Use the sheet close control to return to the map. Compare coordinated and likely-organic examples when both are available.
+4. **Review metrics and limits.** **Measured accuracy** loads the published evaluation rows from `/api/metrics`. The view displays precision, recall, F1 and false-positive rate when reported. **Methodology & limits** explains the datasets, splits, metric definitions and known limitations. An empty metrics response means no published rows are available.
+5. **Try a judge input.** Return to Trackdown home, enter a post, URL or @handle, and tap **Trace it**. The lookup shows collected receipts. A detector status applies only when the lookup matches a monitored cluster; web findings alone are not a coordination verdict. The older `/api/analyze` API remains available as a fallback and does not create a new detector verdict for unmatched input.
+6. **Try phone handoff.** The **QR** button beside **New trace** opens a QR code for the current page. Scan it with a phone to continue there.
 
-## Phone viewport check
+## Viewport walkthrough
 
-Checked 2026-11-14 against the live site. The browser preview accepted the configured sizes below, but its page runtime remained at 1280x800 CSS pixels (innerWidth/innerHeight); (max-width: 860px) stayed false. These are attempted configurations, not passing phone-layout tests.
+The mobile layout activates at 860 CSS pixels and below. The requested device sizes are listed here; this integration run could load the app but could not activate responsive device emulation, so none of these is a passing device test.
 
-| Configured viewport | Browser-reported viewport | Result |
+| Device preset | CSS viewport | Result |
 |---|---:|---|
-| 320x720 | 1280x800 | Not tested at phone width; mobile breakpoint did not activate. |
-| iPhone 12 Pro, 390x844 | 1280x800 | Not tested at phone width; mobile breakpoint did not activate. |
+| iPhone SE | 375x667 | Not tested; responsive emulation unavailable. |
+| iPhone 12 Pro | 390x844 | Not tested; responsive emulation unavailable. |
+| Pixel 7 | 412x915 | Not tested; responsive emulation unavailable. |
+| Galaxy S8+ | 360x740 | Not tested; responsive emulation unavailable. |
 
-The implementation switches to its phone layout at 860px and below. No phone-width visual or touch-flow pass is claimed from this check. Recheck these sizes in a viewport tool that applies its configured CSS dimensions before treating mobile layout as verified.
+For a full pass, check that Explore opens and its three destinations load; a cluster page opens; the verdict strip opens the sheet; available tabs and close control respond; the trace input and submit button are reachable; and QR opens and dismisses. Chain and Post tabs depend on the selected cluster and map selection. Record the actual CSS viewport dimensions reported by the browser.
 
-## Known limits for the demo
+## Known limits
 
-- Cluster browsing and evaluation metrics are API responses; the deployed web UI has no cluster-list or metrics page.
-- Trackdown's bottom-sheet controls expose only the currently available evidence. A chain tab appears only when a chain can be built; Post appears after selecting a card.
-- Judge input is a live lookup of public receipts. A detector verdict is available only for a matched monitored cluster; a Gemini assessment or web result is not itself the detector's status.
-- Evaluation data has limits: synthetic campaign recall is not recall on real campaigns; live organic false-positive labels are heuristic; live precision and confidence calibration need human labels.
+- Feed and metrics views require the corresponding live API endpoints and can be empty.
+- Chain appears only when a chain can be built; Post appears after selecting a card.
+- Judge input is a lookup of public receipts. A detector verdict is available only for a matched monitored cluster.
+- Synthetic campaign recall is not recall on real campaigns; live organic false-positive labels are heuristic; live precision and confidence calibration require human labels.
