@@ -1112,50 +1112,86 @@ def test_link_resolving_to_an_x_tombstone_is_not_read_as_content():
         assert steps[sid].detail == "the post's text couldn't be read"
 
 
-@pytest.mark.parametrize("order", ["page_text_first", "facts_first", "facts_fail"])
-def test_link_to_an_x_tombstone_never_seeds_searches_whatever_finishes_first(order):
+TOMB_URL = "https://x.com/LeroyLovesUSA/status/796772863869075460"
+TOMB_DETAIL = "X shows this post is from a suspended account"
+
+
+def _race_lookup(order, facts):
+    """A web lookup whose link resolves to a suspended X post. `order` fixes which of the two
+    reads (`_page_text`'s markdown, `_linked`'s facts) is fully processed first: the other's
+    provider call waits until the first lookup method has returned."""
     import threading
 
-    tomb = "https://x.com/LeroyLovesUSA/status/796772863869075460"
     md = (XPAGES / "post_suspended_LeroyLovesUSA_796772863869075460.md").read_text()
-    page_done, facts_done = threading.Event(), threading.Event()
+    page_done, linked_done = threading.Event(), threading.Event()
 
     class Oxy(FakeOxylabs):
         def scrape_markdown(self, url, deadline=None):
             self.calls.append(("scrape", url))
             if order == "facts_first":
-                facts_done.wait(5)
-            try:
-                return md, {"url": tomb}
-            finally:
-                page_done.set()
+                assert linked_done.wait(5)
+            return md, {"url": TOMB_URL}
 
         def scrape_facts(self, url, deadline=None):
             self.calls.append(("facts", url))
+            if order != "facts_first":
+                assert page_done.wait(5)
+            if facts is None:
+                raise OxylabsError("oxylabs /scrape failed (500)", status=500)
+            return facts(url)
+
+    class Ordered(Lookup):
+        def _page_text(self, url):
             try:
-                if order == "page_text_first":
-                    page_done.wait(5)
-                if order == "facts_fail":
-                    page_done.wait(5)
-                    raise OxylabsError("oxylabs /scrape failed (500)", status=500)
-                return PageFacts(url=url, final_url=tomb, headline="Post", unavailable="suspended")
+                super()._page_text(url)
             finally:
-                facts_done.set()
+                page_done.set()
+
+        def _linked(self, url, is_input):
+            try:
+                super()._linked(url, is_input)
+            finally:
+                linked_done.set()
 
     deps = make_deps()
     deps.oxylabs = Oxy()
-    job = Lookup("lk_race", LookupInput(url="https://news.example/redirect"), deps)
+    job = Ordered("lk_race", LookupInput(url="https://news.example/redirect"), deps)
     job.run()
-    detail = "X shows this post is from a suspended account"
+    assert page_done.is_set() and linked_done.is_set()
+    return job, deps
+
+
+def _assert_tombstone_kept(job, deps):
     assert not [c for c in deps.oxylabs.calls if c[0] == "search"]
     assert all(p.headline is None and not p.claims for p in job.result.pages)
     assert job._subject_text is None and job._card_title is None
-    assert f"{detail}, so its text can't be read; copies and spread were not searched." in (
+    assert f"{TOMB_DETAIL}, so its text can't be read; copies and spread were not searched." in (
         job.result.notes
     )
-    assert [r.summary for r in job.result.receipts].count(f"Linked page read: {detail}") == 1
-    steps = {s.id: s for s in job.result.steps}
+    assert [r.summary for r in job.result.receipts].count(f"Linked page read: {TOMB_DETAIL}") == 1
+
+
+def _tomb_facts(url):
+    return PageFacts(url=url, final_url=TOMB_URL, headline="Post", unavailable="suspended")
+
+
+@pytest.mark.parametrize("order", ["page_text_first", "facts_first", "facts_fail"])
+def test_link_to_an_x_tombstone_never_seeds_searches_whatever_finishes_first(order):
+    job, deps = _race_lookup(order, None if order == "facts_fail" else _tomb_facts)
+    _assert_tombstone_kept(job, deps)
+    linked = next(s for s in job.result.steps if s.id == "linked")
     if order == "facts_fail":
-        assert steps["linked"].detail == "Oxylabs couldn't read the page (HTTP 500)"
+        assert linked.detail == "Oxylabs couldn't read the page (HTTP 500)"
     else:
-        assert (steps["linked"].state, steps["linked"].detail) == ("done", detail)
+        assert (linked.state, linked.detail) == ("done", TOMB_DETAIL)
+
+
+def test_later_facts_without_the_notice_do_not_resurrect_a_confirmed_tombstone():
+    # The quick read saw X's notice; the facts read of the same URL came back without it.
+    def plain(url):
+        return PageFacts(url=url, final_url=TOMB_URL, headline="Post", claims=["Post content."])
+
+    job, deps = _race_lookup("page_text_first", plain)
+    _assert_tombstone_kept(job, deps)
+    linked = next(s for s in job.result.steps if s.id == "linked")
+    assert (linked.state, linked.detail) == ("done", TOMB_DETAIL)

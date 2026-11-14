@@ -219,6 +219,7 @@ class Lookup:
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
         self._unreadable = False  # the submitted post or page is an X tombstone
+        self._tomb_detail = ""
         self._pool: ThreadPoolExecutor | None = None
         # verify runs as candidates arrive (see _queue_verify), not after every other step
         self._v_futures: list[Future] = []
@@ -959,6 +960,7 @@ class Lookup:
         (its title is X's notice, not content) seed the searches. Returns the page id."""
         detail = unavailable_detail(reason)
         with self.lock:
+            self._tomb_detail = detail
             if not self._unreadable:
                 rid = self.receipt(
                     "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final, call=call
@@ -1018,41 +1020,48 @@ class Lookup:
                 return
             pub = facts.published_at
             ptime, punc = _page_time(pub)
-            rid = self.receipt(
-                "oxylabs",
-                "/scrape",
-                f"Linked page read: {facts.publisher or domain(facts.final_url)}"
-                f" — {facts.headline or 'no headline'}" + (f" (published {pub})" if pub else ""),
-                source_url=facts.final_url or url,
-                call=call,
-            )
-            pg = self.add_page(
-                Page(
-                    id="",
-                    url=short if short != url else url,
-                    final_url=facts.final_url or url,
-                    role="linked",
-                    publisher=facts.publisher,
-                    author=facts.author,
-                    published_at=pub,
-                    headline=facts.headline,
-                    claims=facts.claims,
-                    time=ptime,
-                    time_source="page" if ptime else None,
-                    time_uncertainty_s=punc,
-                    receipt_id=rid,
+            # one critical section: the quick read may already have found X's tombstone notice
+            # (the two reads can differ), and a confirmed tombstone must not be repopulated
+            with self.lock:
+                if is_input and self._unreadable:
+                    st.found = [self.result.subject_id] if self.result.subject_id else []
+                    st.detail = self._tomb_detail
+                    return
+                rid = self.receipt(
+                    "oxylabs",
+                    "/scrape",
+                    f"Linked page read: {facts.publisher or domain(facts.final_url)}"
+                    f" — {facts.headline or 'no headline'}"
+                    + (f" (published {pub})" if pub else ""),
+                    source_url=facts.final_url or url,
+                    call=call,
                 )
-            )
-            if is_input:
-                self._subject_text = self._subject_text or facts.headline
-                self._card_title = facts.headline or self._card_title
-                self._subject_time = ptime
-                with self.lock:
+                pg = self.add_page(
+                    Page(
+                        id="",
+                        url=short if short != url else url,
+                        final_url=facts.final_url or url,
+                        role="linked",
+                        publisher=facts.publisher,
+                        author=facts.author,
+                        published_at=pub,
+                        headline=facts.headline,
+                        claims=facts.claims,
+                        time=ptime,
+                        time_source="page" if ptime else None,
+                        time_uncertainty_s=punc,
+                        receipt_id=rid,
+                    )
+                )
+                if is_input:
+                    self._subject_text = self._subject_text or facts.headline
+                    self._card_title = facts.headline or self._card_title
+                    self._subject_time = ptime
                     self.result.subject_id = pg.id
-            elif self.result.subject_id:
-                self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
-            st.found = [pg.id]
-            st.detail = f"{facts.publisher or domain(facts.final_url)}: {facts.headline or '-'}"
+                elif self.result.subject_id:
+                    self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
+                st.found = [pg.id]
+                st.detail = f"{facts.publisher or domain(facts.final_url)}: {facts.headline or '-'}"
 
     def _page_text(self, url: str) -> None:
         """Quick first read of a submitted web page: its markdown's first heading. It starts
