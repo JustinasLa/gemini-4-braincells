@@ -792,6 +792,15 @@ def test_edited_x_post_end_to_end_time(shown, anchor, check):
     assert c.edited and c.created_at == datetime(2026, 11, 13, 18, 56, 36, 155000, tzinfo=UTC)
     r = judge(shot(platform="x", handle="ada_example", text=c.text, shown_time=shown), [c], anchor)
     assert r.time_check == check
+    noted = any("may show an earlier version" in d for d in r.differences)
+    assert noted == (check == "inconsistent")  # only when it differs
+
+
+def test_no_edit_note_for_a_post_that_was_not_edited():
+    s = shot(text=TEXT.replace("spring", "autumn"))
+    r = judge(s, [cand()], ANCHOR)
+    assert r.label == "differs"
+    assert not any("earlier version" in d for d in r.differences)
 
 
 def test_edited_real_post_that_differs_says_it_was_edited():
