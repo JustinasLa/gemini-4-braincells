@@ -21,8 +21,9 @@ from typing import Any, Literal
 
 import httpx
 
-from lookup import textsim
+from lookup import family, imagetrace, textsim
 from lookup.bsky import BlueskyClient, BlueskyTimeUp, parse_time, post_url
+from lookup.fxtwitter import Conversation, FxNotFound, FxTwitterError
 from lookup.models import (
     Account,
     Card,
@@ -62,20 +63,24 @@ from sources.oxylabs import OxylabsError
 log = logging.getLogger(__name__)
 
 STEPS = [
-    ("input", "you", "Read the input"),
-    ("post", "oxylabs", "Read the post"),
-    ("author", "oxylabs", "Read the author's profile and recent posts"),
-    ("linked", "oxylabs", "Read the linked page"),
-    ("copies_web", "oxylabs", "Search the web for the same text"),
-    ("copies_x", "oxylabs", "Search X for the same text"),
-    ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
-    ("coverage", "oxylabs", "Find coverage of the story"),
-    ("media", "nemotron", "Read the images with Nemotron VL"),
-    ("screenshot", "nemotron", "Find the real post a screenshot shows"),
-    ("verify", "oxylabs", "Read source pages and candidate copies on their own pages"),
-    ("monitor", "detector", "Check the clusters we monitor"),
-    ("assess", "nemotron", "Nemotron reads the receipts"),
-    ("second_reading", "gemini", "Gemini's second reading"),
+    ("input", "you", "Input read"),
+    ("post", "oxylabs", "Post read"),
+    ("author", "oxylabs", "Author's profile read"),
+    ("linked", "oxylabs", "Linked page read"),
+    ("copies_web", "oxylabs", "Web searched for the text"),
+    ("copies_x", "oxylabs", "X searched for the text"),
+    ("copies_bsky", "bluesky", "Bluesky searched for the text"),
+    ("coverage", "oxylabs", "Coverage searched"),
+    ("reverse_image", "oxylabs", "Web searched for the picture"),
+    ("variations", "nemotron", "Copies compared"),
+    ("family", "nemotron", "Family tree built"),
+    ("media", "nemotron", "Images read"),
+    ("screenshot", "nemotron", "Screenshot's post traced"),
+    ("thread_variants", "fxtwitter", "Reply threads searched for the template"),
+    ("verify", "oxylabs", "Source pages read"),
+    ("monitor", "detector", "Clusters watched"),
+    ("assess", "nemotron", "Evidence weighed"),
+    ("second_reading", "gemini", "Second reading"),
 ]
 VERBATIM = 0.8
 COPY_MIN = 0.5
@@ -101,18 +106,17 @@ REPOST_HOSTS = (
 UPLOAD = "upload:"  # media_urls entry of an uploaded image: its bytes are in the job, not a CDN
 # an uploaded image's own step labels: there is no post, the image is the input
 IMAGE_LABELS = {
-    "media": "Read the uploaded image with Nemotron VL",
-    "copies_web": "Search the web for the text in the image",
-    "copies_x": "Search X for the text in the image",
-    "copies_bsky": "Find the text in the image on Bluesky",
-    "coverage": "Find pages about the image (meme pages, coverage)",
-    "verify": "Read source pages and candidate copies",
+    "media": "Image read",
+    "coverage": "Image coverage searched",
 }
 # Per-call caps (s) on Oxylabs, from the 2026-11-14 measurement (lookup/README.md): /scrape p50
 # 3.6 s, p90 7.2 s, one hang of 34 s; AI fact extraction up to 11.6 s; /search p90 2.6 s. A call
 # that hangs ends here instead of holding the reading until the whole budget is gone.
 SEARCH_CAP_S = 10.0
 PAGE_CAP_S = 15.0  # X post/profile pages (markdown)
+THREAD_WAIT_S = 5.0  # the reply scan waits at most this for the candidates' reply counts
+THREAD_SCAN_NEED_S = 8.0  # ...and never into the time its own reads and comparisons need
+FX_CAP_S = 6.0  # FxTwitter API (p50 well under 1 s); slower means it is struggling: fall back
 FACTS_CAP_S = 20.0  # /scrape with AI extraction
 IMAGE_DOWNLOAD_S = 10.0  # an image from the platform CDN
 IMAGE_CALL_S = 20.0  # the lookup's Nemotron image client: one attempt, this timeout, no limiter
@@ -166,7 +170,7 @@ def _now() -> datetime:
 def snippet_time(snippet: str, at: datetime) -> tuple[datetime | None, float | None]:
     """A search engine's date hint and how uncertain it is (seconds after `time`).
 
-    '23 hours ago' -> (at - 23 h, 3600): the engine rounds to the unit. 'Nov 13, 2026 — ...'
+    '23 hours ago' -> (at - 24 h, 7200): the engine rounds to the unit. 'Nov 13, 2026 — ...'
     -> (that midnight UTC, 86400): any time that day."""
     if m := _REL_AGO.match(snippet or ""):
         unit = _REL_UNIT[m.group(2).lower()]
@@ -211,6 +215,9 @@ def _x_img(url: str) -> str:
 @dataclass
 class Deps:
     oxylabs: Any  # sources.oxylabs.OxylabsClient (search, scrape_facts, scrape_markdown)
+    # lookup.fxtwitter.FxTwitterClient: X posts are read through it first (it sees posts X's
+    # logged-out page hides, with exact counts); the Oxylabs page read is the fallback
+    fxtwitter: Any = None
     bsky: BlueskyClient | None = None
     store: Callable[[], Any] | None = None  # context manager factory yielding api.store.Store
     nemotron: Any = None  # media.nemotron.NemotronClient
@@ -230,6 +237,19 @@ class Deps:
     verify_read_s: float = 8.0
     second_reading_s: float = 45.0  # the second reading's own bound; it never delays the first
     workers: int = 16
+    reverse_image: bool = False
+    public_base_url: str = ""
+    image_matches_max: int = 20
+    image_diffs_max: int = 4
+    relate: Callable | None = None
+    describe_changes: Callable | None = None
+    match_templates: Callable | None = None  # media.templatematch.same_template (tests: a fake)
+    search_tineye: Callable | None = None
+    search_yandex: Callable | None = None
+    image_transport: httpx.BaseTransport | None = None
+    # family tree sources read directly (not through Oxylabs): off in tests
+    wikipedia: bool = False
+    wayback: bool = False
 
 
 class Lookup:
@@ -261,10 +281,19 @@ class Lookup:
         self._card_url: str | None = None
         self._card_title: str | None = None
         self._media_urls: list[str] = []
-        # an uploaded image with too little text for an exact search: what to look for instead
-        self._image_query: str | None = None
-        self._upload_meme = False  # Nemotron typed the uploaded image a meme
+        # an uploaded image's text in reading order: searched for, and a text hit joins the
+        # trace only with 3+ of its words in a row (textsim.caption_runs)
+        self._caption: str | None = None
+        # site addresses written in the uploaded image (textsim.domains): searched for too, and
+        # a hit that names one joins the trace like a caption run
+        self._domains: list[str] = []
+        # page id -> the text its own read returned (headline, claims), never search snippets
+        self._page_read: dict[str, str] = {}
+        self._upload_read = False  # Nemotron read the uploaded image (its text may be empty)
+        self._page_seq = 0
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
+        # the family tree's copies as small JPEGs, served while the job lives (lookup/family.py)
+        self.family_images: dict[str, bytes] = {}
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
         self._unreadable = False  # the submitted post or page is an X tombstone
@@ -276,6 +305,10 @@ class Lookup:
         self._v_profiles: set[str] = set()  # copier profiles queued
         self._v_pages: list[str] = []  # older-looking pages queued for their own date
         self._v_read = 0  # candidate copy pages that came back (read, whatever they showed)
+        self._thread_scan: Any = None  # lookup/threadvariants.ThreadScan, settled before reading
+        # set (under the lock) when the lookup settles the reply scan before its reading: a
+        # scan that hasn't started by then never starts, and nothing it does changes the step
+        self._threads_settled = False
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
@@ -345,12 +378,11 @@ class Lookup:
         call: dict | None = None,
         ok: bool = True,
         latency_ms: int | None = None,
-        cached: bool | None = None,
     ) -> int:
         """Record one receipt. A cache hit (lookup/cache.py) says so and keeps the time of the
         original read; it is never shown as a fresh request."""
         call = call or {}
-        cached = bool(call.get("cached")) if cached is None else cached
+        cached = bool(call.get("cached"))
         summary = summary[:400]
         fetched = call.get("fetched_at")
         if cached:
@@ -431,12 +463,9 @@ class Lookup:
                                 setattr(old, f, val)
                         if pg.claims:
                             old.claims = pg.claims
-                    elif pg.role == "linked" and pg.receipt_id:
-                        old.publisher = old.publisher or pg.publisher
-                        old.headline = pg.headline or old.headline
-                        old.receipt_id = pg.receipt_id
                     return old
-            pg.id = f"page:{len(self.result.pages) + 1}"
+            self._page_seq += 1  # a counter: an upload's trace can drop pages (ids stay unique)
+            pg.id = f"page:{self._page_seq}"
             self.result.pages.append(pg)
             return pg
 
@@ -482,7 +511,8 @@ class Lookup:
         return end if cap_s is None else min(end, time.monotonic() + cap_s)
 
     def _spend(self, need_s: float = 3.0, reserve_s: float = ASSESS_RESERVE_S) -> None:
-        """Gate before every paid or slow provider call; keeps time back for Gemini's reading."""
+        """Gate before every paid or slow provider call; keeps time back for the primary
+        (Nemotron) reading."""
         if time.monotonic() + need_s + reserve_s > self.deadline:
             raise BudgetExceeded("time budget used up")
 
@@ -574,24 +604,64 @@ class Lookup:
             self.skip("author", "text input")
             self.skip("linked", "text input")
         self._wait_text(subject)
+        trace = imagetrace.start(self, pool)
 
         if kind in ("x_profile", "bsky_profile"):
             for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
                 self.skip(sid, "profile lookup")
             self.skip("screenshot", "profile lookup")
+            self.skip("thread_variants", "profile lookup")
             wait(side, timeout=self._left())
             self.skip("verify", "profile lookup")
             self._monitor()
             return
         media_first = not textsim.phrase(self._subject_text) and self._media_urls
         if media_first:
-            # image-only post (or an uploaded image): read the image first, then search its text
+            # image-only post (or an uploaded image): read the image first (a post: then search
+            # its text)
             self._media(ocr_as_text=True)
-        x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
-        rest = [
-            pool.submit(self._copies_bsky),
-            pool.submit(lambda: (self._coverage(), self._queue_older_pages())),
-        ]
+        if kind == "image":
+            # an upload's results are matches of the picture (reverse image search, variations)
+            # and posts or pages that carry 3+ words in a row of its text. Nemotron's
+            # description is never searched for, and nor is the loose coverage query.
+            self.skip("coverage", "an uploaded image: only its exact text is searched for")
+            if self._phrase() or self._domains:
+                self.note(
+                    "Results are matches of the uploaded picture, and posts or pages that carry "
+                    f"at least {textsim.RUN_MIN} words in a row of its text"
+                    + (
+                        " or name the site written in it (" + ", ".join(self._domains) + ")"
+                        if self._domains
+                        else ""
+                    )
+                    + " (highlighted). Nemotron's description of the image is never searched for."
+                )
+                x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
+                rest = [pool.submit(self._copies_bsky)]
+            else:
+                why = (
+                    f"fewer than {textsim.RUN_MIN} words of text in the image"
+                    if self._upload_read
+                    else "the image's text could not be read"
+                )
+                for sid in ("copies_web", "copies_x", "copies_bsky"):
+                    self.skip(sid, why)
+                self.note(
+                    "Results are matches of the uploaded picture only: "
+                    + (
+                        f"it has fewer than {textsim.RUN_MIN} words of text to search for, and "
+                        "Nemotron's description of it is never searched for."
+                        if self._upload_read
+                        else "its text could not be read, so no text was searched for."
+                    )
+                )
+                x_searches, rest = [], []
+        else:
+            x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
+            rest = [
+                pool.submit(self._copies_bsky),
+                pool.submit(lambda: (self._coverage(), self._queue_older_pages())),
+            ]
         if media_first:
             rest.append(pool.submit(self._screenshot))  # alongside the searches
         if kind != "web":
@@ -606,13 +676,22 @@ class Lookup:
             self._screenshot()  # media was skipped: the step says why
         wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
+        # the threads to read are known now: the post's own, or the posts the searches found
+        # (their reply counts as soon as those reads are back)
+        rest.append(pool.submit(self._thread_variants))
         self._queue_older_pages(n=min(1, self.deps.source_pages_max - 1), older_only=True)
+        rest.append(trace.future)
+        rest.append(family.start(self, trace, pool))
         wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # candidates the search for the image's text found
         self._queue_older_pages()
         # the link, text and Bluesky accounts are known now; verify adds only X posts
         self._monitor()
         self._join_verify()
+        if kind == "image":
+            self._keep_caption_matches()  # before the image origin is chosen from the posts
+        trace.finish()
+        self._settle_thread_scan()  # what the reading sees is what the result keeps
 
     def _wait_text(self, futures: list[Future]) -> None:
         """Until one of `futures` has finished with the subject's text known, or all are done.
@@ -629,6 +708,35 @@ class Lookup:
                 return
 
     # ---------------------------------------------------------------- X
+    def _fx_read(
+        self,
+        status_id: str,
+        cap_s: float = FX_CAP_S,
+        *,
+        replies: bool = True,
+        cursor: str | None = None,
+    ) -> tuple[Conversation | None, dict, bool]:
+        """The post (and one page of its replies) through FxTwitter. Returns (conversation, call,
+        not_found); (None, ..) when FxTwitter isn't configured or failed: read the X page then.
+        `not_found`: FxTwitter says the post is gone; the X page says why (tombstones)."""
+        fx = self.deps.fxtwitter
+        if fx is None:
+            return None, {}, False
+        self._spend(need_s=1.0)
+        deadline = self._provider_deadline(cap_s)
+        try:
+            conv = (
+                fx.conversation(status_id, cursor=cursor, deadline=deadline)
+                if replies
+                else fx.status(status_id, deadline=deadline)
+            )
+            return conv, dict(fx.last_call), False
+        except FxNotFound:
+            return None, dict(fx.last_call), True
+        except FxTwitterError as exc:
+            log.info("lookup %s: FxTwitter read failed: %s", self.result.id, exc)
+            return None, dict(fx.last_call), False
+
     def _scrape_x(self, url: str, cap_s: float = PAGE_CAP_S) -> tuple[str, dict]:
         self._spend()
         md, _meta = self.deps.oxylabs.scrape_markdown(url, deadline=self._provider_deadline(cap_s))
@@ -674,7 +782,23 @@ class Lookup:
     def _x_post(self) -> None:
         t = self.target
         with self.step("post") as st:
-            md, call = self._scrape_x(t.url)
+            # one bound for the read, FxTwitter and its fallback together
+            read_end = time.monotonic() + PAGE_CAP_S
+            conv, call, _gone = self._fx_read(t.post_id)
+            if conv is not None and conv.main.status_id == t.post_id:
+                m, replies, ancestors = conv.main, conv.replies, []
+                parent_call: dict | None = None
+                if conv.parent_id:
+                    try:  # the post it replies to: one more quick read, for the thread
+                        parent, parent_call, _ = self._fx_read(conv.parent_id, replies=False)
+                    except BudgetExceeded:
+                        parent = None
+                    if parent is not None and parent.main.status_id == conv.parent_id:
+                        parent.main.is_main = False
+                        ancestors = [parent.main]
+                self._read_post(st, m, ancestors, replies, call, fx=True, parent_call=parent_call)
+                return
+            md, call = self._scrape_x(t.url, cap_s=max(1.0, read_end - time.monotonic()))
             page: PostPage = parse_post_page(md, t.post_id)
             m = page.main
             if m is None:
@@ -698,85 +822,113 @@ class Lookup:
                     )
                 if reason:
                     self._tombstone_note(detail)
-                self._subject_time = snowflake_time(t.post_id)
                 return
-            counts = ", ".join(
-                f"{v:,} {k}"
-                for k, v in (
-                    ("views", m.views),
-                    ("replies", m.replies),
-                    ("reposts", m.reposts),
-                    ("likes", m.likes),
-                    ("bookmarks", m.bookmarks),
+            self._read_post(st, m, page.ancestors, page.replies, call, fx=False)
+
+    def _read_post(
+        self,
+        st: Step,
+        m: XItem,
+        ancestors: list[XItem],
+        replies: list[XItem],
+        call: dict,
+        *,
+        fx: bool,
+        parent_call: dict | None = None,
+    ) -> None:
+        """The submitted X post, read through FxTwitter (`fx`) or on its logged-out page.
+        `parent_call`: the FxTwitter read of the post it replies to (`ancestors`), made apart
+        from the post's: its receipt is its own. Without it the ancestors came on the post's
+        page."""
+        t = self.target
+        counts = ", ".join(
+            f"{v:,} {k}"
+            for k, v in (
+                ("views", m.views),
+                ("replies", m.replies),
+                ("reposts", m.reposts),
+                ("likes", m.likes),
+                ("bookmarks", m.bookmarks),
+            )
+            if v is not None
+        )
+        rid = self.receipt(
+            "fxtwitter" if fx else "oxylabs",
+            "/2/conversation" if fx else "/scrape",
+            f"X post by @{m.handle} read through FxTwitter (X's own data, exact counts): {counts}"
+            if fx
+            else f"X post by @{m.handle} read: {counts}",
+            source_url=t.url,
+            call=call,
+        )
+        now = call.get("fetched_at") or _now()
+        post = self._x_post_from_item(m, "submitted", sim=1.0, rid=rid, verified=True, as_of=now)
+        if m.quoted_text:
+            post.text = (m.text + "\n\n> " + m.quoted_text).strip()
+        self.add_post(post)
+        with self.lock:
+            self.result.subject_id = post.id
+        self._subject_text = m.text or m.quoted_text
+        self._subject_time = m.created_at
+        self._card_url, self._card_title = m.card_url, m.card_title
+        self._media_urls = list(post.media_urls)
+        if m.card_image and not self._media_urls:
+            self._media_urls.append(_x_img(m.card_image))
+        self.receipt(
+            "x-id",
+            "snowflake",
+            "Exact creation times of X posts are read from "
+            "their ids (snowflakes), not from the page",
+            source_url=t.url,
+        )
+        found = [post.id]
+        if m.quoted_id:
+            q = Post(
+                id=f"x:{m.quoted_id}",
+                platform="x",
+                url=x_post_url(m.quoted_handle, m.quoted_id),
+                author_handle=m.quoted_handle,
+                text=m.quoted_text or "",
+                created_at=snowflake_time(m.quoted_id),
+                time_source="snowflake",
+                role="mention",
+                receipt_id=rid,
+            )
+            self.add_post(q)
+            self.add_edge(q.id, post.id, "quote", note="quoted by the submitted post")
+            found.append(q.id)
+        prev = None
+        a_rid, a_now = rid, now
+        if ancestors and parent_call:
+            a = ancestors[0]
+            a_rid = self.receipt(
+                "fxtwitter",
+                "/2/status",
+                f"X post by @{a.handle} that the submitted post replies to, read through FxTwitter",
+                source_url=x_post_url(a.handle, a.status_id),
+                call=parent_call,
+            )
+            a_now = parent_call.get("fetched_at") or _now()
+        for a in ancestors:
+            ap = self.add_post(
+                self._x_post_from_item(
+                    a, "mention", sim=None, rid=a_rid, verified=False, as_of=a_now
                 )
-                if v is not None
             )
-            rid = self.receipt(
-                "oxylabs",
-                "/scrape",
-                f"X post by @{m.handle} read: {counts}",
-                source_url=t.url,
-                call=call,
-            )
-            now = call.get("fetched_at") or _now()
-            post = self._x_post_from_item(
-                m, "submitted", sim=1.0, rid=rid, verified=True, as_of=now
-            )
-            if m.quoted_text:
-                post.text = (m.text + "\n\n> " + m.quoted_text).strip()
-            self.add_post(post)
-            with self.lock:
-                self.result.subject_id = post.id
-            self._subject_text = m.text or m.quoted_text
-            self._subject_time = m.created_at
-            self._card_url, self._card_title = m.card_url, m.card_title
-            self._media_urls = list(post.media_urls)
-            if m.card_image and not self._media_urls:
-                self._media_urls.append(_x_img(m.card_image))
-            self.receipt(
-                "x-id",
-                "snowflake",
-                "Exact creation times of X posts are read from "
-                "their ids (snowflakes), not from the page",
-                source_url=t.url,
-            )
-            found = [post.id]
-            if m.quoted_id:
-                q = Post(
-                    id=f"x:{m.quoted_id}",
-                    platform="x",
-                    url=x_post_url(m.quoted_handle, m.quoted_id),
-                    author_handle=m.quoted_handle,
-                    text=m.quoted_text or "",
-                    created_at=snowflake_time(m.quoted_id),
-                    time_source="snowflake",
-                    role="mention",
-                    receipt_id=rid,
-                )
-                self.add_post(q)
-                self.add_edge(q.id, post.id, "quote", note="quoted by the submitted post")
-                found.append(q.id)
-            prev = None
-            for a in page.ancestors:
-                ap = self.add_post(
-                    self._x_post_from_item(
-                        a, "mention", sim=None, rid=rid, verified=False, as_of=now
-                    )
-                )
-                if prev:
-                    self.add_edge(prev, ap.id, "reply")
-                prev = ap.id
-                found.append(ap.id)
             if prev:
-                self.add_edge(prev, post.id, "reply", note="the submitted post replies to it")
-            for r in page.replies[: self.deps.replies_max]:
-                rp = self.add_post(
-                    self._x_post_from_item(r, "reply", sim=None, rid=rid, verified=False, as_of=now)
-                )
-                self.add_edge(post.id, rp.id, "reply")
-                found.append(rp.id)
-            st.found = found
-            st.detail = counts or "post read"
+                self.add_edge(prev, ap.id, "reply")
+            prev = ap.id
+            found.append(ap.id)
+        if prev:
+            self.add_edge(prev, post.id, "reply", note="the submitted post replies to it")
+        for r in replies[: self.deps.replies_max]:
+            rp = self.add_post(
+                self._x_post_from_item(r, "reply", sim=None, rid=rid, verified=False, as_of=now)
+            )
+            self.add_edge(post.id, rp.id, "reply")
+            found.append(rp.id)
+        st.found = found
+        st.detail = (counts or "post read") + (" · via FxTwitter" if fx else "")
 
     def _x_author(self, handle: str, subject: bool) -> Account | None:
         ctx = self.step("author") if subject else _null_step()
@@ -799,10 +951,11 @@ class Lookup:
             if p.followers is None and p.joined is None:
                 raise StepUnavailable("profile not readable logged out")
             per_day = None
-            ids = sorted(int(it.status_id) for it in p.recent if it.status_id)
-            if len(ids) >= 3:
-                span = (snowflake_time(ids[-1]) - snowflake_time(ids[0])).total_seconds()
-                per_day = round((len(ids) - 1) / max(span / 86400, 1 / 24), 1)
+            # a pre-2010 (non-snowflake) id, e.g. an old pinned post, has no time in it
+            times = sorted(t for it in p.recent if (t := snowflake_time(it.status_id)))
+            if len(times) >= 3:
+                span = (times[-1] - times[0]).total_seconds()
+                per_day = round((len(times) - 1) / max(span / 86400, 1 / 24), 1)
             rid = self.receipt(
                 "oxylabs",
                 "/scrape",
@@ -961,6 +1114,7 @@ class Lookup:
                 )
             except (httpx.HTTPError, BudgetExceeded, BlueskyTimeUp):
                 pass
+            # the feed also lists reposts of other people's posts
             feed = [pv for pv in feed if (pv.get("author") or {}).get("did") == pr.get("did")]
             times = sorted(
                 t for t in (parse_time((p.get("record") or {}).get("createdAt")) for p in feed) if t
@@ -988,14 +1142,7 @@ class Lookup:
             )
             self._bsky_handles.add(pr.get("handle") or actor)
             found = []
-            me = (pr.get("did"), pr.get("handle"))
-            own = [
-                pv
-                for pv in feed
-                if (pv.get("author") or {}).get("did") in me
-                or (pv.get("author") or {}).get("handle") in me
-            ]
-            for pv in own[:10]:  # the feed also lists reposts of other people's posts
+            for pv in feed[:10]:
                 rp = self.add_post(self._bsky_post_obj(pv, "author_recent", None, rid))
                 found.append(rp.id)
             st.found = found
@@ -1019,6 +1166,9 @@ class Lookup:
             return loc if res.is_redirect and loc.startswith(("https://", "http://")) else url
         except httpx.HTTPError:
             return url
+        finally:
+            if http is not self.deps.http:  # made for this call: close its connection pool
+                http.close()
 
     def _user_text(self) -> str | None:
         return (self.result.input.text or "").strip() or None
@@ -1088,7 +1238,7 @@ class Lookup:
                     pid = self.add_page(
                         Page(
                             id="",
-                            url=short if short != url else url,
+                            url=short,
                             final_url=final,
                             role="linked",
                             publisher=facts.publisher,
@@ -1123,7 +1273,7 @@ class Lookup:
                 pg = self.add_page(
                     Page(
                         id="",
-                        url=short if short != url else url,
+                        url=short,
                         final_url=facts.final_url or url,
                         role="linked",
                         publisher=facts.publisher,
@@ -1206,7 +1356,140 @@ class Lookup:
         return hits, dict(self.deps.oxylabs.last_call)
 
     def _phrase(self) -> str | None:
+        if self.result.kind == "image":  # even a three-word caption is searched for
+            return textsim.phrase(self._caption, min_words=textsim.RUN_MIN)
         return textsim.phrase(self._subject_text) or textsim.phrase(self._card_title)
+
+    def _caption_match(self, *texts: str | None) -> list[str]:
+        """An uploaded image's lookup: the parts of `texts` that repeat 3+ words in a row of
+        the image's text, or name a site written in it. A text hit without one doesn't join
+        the trace."""
+        out: list[str] = []
+        for text in texts:
+            out += [r for r in textsim.caption_runs(text, self._caption) if r not in out]
+            out += [d for d in textsim.domain_hits(text, self._domains) if d not in out]
+        return out
+
+    def _publish_templates(self, found: list) -> None:
+        """Thread pictures of the same template (lookup/threadvariants.py) join image_matches
+        beside the reverse-image matches, which imagetrace re-syncs without touching them."""
+        with self.lock:
+            if self._final is not None:
+                return
+            had = {m.id for m in self.result.image_matches if m.relation == "template"}
+            keep = [m for m in self.result.image_matches if m.relation != "template"]
+            self.result.image_matches = keep + list(found)
+            subj = self.result.subject_id
+            for m in found:
+                if subj and m.id not in had:  # published as they come in: one edge each
+                    self.add_edge(
+                        subj,
+                        m.id,
+                        "variant",
+                        tool="nemotron",
+                        note="same template, other content (a reply's own picture)",
+                    )
+
+    def _thread_roots(self) -> list[str]:
+        """X threads whose replies may hold pictures of the same template: the submitted post's
+        own; for an upload, the X posts its searches found, the most replied-to first (their
+        reply counts are known once read; unread ones keep search order)."""
+        with self.lock:
+            if self.result.kind == "x_post":
+                subj = self.result.subject_id
+                return [subj.split(":", 1)[1]] if subj and subj.startswith("x:") else []
+            posts = [
+                p
+                for p in self.result.posts
+                if p.platform == "x"
+                and p.id.startswith("x:")
+                and p.role != "author_recent"
+                and not (p.metrics and p.metrics.replies == 0)  # read: nobody replied
+            ]
+            # read ones by their reply count, then the unread ones in search order
+            posts.sort(key=lambda p: -(p.metrics.replies or 0) if p.metrics else 1)
+            return [p.id.split(":", 1)[1] for p in posts]
+
+    def _thread_reference(self) -> tuple[bytes | None, str | None]:
+        """The picture whose template is looked for: the upload, or the post's first photo."""
+        if self._upload:
+            return self._upload, None
+        url = next((u for u in self._media_urls if "/media/" in u and "pbs.twimg.com" in u), None)
+        return None, url
+
+    def _settle_thread_scan(self) -> None:
+        """Before the reading: the running scan is settled (ThreadScan.close), and one that
+        hasn't started is marked so and never starts."""
+        with self.lock:
+            self._threads_settled = True
+            scan = self._thread_scan
+            st = self._step("thread_variants")
+            if scan is None and st.state in ("pending", "running"):
+                st.state, st.detail, st.ended_at = "skipped", "time budget used up", _now()
+        if scan is not None:
+            scan.close(at_end=True)
+
+    def _thread_skip(self, why: str) -> None:
+        with self.lock:
+            if not self._threads_settled:
+                self.skip("thread_variants", why)
+
+    def _thread_variants(self) -> None:
+        from lookup import threadvariants
+
+        if self.result.kind not in ("x_post", "image"):
+            self._thread_skip("only for an X post or an uploaded image")
+            return
+        ref = self._thread_reference()
+        if ref == (None, None):
+            self._thread_skip("the post has no picture to look for")
+            return
+        if self.result.kind == "image":
+            # the candidates' own reads (FxTwitter, ~0.5 s) give their reply counts: worth a
+            # short wait to read the busiest threads, not the first ones found
+            left = self._provider_deadline() - time.monotonic() - THREAD_SCAN_NEED_S
+            with self.lock:
+                reads = list(self._v_futures)
+            wait(reads, timeout=max(0.0, min(THREAD_WAIT_S, left)))
+        scan = threadvariants.ThreadScan(self, ref)
+        with self.lock:
+            if self._threads_settled:  # the lookup is already past this step
+                return
+            self._thread_scan = scan
+        scan.run(self._thread_roots())
+
+    def _carries_caption(self, text: str | None) -> bool:
+        """An uploaded image's copy repeats a real part of its text: runs of it covering 6+
+        words (or half of a shorter text). A short post that only names the site or a few of its
+        words ("#standwithjensen standwithjensen.com") is about the image, not a copy of it."""
+        n_cap = len(textsim.tokens(self._caption)) if self._caption else 0
+        need = min(6, max(textsim.RUN_MIN, n_cap // 2))
+        runs = textsim.caption_runs(text, self._caption)
+        return sum(textsim.n_words(r) for r in runs) >= need
+
+    def _text_queries(self, where: Literal["web", "x", "bsky"]) -> list[tuple[str, str]]:
+        """(query, what it looks for) for the copy searches. An upload adds one search per site
+        address written in it (at most 2): a screenshot of a web page is found by its address
+        far more often than by its first words, which are mostly the page's menus."""
+        image = self.result.kind == "image"
+        if where == "bsky":
+            phrase = (
+                textsim.phrase(self._caption, 8, min_words=textsim.RUN_MIN)
+                if image
+                else textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
+            )
+        else:
+            phrase = self._phrase()
+        out = []
+        if phrase:
+            out.append(
+                (f'site:x.com "{phrase}"' if where == "x" else f'"{phrase}"', "the exact text")
+            )
+        for d in self._domains if image else []:
+            label = textsim.domain_label(d)
+            term = label if where != "web" and len(label) >= textsim.DOMAIN_LABEL_MIN else d
+            out.append((f'site:x.com "{term}"' if where == "x" else f'"{term}"', d))
+        return out
 
     def _classify_hit(
         self,
@@ -1216,14 +1499,15 @@ class Lookup:
         *,
         reference: str,
         min_sim: float = 0.0,
-        page_role: str | None = None,
     ) -> str | None:
         """Turn one search hit into a post or page; returns the new node id.
 
         X hits that share few words with the reference are dropped (search engines match loose
-        keywords); pages below `min_sim` too. `page_role` fixes a page's role (else: by how much
-        of the reference its snippet carries)."""
+        keywords); pages below `min_sim` too. A page's role is set by how much of the reference
+        its snippet carries. For an uploaded image, a hit is kept only when it repeats 3+ words
+        in a row of the image's text, however few of its words it shares."""
         snippet = textsim.strip_snippet(hit.snippets[0]) if hit.snippets else ""
+        image = self.result.kind == "image"
         if m := X_STATUS_RE.match(hit.url):
             handle, sid = m.group(1), m.group(2)
             pid = f"x:{sid}"
@@ -1233,7 +1517,10 @@ class Lookup:
             sim_own = textsim.similarity(own, reference, truncated=True) if own else None
             sim_snip = textsim.similarity(snippet, reference, truncated=True) if snippet else 0.0
             sim = sim_own if sim_own is not None else sim_snip
-            if max(sim, sim_snip) < max(min_sim, X_MIN_SIM):
+            match = self._caption_match(own or snippet) if image else []
+            if image and not match:
+                return None
+            if not image and max(sim, sim_snip) < max(min_sim, X_MIN_SIM):
                 return None
             # a search hit is a candidate only; its own page decides copy/quote/reply (verify)
             post = self.add_post(
@@ -1249,6 +1536,7 @@ class Lookup:
                     role="mention",
                     similarity=round(sim, 2),
                     receipt_id=rid,
+                    caption_match=match,
                 )
             )
             return post.id
@@ -1257,14 +1545,15 @@ class Lookup:
         if re.match(r"https?://(?:www\.)?(?:x|twitter)\.com/", hit.url):
             return None  # profile or search pages, not posts
         sim = textsim.similarity(snippet, reference, truncated=True) if snippet else 0.0
-        if sim < min_sim:
+        match = self._caption_match(hit.title, snippet[:300]) if image else []
+        if (image and not match) or sim < min_sim:
             return None
         t, unc = snippet_time(hit.snippets[0] if hit.snippets else "", at)
         pg = self.add_page(
             Page(
                 id="",
                 url=hit.url,
-                role=page_role or ("reference" if sim >= COPY_MIN else "coverage"),
+                role="reference" if sim >= COPY_MIN else "coverage",
                 headline=hit.title or None,
                 snippet=snippet[:300] or None,
                 published_hint=hit.published_hint.isoformat() if hit.published_hint else None,
@@ -1272,6 +1561,7 @@ class Lookup:
                 time_source="search_hint" if t else None,
                 time_uncertainty_s=unc,
                 receipt_id=rid,
+                caption_match=match,
             )
         )
         return pg.id
@@ -1283,48 +1573,61 @@ class Lookup:
         return short
 
     def _copies_web(self) -> None:
-        phrase = self._phrase()
-        if not phrase:
+        queries = self._text_queries("web")
+        if not queries:
             self.skip(
                 "copies_web", self._copies_skip_detail("text too short for an exact-phrase search")
             )
             return
         with self.step("copies_web") as st:
-            q = f'"{phrase}"'
-            hits, call = self._search(q)
-            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
-            rid = self.receipt(
-                "oxylabs",
-                "/search",
-                f"Web search for the exact text: {len(hits)} results",
-                query=q,
-                call=call,
+            ref = self._subject_text or self._phrase() or self._caption or ""
+            found: list[str] = []
+            for q, what in queries:
+                hits, call = self._search(q)
+                at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
+                rid = self.receipt(
+                    "oxylabs",
+                    "/search",
+                    f"Web search for {what}: {len(hits)} results",
+                    query=q,
+                    call=call,
+                )
+                found += [
+                    i
+                    for h in hits
+                    if (i := self._classify_hit(h, rid, at, reference=ref)) and i not in found
+                ]
+                st.found = found
+            st.detail = f"{len(found)} pages or posts carry the text" + (
+                " or name the site" if self._domains else ""
             )
-            ref = self._subject_text or phrase
-            st.found = [i for h in hits if (i := self._classify_hit(h, rid, at, reference=ref))]
-            st.detail = f"{len(st.found)} pages or posts carry the text"
 
     def _copies_x(self) -> None:
-        phrase = self._phrase()
-        if not phrase:
+        queries = self._text_queries("x")
+        if not queries:
             self.skip(
                 "copies_x", self._copies_skip_detail("text too short for an exact-phrase search")
             )
             return
         with self.step("copies_x") as st:
-            q = f'site:x.com "{phrase}"'
-            hits, call = self._search(q)
-            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
-            rid = self.receipt(
-                "oxylabs",
-                "/search",
-                f"X search for the exact text: {len(hits)} results",
-                query=q,
-                call=call,
-            )
-            ref = self._subject_text or phrase
-            found = [i for h in hits if (i := self._classify_hit(h, rid, at, reference=ref))]
-            st.found = found
+            ref = self._subject_text or self._phrase() or self._caption or ""
+            found: list[str] = []
+            for q, what in queries:
+                hits, call = self._search(q)
+                at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
+                rid = self.receipt(
+                    "oxylabs",
+                    "/search",
+                    f"X search for {what}: {len(hits)} results",
+                    query=q,
+                    call=call,
+                )
+                found += [
+                    i
+                    for h in hits
+                    if (i := self._classify_hit(h, rid, at, reference=ref)) and i not in found
+                ]
+                st.found = found
             st.detail = f"{len(found)} candidate posts on X (read on their own pages next)"
 
     # ---------------------------------------------------------------- verify (pipelined)
@@ -1333,7 +1636,7 @@ class Lookup:
 
         Called when the X and web searches are back and again after the image-text search, so
         reading copies starts while the slower steps (linked page, images) still run."""
-        ref = self._subject_text or self._phrase()
+        ref = self._subject_text or self._phrase() or self._caption
         if not ref:
             return
         with self.lock:
@@ -1344,7 +1647,7 @@ class Lookup:
                 if p.platform == "x"
                 and not p.verified
                 and p.role == "mention"
-                and (p.similarity or 0) >= X_MIN_SIM
+                and ((p.similarity or 0) >= X_MIN_SIM or p.caption_match)
                 and p.id != self.result.subject_id
                 and p.id not in queued
             ]
@@ -1530,6 +1833,7 @@ class Lookup:
             pg.published_at = facts.published_at
             pg.headline = facts.headline or pg.headline
             pg.claims = facts.claims
+            self._page_read[pg.id] = "\n".join([facts.headline or "", *facts.claims])
             pg.receipt_id = rid
             pg.time, pg.time_source, pg.time_uncertainty_s = t, "page" if t else None, unc
 
@@ -1557,9 +1861,37 @@ class Lookup:
         sid = p.id.split(":", 1)[1]
         # a candidate copy is evidence, not the subject: a straggler stays an unread mention
         # rather than holding the reading (verify_read_s)
-        md, call = self._scrape_x(p.url, cap_s=self.deps.verify_read_s)
-        page = parse_post_page(md, sid)
-        m = page.main
+        # one bound for the read (verify_read_s), FxTwitter and its fallback together
+        read_end = time.monotonic() + self.deps.verify_read_s
+        conv, call, gone = self._fx_read(
+            sid, cap_s=min(FX_CAP_S, self.deps.verify_read_s), replies=False
+        )
+        if gone:
+            return None  # FxTwitter says it's gone: no page read needed to drop it
+        if conv is not None and conv.main.status_id == sid:
+            m, fx = conv.main, True
+            # only the parent's id matters here (does this post reply to the subject?)
+            page = PostPage(
+                m,
+                [
+                    XItem(
+                        handle=conv.parent_handle or "",
+                        name=None,
+                        status_id=conv.parent_id,
+                        text="",
+                    )
+                ]
+                if conv.parent_id
+                else [],
+                [],
+            )
+        else:
+            left = read_end - time.monotonic()
+            if left < 1.0:
+                return None  # FxTwitter used the read's time: an unread mention, not a hold-up
+            md, call = self._scrape_x(p.url, cap_s=left)
+            page, fx = parse_post_page(md, sid), False
+            m = page.main
         if m is None:
             return None
         subj = self.result.subject_id
@@ -1579,9 +1911,24 @@ class Lookup:
             role, sim = "copy", sim_own
         else:
             role, sim = "mention", sim_own
-        if role == "mention" and sim < X_MIN_SIM:
+        image = self.result.kind == "image"
+        if image and quoted_pid and quoted_pid != subj:
+            # an upload: the quoted post joins the trace only with its own caption run, and
+            # then this post quotes it; else this post stands on its own text
+            quoted_match = self._caption_match(m.quoted_text)
+            if quoted_match:
+                role, sim, quoted_other = "quote", sim_quoted, quoted_pid
+            elif role == "quote":
+                role = "copy" if sim_own >= COPY_MIN else "mention"
+                sim, quoted_other = sim_own, None
+        own_text = (m.text or "") + (
+            "\n\n> " + m.quoted_text if m.quoted_text and role == "quote" else ""
+        )
+        match = self._caption_match(own_text.strip()) if image else []
+        if (not match) if image else (role == "mention" and sim < X_MIN_SIM):
             with self.lock:  # its own page shows it isn't about this text: drop the search hit
                 self.result.posts = [q for q in self.result.posts if q.id != p.id]
+                self.result.edges = [e for e in self.result.edges if p.id not in (e.from_, e.to)]
             return None
         kind = {
             "quote": "quotes it",
@@ -1590,9 +1937,10 @@ class Lookup:
             "mention": "mentions it",
         }[role]
         rid = self.receipt(
-            "oxylabs",
-            "/scrape",
-            f"@{m.handle}'s post read: {kind}; {_fmt(m.views)} views, {_fmt(m.likes)} likes",
+            "fxtwitter" if fx else "oxylabs",
+            "/2/status" if fx else "/scrape",
+            f"@{m.handle}'s post read{' through FxTwitter' if fx else ''}: {kind}; "
+            f"{_fmt(m.views)} views, {_fmt(m.likes)} likes",
             source_url=p.url,
             call=call,
         )
@@ -1606,6 +1954,7 @@ class Lookup:
         )
         if m.quoted_text and role == "quote":
             post.text = (m.text + "\n\n> " + m.quoted_text).strip()
+        post.caption_match = self._caption_match(post.text) if image else []
         post = self.add_post(post)
         if quoted_other:
             # the quoted post's text and id were read on this page: it carries the text too
@@ -1618,10 +1967,11 @@ class Lookup:
                     text=m.quoted_text or "",
                     created_at=snowflake_time(m.quoted_id),
                     time_source="snowflake",
-                    role="copy" if sim_quoted >= COPY_MIN else "mention",
+                    role="copy",  # quoted_other is set only when sim_quoted >= COPY_MIN
                     similarity=round(sim_quoted, 2),
                     receipt_id=rid,
                     verified=True,
+                    caption_match=self._caption_match(m.quoted_text) if image else [],
                 )
             )
             self.add_edge(q.id, post.id, "quote", note="quotes this post")
@@ -1630,60 +1980,67 @@ class Lookup:
         return post
 
     def _copies_bsky(self) -> None:
-        phrase = textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
-        if not phrase or not self.deps.bsky:
+        from urllib.parse import quote_plus
+
+        image = self.result.kind == "image"
+        queries = self._text_queries("bsky")
+        if not queries or not self.deps.bsky:
             self.skip(
                 "copies_bsky",
                 self._copies_skip_detail("text too short")
-                if not phrase
+                if not queries
                 else "Bluesky not configured",
             )
             return
         with self.step("copies_bsky") as st:
-            q = f'"{phrase}"'
-            self._spend()
-            posts = self.deps.bsky.search(q, limit=25, deadline=self._provider_deadline())
-            rid = self.receipt(
-                "bluesky",
-                "searchPosts",
-                f"Bluesky search for the exact text: {len(posts)} posts",
-                query=q,
-                source_url=f"https://bsky.app/search?q={q}",
-                call=self.deps.bsky.last_call,
+            ref = self._subject_text or queries[0][0].strip('"')
+            found: list[str] = []
+            for q, what in queries:
+                self._spend()
+                posts = self.deps.bsky.search(q, limit=25, deadline=self._provider_deadline())
+                rid = self.receipt(
+                    "bluesky",
+                    "searchPosts",
+                    f"Bluesky search for {what}: {len(posts)} posts",
+                    query=q,
+                    source_url=f"https://bsky.app/search?q={quote_plus(q)}",
+                    call=self.deps.bsky.last_call,
+                )
+                self._bsky_hits(posts, rid, ref, image, found)
+                st.found = found
+            st.detail = f"{len(found)} Bluesky posts with the same text" + (
+                f" (or {textsim.RUN_MIN}+ of its words in a row"
+                + (", or naming the site)" if self._domains else ")")
+                if image
+                else ""
             )
-            ref = self._subject_text or phrase
-            found = []
-            for pv in posts:
-                if pv.get("uri") == self.result.subject_id:
-                    continue
-                text = (pv.get("record") or {}).get("text") or ""
-                sim = textsim.similarity(text, ref)
-                sim = max(sim, textsim.similarity(text, ref, truncated=True) * 0.9)
-                if sim < COPY_MIN:
-                    continue
-                bp = self.add_post(self._bsky_post_obj(pv, "bluesky", round(sim, 2), rid))
-                if bp.author_handle:
-                    self._bsky_handles.add(bp.author_handle)
+
+    def _bsky_hits(self, posts: list, rid: int, ref: str, image: bool, found: list[str]) -> None:
+        for pv in posts:
+            if pv.get("uri") == self.result.subject_id:
+                continue
+            text = (pv.get("record") or {}).get("text") or ""
+            sim = textsim.similarity(text, ref)
+            sim = max(sim, textsim.similarity(text, ref, truncated=True) * 0.9)
+            match = self._caption_match(text) if image else []
+            if (not match) if image else sim < COPY_MIN:
+                continue
+            bp = self._bsky_post_obj(pv, "bluesky", round(sim, 2), rid)
+            bp = self.add_post(bp.model_copy(update={"caption_match": match}))
+            if bp.author_handle:
+                self._bsky_handles.add(bp.author_handle)
+            if bp.id not in found:
                 found.append(bp.id)
-            st.found = found
-            st.detail = f"{len(found)} Bluesky posts with the same text"
 
     def _coverage(self) -> None:
         q = self._card_title or textsim.phrase(self._subject_text, 14)
-        # an upload with too little text: pages about the image, found by its caption or
-        # description. They describe the image; none of them is a copy or an origin.
-        about = not q and bool(self._image_query)
-        q = q or self._image_query
         if not q:
             self.skip("coverage", "nothing to search for")
             return
-        image = self.result.kind == "image"
-        if image and not about and self._upload_meme:
-            q += " meme"  # meme pages (template, first use, variants) over unrelated matches
         with self.step("coverage") as st:
             queries = [q.replace('"', "")]
             claim_query = (textsim.phrase(self._subject_text, 40) or "").replace('"', "")
-            if not about and claim_query and claim_query not in queries:
+            if claim_query and claim_query not in queries:
                 queries.append(claim_query)
             search_pool = ThreadPoolExecutor(max_workers=2)
             futures = [search_pool.submit(self._search, query, 10) for query in queries]
@@ -1709,13 +2066,7 @@ class Lookup:
                     rid = self.receipt(
                         "oxylabs",
                         "/search",
-                        (
-                            "Search for pages about the uploaded image"
-                            if image
-                            else "Coverage search"
-                        )
-                        + (" (by its text or description)" if about else "")
-                        + f": {len(hits)} results",
+                        f"Coverage search: {len(hits)} results",
                         query=query,
                         call=call,
                     )
@@ -1727,7 +2078,6 @@ class Lookup:
                             rid,
                             at,
                             reference=self._subject_text or query,
-                            page_role="coverage" if about else None,
                         )
                         if nid and nid.startswith("page:") and nid not in found:
                             found.append(nid)
@@ -1740,9 +2090,7 @@ class Lookup:
                 )
             st.found = found
             st.detail = (
-                f"{len(found)} pages "
-                + ("about the image" if image else "on the story")
-                + f" · {succeeded}/{len(queries)} searches completed"
+                f"{len(found)} pages on the story · {succeeded}/{len(queries)} searches completed"
             )
 
     # ---------------------------------------------------------------- media (Nemotron)
@@ -1771,38 +2119,20 @@ class Lookup:
         self._media_urls = [url]
 
     def _use_upload_reading(self, texts: list[str], a: Any) -> None:
-        """What the searches look for, from Nemotron's reading `a` of an uploaded image (None
-        when it wasn't read): its text when there are 5+ words of it. With less, the coverage
-        step looks for pages about the image by its short text (a meme caption), else by its
-        description; those pages are about the image, never copies of it."""
+        """The text Nemotron read in an uploaded image (`a`, None when it wasn't read): shown
+        on its card, searched for in reading order (`_caption`) and, with 5+ words, the subject
+        text the monitor check and the reading see. Its description is never searched for."""
         with self.lock:
             subj = next((p for p in self.result.posts if p.id == self.result.subject_id), None)
-            if subj is not None and a is not None:
-                subj.text = "\n".join(a.extracted_text)[:2000]  # reading order, for the card
+            if a is not None:
+                self._upload_read = True
+                self._caption = "\n".join(a.extracted_text)[:2000] or None  # reading order
+                self._domains = textsim.domains(self._caption)
+                if subj is not None:
+                    subj.text = self._caption or ""  # for the card
         joined = " ".join(texts)
-        self._upload_meme = a is not None and a.media_type == "meme"
         if textsim.phrase(joined):
             self._subject_text = joined
-            self.note("The searches look for the text Nemotron read inside the uploaded image.")
-            return
-        if a is None:
-            return
-        meme = self._upload_meme
-        words = joined.replace('"', "").split()
-        if len(words) >= 2:
-            short = " ".join(words[:8])
-            self._image_query = f"{short} meme" if meme else short
-        elif "adult" not in a.content_flags and a.description:
-            self._image_query = ("meme " if meme else "") + " ".join(a.description.split()[:30])
-        if not self._image_query:
-            self.note("The uploaded image has too little text to search for; nothing was searched.")
-            return
-        self.note(
-            "The uploaded image has too little text for an exact search; the pages found are "
-            "about the image (searched by its "
-            + ("text" if len(words) >= 2 else "description")
-            + "), not an image match and not copies."
-        )
 
     def _media(self, ocr_as_text: bool = False) -> None:
         urls = self._media_urls[: self.deps.media_max]
@@ -1813,6 +2143,7 @@ class Lookup:
             self.skip("media", "Nemotron is not configured on this server")
             return
         with self.step("media") as st:
+            own_http = self.deps.http is None
             http = self.deps.http or httpx.Client(timeout=20, follow_redirects=False)
             # only the platforms' own image CDNs are downloaded (an upload is already here)
             urls = [
@@ -1832,6 +2163,8 @@ class Lookup:
                 with self.lock:
                     closed.set()
                 mp.shutdown(wait=False, cancel_futures=True)
+                if own_http:  # a read left behind fails on the closed client; it can't publish
+                    http.close()
             late = BudgetExceeded("time budget used up")
             reads = [f.result() if f.done() and not f.cancelled() else late for f in futures]
             texts, read = [], 0
@@ -1844,10 +2177,7 @@ class Lookup:
                     texts.extend(a.extracted_text)
             if errors and not read:
                 if self.result.kind == "image":
-                    self.note(
-                        "Nemotron could not read the uploaded image, so there was no text to "
-                        "search for. Try again in a minute."
-                    )
+                    self.note("Nemotron could not read the uploaded image. Try again in a minute.")
                 raise errors[0]
             found = []
             # the longest line first: headers ("NETWORK & OPERATIONS", dates) make poor queries
@@ -1898,8 +2228,6 @@ class Lookup:
             st.detail = f"{read} image(s) read" + (
                 f" · OCR text found in {len(found)} places"
                 if ocr
-                else " · too little text to search for; looking for pages about it"
-                if self._image_query
                 else " · its text drives the searches"
                 if ocr_as_text and texts and self._phrase()
                 else ""
@@ -1955,12 +2283,12 @@ class Lookup:
                 "not a vision-language model."
             )
             return None
-        if a.media_type == "screenshot" and "/card_img/" not in url:
-            with self.lock:  # the "screenshot" step reads it as a post (bytes None: cached)
-                self._shots.append((url, h, mime, data))
         with self.lock:  # one critical section with `closed`: a late reading is never shown
             if closed.is_set():
                 return BudgetExceeded("the image reading came after the time budget")
+            if a.media_type == "screenshot" and "/card_img/" not in url:
+                # the "screenshot" step reads it as a post (bytes None: cached)
+                self._shots.append((url, h, mime, data))
             rid = self.receipt(
                 "nemotron",
                 "chat.completions",
@@ -2066,7 +2394,39 @@ class Lookup:
             )
 
     # ---------------------------------------------------------------- graph + assess
+    def _keep_caption_matches(self) -> None:
+        """An uploaded image's trace: every post or page found by its text must repeat 3+ words
+        in a row of it, in the text it finally shows (a read page can replace a snippet). The
+        others leave the trace with their edges and their authors' profiles; each kept one
+        lists its runs to highlight. Runs again at the end for reads that landed late."""
+        with self.lock:
+            posts, pages = [], []
+            for p in self.result.posts:
+                if p.role in ("submitted", "screenshotted"):
+                    posts.append(p)
+                elif match := self._caption_match(p.text):
+                    posts.append(p.model_copy(update={"caption_match": match}))
+            for pg in self.result.pages:
+                if match := self._caption_match(pg.headline, pg.snippet):
+                    pg.caption_match = match
+                    pages.append(pg)
+            ids = {p.id for p in posts} | {pg.id for pg in pages}
+            dropped = {p.id for p in self.result.posts} | {pg.id for pg in self.result.pages}
+            dropped -= ids
+            self.result.posts, self.result.pages = posts, pages
+            authors = {(p.platform, (p.author_handle or "").lower()) for p in posts}
+            self.result.accounts = [
+                a for a in self.result.accounts if (a.platform, a.handle.lower()) in authors
+            ]
+            self.result.edges = [
+                e for e in self.result.edges if e.from_ not in dropped and e.to not in dropped
+            ]
+            for st in self.result.steps:
+                st.found = [i for i in st.found if i not in dropped]
+
     def _finish_graph(self) -> None:
+        if self.result.kind == "image":
+            self._keep_caption_matches()
         with self.lock:
             posts = self.result.posts
             subj = next((p for p in posts if p.id == self.result.subject_id), None)
@@ -2079,6 +2439,7 @@ class Lookup:
                     and p.verified  # only posts read on their own page or API
                     and p.role in ("submitted", "copy", "bluesky")
                     and (p.similarity or 0) >= COPY_MIN
+                    and (self.result.kind != "image" or self._carries_caption(p.text))
                 ),
                 key=lambda p: p.created_at,
             )
@@ -2102,6 +2463,10 @@ class Lookup:
                     and pg.time_uncertainty_s is not None
                     and origin_t
                     and latest(pg) < origin_t - timedelta(minutes=5)
+                    # an upload: the page must carry a real part of the image's text in what its
+                    # own read returned (not the search snippet or headline it was found by); a
+                    # page that only names the site is about it, like a short post
+                    and (not image or self._carries_caption(self._page_read.get(pg.id)))
                 ),
                 key=latest,
             )
@@ -2144,7 +2509,11 @@ class Lookup:
                             subj.id,
                             pg.id,
                             "cites",
-                            note="about the image" if image else "same story",
+                            note=(
+                                f"carries {textsim.RUN_MIN}+ words in a row of the image's text"
+                                if image
+                                else "same story"
+                            ),
                         )
             if image:
                 n_var = sum(1 for p in carriers if (p.similarity or 0) < VERBATIM)
@@ -2158,10 +2527,17 @@ class Lookup:
             self.result.spread = _spread(carriers)
             if any(p.platform == "x" for p in posts):
                 self.note(
-                    "X counts are what the logged-out page showed when it was read; X "
+                    (
+                        "X counts are X's own numbers when the post was read through "
+                        "FxTwitter, else what the logged-out page showed (it hides zero "
+                        "counts). Post times come from the post ids."
+                    )
+                    if any(r.tool == "fxtwitter" for r in self.result.receipts)
+                    else "X counts are what the logged-out page showed when it was read; X "
                     "hides zero counts. Post times come from the post ids."
                 )
-            self.note("Search results are a sample of where the text appears, not every copy.")
+            if not image or self._phrase():
+                self.note("Search results are a sample of where the text appears, not every copy.")
             if self.result.status != "matched":
                 self.note(
                     "Not in the Bluesky clusters we monitor, so there is no coordination "

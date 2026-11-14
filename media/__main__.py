@@ -116,15 +116,23 @@ def run_worker(client, settings, *, interval_s: float, batch: int) -> None:
                         limit=batch,
                         done=progress.done(),
                     ):
-                        run = read_cluster(
-                            conn,
-                            client,
-                            fetcher,
-                            c["id"],
-                            max_media=settings.media_max_per_cluster,
-                            backoff=backoff,
-                            receipts=receipts,
-                        )
+                        try:
+                            run = read_cluster(
+                                conn,
+                                client,
+                                fetcher,
+                                c["id"],
+                                max_media=settings.media_max_per_cluster,
+                                backoff=backoff,
+                                receipts=receipts,
+                            )
+                        except NotVisionModelError:
+                            raise
+                        except Exception:  # else it ends every pass, starving the clusters after it
+                            log.exception("cluster %s: media read failed; retrying later", c["id"])
+                            progress.hold(c["id"], c["updated_at"])
+                            conn.rollback()
+                            continue
                         progress.record(c["id"], c["updated_at"], run)
             except NotVisionModelError:
                 raise

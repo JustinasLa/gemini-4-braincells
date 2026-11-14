@@ -1,9 +1,13 @@
 import type { Cluster, Relation, Role, Tool, TraceCase, TraceNode, TraceStep } from "../types";
+import { highlightShared } from "./shared";
 import { fmtDur, fmtNum, httpUrl, shotLabel } from "../ui/format";
 import type { ClusterSummary } from "./api";
 import { hashStr } from "./build";
+import { appendImageTrace, type ImageMatch } from "./imageTrace";
+import { appendFamily } from "./family";
 
-type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id";
+// lookup/models.py Edge.tool and Receipt.tool
+type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id" | "tineye" | "yandex" | "fetch" | "fxtwitter";
 export interface LookupPost {
   id: string;
   platform: "x" | "bluesky" | "web";
@@ -23,6 +27,8 @@ export interface LookupPost {
   media_urls: string[];
   receipt_id: number | null;
   verified?: boolean;
+  // an uploaded image's lookup: the parts of `text` that repeat 3+ words in a row of its text
+  caption_match?: string[];
 }
 export interface LookupAccount {
   platform: LookupPost["platform"];
@@ -56,6 +62,7 @@ export interface LookupPage {
   claims: string[];
   snippet: string | null;
   receipt_id: number | null;
+  caption_match?: string[]; // as on LookupPost, in the headline or snippet
 }
 export interface LookupMedia {
   media_url: string;
@@ -132,6 +139,8 @@ export interface LookupAssessment {
   latency_ms: number | null; cost_usd: number | null;
 }
 export interface LookupResult {
+  image_matches?: ImageMatch[];
+  image_origin_id?: string | null;
   id: string;
   state: "running" | "done" | "failed";
   error: string | null;
@@ -168,8 +177,8 @@ export class LookupError extends Error {
 }
 
 const TIMEOUT_MS = 150000;
-/** fallback polling interval when the event stream is unavailable (was 1500 ms) */
-export const POLL_MS = 600;
+/** fallback polling interval when the event stream is unavailable */
+const POLL_MS = 600;
 /** the server sends a snapshot as soon as the stream opens; none by then means a broken or buffered stream */
 const FIRST_SNAPSHOT_MS = 4000;
 /** a stream that stays silent this long is treated as stalled; polling takes over */
@@ -224,14 +233,14 @@ function streamLookup(id: string, emit: (raw: string, result: LookupResult) => v
 export type LookupRequest = string | Blob;
 export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 /** the server's cap; larger images are scaled down before upload */
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_SIDE = 2048;
 /** the uploaded image of an image lookup, served back while its job lives */
 export const uploadUrl = (id: string) => `/api/lookup/${encodeURIComponent(id)}/image`;
 
 /** A large photo becomes a JPEG of at most MAX_SIDE px: Nemotron reads it as well, and the upload
  * is faster. GIFs keep their bytes when they fit (the server reads the first frame). */
-export async function prepareImage(file: Blob): Promise<Blob> {
+async function prepareImage(file: Blob): Promise<Blob> {
   if (!IMAGE_TYPES.includes(file.type)) throw new LookupError("Upload a JPEG, PNG, WebP or GIF image.");
   if (file.size <= 2 * 1024 * 1024 && file.type !== "image/png") return file;
   let bitmap: ImageBitmap;
@@ -336,6 +345,10 @@ export async function startLookup(input: LookupRequest, onUpdate: (result: Looku
 /** the primary reading is in: the trace may look finished while a second reading still runs */
 export const readingReady = (result: LookupResult) => result.state !== "running"
   || result.steps.some((step) => step.id === "assess" && ["done", "failed", "skipped"].includes(step.state));
+/** A case has a coordination verdict to reveal: every non-lookup case (simulated, historical, a
+ *  monitored cluster), and a lookup only when it matched a monitored cluster. A lookup's
+ *  "insufficient" is the absence of a call, not a verdict, so it gets no coin. */
+export const hasVerdict = (c: Pick<TraceCase, "lookup" | "status">) => !c.lookup || c.status !== "insufficient";
 /** every reading received so far, primary first (older servers send only `assessment`) */
 export const readingsOf = (result: LookupResult): LookupAssessment[] => result.readings?.length ? result.readings : result.assessment ? [result.assessment] : [];
 /** the readings differ (the server says so; older servers: compare their llm_reading) */
@@ -344,7 +357,8 @@ export const readingsDisagree = (result: LookupResult) => result.readings_disagr
 export const modelTool = (model: string | null | undefined): Tool => /nemotron/i.test(model ?? "") ? "nemotron" : /gemini/i.test(model ?? "") ? "gemini" : "archive";
 
 const toolFor = (tool: string): Tool => {
-  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you"].includes(tool)) return tool as Tool;
+  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you", "fetch", "fxtwitter"].includes(tool)) return tool as Tool;
+  if (tool === "tineye" || tool === "yandex") return "oxylabs"; // reverse-image engines, read through Oxylabs /scrape
   return "archive";
 };
 const timeOf = (value: string | null): number | undefined => {
@@ -411,14 +425,15 @@ export function lookupCase(result: LookupResult): TraceCase {
       id: post.id, t: fallbackTime, timeUnknown: true, platform: "web", role: "submitted",
       author: { name: "Your upload", handle: "uploaded image", hue: hashStr(post.id) % 360 },
       text: post.text, url: undefined,
-      media: { kind: "photo", src: mediaSource, title: media[0]?.description || "Your uploaded image", note: media[0]?.description ?? undefined },
+      // no description line: the upload's matches are pictures, not text about it
+      media: { kind: "photo", src: mediaSource, title: media[0]?.description || "Your uploaded image" },
       flags: ["uploaded image · no time of its own", ...(media[0] && !post.text ? ["no text read in the image"] : [])],
       realData: realData.slice(1),
     };
     return {
       id: post.id, t: time ?? fallbackTime, timeUnknown: time == null, platform: post.platform, role,
       author: { name: post.author_name || account?.name || handle, handle, hue: hashStr(`${post.platform}:${handle}`) % 360, followers: account?.followers ?? undefined, ageDays: account?.age_days ?? undefined },
-      text: post.text, url: httpUrl(post.url), likes: metrics.likes ?? undefined, reposts: metrics.reposts ?? undefined,
+      text: post.text, textMatch: post.caption_match, url: httpUrl(post.url), likes: metrics.likes ?? undefined, reposts: metrics.reposts ?? undefined,
       media: mediaSource ? { kind: "photo", src: mediaSource, title: media[0]?.description || "Post media (source image)", note: media[0]?.description ?? undefined }
         : post.card ? { kind: "link", title: post.card.title || "Linked page", domain: post.card.domain ?? undefined } : undefined,
       flags: [
@@ -448,7 +463,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     nodes.push({
       id: page.id ?? page.url, t: time ?? fallbackTime, timeUnknown: time == null, platform: page.publisher ? "news" : "web", role: "source",
       author: { name: page.publisher || hostOf(page.url), handle: page.author || hostOf(page.url), hue: hashStr(page.url) % 360 },
-      text: [page.headline, page.snippet].filter(Boolean).join("\n"), url,
+      text: [page.headline, page.snippet].filter(Boolean).join("\n"), textMatch: page.caption_match, url,
       flags: time == null ? ["time unknown", ...(page.published_hint ? [`date hint: ${page.published_hint}`] : [])] : [...precision, ...(page.time_source === "search_hint" ? ["date from a search result, page not read"] : [])],
       realData: [{ label: "Page facts", url, receiptId: page.receipt_id, facts: facts({ Publisher: page.publisher, Author: page.author, "Published at (as returned)": page.published_at, "Parsed time (UTC)": page.time, "Time source": page.time_source, "Time uncertainty": unc ? `${Math.round(unc / 3600)} h window` : null, "Date hint (not an exact time)": page.published_hint, Headline: page.headline, Claims: page.claims.join("\n"), "Page role": page.role }) }],
     });
@@ -478,7 +493,10 @@ export function lookupCase(result: LookupResult): TraceCase {
   }
   // Only a cluster that shared this link or this text carries a verdict for it; a cluster that
   // merely contains an account seen here is context about that account.
-  const matched = result.status === "matched" ? result.clusters.find((cluster) => cluster.verdict_applies) : undefined;
+  // The same text can sit in several monitored clusters (one campaign, scored at different times):
+  // a cluster that was flagged coordinated says more than one the detector could not decide.
+  const applying = result.status === "matched" ? result.clusters.filter((cluster) => cluster.verdict_applies) : [];
+  const matched = applying.find((cluster) => cluster.status === "coordinated") ?? applying[0];
   const clusters: Cluster[] = result.clusters.map((cluster) => ({ id: `monitor-${cluster.id}`, label: cluster.verdict_applies ? `Monitored cluster ${cluster.id} · same ${(cluster.match ?? []).filter((m) => m !== "account").join(" + ") || "link"}` : `Monitored cluster ${cluster.id} · shares an account only, not a verdict on this link`, status: cluster.verdict_applies ? cluster.status : "insufficient", members: [], stat: `${cluster.size ?? "Unknown number of"} accounts · detector status ${cluster.status} · membership not supplied by lookup` }));
   if (result.spread && result.spread.n_accounts >= 3) {
     // only copies of the text; a screenshotted post is never a copy, even at similarity 1
@@ -488,7 +506,7 @@ export function lookupCase(result: LookupResult): TraceCase {
   }
   const subject = result.subject_id ? resolve(result.subject_id) : "";
   const submittedId = nodeIds.has(subject) ? subject : nodes.find((node) => node.url === result.input.url || node.id === result.input.url)?.id ?? "";
-  return {
+  return highlightShared(appendFamily(appendImageTrace({
     id: result.id, title: (result.posts.find((post) => post.id === result.subject_id)?.text?.replace(/\s+/g, " ") || result.input.url || result.input.text || (result.kind === "image" ? "Uploaded image" : "Live lookup")).slice(0, 90),
     kicker: result.kind === "image" ? "Live image lookup" : "Live link lookup", status: matched?.status ?? "insufficient", confidence: matched?.confidence ?? 0, scored: matched?.confidence != null,
     synthetic: false, live: true, submittedId, originId: result.origin_id && nodeIds.has(resolve(result.origin_id)) ? resolve(result.origin_id) : "",
@@ -504,5 +522,5 @@ export function lookupCase(result: LookupResult): TraceCase {
     summary: readingsDisagree(result) ? `Two model readings of these receipts differ; both are shown below. ${result.posts.length} posts and ${result.pages.length} pages collected.`
       : result.assessment?.summary || (!matched && result.unreadable ? `${result.unreadable}: the submitted post can't be read${result.input.text ? "; these results trace the text you supplied" : ", so there is nothing to trace"}. Can't tell is not a verdict on the account.` : null) || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Coordination: insufficient evidence. This is not a finding about the accuracy of the content."}`,
     lookup: result,
-  };
+  })));
 }

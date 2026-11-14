@@ -485,3 +485,92 @@ def test_comparable_ignores_screenshot_latency():
     assert _comparable(detail) == _comparable(later)
     changed = detail | {"screenshot": detail["screenshot"] | {"text": "Edited"}}
     assert _comparable(detail) != _comparable(changed)
+
+
+# --- bounded blob download and worker pass isolation -------------------------------------------
+
+
+def test_blob_fetcher_stops_reading_an_oversized_body(monkeypatch):
+    import media.blobs as blobs
+
+    monkeypatch.setattr(blobs, "MAX_BYTES", 10)
+    sent = []
+
+    def endless():  # a PDS that never ends its body
+        while True:
+            sent.append(1)
+            yield b"x" * 4
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=endless())
+
+    with BlobFetcher(client=httpx.Client(transport=httpx.MockTransport(handler))) as fetcher:
+        with pytest.raises(BlobFetchError, match="over 10 bytes"):
+            fetcher.fetch(did="did:plc:a", cid="c", embed_kind="images")
+    assert len(sent) <= 4
+
+
+def test_blob_fetcher_does_not_read_rejected_bodies():
+    read = []
+
+    def body():
+        read.append(1)
+        yield b"<html>"
+
+    def handler(request):
+        if "cdn.bsky.app" in request.url.host:
+            return httpx.Response(404, content=body())
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    with BlobFetcher(client=httpx.Client(transport=httpx.MockTransport(handler))) as fetcher:
+        with pytest.raises(BlobFetchError, match="HTTP 404, not an image"):
+            fetcher.fetch(did="did:plc:a", cid="c", embed_kind="recordWithMedia")
+    assert read == []
+
+
+def test_worker_pass_survives_a_cluster_whose_read_raises(monkeypatch):
+    import contextlib
+    from types import SimpleNamespace
+
+    import media.__main__ as cli
+    from media.worker import MediaRun
+
+    class Conn:
+        rollbacks = 0
+
+        def rollback(self):
+            Conn.rollbacks += 1
+
+    queried, reads, passes = [], [], [0]
+
+    def candidates(conn, *, statuses, min_score, limit, done):
+        queried.append(dict(done))
+        return [{"id": i, "updated_at": "t"} for i in (1, 2) if done.get(i) != "t"]
+
+    def read_cluster(conn, client, fetcher, cluster_id, **kw):
+        reads.append(cluster_id)
+        if cluster_id == 1:
+            raise RuntimeError("bad row")
+        return MediaRun()
+
+    class Stop(Exception):
+        pass
+
+    def sleep(_):
+        passes[0] += 1
+        if passes[0] == 2:
+            raise Stop
+
+    monkeypatch.setattr(cli, "connect", lambda: contextlib.nullcontext(Conn()))
+    monkeypatch.setattr(cli.store, "candidate_clusters", candidates)
+    monkeypatch.setattr(cli, "read_cluster", read_cluster)
+    monkeypatch.setattr(cli, "_receipt_clients", lambda s: contextlib.nullcontext(None))
+    monkeypatch.setattr(cli.time, "sleep", sleep)
+    settings = SimpleNamespace(
+        media_statuses="coordinated", media_min_score=0.5, media_max_per_cluster=4
+    )
+    with pytest.raises(Stop):
+        cli.run_worker(object(), settings, interval_s=0, batch=25)
+    # cluster 2 is read in the same pass; cluster 1 is held back instead of retried at once
+    assert reads == [1, 2] and Conn.rollbacks == 1
+    assert queried[1] == {1: "t", 2: "t"}

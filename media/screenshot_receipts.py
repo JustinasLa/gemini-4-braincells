@@ -42,15 +42,6 @@ GRACE_S = 2.0  # how long past the budget we wait for a check before giving up o
 MAX_WORKERS = 4
 ENV_FLAG = "MEDIA_SCREENSHOT_RECEIPTS"
 
-PLATFORM_NAMES = {
-    "x": "X",
-    "bluesky": "Bluesky",
-    "threads": "Threads",
-    "facebook": "Facebook",
-    "instagram": "Instagram",
-    "tiktok": "TikTok",
-}
-
 DepsFactory = Callable[[Callable[..., int], datetime], ReceiptDeps]
 
 
@@ -140,7 +131,7 @@ def _clip(text: str, n: int) -> str:
 
 def receipt_summary(r: ScreenshotReceipt) -> str:
     """One plain sentence about the screenshot (never about a person)."""
-    where = PLATFORM_NAMES.get(r.platform)
+    where = lookup_receipts._NAMES.get(r.platform)
     handle = _clip(r.handle.lstrip("@"), 60) if r.handle else None
     if handle:
         head = f"Screenshot of @{handle}'s post" + (f" on {where}" if where else "")
@@ -160,21 +151,9 @@ def receipt_summary(r: ScreenshotReceipt) -> str:
 
 
 def _unchecked(shot: ScreenshotPost, media_url: str | None, reason: str) -> ScreenshotReceipt:
-    return ScreenshotReceipt(
-        media_url=media_url,
-        media_hash=shot.media_hash,
-        platform=shot.platform or "unknown",
-        handle=shot.handle,
-        display_name=shot.display_name,
-        shown_time=shot.shown_time,
-        shown_text=shot.text,
-        shown_counts=dict(shot.counts or {}),
-        ui_oddities=list(shot.ui_oddities or []),
-        read_confidence=shot.confidence,
-        read_model=shot.model,
-        label="unchecked",
-        reason=reason,
-    )
+    receipt = lookup_receipts._unchecked(shot, reason)
+    receipt.media_url = media_url
+    return receipt
 
 
 def _row(

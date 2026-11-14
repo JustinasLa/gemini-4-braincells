@@ -1,21 +1,26 @@
 import "./styles.css";
+import { showJudgingView } from "./judging";
 import rhinoUrl from "./assets/rhino-1515.webp";
 import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
 import qrcode from "qrcode-generator";
 import { analyze, liveCase } from "./data/api";
 import { simulatedCases } from "./data/cases";
-import { IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
+import { hasVerdict, IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
 import { Graph } from "./engine/graph";
+import { imageUrl, memeFinding } from "./data/imageTrace";
 import type { TraceCase } from "./types";
-import { flipInto, preloadCoin, wait } from "./ui/coin";
+import { preloadCoin, wait } from "./ui/coin";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
 import { esc, fmtDate, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
+import { comparisonSource } from "./ui/compare";
+import { initMemeTrace } from "./ui/variations";
+import { mountStory } from "./ui/story";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -25,9 +30,11 @@ document.querySelector("#app")!.innerHTML = `
     <a class="wordmark" href="/" aria-label="Shill or Chill: home">SHILL OR CHILL</a>
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <span class="trace-wrap"><button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button><button class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span>
+      <button class=btn id=judge-menu aria-expanded=false>Explore</button>
+      <span class=trace-wrap><button class=btn solid data-act=trace aria-label=New trace>${icon.search}<span class=lbl>New trace</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
     </div>
   </header>
+  <nav id="judge-links" hidden style="position:fixed;z-index:1000;top:58px;right:12px;background:#171717;padding:16px;gap:16px;flex-direction:column"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=methodology">Methodology &amp; limits</a><a href="?view=judge">Try a post</a></nav>
   <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
     <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
@@ -47,6 +54,13 @@ document.querySelector("#app")!.innerHTML = `
 </div>`;
 
 const app = $(".app");
+const story = mountStory(app);
+// the picture being traced, as a local address: the story shows it before the server has it
+let storyPreview: { url: string; lookup: string } | null = null;
+const nav = $("#judge-links");
+$("#judge-menu").addEventListener("click", () => { nav.hidden = !nav.hidden; nav.style.display = nav.hidden ? "none" : "flex"; $("#judge-menu").setAttribute("aria-expanded", String(!nav.hidden)); });
+const view = new URLSearchParams(location.search).get("view");
+if (["feed","metrics","methodology"].includes(view ?? "")) { app.hidden = true; app.style.display = String.fromCharCode(110,111,110,101); void showJudgingView(view!); }
 // Closed drawers must not take keyboard focus; keep inert + aria-expanded in sync with the classes.
 const phoneMq = matchMedia("(max-width: 860px)"); // the CSS breakpoint
 const syncDrawers = () => {
@@ -93,6 +107,7 @@ $("#legend").innerHTML =
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source", "screenshotted"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
   `<div class="li"><span class="sw member" style="--c:${ROLE.amplifier.color}"></span>Cluster member · zoom in to read</div>` +
   `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="ln" style="--s:dotted;--c:${ROLE.screenshotted.color}"></span>Screenshot of a real post (checked, not a copy)</div><div class="legend-hint">Select a marker to read the post.</div>`;
+initMemeTrace(() => current);
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done
@@ -121,15 +136,24 @@ function setInsets() {
 }
 
 // ---------------------------------------------------------------- header
+/** The header chip: the verdict when there is one; for a lookup without one, the image finding
+ *  (or no chip at all), never "Can't tell". */
+function chipOf(c: TraceCase): { short: string; css: string } | null {
+  if (hasVerdict(c)) return STATUS[c.status];
+  const finding = c.lookup ? memeFinding(c.lookup) : null;
+  return finding && finding !== "pending" ? { short: finding.word, css: finding.color } : null;
+}
 function renderResources(c: TraceCase) {
-  const v = STATUS[c.status];
+  if (storyPreview && c.lookup && storyPreview.lookup === "lookup-pending" && c.lookup.id !== "lookup-pending") storyPreview.lookup = c.lookup.id;
+  story.update(c, storyPreview && c.lookup && storyPreview.lookup === c.lookup.id ? storyPreview.url : undefined);
+  const v = chipOf(c);
   $("#title").textContent = c.title;
   const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
-  $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
+  $("#badges").innerHTML = tag; // the simulated / historical tag only: the answer is in the result, not a header chip
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
-  peek.style.setProperty("--vc", v.css);
-  peek.innerHTML = `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span><span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
+  peek.style.setProperty("--vc", v?.css ?? "var(--unsure)");
+  peek.innerHTML = `${v ? `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>` : ""}<span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
   const empty = !hasChain(c) && !c.findingsOnly && !c.lookup; // a link lookup draws what it collected
   if (empty) app.dataset.empty = "";
   else delete app.dataset.empty;
@@ -407,15 +431,29 @@ async function runTrace(c: TraceCase) {
   if (run !== tracing) return;
   panel.set(c, false);
   setStatus(null, "");
-  if (!wasSkipped) {
+  const finale = wasSkipped ? null : revealOf(c);
+  if (finale && finale !== "wait") {
     closeEvent();
     afterReveal = () => setPhase("done");
-    showEvent(c, run);
+    showEvent(c, finale);
   } else setPhase("done");
   if (run === tracing) tracing = 0;
 }
 
-// ---------------------------------------------------------------- verdict reveal: the Junction banner with the verdict as its wordmark
+// ---------------------------------------------------------------- reveal: the Junction banner with the finding as its wordmark
+/** What the finale shows. A coordination verdict shows its word (no coin); a lookup with no verdict shows what
+ *  the image search found about the picture instead (Original / Copy / Edited / First sighting). */
+interface Reveal { word: string; tag: string; css: string; image?: string }
+function revealOf(c: TraceCase): Reveal | "wait" | null {
+  if (hasVerdict(c)) {
+    const v = STATUS[c.status];
+    return { word: v.word, tag: `${c.tag ?? v.tag}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}`, css: v.css };
+  }
+  const finding = c.lookup ? memeFinding(c.lookup) : null;
+  if (finding === "pending") return "wait";
+  if (!finding) return null; // a lookup with no image search and no verdict: nothing to announce
+  return { word: finding.word, tag: `${finding.tag}${c.mock ? " · mock" : ""}`, css: finding.color, image: imageUrl(comparisonSource(c)) };
+}
 let eventEl: HTMLElement | null = null;
 let afterReveal: (() => void) | null = null;
 function closeEvent() {
@@ -428,12 +466,13 @@ function closeEvent() {
   e.classList.add("out");
   setTimeout(() => e.remove(), 480);
 }
-async function showEvent(c: TraceCase, run: number) {
-  const v = STATUS[c.status];
+async function showEvent(c: TraceCase, r: Reveal) {
   const el = document.createElement("div");
   el.className = "reveal";
-  el.style.setProperty("--vc", v.css);
-  el.innerHTML = `<canvas></canvas><div class="center"><div class="coin-slot"></div><div class="vw${v.word.length > 8 ? " long" : ""}">${v.word.toUpperCase()}</div><div class="vt">${esc(c.tag ?? v.tag)}${c.synthetic ? " · simulated case" : c.historical ? " · historical record" : ""}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
+  el.style.setProperty("--vc", r.css);
+  const slot = r.image ? `<img class="meme-slot" alt="The submitted picture" src="${esc(r.image)}" referrerpolicy="no-referrer" draggable="false">` : "";
+  el.innerHTML = `<canvas></canvas><div class="center">${slot}<div class="vw${r.word.length > 8 ? " long" : ""}">${esc(r.word.toUpperCase())}</div><div class="vt">${esc(r.tag)}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
+  el.querySelector(".meme-slot")?.addEventListener("error", (e) => (e.target as HTMLElement).remove());
   stage.appendChild(el);
   eventEl = el;
   let src: HTMLImageElement | undefined;
@@ -441,11 +480,11 @@ async function showEvent(c: TraceCase, run: number) {
     src = new Image();
     src.src = rhinoUrl;
   }
-  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5, avoid: () => [...el.querySelectorAll(".coin-slot, .vw, .vt, .tap")] });
+  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5, avoid: () => [...el.querySelectorAll(".meme-slot, .vw, .vt, .tap")] });
   el.addEventListener("click", closeEvent);
   await bannerReady;
   await wait(300);
-  await flipInto($(".coin-slot", el), c.status, () => run !== tracing && tracing !== 0);
+  el.querySelector(".meme-slot")?.animate([{ opacity: 0, transform: "scale(.92)" }, { opacity: 1, transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" });
   $(".vw", el).animate([{ opacity: 0, letterSpacing: "0.7em" }, { opacity: 1, letterSpacing: "0.3em" }], { duration: 800, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" });
   $(".vt", el).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: 350, fill: "forwards" });
   setTimeout(() => eventEl === el && closeEvent(), 5200);
@@ -476,25 +515,27 @@ function showHome() {
   const cases = simulatedCases();
   const sims = cases.filter((c) => !c.historical);
   const hist = cases.filter((c) => c.historical);
-  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical record</em>' : ""}</button>`;
+  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical</em>' : ""}</button>`;
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
-      <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
-      <form class="home-form" aria-describedby="home-note"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
-      <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
+      <p class="home-tag">Drop a meme. Find the original and what changed.</p>
+      <form class="home-form"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Drop a meme or paste a link" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><span class="trace-wrap"><button class="btn solid" type="submit">Trace</button><button type="button" class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span></form>
+      <details class="home-ex"><summary class="label">Simulated examples</summary>${[...sims, ...hist].map(caseBtn).join("")}</details>
     </div>
-    <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
+    <span class="credit">Botticelli, c. 1485</span>`;
   document.body.appendChild(homeEl);
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
   stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
-  setTimeout(() => input.focus(), 400);
-  // a pasted image sits in the search box until Trace it (or Enter) sends it
+  // Do not summon the on-screen keyboard just because the home screen opened.
+  // Desktop keeps the quick keyboard workflow; touch users can choose the field when ready.
+  if (!matchMedia("(pointer: coarse)").matches) setTimeout(() => input.focus(), 400);
+  // a pasted image sits in the search box until Trace (or Enter) sends it
   const q = $<HTMLElement>(".home-q", homeEl);
   const att = $<HTMLElement>(".home-att", homeEl);
   const placeholder = input.placeholder;
@@ -595,6 +636,8 @@ async function startTrace(raw: LookupRequest, mock = false) {
   cancelTrace();
   closeEvent();
   hideHome();
+  if (storyPreview) URL.revokeObjectURL(storyPreview.url);
+  storyPreview = image ? { url: URL.createObjectURL(image), lookup: "lookup-pending" } : null;
   const run = tracing = ++traceSequence;
   const controller = new AbortController();
   lookupController = controller;
@@ -610,6 +653,16 @@ async function startTrace(raw: LookupRequest, mock = false) {
   // Each poll re-renders the console; only steps not shown before slide in, so it does not flash.
   const shownSteps = new Set<string>();
   let settled = false;
+  // the finale shows once: at settle, or later when the image search that decides it finishes
+  let revealed = false;
+  const reveal = (trace: TraceCase) => {
+    // an uploaded image is nearly always a copy: no verdict or Copy banner, straight to the trace
+    if (revealed || image) return;
+    const r = revealOf(trace);
+    if (r === "wait") return;
+    revealed = true;
+    if (r) void showEvent(trace, r);
+  };
   const latest: { result: LookupResult | null } = { result: null };
   // The primary reading is in: show the finished trace now. A second reading that is still
   // running is added later by update() without re-running this reveal or refitting the graph.
@@ -618,7 +671,7 @@ async function startTrace(raw: LookupRequest, mock = false) {
     settled = true;
     setStatus(null, "");
     setPhase("done");
-    void showEvent(trace, run);
+    reveal(trace);
   };
   const update = (result: LookupResult) => {
     if (controller.signal.aborted || run !== tracing) return;
@@ -646,12 +699,20 @@ async function startTrace(raw: LookupRequest, mock = false) {
     const ready = readingReady(result) && (result.state !== "failed" || !!result.assessment);
     panel.set(trace, !ready);
     const stepKey = (step: (typeof trace.steps)[0], i: number) => step.id ?? `#${i}`;
-    const rows = trace.steps.map((step, i) => `<div class="line${step.state === "running" ? " active" : ""}${shownSteps.has(stepKey(step, i)) ? " seen" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"${step.detail && step.state !== "failed" ? ` title="${esc(step.detail)}"` : ""}><b>${esc(step.text)}</b>${step.detail && step.state === "failed" ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${step.state === "done" ? (step.found?.length ? String(step.found.length) : "") : esc(step.state ?? "pending")}</span></div>`).join(""); // one short line per step, readable as it streams in; details are a hover away, failures show theirs
+    // only what has happened or is happening gets a line; waiting and skipped steps fold into one line each
+    const row = (step: (typeof trace.steps)[0], i: number) => `<div class="line${step.state === "running" ? " active" : ""}${shownSteps.has(stepKey(step, i)) ? " seen" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt" title="${esc(step.detail && step.state !== "failed" ? `${step.text}\n${step.detail}` : step.text)}"><b>${esc(step.text)}</b>${step.detail && step.state === "failed" ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${step.state === "done" ? (step.found?.length ? String(step.found.length) : "") : step.state === "running" ? "" : esc(step.state ?? "")}</span></div>`;
+    const folded = (state: "pending" | "skipped", label: string) => {
+      const steps = trace.steps.filter((step) => (step.state ?? "pending") === state);
+      return steps.length ? `<div class="line fold seen" data-state="${state}" title="${esc(steps.map((step) => step.text).join("\n"))}"><span class="gt">·</span><span class="txt">${steps.length} ${label}</span></div>` : "";
+    };
+    const rows = trace.steps.map((step, i) => ["done", "running", "failed"].includes(step.state ?? "pending") ? row(step, i) : "").join("") + folded("pending", "queued") + folded("skipped", "skipped");
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
     consoleEl.innerHTML = `<div class="term-head">${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
     trace.steps.forEach((step, i) => shownSteps.add(stepKey(step, i)));
     if (ready && result.state === "running") settle(trace);
+    // a finale held back for the image search shows when that search finishes, even mid-job
+    if (settled && result.state !== "failed") reveal(trace);
     if (!settled) {
       const running = trace.steps.find((step) => step.state === "running");
       setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
@@ -752,6 +813,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     dock.toggle();
   }
+  if (e.key === "," || e.key === ".") dock.step(e.key === "," ? -1 : 1);
   if (e.key === "f" || e.key === "F") g.fit();
   if (e.key === "n" || e.key === "N") {
     e.preventDefault();

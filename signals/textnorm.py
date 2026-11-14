@@ -166,8 +166,3 @@ def normalize_url(url: str | None) -> str | None:
         path = path.rstrip("/")
     out = urlunsplit(("https", host, path, urlencode(query), ""))
     return out[:MAX_URL_LEN]
-
-
-def url_domain(normalized_url: str) -> str:
-    """Host part of a normalised URL (e.g. 'example.com')."""
-    return urlsplit(normalized_url).hostname or ""

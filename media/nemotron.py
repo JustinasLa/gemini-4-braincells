@@ -589,7 +589,7 @@ class NemotronClient:
             raise ValueError("description must be a non-empty string")
         try:
             confidence = min(1.0, max(0.0, float(payload.get("confidence", 0.5))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # OverflowError: an int past float range
             confidence = 0.5
         media_type = str(payload.get("media_type") or "other").strip().lower()
         flags = [f.lower() for f in _strings(payload.get("content_flags"))]
