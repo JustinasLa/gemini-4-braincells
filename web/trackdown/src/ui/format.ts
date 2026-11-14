@@ -144,3 +144,7 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   bluesky: { label: "bluesky", long: "Bluesky public AppView" },
   fetch: { label: "fetch", long: "Direct image download" },
 };
+
+/** T3 Code's font stacks (system UI font, Inter as the bundled fallback); canvas text uses them too */
+export const SANS = '-apple-system, BlinkMacSystemFont, "Inter Variable", "Inter", "Segoe UI", system-ui, sans-serif';
+export const MONO = 'ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';

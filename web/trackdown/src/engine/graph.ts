@@ -2,7 +2,7 @@
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
-import { clusterShort, isLineageEdge, isMatchRel, relOf, ROLE, roleOf } from "../ui/format";
+import { clusterShort, isLineageEdge, isMatchRel, MONO, relOf, ROLE, roleOf, SANS } from "../ui/format";
 
 
 
@@ -1022,7 +1022,7 @@ export class Graph {
         const text = e.e.sim != null ? e.e.sim.toFixed(2) : "CITES";
         const cap = e.e.sim != null ? relOf(e.e.rel).label.toUpperCase() : "";
         const fs = 10.5 / Math.max(k, 0.65);
-        c.font = `600 ${fs}px "JetBrains Mono", monospace`;
+        c.font = `600 ${fs}px ${MONO}`;
         const pw = c.measureText(text + cap).width + fs * 2;
         const ph = fs * 1.7;
         const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + pw / 2 && Math.abs(n.y - my) < n.h / 2 + ph / 2);
@@ -1068,7 +1068,7 @@ export class Graph {
         const r = this.markerR(n) * 1.3;
         return { id: n.d.id, x0: n.x - r, x1: n.x + r, y0: n.y - r, y1: n.y + r };
       }) : [];
-      c.font = `600 ${(this.W < 600 ? 11 : 12.5) / k}px "Inter Tight", sans-serif`;
+      c.font = `600 ${(this.W < 600 ? 11 : 12.5) / k}px ${SANS}`;
       c.textAlign = "center";
       c.textBaseline = "alphabetic";
       c.lineJoin = "round";
@@ -1138,7 +1138,7 @@ export class Graph {
         c.moveTo(g.x - w / 2, g.y - h / 2);
         c.lineTo(g.x + w / 2, g.y + h / 2);
         c.stroke();
-        c.font = `600 ${11 / Math.sqrt(k)}px "JetBrains Mono", monospace`;
+        c.font = `600 ${11 / Math.sqrt(k)}px ${MONO}`;
         c.fillStyle = C.shill;
         c.textAlign = "left";
         c.fillText(g.label, g.x - w / 2, g.y - h / 2 - 6);
@@ -1194,7 +1194,7 @@ export class Graph {
       c.setLineDash([]);
       // label
       c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
-      c.font = '600 11px "JetBrains Mono", monospace';
+      c.font = `600 11px ${MONO}`;
       const label = roleOf(n.d.role).label.toUpperCase();
       const tw = c.measureText(label).width + 12;
       c.fillStyle = r.color;
@@ -1213,9 +1213,9 @@ export class Graph {
   private pill(c: CanvasRenderingContext2D, x: number, y: number, text: string, col: string, cap = "") {
     const k = this.k;
     const fs = 10.5 / Math.max(k, 0.65);
-    c.font = `600 ${fs}px "JetBrains Mono", monospace`;
+    c.font = `600 ${fs}px ${MONO}`;
     const w1 = c.measureText(text).width;
-    c.font = `600 ${fs * 0.72}px "JetBrains Mono", monospace`;
+    c.font = `600 ${fs * 0.72}px ${MONO}`;
     const w2 = cap ? c.measureText(cap).width + fs * 0.6 : 0;
     const w = w1 + w2 + fs * 1.1;
     const h = fs * 1.7;
@@ -1233,7 +1233,7 @@ export class Graph {
       c.fillText(cap, tx, y + fs * 0.05);
       tx += w2;
     }
-    c.font = `600 ${fs}px "JetBrains Mono", monospace`;
+    c.font = `600 ${fs}px ${MONO}`;
     c.fillStyle = col;
     c.fillText(text, tx, y + fs * 0.05);
     c.restore();
@@ -1316,7 +1316,7 @@ export class Graph {
     c.stroke();
     // tab label on the top edge, like a detector's class + score
     const fs = 11 / k; // constant on screen: the verdict label must never become microtype
-    c.font = `600 ${fs}px "JetBrains Mono", monospace`;
+    c.font = `600 ${fs}px ${MONO}`;
     // the tab never runs past its box: drop detail from the right until it fits
     const parts = [clusterShort(cl.status, !!this.case?.lookup).toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
     let label = parts.join(" · ");
@@ -1355,7 +1355,7 @@ export class Graph {
       c.globalAlpha = 1;
       c.fillStyle = t.col;
       c.fillRect(t.x - 1 / this.k, t.y, t.w, t.h);
-      c.font = `600 ${t.fs}px "JetBrains Mono", monospace`;
+      c.font = `600 ${t.fs}px ${MONO}`;
       c.fillStyle = "#050506";
       c.textAlign = "left";
       c.textBaseline = "middle";
