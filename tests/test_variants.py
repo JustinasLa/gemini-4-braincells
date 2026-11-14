@@ -127,6 +127,26 @@ def test_fine_check_matches_resize_resolution(quality):
     assert result.edited_region is None
 
 
+@pytest.mark.parametrize("quality", [50, 85])
+@pytest.mark.parametrize("scale", [0.97, 0.99])
+@pytest.mark.parametrize("resampling", [Image.Resampling.BICUBIC, Image.Resampling.LANCZOS])
+def test_outlined_caption_resize(quality, scale, resampling):
+    image = _picture(size=(1200, 1198)).crop((0, 0, 1200, 980)).resize((1200, 1198))
+    ImageDraw.Draw(image).text(
+        (20, 20),
+        "UNCHANGED HIGH CONTRAST CAPTION",
+        font=ImageFont.load_default(size=32),
+        fill="white",
+        stroke_width=2,
+        stroke_fill="black",
+    )
+    smaller = image.resize(tuple(round(side * scale) for side in image.size), resampling)
+    result = relate(_bytes(image), _bytes(smaller, "JPEG", quality=quality))
+    assert result.kind == "resized", result
+    assert result.edited_region is None
+    _assert_note(result)
+
+
 @pytest.mark.parametrize(
     "box",
     [
@@ -218,6 +238,31 @@ def test_small_caption_changes(texts, font_size):
     assert left <= changed_columns.mean() / image.width <= right
     assert top <= changed_rows.mean() / image.height <= bottom
     assert right - left < 0.3 and bottom - top < 0.15
+    _assert_note(result)
+
+
+@pytest.mark.parametrize("image_format", ["PNG", "JPEG"])
+def test_two_separated_caption_changes(image_format):
+    image = _picture(size=(601, 600))
+    first, second = image.copy(), image.copy()
+    for target, text in zip((first, second), ("PRICE $10", "PRICE $100"), strict=True):
+        ImageDraw.Draw(target).text(
+            (20, 20),
+            text,
+            font=ImageFont.load_default(size=24),
+            fill="white",
+            stroke_width=1,
+            stroke_fill="black",
+        )
+    draw = ImageDraw.Draw(second)
+    draw.rectangle((0, 492, 601, 600), fill="white")
+    draw.text((40, 520), "A DIFFERENT MESSAGE", font=_font(), fill="black")
+    result = relate(_bytes(first), _bytes(second, image_format, quality=85))
+    assert result.kind == "edited", result
+    left, top, right, bottom = result.edited_region
+    assert left <= 133 / 601 and right >= 147 / 601
+    assert top <= 0.05 and bottom >= 0.9
+    assert "2 areas" in result.note and "top" in result.note and "bottom" in result.note
     _assert_note(result)
 
 

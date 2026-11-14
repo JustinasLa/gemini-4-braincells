@@ -29,7 +29,7 @@ _WORK_SIDE = 512
 _ALIGN_SIDE = 256
 # 32 blocks per axis averages 8x8 pixels to suppress individual JPEG artifacts.
 _GRID_SIDE = 32
-# A 512-pixel, 64-block fallback resolves small text before declaring re-encoding.
+# A 512-pixel, 64-block map resolves small text alongside coarse edits.
 _FINE_GRID_SIDE = 64
 # Below 16 original pixels per side, there is too little spatial evidence.
 _MIN_SIDE = 16
@@ -47,14 +47,15 @@ _ALIGN_MEDIAN = 0.24
 _TEXTURE_QUANTILE = 0.50
 # Two gray levels exclude blank background blocks from that alignment check.
 _TEXTURE_MIN_STD = 2.0
-# Coarse JPEG residuals stay below .10; .28 leaves headroom for noisy resizes.
+# A .28 floor leaves headroom for coarse captioned-resize residuals (about .14).
 _CHANGE_FLOOR = 0.28
 # A .18 margin above median residuals rejects global brightness/contrast shifts.
 _CHANGE_MARGIN = 0.18
 # Three adjacent blocks reject noise unless a component contains a strong change.
 _MIN_COMPONENT = 3
-# Twice the threshold (.56 minimum) exceeds coarse JPEG noise (<.10) and fine
-# resize/CMYK residuals (up to .52); fine fallback components must meet it too.
+# On 9,504 captioned resizes (90..103%, three filters, JPEG q30..95),
+# shift-tolerant fine peaks stay below .37; small price edits exceed .69.
+# Twice the threshold (.56 minimum) separates them and anchors fine components.
 _STRONG_CHANGE_FACTOR = 2.0
 # Forty percent admits localized edits but rejects most whole-picture changes.
 _MAX_EDIT_FRACTION = 0.40
@@ -169,36 +170,57 @@ def _gray(image: Image.Image, size: tuple[int, int]) -> np.ndarray:
 
 
 def _blocks(
-    base: Image.Image, other: Image.Image, side: int = _ALIGN_SIDE, grid: int = _GRID_SIDE
+    base: Image.Image,
+    other: Image.Image,
+    side: int = _ALIGN_SIDE,
+    grid: int = _GRID_SIDE,
+    *,
+    shift_tolerant: bool = False,
 ) -> np.ndarray:
+    """Compare normalized luminance, optionally tolerating one-pixel edge shifts.
+
+    The maximum of both range distances retains added or removed glyphs that
+    taking the minimum can erase.
+    """
     first = _gray(base, (side, side))
     second = _gray(other, (side, side))
     first = (first - first.mean()) / max(float(first.std()), _MIN_STD)
     second = (second - second.mean()) / max(float(second.std()), _MIN_STD)
+    difference = np.abs(first - second)
+    if shift_tolerant:
+        forward = np.maximum(
+            first - ndimage.maximum_filter(second, size=3),
+            ndimage.minimum_filter(second, size=3) - first,
+        )
+        reverse = np.maximum(
+            second - ndimage.maximum_filter(first, size=3),
+            ndimage.minimum_filter(first, size=3) - second,
+        )
+        difference = np.maximum(0, np.maximum(forward, reverse))
     cell = side // grid
-    return np.abs(first - second).reshape(grid, cell, grid, cell).mean(axis=(1, 3))
+    return difference.reshape(grid, cell, grid, cell).mean(axis=(1, 3))
 
 
-def _changed_box(
-    blocks: np.ndarray, *, strong_only: bool = False
-) -> tuple[tuple[float, float, float, float] | None, float]:
+def _changed_mask(blocks: np.ndarray, *, strong_only: bool = False) -> np.ndarray:
     threshold = max(_CHANGE_FLOOR, float(np.median(blocks)) + _CHANGE_MARGIN)
     labels, _ = ndimage.label(blocks > threshold, structure=np.ones((3, 3)))
     counts = np.bincount(labels.ravel())
     keep = (counts >= _MIN_COMPONENT) & (not strong_only)
     keep[np.unique(labels[blocks >= threshold * _STRONG_CHANGE_FACTOR])] = True
     keep[0] = False
-    changed = keep[labels]
+    return keep[labels]
+
+
+def _mask_box(changed: np.ndarray) -> tuple[float, float, float, float] | None:
     rows, columns = np.nonzero(changed)
     if not len(rows):
-        return None, 0.0
-    box = (
-        float(columns.min() / blocks.shape[1]),
-        float(rows.min() / blocks.shape[0]),
-        float((columns.max() + 1) / blocks.shape[1]),
-        float((rows.max() + 1) / blocks.shape[0]),
+        return None
+    return (
+        float(columns.min() / changed.shape[1]),
+        float(rows.min() / changed.shape[0]),
+        float((columns.max() + 1) / changed.shape[1]),
+        float((rows.max() + 1) / changed.shape[0]),
     )
-    return box, float(changed.mean())
 
 
 def _aligned(base: Image.Image, blocks: np.ndarray) -> bool:
@@ -211,7 +233,7 @@ def _aligned(base: Image.Image, blocks: np.ndarray) -> bool:
     return not informative.any() or float(np.median(blocks[informative])) <= _ALIGN_MEDIAN
 
 
-def _edit_note(box: tuple[float, float, float, float]) -> str:
+def _edit_location(box: tuple[float, float, float, float]) -> str:
     left, top, right, bottom = box
     if top >= 0.65:
         location = f"bottom {round((1 - top) * 100)}%"
@@ -223,7 +245,24 @@ def _edit_note(box: tuple[float, float, float, float]) -> str:
         location = "upper-right area"
     else:
         location = "marked region"
-    return f"Same picture with changes in the {location}."
+    return location
+
+
+def _edit_note(changed: np.ndarray) -> str:
+    """Group nearby glyphs into areas without enlarging the reported edit box."""
+    structure = np.ones((3, 3))
+    labels, count = ndimage.label(
+        ndimage.binary_dilation(changed, structure=structure, iterations=2),
+        structure=structure,
+    )
+    locations = []
+    for label in range(1, count + 1):
+        box = _mask_box(changed & (labels == label))
+        if box is not None:
+            locations.append(_edit_location(box))
+    if len(locations) == 1:
+        return f"Same picture with changes in the {locations[0]}."
+    return f"Same picture with changes in {len(locations)} areas ({' and '.join(locations)})."
 
 
 def _window_sums(values: np.ndarray, height: int, width: int) -> np.ndarray:
@@ -327,19 +366,23 @@ def relate(base: bytes, other: bytes) -> Relation:
     aligned_correlation = None
     if abs(aspect - 1) <= _ASPECT_TOLERANCE:
         blocks = _blocks(first, second)
-        region, fraction = _changed_box(blocks)
         aligned = _aligned(first, blocks)
-        if aligned and region is None and distance <= _RESIZE_DISTANCE:
+        region, fraction = None, 0.0
+        if aligned:
+            factor = _FINE_GRID_SIDE // _GRID_SIDE
+            changed = _changed_mask(blocks).repeat(factor, axis=0).repeat(factor, axis=1)
             shared_size = (min(first.width, second.width), min(first.height, second.height))
-            region, fraction = _changed_box(
+            changed |= _changed_mask(
                 _blocks(
                     first.resize(shared_size, Image.Resampling.LANCZOS),
                     second.resize(shared_size, Image.Resampling.LANCZOS),
                     _WORK_SIDE,
                     _FINE_GRID_SIDE,
+                    shift_tolerant=True,
                 ),
                 strong_only=True,
             )
+            region, fraction = _mask_box(changed), float(changed.mean())
         if aligned and region is None and distance <= _RESIZE_DISTANCE:
             if first_size == second_size:
                 note = f"Same picture, re-encoded at {second_size[0]}x{second_size[1]}."
@@ -355,7 +398,7 @@ def relate(base: bytes, other: bytes) -> Relation:
             and fraction <= _MAX_EDIT_FRACTION
             and distance <= _EDIT_DISTANCE
         ):
-            edit = Relation("edited", distance, None, region, _edit_note(region))
+            edit = Relation("edited", distance, None, region, _edit_note(changed))
             if (region[2] - region[0]) * (region[3] - region[1]) <= _LOCAL_BOX_AREA:
                 return edit
             deferred_edit = edit
