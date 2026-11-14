@@ -600,10 +600,13 @@ class Builder:
         if kym_url and self.job.deps.oxylabs is not None and self._active():
             try:
                 self.job._spend(3.0)
-                md, _meta = self.job.deps.oxylabs.scrape_markdown(
+                md, meta = self.job.deps.oxylabs.scrape_markdown(
                     kym_url, deadline=self.job._provider_deadline(10.0)
                 )
-                entry = origin.parse_kym(md, kym_url)
+                # a photo's entry (/memes/<slug>) redirects to its own kind's path
+                # (/memes/events/<slug>): cite the page that was read
+                page = origin.kym_entry_url((meta or {}).get("url")) or kym_url
+                entry = origin.parse_kym(md, page)
                 rid = self._receipt(
                     "oxylabs",
                     "/scrape",
@@ -643,8 +646,11 @@ class Builder:
                     verified = matcher.locate(data) if data else None
                 except Exception:
                     verified = None
-            found_by_search = entry.url in kym_found or (
-                entry.source == "Wikipedia" and entry.url.rsplit("/", 1)[-1] in wiki_found
+            # the image search found this entry's own pages (the entry or one of its photos)
+            found_by_search = (
+                kym_url in kym_found
+                if entry.source == "Know Your Meme"
+                else entry.url.rsplit("/", 1)[-1] in wiki_found
             )
             if (verified is None or not verified.same_photo) and not found_by_search:
                 self.notes.append(
