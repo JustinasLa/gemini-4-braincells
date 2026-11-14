@@ -967,3 +967,26 @@ def test_image_work_stops_at_the_provider_deadline_and_drops_late_readings(monke
     assert _until_s(lambda: len(reader.calls) == 1, 1.0)
     threading.Event().wait(0.1)
     assert job.result.media == [] and not any(r.tool == "nemotron" for r in job.result.receipts)
+
+
+# ---------------------------------------------------------------- verify read cap
+
+
+class DeadlineOxylabs(FakeOxylabs):
+    """Records how long each read was allowed to take (its deadline minus the call time)."""
+
+    def __init__(self):
+        super().__init__()
+        self.allowed: dict[str, float] = {}
+
+    def scrape_markdown(self, url, deadline=None):
+        self.allowed[url] = deadline - time.monotonic()
+        return super().scrape_markdown(url, deadline)
+
+
+def test_candidate_copy_reads_are_capped_but_the_post_read_is_not():
+    ox = DeadlineOxylabs()
+    _run(LookupInput(url=X_URL), _deps(ox, verify_read_s=2.0))
+    copy = next(v for u, v in ox.allowed.items() if u.endswith(COPY))
+    post = next(v for u, v in ox.allowed.items() if u.endswith(SUBJ))
+    assert copy <= 2.0 < post  # the subject's own page keeps the longer page cap

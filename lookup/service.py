@@ -156,6 +156,9 @@ class Deps:
     replies_max: int = 8
     media_max: int = 2
     time_budget_s: float = 60.0
+    # cap (s) on each read of a candidate copy or older page; Oxylabs /scrape p90 is ~7 s, and
+    # the reading waits for the slowest of these reads
+    verify_read_s: float = 8.0
     second_reading_s: float = 45.0  # the second reading's own bound; it never delays the first
     workers: int = 16
 
@@ -513,11 +516,9 @@ class Lookup:
                 return
 
     # ---------------------------------------------------------------- X
-    def _scrape_x(self, url: str) -> tuple[str, dict]:
+    def _scrape_x(self, url: str, cap_s: float = PAGE_CAP_S) -> tuple[str, dict]:
         self._spend()
-        md, _meta = self.deps.oxylabs.scrape_markdown(
-            url, deadline=self._provider_deadline(PAGE_CAP_S)
-        )
+        md, _meta = self.deps.oxylabs.scrape_markdown(url, deadline=self._provider_deadline(cap_s))
         return md, dict(self.deps.oxylabs.last_call)
 
     def _x_post_from_item(
@@ -1204,7 +1205,7 @@ class Lookup:
         try:
             self._spend()
             facts = self.deps.oxylabs.scrape_facts(
-                pg.url, deadline=self._provider_deadline(FACTS_CAP_S)
+                pg.url, deadline=self._provider_deadline(min(FACTS_CAP_S, self.deps.verify_read_s))
             )
             call = dict(self.deps.oxylabs.last_call)
         except Exception as exc:
@@ -1249,7 +1250,9 @@ class Lookup:
     def _verify_x(self, p: Post, reference: str) -> Post | None:
         """Read a candidate on its own page; returns the verified post (None if dropped)."""
         sid = p.id.split(":", 1)[1]
-        md, call = self._scrape_x(p.url)
+        # a candidate copy is evidence, not the subject: a straggler stays an unread mention
+        # rather than holding the reading (verify_read_s)
+        md, call = self._scrape_x(p.url, cap_s=self.deps.verify_read_s)
         page = parse_post_page(md, sid)
         m = page.main
         if m is None:
