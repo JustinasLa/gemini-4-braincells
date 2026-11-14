@@ -154,7 +154,8 @@ def relate(base, other):
 
 
 def describe(client, original, variant, *, timeout_s):
-    assert original == BASE and variant in (EDITED, CROPPED) and 0 < timeout_s <= 20
+    assert BASE in (original, variant) and {original, variant} - {BASE} <= {EDITED, CROPPED}
+    assert 0 < timeout_s <= 20
     return SimpleNamespace(
         changes=["Caption changed from one line to another"],
         kinds=["caption_changed"],
@@ -1366,3 +1367,213 @@ def test_real_media_variants_relate_through_the_trace():
 
 def describe_nothing(client, original, variant, *, timeout_s):
     return None
+
+
+def test_diff_reads_an_upload_as_newer_than_every_copy():
+    """Part 4 live: the upload was passed as the earlier image, so a meme that ADDED a caption
+    to an older picture read as "caption removed". A copy found on the web predates the upload."""
+    calls = []
+
+    def record(client, original, variant, *, timeout_s):
+        calls.append((original, variant))
+        return SimpleNamespace(
+            changes=["A caption was added"],
+            kinds=["text_added", "caption_changed", "text_added"],
+            latency_ms=3,
+            model="nemotron-3.5-super-vl",
+        )
+
+    job = job_for(Searches([hit("edited.png", when=None)]), describe_changes=record)
+    run_trace(job)
+    assert calls and all(o == EDITED and v == BASE for o, v in calls)
+    edited = next(m for m in job.result.image_matches if m.relation == "edited")
+    assert edited.changes_from == "match"
+    assert edited.change_kinds == ["text_added", "caption_changed"]  # deduplicated, in order
+    receipt = next(r for r in job.result.receipts if r.id == edited.receipt_id)
+    assert "from this copy to the submitted picture" in receipt.summary
+
+
+@pytest.mark.parametrize(
+    "first_seen,match_first",
+    [
+        (datetime(2008, 4, 22, tzinfo=UTC), True),  # crawled long before the post
+        (datetime(2026, 11, 13, tzinfo=UTC), False),  # crawl day ends after the post
+        (None, False),  # undated (Yandex): the post's picture goes first
+    ],
+)
+def test_diff_direction_for_a_post_follows_provable_order(first_seen, match_first):
+    job = job_for()
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    match = ImageMatch(
+        id="img:1",
+        engine="tineye" if first_seen else "yandex",
+        image_url="https://images.example/edited.png",
+        first_seen=first_seen,
+        time_source="crawl_date" if first_seen else None,
+    )
+    assert trace._match_is_older(match) is match_first
+
+
+def test_a_date_arriving_during_the_reading_never_mislabels_the_direction():
+    """Sol: Yandex lists a copy undated, a diff starts (post's picture first), then TinEye's
+    2008 crawl for the same copy proves it predates the post. The sentences describe the old
+    direction, so they must not be published under either label."""
+    started, release = threading.Event(), threading.Event()
+
+    def slow(client, original, variant, *, timeout_s):
+        started.set()
+        assert release.wait(timeout=3)
+        return SimpleNamespace(
+            changes=["A caption was added"], kinds=["text_added"], latency_ms=4, model="m"
+        )
+
+    job = job_for(describe_changes=slow)
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    undated = replace(hit("edited.png", engine="yandex", when=None), page_url=None)
+    [match] = trace._accept(result("yandex", "query", [undated]), 1)
+    trace.admitted.add(match.id)
+    trace._publish_match(match.model_copy(update={"relation": "edited"}))
+    worker = threading.Thread(target=trace._diff, args=((match, EDITED, BASE, slow),))
+    worker.start()
+    assert started.wait(timeout=3)
+    trace._accept(
+        result(
+            "tineye",
+            "query",
+            [replace(undated, engine="tineye", first_seen=OLD, time_source="crawl_date")],
+        ),
+        2,
+    )
+    release.set()
+    worker.join(timeout=3)
+    published = trace.matches[match.id]
+    assert published.first_seen == OLD
+    assert published.changes == [] and published.changes_from is None
+    receipt = job.result.receipts[-1]
+    assert not receipt.ok and "changed which picture it starts from" in receipt.summary
+
+
+def test_a_date_arriving_after_publication_withdraws_the_description():
+    """Sol r2: the description was published post-first; TinEye's 2008 crawl for the same copy
+    then proves it predates the post, so the published sentences read the wrong way."""
+
+    def quick(client, original, variant, *, timeout_s):
+        return SimpleNamespace(
+            changes=["A caption was added"], kinds=["text_added"], latency_ms=4, model="m"
+        )
+
+    job = job_for(describe_changes=quick)
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    undated = replace(hit("edited.png", engine="yandex", when=None), page_url=None)
+    [match] = trace._accept(result("yandex", "query", [undated]), 1)
+    trace._publish_match(match.model_copy(update={"relation": "edited"}))
+    published = trace._diff((trace.matches[match.id], EDITED, BASE, quick))
+    assert published.changes_from == "upload" and trace.matches[match.id].changes
+    rid = trace.matches[match.id].receipt_id
+    dated = replace(undated, engine="tineye", first_seen=OLD, time_source="crawl_date")
+    trace._accept(result("tineye", "query", [dated]), 2)
+    after = trace.matches[match.id]
+    assert after.first_seen == OLD
+    assert after.changes == [] and after.change_kinds == [] and after.changes_from is None
+    assert after.changes_withdrawn and after.receipt_id == 1  # back on its earlier receipt
+    receipt = job.result.receipts[rid - 1]
+    assert not receipt.ok and receipt.summary.startswith("Image change description withdrawn")
+    assert all(m.changes_from is None for m in job.result.image_matches if m.id == match.id)
+
+
+def test_withdrawal_marks_the_receipt_even_when_the_deadline_passes_mid_way(monkeypatch):
+    """Sol r3: _accept_hits is admitted just before the deadline; the withdrawal must still
+    mark the description's receipt failed (no second deadline gate)."""
+
+    def quick(client, original, variant, *, timeout_s):
+        return SimpleNamespace(
+            changes=["A caption was added"], kinds=["text_added"], latency_ms=4, model="m"
+        )
+
+    job = job_for(describe_changes=quick)
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    undated = replace(hit("edited.png", engine="yandex", when=None), page_url=None)
+    [match] = trace._accept(result("yandex", "query", [undated]), 1)
+    trace._publish_match(match.model_copy(update={"relation": "edited"}))
+    trace._diff((trace.matches[match.id], EDITED, BASE, quick))
+    rid = trace.matches[match.id].receipt_id
+    assert job.result.receipts[rid - 1].ok
+    calls = iter([True])  # admitted once, then the deadline has passed
+    monkeypatch.setattr(imagetrace.Trace, "_active", lambda self: next(calls, False))
+    dated = replace(undated, engine="tineye", first_seen=OLD, time_source="crawl_date")
+    trace._accept(result("tineye", "query", [dated]), 2)
+    assert trace.matches[match.id].changes == [] and trace.matches[match.id].changes_from is None
+    receipt = job.result.receipts[rid - 1]
+    assert not receipt.ok and receipt.summary.startswith("Image change description withdrawn")
+
+
+def test_a_later_date_never_makes_a_copy_less_provably_older():
+    """Entire review: keep the earliest upper bound, not the earliest raw date."""
+    job = job_for()
+    trace = imagetrace.Trace(job)
+    page = replace(hit(engine="yandex", when=None), first_seen=None)
+    [match] = trace._accept(result("yandex", "query", [page]), 1)
+    trace.matches[match.id] = match.model_copy(
+        update={"first_seen": datetime(2026, 11, 13, 12, tzinfo=UTC), "time_source": "page"}
+    )
+    crawl = replace(
+        page,
+        engine="tineye",
+        first_seen=datetime(2026, 11, 13, 10, tzinfo=UTC),
+        time_source="crawl_date",
+    )  # earlier raw date, later bound (end of day)
+    trace._accept(result("tineye", "query", [crawl]), 2)
+    kept = trace.matches[match.id]
+    assert kept.time_source == "page" and kept.first_seen.hour == 12
+
+
+def test_variations_detail_counts_only_descriptions_still_shown():
+    job = job_for()
+    run_trace(job)
+    step = job._step("variations")
+    shown = sum(m.changes_from is not None for m in job.result.image_matches)
+    assert step.detail.endswith(f"; {shown} change descriptions")

@@ -178,10 +178,26 @@ ImageMatch {
   "edited_region": [0.0, 0.0, 1.0, 0.16] | null,
   "relation_note": "Visible image comparison",
   "changes": ["Caption changed from one line to another"],
-  "change_kinds": ["caption_changed"],
+  "change_kinds": ["caption_changed"],  // deduplicated, in Nemotron's order
+  "changes_from": "match" | "upload" | null,  // which side the changes start from, see below
+  "changes_withdrawn": false,  // true: a description was taken back (see below)
   "receipt_id": 12
 }
 ```
+
+`changes_from` says which way to read `changes` (media.imagediff reads one picture as the
+starting point). `"match"`: the changes turn this copy into the submitted picture.
+`"upload"`: they turn the submitted picture (the upload or the post's image) into this copy.
+For an upload it is always `"match"`: a comparison convention, not a chronology (when someone
+uploads a picture says nothing about when it was made or edited). For a post it is `"match"`
+only when the copy's first-seen upper bound proves it existed before the post, judged on the
+copy's latest dates; a description whose direction a late-arriving date flips is not shown,
+or is withdrawn if already published (`changes`, `change_kinds` and `changes_from` cleared,
+`changes_withdrawn: true`, `receipt_id` back on the comparison receipt; the description's own
+receipt says why). With `changes_withdrawn` the empty `changes` say nothing about the content;
+show "description withdrawn", not "no change".
+Neither value says who copied whom or which picture was made first; show the direction with
+the sentences (e.g. "This copy → your picture").
 
 `change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
 `element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.

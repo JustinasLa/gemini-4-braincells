@@ -44,6 +44,12 @@ class ImageMatch(BaseModel):
             "other",
         ]
     ] = Field(default_factory=list)
+    # which side `changes` start from: "match" = the changes turn this copy into the upload (the
+    # copy is the earlier one), "upload" = they turn the upload into this copy
+    changes_from: Literal["match", "upload"] | None = None
+    # a description existed but was withdrawn (a later date flipped its direction): the empty
+    # `changes` then says nothing about whether the content changed
+    changes_withdrawn: bool = False
     receipt_id: int | None = None
 
 

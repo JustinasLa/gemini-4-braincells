@@ -69,6 +69,11 @@ def _media_id(url: str) -> str:
     return f"{host}{re.sub(r'\.[A-Za-z0-9]{2,5}$', '', path)}".lower()
 
 
+def _bound(item):
+    """Latest moment the picture is known to have existed (a day-only crawl ends at midnight)."""
+    return item.first_seen + timedelta(days=item.time_source == "crawl_date")
+
+
 def _num(value):
     return None if value is None else float(value)
 
@@ -150,6 +155,7 @@ class Trace:
         self.admitted: set[str] = set()
         self.tried: dict[str, set[str]] = {}  # match id -> URLs already downloaded or refused
         self.failed: set[str] = set()  # admitted, every URL tried, no comparison
+        self.compare_receipts: dict[str, int | None] = {}  # match id -> its comparison receipt
         self.compared: set[str] = set()  # comparisons published (incl. "different", dropped)
         self.tineye_settled = False  # TinEye answered or failed: its reserve is open to Yandex
         self.overflow: list[tuple] = []  # (hit, rid) Yandex hits held back for the reserve
@@ -217,6 +223,8 @@ class Trace:
                     "relation_note",
                     "changes",
                     "change_kinds",
+                    "changes_from",
+                    "changes_withdrawn",
                     "receipt_id",
                 }
                 self.matches[match.id] = self.matches[match.id].model_copy(
@@ -268,13 +276,17 @@ class Trace:
                     if (
                         hit.first_seen
                         and hit.time_source
-                        and (not match.first_seen or hit.first_seen < match.first_seen)
+                        and (not match.first_seen or _bound(hit) < _bound(match))
                     ):
                         match.first_seen, match.time_source = hit.first_seen, hit.time_source
                         match.engine = hit.engine
                     elif not match.first_seen and hit.engine == "tineye":
                         match.engine = hit.engine
                     self.matches[mid] = match
+                    if match.changes_from and self._match_is_older(match) != (
+                        match.changes_from == "match"
+                    ):
+                        self._withdraw_description(mid)
                     self.priorities[mid] = self._priority(
                         match, min(self.priorities[mid][2], hit.rank)
                     )
@@ -495,8 +507,55 @@ class Trace:
                 self._complete(rid, "Downloaded image; visual comparison unavailable")
         return match, None
 
+    def _match_is_older(self, match) -> bool:
+        """Which side media.imagediff reads as "original" (`match` is read from self.matches, so a
+        date that arrived later counts). A comparison convention, not a chronology: for an
+        upload the changes read from the copy to the upload (when someone uploads a picture says
+        nothing about when it was made or edited). For a post, the copy goes first only when its
+        first-seen upper bound proves it existed before the post; otherwise the post's picture
+        does. Neither says who copied whom or which picture was made first."""
+        if self.job._upload is not None:
+            return True
+        with self.job.lock:
+            match = self.matches.get(match.id, match)
+            subject = next(
+                (p for p in self.job.result.posts if p.id == self.job.result.subject_id), None
+            )
+        posted = subject.created_at if subject else None
+        posted = posted or self.job._subject_time
+        if not (match.first_seen and posted):
+            return False
+        return _bound(match) <= posted
+
+    def _withdraw_description(self, mid):
+        """A date arrived after the change description was published and flipped which picture
+        it starts from: its sentences read the other way, so they are taken back (job.lock)."""
+        match = self.matches[mid]
+        self.matches[mid] = match.model_copy(
+            update={
+                "changes": [],
+                "change_kinds": [],
+                "changes_from": None,
+                "changes_withdrawn": True,
+                # the match cites its comparison again (its relation and first-seen summary)
+                "receipt_id": self.compare_receipts.get(mid, match.receipt_id),
+            }
+        )
+        if match.receipt_id:
+            # written here, not through _complete: this runs inside an _accept_hits transaction
+            # that was admitted under job.lock (the job can't freeze mid-way), and a deadline
+            # passing since then must not leave the wrong-way sentences on an ok receipt
+            receipt = self.job.result.receipts[match.receipt_id - 1]
+            receipt.ok = False
+            receipt.summary = (
+                "Image change description withdrawn: a later date for this copy changed which "
+                "picture it starts from"
+            )
+
     def _diff(self, item):
         match, data, base, describe = item
+        older = self._match_is_older(match)
+        original, variant = (data, base) if older else (base, data)
         rid = self._receipt(
             "nemotron",
             "image diff",
@@ -509,8 +568,8 @@ class Trace:
         try:
             diff = describe(
                 self.job.deps.nemotron,
-                base,
-                data,
+                original,
+                variant,
                 timeout_s=max(0.0, self.job._provider_deadline(DIFF_S) - time.monotonic()),
             )
             if diff is None:
@@ -518,18 +577,37 @@ class Trace:
                 return None
             updated = match.model_copy(deep=True)
             updated.changes = [_wording(change) for change in diff.changes]
-            updated.change_kinds = diff.kinds
+            updated.change_kinds = list(dict.fromkeys(diff.kinds))
+            updated.changes_from = "match" if older else "upload"
+            with self.job.lock:
+                self.compare_receipts.setdefault(match.id, self.matches[match.id].receipt_id)
             updated.receipt_id = rid
             updated = ImageMatch.model_validate(updated.model_dump())
-            self._complete(
-                rid,
-                self._comparison_summary(updated)
-                + "; observed changes: "
-                # media.imagediff: [] means Nemotron saw no visible change
-                + ("; ".join(updated.changes) or "Nemotron saw no visible change"),
-                latency_ms=diff.latency_ms,
-            )
-            self._publish_match(updated)
+            with self.job.lock:  # re-check and publish as one step: no date slips in between
+                if self._match_is_older(match) != older:
+                    # a first-seen date arrived while Nemotron read the pair and flipped the
+                    # order: its sentences describe the other direction, so they are not shown
+                    self._complete(
+                        rid,
+                        "Image change description not shown: the copy's date arrived during "
+                        "the reading and changed which picture it starts from",
+                        ok=False,
+                        latency_ms=diff.latency_ms,
+                    )
+                    return None
+                self._complete(
+                    rid,
+                    self._comparison_summary(updated)
+                    + (
+                        "; observed changes from this copy to the submitted picture: "
+                        if older
+                        else "; observed changes from the submitted picture to this copy: "
+                    )
+                    # media.imagediff: [] means Nemotron saw no visible change
+                    + ("; ".join(updated.changes) or "Nemotron saw no visible change"),
+                    latency_ms=diff.latency_ms,
+                )
+                self._publish_match(updated)
             return updated
         except Exception:
             self._complete(rid, "Image change description unavailable", ok=False)
@@ -669,6 +747,7 @@ class Trace:
             return
         with self.job.lock:
             matches = list(self.job.result.image_matches)
+            shown = sum(m.changes_from is not None for m in matches)
             compared = len(self.compared)
             dropped = sum(self.matches[mid].relation == "different" for mid in self.compared)
         detail = f"{compared} image{'' if compared == 1 else 's'} compared"
@@ -677,7 +756,7 @@ class Trace:
         self._step(
             "variations",
             "done",
-            f"{detail}; {diffs_done} change descriptions"
+            f"{detail}; {shown} change descriptions"
             + ("" if describe is not None else " (not installed on this server)"),
             [match.id for match in matches],
         )
