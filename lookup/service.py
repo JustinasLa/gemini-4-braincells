@@ -813,10 +813,11 @@ class Lookup:
             if p.followers is None and p.joined is None:
                 raise StepUnavailable("profile not readable logged out")
             per_day = None
-            ids = sorted(int(it.status_id) for it in p.recent if it.status_id)
-            if len(ids) >= 3:
-                span = (snowflake_time(ids[-1]) - snowflake_time(ids[0])).total_seconds()
-                per_day = round((len(ids) - 1) / max(span / 86400, 1 / 24), 1)
+            # a pre-2010 (non-snowflake) id, e.g. an old pinned post, has no time in it
+            times = sorted(t for it in p.recent if (t := snowflake_time(it.status_id)))
+            if len(times) >= 3:
+                span = (times[-1] - times[0]).total_seconds()
+                per_day = round((len(times) - 1) / max(span / 86400, 1 / 24), 1)
             rid = self.receipt(
                 "oxylabs",
                 "/scrape",
