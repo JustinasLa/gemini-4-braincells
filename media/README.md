@@ -237,7 +237,9 @@ worker, is logged at ERROR here.
   composite image: both scaled to one height, labelled "A: earlier" / "B: later", at most 2048 px
   wide. `edited_region` (fractions of the variant) draws a red box on B after scaling. Only then
   is the model told about the box, and a "red box/outline/border/frame" sentence is dropped as
-  our own marker.
+  our own marker. `media/variants.py`'s `Relation.edited_region` can be passed as is: it comes
+  only with an aligned "edited" relation, where fractions of the (EXIF-oriented) base and the
+  variant agree.
 - **Wording guards (code, after the prompt):** describes the media, never names a person. A
   sentence with deepfake, fake, real, authentic, genuine, bot, shill, troll or propaganda in our
   own words is dropped with its kind. Quoted image text is exempt only when the whole sentence is
