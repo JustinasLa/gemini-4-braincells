@@ -1,0 +1,227 @@
+Task: in gemini-4-braincells (Shill or Chill), make Nemotron 3.5 Super VL the main AI on the lookup path for speed. The user's words: "nemotron being so fast should be the main ai we use for speed. Goal is instantaneous lookup of everything." Today a typical lookup takes 20-40 s (lookup/README.md): 8-20 Oxylabs calls, 0-2 Nemotron calls, then one Gemini assessment of about 14 s with 25 s reserved. Nemotron on the Verda vLLM endpoint measured about 3 s p50 with reasoning off (media/README.md table). Two sibling threads add "Screenshot Receipts": part 1 owns media/ (a `read_screenshot` prompt), part 2 adds lookup/receipts.py and a `screenshot` step in lookup/service.py. Keep your service.py changes structured so their small hook rebases cleanly.
+
+Scope:
+1. Measure first. Take a per-step timing breakdown of real lookups (X post, Bluesky post, web page, plain text) from the existing Step started_at/ended_at and the receipt latencies, so you can see where the time goes. Put the before/after numbers in the PR.
+2. Nemotron writes the assessment, as text-only chat with the same cited-receipt schema. The existing guard checks that citations exist and that `llm_reading` is never the status. Reasoning is on or off, whichever your measurement shows is reliable. Gemini becomes optional: a slower second reading that fills in later on the same poll stream, or is dropped. Pick by measured quality vs latency, and show both readings if they disagree, the same "shown and counted, never applied" rule the analyst follows. Keep `Assessment.model` honest (the model id the response returned), and keep the Super VL label check.
+3. Make the whole path feel instant:
+   - Run independent steps concurrently instead of in phases where safe.
+   - Send a first useful result in seconds (post, author, Nemotron image read) while the searches keep streaming.
+   - Cache aggressively (same URL/query/media hash).
+   - Tighten time budgets now that the reserve for the reading model is smaller.
+   - Look at whether the frontend poll interval (1.5 s) and Trackdown rendering add latency, and lower it or use SSE if that's cheap.
+   Don't weaken the honesty rules (verified copies only, never-guessed counts, status only from monitored clusters).
+4. Also review the other Gemini uses (analyst/, api/routes/analyze.py, signals red team). Wherever a user waits on a reply and Nemotron is good enough, propose the switch, and implement it if it's small. Note anything that should stay on Gemini, and why (e.g. function-calling over Oxylabs tools).
+5. Tests for the new assessment path (recorded fixtures) and the concurrency changes. Update lookup/README.md (timings, step order, model) and the README tech-stack rows.
+
+Working style: use multiple subagents in parallel. For example: one profiles and measures, one builds the Nemotron assessor, one restructures concurrency/streaming, one audits the other Gemini call sites, one writes tests. Then do Sol review rounds: Codex gpt-6.1-sol, reasoning high, via delegate_task, a new delegate each round, until it says approved. Fix the findings yourself. Start with `entire brain brief` + `entire graph query` per .entire/agent-guide.md.
+
+Git: pushes from worktrees of the shared /srv checkout can fail on other users' mode-600 Entire objects. If that happens, clone https://github.com/JustinasLa/gemini-4-braincells.git into ~/work/<name>, fetch your branch into it and push from there. Open a PR once Sol approves. Do NOT merge or deploy: report back with the PR URL and the before/after lookup timings.
+
+---
+
+<task-notification>
+<task-id>bjxu51al9</task-id>
+<tool-use-id>toolu_01FLEBiBTBJPwYdSTJhzDymf</tool-use-id>
+<output-file>/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/bfa758a0-97a2-4ab6-a367-9c178e2053b8/tasks/bjxu51al9.output</output-file>
+<status>completed</status>
+<summary>Background command "Run baseline lookups with timing (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b97t2t5qp</task-id>
+<tool-use-id>toolu_01BVxWyRJM1KCFqkC5dwg646</tool-use-id>
+<output-file>/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/bfa758a0-97a2-4ab6-a367-9c178e2053b8/tasks/b97t2t5qp.output</output-file>
+<status>completed</status>
+<summary>Background command "Run baseline lookups with timing (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bq0u2tft1</task-id>
+<tool-use-id>toolu_012vz5pGamjM3z7zxuySVxgX</tool-use-id>
+<output-file>/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/bfa758a0-97a2-4ab6-a367-9c178e2053b8/tasks/bq0u2tft1.output</output-file>
+<status>completed</status>
+<summary>Background command "Compare Nemotron vs Gemini readings (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A17caffd4-a92b-46b2-b28c-dfb53545103a%3Adelegate-task%3Ad99475ea-5e48-4e75-a47d-b3e119567c0c (Audit Gemini call sites) [completed]:
+Outside lookup/assess.py, no user waits on a Gemini call: `POST /api/analyze` makes none, and the other five call sites run in background workers or offline scripts. So switching to Nemotron would bring no latency gain for users. The only site worth considering is the batch single-shot verdict (#2), and only to free up the hourly Gemini quota. The report is saved at /tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/bfa758a0-97a2-4ab6-a367-9c178e2053b8/scratchpad/gemini-audit.md. This audit was read-only: I edited no repo files and made no commits.
+
+I ran the brain brief, graph query and graph neighbors as the agent guide asks. The brief's code-context index wasn't built for this commit ("search store not built"), so its source locations came back empty; the graph calls worked. Graph finds only three callers outside lookup: `GeminiAgent` is called from `analyst/runner.py:69` and `analyst/compare.py:97`, `GeminiVerdictModel` from `runner.py:64` and `compare.py:129`, and `GeminiEmbedder` from `signals/__main__.py:112` and `signals/attack_eval.py:175`. Nothing in `api/`, `lookup/`, `sources/` or `media/` imports `analyst/`, except that `lookup/assess.py:125` imports its price table.
+
+## Call sites
+
+| # | Site | What it does / config | Who waits | Latency (documented) | Recommendation |
+|---|---|---|---|---|---|
+| 1 | `analyst/agent.py:146` `GeminiAgent.run` | Per-cluster verdict that can investigate first. Up to 8 tool turns plus 1 forced final turn (`:142-168`). Tools: `search_web` and `scrape_url` (live Oxylabs), `get_cluster_posts` and `get_account` (database). Native function calling, set to AUTO and then NONE on the last turn (`:124`). JSON output against the `VerdictDraft` schema, temperature 0.2, `gemini-4-hydrogen` (`common/config.py:14`). No thinking config is set. | The `analyst` background worker, for coordinated and insufficient clusters (`runner.py:24,83`). | p50 18 s on spam clusters, 29.5 s on news clusters, about $0.04–0.07 per cluster (`analyst/README.md:101,118`) | **Keep on Gemini.** It depends on multi-turn function calling over Oxylabs. A documented comparison of 5 models picked hydrogen because it uses the tools (README `:136-142`). The project runs on a hackathon Gemini key (`ratecap.py:3`). Tool calling on the Verda vLLM endpoint is unverified, and porting the loop would be 150+ lines plus a new comparison run. Propose only. |
+| 2 | `analyst/gemini.py:43` `GeminiVerdictModel.draft` | Single-shot verdict on evidence gathered beforehand. Structured output, no tools, `gemini-3.5-flash-lite` (`config.py:15`). | The same worker, for `likely_organic` clusters, which are most of them (`runner.py:5,83`). | p50 1.3 s, $0.0012, agrees with the detector on 14 of 15 clusters (README `:110,148`) | **Could switch; small change (about 60–80 lines).** The `VerdictModel` Protocol (`gemini.py:17-20`) is a clean place to plug in Nemotron, and the verdict pipeline and guard stay as they are. It isn't faster (1.3 s now against about 3 s for Nemotron). The gain is moving these calls off the 100 requests/hour Gemini cap (`config.py:23`). Propose only, after a `compare.py` run. |
+| 3 | `analyst/compare.py:97,129` | Offline comparison of 5 Gemini models. Writes nothing to the database. | A developer running it by hand (about 25 min, about $3) | – | **Keep.** If #1 or #2 ever moves, add a Nemotron row here first. |
+| 4 | `signals/attack.py:82` (red team) | Writes fictional campaign and organic post sets as JSON fixtures. Schema output, temperature 1.0 / 0.7, hydrogen (`:26`). | Offline command only | not documented | **Keep.** The fixtures must be reproducible, and the semantic signal is calibrated on these Gemini-written sets (`semantic.py:3-4`, `score.py:226`). Swapping means regenerating the fixtures and re-calibrating. |
+| 5 | `signals/semantic.py:60` `GeminiEmbedder` | `embed_content` with `gemini-embedding-001`, 768 dimensions, batches of 100. Fails quietly if the call errors. | The `signals` background worker, plus offline `attack_eval.py` | not documented | **Keep.** These are embeddings, not chat: NemotronClient has no embeddings endpoint, and the 0.85 similarity threshold is calibrated on this exact model and size. |
+
+These look like Gemini uses but make no calls: `api/routes/lookup.py:64-70` only builds the lookup `Assessor`, which is out of scope. `api/routes/feed.py:92,101` and `web/trackdown/src/ui/format.ts:92` are UI text that names Gemini, and `analyst/pricing.py` is a price table.
+
+## `api/routes/analyze.py`
+
+It is user-facing: a synchronous FastAPI route, so a judge waits on the reply. It makes **0 Gemini calls per request**. The flow:
+
+1. **Parse the input (`:86-89`).** `bsky_target` reads bsky.app and at:// links. A profile link joins the handle lookup.
+2. **Look up the database (`:91-113`).**
+   - Clusters for the handle, and for the raw and normalized URL.
+   - Clusters for the text, if it yields a phrase of 5 or more words.
+   - Clusters for a Bluesky post. If the post itself is in no cluster, the author's clusters are shown as context only.
+3. **Live web check (`:116-128`).** This runs only for links that aren't Bluesky and are allowed for web checks, or for a text phrase. It calls `SourceChecker.check(adhoc=True)` (`sources/checker.py:46-85`), which makes at most 3 cached Oxylabs requests: scrape the link, search its headline, search the phrase.
+4. **Reply (`:132-145`).** Either `matched`, carrying the analyst verdicts the worker already stored, or `insufficient`.
+
+Nothing in this route needs to move to Nemotron.
+
+## Reusing NemotronClient (`media/nemotron.py:250`)
+
+- **What exists:** the only public method is `analyze(MediaInput)`. The private `_complete(messages, media_hash)` at `:346-407` is already generic over the messages. It has the rate limiter, retries, backoff and the Super VL model check, but it is keyed and logged by `media_hash`.
+- **What's needed:** a text helper such as `chat_json(system, prompt, *, key)` is about 25–35 lines. It builds the system and user messages, calls `_complete`, then `parse_content` (`:172-185`, which already strips `<think>` blocks and code fences), and the caller validates the result as a `VerdictDraft`.
+- **Unverified:** the client sends neither `response_format`/json_schema nor `tools` today, and I don't know whether the Verda endpoint supports them. Test before relying on either.
+- **Speed and sharing:** the 3 s p50 needs `reasoning=False`, but `media_reasoning` defaults to True (`config.py:37`). The limiter allows 30 requests per minute, so the analyst should get its own client instance rather than share one with the media worker and lookup.
+- **Quota cap:** the hourly cap counts only Gemini `generate_content` calls (`ratecap.py:65,98-100`), so Nemotron calls wouldn't be counted. `runner.py:57` already copes with a batch model that has no counter.
+
+## Honesty rules a Nemotron path must keep
+
+- **The guard is the only way to a verdict.** Every draft must still go through `guard.enforce` (`analyst/guard.py:15-60`):
+  - status always equals the detector's (`:50,58`);
+  - cites to unknown evidence ids are dropped (`:19-24`);
+  - fewer than 2 valid cites downgrades the model's call to `insufficient` (`:27-33`);
+  - a disagreement needs a reason (`:35-40`);
+  - confidence is clamped to 0–1 (`:42-44`).
+- **Shown evidence only:** `fit_evidence` runs before the prompt is built (`service.py:20,28`).
+- **Tool results are stored first:** web results are saved as evidence before the model gets their id (`tools.py:5`), and only shown evidence plus `tools.returned` is citable (`service.py:34-37`).
+- **Name the model that actually ran:** `Verdict.model`, `requested_by="gemini:..."` (`runner.py:99`, `compare.py:95`) and the UI text naming Gemini would all need updating. Leaving them would mislabel Nemotron's output as Gemini's.
+
+## Doc drift (not fixed)
+
+- `README.md:107` still calls Nemotron a "planned" reader and a stub, but the media worker is live and lookup uses it.
+- `README.md:106` (the Gemini row) leaves out the embeddings and the red team.
+- A Brain memory says the server sets `GEMINI_MODEL=gemini-4-argon`, while the code default and README say hydrogen. Check the production `.env` before quoting latencies.
+
+Delegated task node:delegated-task:command%3Amcp%3A17caffd4-a92b-46b2-b28c-dfb53545103a%3Adelegate-task%3A44c4d021-e029-4424-95cd-2c75351127e8 (Trackdown SSE + render latency) [completed]:
+## Trackdown frontend: SSE client, polling fallback and two readings
+
+The live lookup now shows each new fact within about 30–155 ms of the backend having it, down from 1.1–3.6 s. The Nemotron reading shows as soon as the `assess` step is done, without waiting for the whole job to finish. Type check and build pass, the 26 tests in `tests/test_deploy_check.py` pass, and I measured before and after in headless Chromium. Nothing is committed.
+
+**Warning about this checkout:** while I was finishing, this worktree's git metadata disappeared from the shared `.git`. `git status` now fails with "not a git repository", and `/srv/junction-espoo/gemini-4-braincells/.git/worktrees/` has no entry for it. I ran no git write commands; something else removed it, probably a prune. The files on disk are intact, including your `lookup/*` changes, but you will need to restore the worktree link before you can commit.
+
+### Files I changed (all under `web/`)
+- [lookup.ts](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/web/trackdown/src/data/lookup.ts): the `EventSource` client and polling fallback (every 600 ms, was 1500), the new `readings` and `readings_disagree` fields, and helpers. Identical snapshots are not re-rendered.
+- [main.ts](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/web/trackdown/src/main.ts): when `assess` is done, the trace finishes (panel, reveal, one graph fit). A second reading that arrives later only updates the panel. The console no longer re-renders when nothing changed.
+- [panel.ts](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/web/trackdown/src/ui/panel.ts): shows the readings, each labelled with its model. When they differ it shows both with "The two readings differ. Both are shown; neither sets the status." While Gemini runs, a plain text line says so (no spinner). `llm_reading` only appears as "Model's lean … not the status". Live updates no longer replay the panel's entrance animations.
+- [styles.css](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/web/trackdown/src/styles.css): four lines to turn off those animations on updates.
+- [mockLookup.ts](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/web/trackdown/src/data/mockLookup.ts): the dev mock now runs Nemotron, then a Gemini reading that disagrees. I checked `?mockLookup` in `vite dev`: no page errors.
+- `web/public/trackdown/`: rebuilt with `scripts/ship.mjs`. `index-FP-O-Ro0.js` and `index-GzXUO-kd.css` are deleted, `index-B7gNmORT.js` and `index--8Po3MWo.css` are added, and `index.html` points to them. Building HEAD reproduced the old bundle exactly, so the committed bundle matched its source.
+
+"nemotron" and "gemini" already had colours and labels in `types.ts` and `format.ts`. Unknown step tools still show as "archive", which is generic and doesn't crash.
+
+### Latency, before and after
+Measured against a scripted fake backend; the numbers are the time from the backend having a fact to it being on screen:
+
+| What appears | Before (poll every 1500 ms) | After, SSE | After, SSE fails → poll every 600 ms |
+|---|---|---|---|
+| First post | 1638 / 1693 ms | 54 / 155 ms | 471 / 282 ms |
+| Origin post | 1138 / 1193 ms | 122 / 106 ms | 648 / 429 ms |
+| Nemotron reading in the panel | 3489 / 3560 ms (waited for the whole job) | 31 / 139 ms | 605 / 383 ms |
+| Gemini reading and the "differ" line | never shown | 103 / 36 ms | 294 / 675 ms |
+| Graph refits when Gemini arrives | — | none | none |
+
+Other delays I found:
+- **Before:** the panel showed "Collecting live receipts" until `state == "done"`, so it hid the reading for as long as Gemini ran.
+- **Before:** every poll replayed the evidence list's staggered entrance (45 ms per row plus 450 ms) and the console's 350 ms entrance on every row.
+- **Kept, because they run alongside the data:** the 600 ms card entrance and the reveal overlay.
+- **Left alone:** the `pause(1500)` near `main.ts:483` is in `runTrace()`. That only runs the simulated case files and the old `/api/analyze` fallback, never the live lookup.
+
+### What the backend contract needs that you didn't specify
+1. **Pings:** `: ping` comment lines can't be seen by `EventSource`. The client switches to polling after 25 s with no message. That means a Gemini reading longer than 25 s ends up on polling. That still works, it just costs more requests. Sending `event: ping` with `data: {}` instead keeps the stream open, and the client already listens for it.
+2. **First snapshot:** it must arrive within 4 s of opening the stream, or the client falls back to polling. That is how it detects a proxy that buffers.
+3. **Headers:** send `Cache-Control: no-cache` and `X-Accel-Buffering: no`, and make sure Caddy doesn't compress or buffer `text/event-stream` responses.
+4. **Snapshot `id`:** it must equal the job id; on a mismatch the client closes the stream and polls. Leave out `retry:`, because the client closes the stream on any error and doesn't reconnect.
+5. **Readings order:** `readings[0]` should be the same object as `assessment`. The client uses `readings` when it isn't empty, otherwise `assessment`. Counter-evidence comes only from `assessment`. If `readings_disagree` is missing, the client compares the `llm_reading` values itself.
+6. **Second-reading snapshot:** don't change posts, pages, edges or clusters in the same snapshot as the Gemini reading. Any change to those reloads the graph and refits it.
+7. **Timeout:** the 150 s limit covers Gemini too. If it runs out after Nemotron's reading, or the job fails or returns 404 then, the UI keeps the readings it has and shows a toast. It does not fall back to the old analysis.
+
+My test scripts are in `/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/c756266b-09b6-41fd-bfec-962ea6933401/scratchpad/`: `fake_server.py`, `measure.py`, and screenshots `after-sse.png` and `mid.png`.
+
+---
+
+<task-notification>
+<task-id>bzw96wuw3</task-id>
+<tool-use-id>toolu_01DsYZzy2aGhdyK6Vbrpnan7</tool-use-id>
+<output-file>/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/bfa758a0-97a2-4ab6-a367-9c178e2053b8/tasks/bzw96wuw3.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun before and after measurement rounds" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A17caffd4-a92b-46b2-b28c-dfb53545103a%3Adelegate-task%3Accb418f2-e669-480f-b08f-02eff40dfae8 (Tests: Nemotron reading + concurrency) [completed]:
+I wrote the tests: 23 pass and 2 are marked xfail (strict), one for each of two bugs I found. The full suite gives 409 passed, 9 skipped, 2 xfailed. The new file passed the same way in 10 runs in a row. Ruff check and format are clean, I changed nothing outside `tests/`, and nothing is committed.
+
+**Files created**
+- [tests/test_lookup_fast.py](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/tests/test_lookup_fast.py)
+- [tests/fixtures/lookup/nemotron_reply_x_post_off.json](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/tests/fixtures/lookup/nemotron_reply_x_post_off.json): the recorded reasoning-off reply for the x_post snapshot (model id, raw content, finish, usage).
+- [tests/fixtures/lookup/nemotron_reply_length.json](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/tests/fixtures/lookup/nemotron_reply_length.json): the recorded reasoning-on reply that hit the token limit (finish "length") with empty content.
+- [tests/fixtures/lookup/x_post_snapshot.json](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/tests/fixtures/lookup/x_post_snapshot.json): 7 KB, trimmed to receipts 1–8, so the recorded cites 9–14 become unknown ids that must be dropped.
+
+The three fixtures total about 11 KB. I checked them for secrets: no keys, tokens or request headers, and I removed the request ids.
+
+**What the tests cover (items 1–10)**
+- **Nemotron reading:**
+  - The assessment carries the model id the response returned, unknown cites are dropped, and the call is never a status.
+  - The request sends the `json_schema` response format and `enable_thinking` off. The reasoning-on and unstructured options are covered too.
+  - The timeout is clamped by `deadline`, with a 1 s floor once the deadline has passed.
+  - A reply citing only unknown ids becomes "unclear", and a reply with `llm_reading: "matched"` is rejected.
+- **Wrong model id:** `NotVisionModelError` is raised; run through a Lookup, the assess step fails and no reading or Nemotron receipt is stored.
+- **Empty "length" reply:** raises `ValueError`. Through a Lookup, the assess step fails and the Gemini fake's reading becomes `assessment`.
+- **Two readings:** when they disagree, both are kept, `readings_disagree` is True, the note is added, and the status is unchanged ("insufficient", or "matched" with `FakeStore`). A second reading that arrives first does not take over. Agreeing readings add no note.
+- **Scheduling:** threading Events with a 2 s cap set the order, so a wrong order fails the test instead of hanging it. The X and web searches start before the author profile returns, and verify starts before a slow linked page from a t.co card finishes. For a web input, the markdown heading starts the searches before the fact extraction; the final page has role "linked" and the facts receipt.
+- **Caps:** `verify_max` and `profiles_max` hold across repeated queue calls, an account already read is not read again, and only verified posts count as copies.
+- **Cache:**
+  - The time-to-live cache expires entries on an injected clock and evicts the least recently used one.
+  - A repeat call through `CachedOxylabs` does not reach the inner client and is marked cached. Failures are not cached, and each thread keeps its own `last_call`.
+  - In a second lookup, every receipt says cached with the "(cached read from HH:MM:SS UTC)" suffix, and the post's view and like counts keep the original fetch time.
+- **SSE:** a finished job sends one `snapshot` event equal to the snapshot, then the stream ends; an unknown id gives 404. A scripted running job sends only changed snapshots and stops at the first non-running one.
+- **Bluesky:** `last_call` is separate per thread.
+
+**Bugs found (xfail, strict)**
+1. **Fast and slow reads of a web page can race** — [lookup/service.py:932-941](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:932). `_page_text` (the fast markdown read) checks under the lock whether the page is already there, releases the lock, then records its receipt and calls `add_page(role="linked")`.
+   - **Failure:** if `_linked` (the slow fact extraction) adds the page in that gap, the merge overwrites the page's receipt and headline with the markdown read's. The test forces that order and gets receipt 2 (markdown) instead of 1 (facts).
+   - **Likelihood:** low, since the facts usually take about 10 s longer.
+   - **Test:** `test_web_page_facts_win_when_they_land_during_the_quick_read`.
+2. **Cached profile counts show as fresh** — [lookup/service.py:684-688](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:684). `_x_author` stamps the author's recent posts with `metrics_as_of=_now()`, not the profile read's `call["fetched_at"]`.
+   - **Failure:** in a second lookup within the cache TTL, the counts read from a cached profile carry the current time. This breaks the `lookup/cache.py` rule that a cache hit keeps the time of the original read.
+   - **Test:** `test_author_recent_counts_keep_the_cached_read_time`.
+
+**Notes**
+- While I was working, another agent changed `_reading` so the primary reading is always `readings[0]`. My test follows that: primary first in `readings` and as `assessment`, even when Gemini answers first.
+- Gemini's `Assessor` accepts `deadline=` but ignores it and relies on its own HTTP timeout. That isn't a bug as specified, and I didn't test it because it needs the Google client.
+- `entire brain brief` ran but returned no code context, and the brain's graph store failed on `.git`: the worktree points to `/srv/junction-espoo/gemini-4-braincells/.git/worktrees/...`, which git can't open. The graph query without `--head` worked (in degraded mode); after that I read the source directly.
+
+---
+
+<task-notification>
+<task-id>bo2ovih9h</task-id>
+<tool-use-id>toolu_01J1QKTGjpLQSgaq8iYRZh5z</tool-use-id>
+<output-file>/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/bfa758a0-97a2-4ab6-a367-9c178e2053b8/tasks/bo2ovih9h.output</output-file>
+<status>completed</status>
+<summary>Background command "Run second after round (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqzxi5gkc</task-id>
+<tool-use-id>toolu_01C8TPYRVwBR4obSKLNo2q5x</tool-use-id>
+<output-file>/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-feat-nemotron-fast-look-b6fdf3ecdc47167e/bfa758a0-97a2-4ab6-a367-9c178e2053b8/tasks/bqzxi5gkc.output</output-file>
+<status>completed</status>
+<summary>Background command "Tests, then third after round (background)" completed (exit code 0)</summary>
+</task-notification>
