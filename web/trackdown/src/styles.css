@@ -486,7 +486,7 @@ input:focus-visible { outline: none; }
   .panel-inner { width: 370px; }
 }
 @media (max-width: 860px) {
-  .app, .app.panel-open { grid-template-columns: 1fr; grid-template-rows: 52px 1fr; }
+  .app, .app.panel-open { grid-template-columns: minmax(0, 1fr); grid-template-rows: 52px 1fr; }
   .app .stage { grid-column: 1; grid-row: 2; }
   .app .panel { border-left-color: transparent; }
   .status { bottom: 12px; font-size: 12px; }
