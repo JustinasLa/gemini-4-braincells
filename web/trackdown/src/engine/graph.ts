@@ -557,7 +557,7 @@ export class Graph {
     }
     const { top, bottom, left, right } = this.insets;
     // labels (~70px each side) and cluster tabs (~26px on top) are drawn in screen space around the boxes
-    const aw = this.W - left - right - (this.W < 600 ? 12 : 40) - Math.min(160, this.W * 0.16 + 32);
+    const aw = this.W - left - right - (this.W < 600 ? 12 + 40 : 40 + Math.min(160, this.W * 0.16 + 32));
     const ah = this.H - top - bottom - 40 - 40;
     // markers and labels are screen-size, so a wide timeline may zoom out further than cards could
     const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.03, maxK);
@@ -1054,6 +1054,7 @@ export class Graph {
       const rank = (n: VNode) => (n.d.id === this.selId ? 0 : n.d.id === this.hoverId ? 1 : n.d.role === "submitted" ? 2 : n.d.role === "origin" ? 3 : 4);
       labels.sort((a, b) => rank(a.n) - rank(b.n));
       const placed = this.clusterTabs.slice();
+      const placedText = new Set<string>();
       // markers count as occupied too, so a label never sits on another post
       const markers = labels.length ? this.nodes.filter((n) => n.vis).map((n) => {
         const r = this.markerR(n) * 1.3;
@@ -1074,15 +1075,16 @@ export class Graph {
         const edgeL = (0 - this.W / 2) / k + this.cx;
         const edgeR = (this.W - this.W / 2) / k + this.cx;
         if (l.n.x < edgeL || l.n.x > edgeR) continue; // marker off screen: no orphan label
-        const vl = edgeL + w / 2 + 6 / k;
-        const vr = edgeR - w / 2 - 6 / k;
+        if (placedText.has(l.text)) continue; // two identical labels side by side read as a glitch
+        const vl = edgeL + w / 2 + 12 / k;
+        const vr = edgeR - w / 2 - 12 / k;
         let lx = vl < vr ? clamp(l.n.x, vl, vr) : l.n.x; // slide back inside the view, never clip
         const at = (y: number, cx = lx) => ({ y, cx, x0: cx - w / 2 - 3 / k, x1: cx + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
         // above, below, left, right of the marker; only a must-show label may finally cover a marker
         const mid = l.n.y + h / 2 - 2 / k;
         const side = l.r * 1.3 + 8 / k + w / 2;
         const spots = [at(l.n.y - l.r * 1.3 - 6 / k), at(l.n.y + l.r * 1.3 + h + 2 / k), at(mid, l.n.x - side), at(mid, l.n.x + side)].filter(
-          (b) => b.x0 >= edgeL && b.x1 <= edgeR,
+          (b) => b.x0 >= edgeL + 10 / k && b.x1 <= edgeR - 10 / k,
         );
         let box = spots.find((b) => !hits(b));
         if (!box) {
@@ -1093,6 +1095,7 @@ export class Graph {
           box = spots.filter((b) => !hitsLabel(b)).sort((a, b) => cover(a) - cover(b))[0] ?? at(l.n.y - l.r * 1.3 - 6 / k);
         }
         lx = box.cx;
+        placedText.add(l.text);
         const y = box.y;
         placed.push(box);
         c.globalAlpha = hl && !hl.has(l.n.d.id) ? 0.35 : clamp(1 - op * 1.7, 0, 1);
@@ -1104,6 +1107,7 @@ export class Graph {
       }
       c.globalAlpha = 1;
     }
+    this.drawTabs(c);
     // rejected candidates: red detection boxes
     for (const g of this.ghosts) {
       const t = (now - g.start) / g.dur;
@@ -1316,18 +1320,43 @@ export class Graph {
     }
     const w = c.measureText(label).width + fs * 1.2;
     const h = fs * 1.9;
-    c.globalAlpha = 1;
-    c.fillStyle = col;
+    c.restore();
     // slide the tab right so it stays readable while any of the box is on screen
     const viewL = (0 - this.W / 2) / k + this.cx + 8 / k;
     const tx = clamp(viewL, x0, Math.max(x0, x1 - w));
-    c.fillRect(tx - 1 / k, y0 - h, w, h);
-    this.clusterTabs.push({ x0: tx, y0: y0 - h, x1: tx + w, y1: y0 });
-    c.fillStyle = "#050506";
-    c.textAlign = "left";
-    c.textBaseline = "middle";
-    c.fillText(label, tx + fs * 0.6, y0 - h / 2 + fs * 0.05);
+    // a marker under the tab would hide the verdict: then hang the tab under the box instead
+    const inCl = new Set(ms);
+    const drawnBox = (n: VNode) => {
+      const m = this.markerR(n) * 1.3;
+      return { hw: lerp(m, n.w / 2, op), hh: lerp(m, n.h / 2, op) };
+    };
+    const blocked = (ty: number) =>
+      this.nodes.some((n) => {
+        if (!n.vis || inCl.has(n)) return false;
+        const { hw, hh } = drawnBox(n);
+        return n.x + hw > tx && n.x - hw < tx + w && n.y + hh > ty && n.y - hh < ty + h;
+      });
+    const ty = blocked(y0 - h) && !blocked(y1) ? y1 : y0 - h;
+    this.clusterTabs.push({ x0: tx, y0: ty, x1: tx + w, y1: ty + h });
+    this.pendingTabs.push({ label, col, x: tx, y: ty, w, h, fs });
+  }
+
+  /** cluster tabs go on top of everything else on the canvas */
+  private pendingTabs: { label: string; col: string; x: number; y: number; w: number; h: number; fs: number }[] = [];
+  private drawTabs(c: CanvasRenderingContext2D) {
+    c.save();
+    for (const t of this.pendingTabs) {
+      c.globalAlpha = 1;
+      c.fillStyle = t.col;
+      c.fillRect(t.x - 1 / this.k, t.y, t.w, t.h);
+      c.font = `600 ${t.fs}px "JetBrains Mono", monospace`;
+      c.fillStyle = "#050506";
+      c.textAlign = "left";
+      c.textBaseline = "middle";
+      c.fillText(t.label, t.x + t.fs * 0.6, t.y + t.h / 2 + t.fs * 0.05);
+    }
     c.restore();
+    this.pendingTabs = [];
   }
 
   /** time-span label helper for UI */

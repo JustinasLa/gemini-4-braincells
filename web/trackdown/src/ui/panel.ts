@@ -132,7 +132,7 @@ export class Panel {
       : "";
     return `
       <section class="verdict" style="--vc:${v.css}">
-        <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${v.tag}${c.live ? " · live" : ""}</div></div></div>
+        <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : v.tag}${c.live ? " · live" : ""}</div></div></div>
         <p class="vs">${esc(c.summary)}</p>
         <div class="conf${scored ? "" : " abstain"}"><div class="row"><span class="label">Confidence</span><b>${scored ? Math.round(c.confidence * 100) + "%" : unscored}</b></div><div class="bar"><i></i></div>${scored ? "" : `<div class="conf-note">${unscoredNote}</div>`}</div>
         ${notice}

@@ -273,7 +273,8 @@ input:focus-visible { outline: none; }
 .t-detector { --tc: #e6e2d8; } .t-nemotron { --tc: #8fd14f; } .t-oxylabs { --tc: #7aa2f0; } .t-gemini { --tc: #b9a3f0; } .t-you { --tc: #ffffff; } .t-archive { --tc: var(--origin); }
 
 .hud { position: absolute; right: 16px; bottom: 112px; z-index: 7; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.zoom { display: flex; flex-direction: column; border: 1px solid var(--line-2); background: #08080a; }
+.zoom { display: flex; flex-direction: column; border: 1px solid var(--line-2); background: #08080a; box-shadow: 0 0 0 1px #08080a; }
+.zoom button { background: #08080a; }
 .zoom button[data-z="tools"], .zoom .mode-btn { font: 600 10px/1 var(--mono); letter-spacing: 0.08em; }
 .zoom .mode-btn { display: none; }
 .zoom .mode-btn.on { color: var(--black); background: var(--text); }
@@ -305,7 +306,7 @@ input:focus-visible { outline: none; }
 .dock-left .lbl { display: none; }
 .clock { display: flex; flex-direction: column; gap: 5px; min-width: 172px; }
 .clock .d { font: 500 13px/1 var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
-.clock .rel { font: 400 10.5px/1 var(--mono); color: var(--text-3); }
+.clock .rel { font: 400 12px/1.2 var(--mono); color: var(--text-2); }
 .scrub { position: relative; height: 60px; cursor: ew-resize; }
 .scrub canvas { width: 100%; height: 100%; display: block; }
 .dock-right { display: flex; gap: 6px; align-items: center; }
