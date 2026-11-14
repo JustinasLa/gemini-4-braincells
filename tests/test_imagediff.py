@@ -1066,6 +1066,12 @@ def test_gif_walk_never_under_reports_pillow():
         ("The image is the same size but the caption changed from 'X' to 'Y'.", True),
         ("The caption changed from 'X' to 'Y' against an unchanged background.", True),
         ("Nothing else changed; the hat was added.", True),
+        ("Nothing changed except that the caption now reads 'Y' instead of 'X'.", True),
+        ("The caption was rewritten against an unchanged background.", True),
+        ("No change.", False),
+        ("The two images are identical.", False),
+        # compound: kept by design (a false keep is cosmetic; a false drop reports no change)
+        ("The caption is unchanged and no objects were added or removed.", True),
     ],
 )
 def test_no_change_sentences_dropped(images, sentence, kept):

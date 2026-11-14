@@ -102,19 +102,24 @@ _TEXT_FORMS = (
 # Formats that read only the header on open, so the size check runs before any decoding
 # (ICO, for one, decodes its largest image inside Image.open). Memes and screenshots use these.
 _FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
-# A "change" that only says nothing changed (seen live: "The bottom caption 'X' is
-# unchanged."). Dropped only when no edit is left once these phrases are taken out, so "The
-# caption changed from 'X' to 'Y' against an unchanged background." is kept.
-_NO_CHANGE = re.compile(
-    r"\b(?:unchanged|(?:did|does|has|have)\s+not\s+changed?"
-    r"|(?:didn't|doesn't|hasn't|haven't)\s+changed?|nothing\s+(?:else\s+)?(?:has\s+)?changed"
-    r"|(?:remains?|remained|stays?|stayed|is|are)\s+the\s+same|no\s+(?:visible\s+)?changes?)\b",
-    re.I,
+# A "change" that is only a plain no-change statement (seen live: "The bottom caption 'X' is
+# unchanged."). Only whole sentences of these forms are dropped: anything compound is kept,
+# since dropping a real edit would report "no change" (a stray clause is only cosmetic).
+_SUBJECT = (
+    r"(?:(?:the|a|an|its|this|that)\s+)?"
+    r"(?:(?!(?:and|but|or|except|while|though|although|yet|instead|now|with|against|than)\b)"
+    r"[\w'-]+\s+){1,6}"
 )
-_EDIT = re.compile(
-    r"\b(?:added|removed|changed|replaced|cropped|shifted|converted|recolou?red|swapped|moved"
-    r"|rotated|flipped|mirrored|blurred|inserted|deleted|erased|pasted|became|turned)\b",
-    re.I,
+_NO_CHANGE_FORMS = tuple(
+    re.compile(form, re.I)
+    for form in (
+        rf"{_SUBJECT}(?:is|are|was|were|remains?|remained|stays?|stayed|looks?)\s+"
+        r"(?:unchanged|the\s+same|identical)\.?",
+        rf"{_SUBJECT}(?:(?:did|does|has|have)\s+not|didn't|doesn't|hasn't|haven't)\s+changed?\.?",
+        r"nothing(?:\s+else)?\s+(?:(?:has|was|is)\s+)?changed\.?",
+        r"(?:there\s+(?:is|are|was|were)\s+)?no\s+(?:other\s+)?(?:visible\s+)?changes?"
+        r"(?:\s+(?:to|in)\s+(?:the\s+)?[\w-]+(?:\s+[\w-]+)?)?\.?",
+    )
 )
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
@@ -418,9 +423,9 @@ def _words(text: str) -> list[str]:
 
 
 def _says_no_change(sentence: str) -> bool:
-    """A sentence that only states no change (quoted image text, e.g. 'NO CHANGE', ignored)."""
-    text = _QUOTE.sub("''", sentence)
-    return bool(_NO_CHANGE.search(text)) and not _EDIT.search(_NO_CHANGE.sub("", text))
+    """The whole sentence is a plain no-change statement (quoted image text blanked)."""
+    text = _QUOTE.sub("''", sentence).strip()
+    return any(form.fullmatch(text) for form in _NO_CHANGE_FORMS)
 
 
 def _exempt_image_text(sentence: str, ocr: _OcrText) -> str:

@@ -224,7 +224,9 @@ worker, is logged at ERROR here.
   one of the two text-report forms the prompt asks for ("The caption changed from 'X' to 'Y'." /
   "The text 'X' was added/removed ...") and the reply's own transcription confirms the quote, so
   a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported but scare quotes are not exempt. A
-  sentence that only says something did not change is dropped (one with an edit in it is kept). Adult or graphic media (model flag or the
+  sentence that is only a plain no-change statement ("The background is unchanged.", "Nothing
+  else changed.") is dropped. A compound sentence is kept even if part of it says nothing
+  changed: dropping a real edit would wrongly report no change. Adult or graphic media (model flag or the
   shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
   no text lists.
 
