@@ -21,6 +21,8 @@ export type Role =
 
 /** How a child relates to its parent. */
 export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" | "cites" | "variant"
+  | "history" // the meme family tree's documented history: milestone -> milestone -> source photo
+  | "derived" // the family tree: source photo -> branch -> variant -> the submission (same photograph)
   | "screenshot_of"; // from the post carrying a screenshot to the real post it shows (not a copy link)
 
 /** Which part of the pipeline produced a link or a receipt. */
@@ -61,6 +63,7 @@ export interface TraceNode {
   flags?: string[]; // short behaviour chips ("acct 3 d old", "same text")
   undated?: boolean; // `t` only places the card; the real publication date is unknown (web results)
   timeUnknown?: boolean;
+  eyebrow?: string; // a meme card's top line (the family tree's branch and caption)
   realData?: { label: string; facts: { label: string; value: string }[]; url?: string; receiptId?: number | null }[];
 }
 
@@ -71,6 +74,7 @@ export interface TraceEdge {
   sim?: number; // 0..1 similarity for copy/media links
   tool?: Tool; // who established the link
   note?: string;
+  label?: string; // a short tag drawn on the link ("POSTER FRAME", "NEW CAPTION")
 }
 
 export interface Cluster {

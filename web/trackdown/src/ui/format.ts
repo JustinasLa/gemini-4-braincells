@@ -105,6 +105,8 @@ export const REL: Record<Relation, { label: string; dash: number[] }> = {
   reply: { label: "replied", dash: [] },
   cites: { label: "cites", dash: [10, 5] },
   screenshot_of: { label: "screenshot of", dash: [2, 5] },
+  history: { label: "documented history", dash: [] },
+  derived: { label: "same photograph", dash: [] },
 };
 /** Relation style that never throws: an unknown rel renders as a plain "related" line. */
 export const relOf = (rel: string | undefined): (typeof REL)[Relation] =>
@@ -113,7 +115,7 @@ export const relOf = (rel: string | undefined): (typeof REL)[Relation] =>
 export const isMatchRel = (rel: string | undefined) => rel === "copy" || rel === "media";
 /** Relations that form the copy/spread tree (parent -> child). A screenshot link, or a rel this
  *  app does not know yet, is drawn but kept out of the chain, the path to the earliest copy and lineage. */
-const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites"]);
+const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites", "history", "derived"]);
 export const isLineageRel = (rel: string | undefined) => rel != null && LINEAGE_RELS.has(rel);
 /** A lineage edge: a lineage rel between two posts that are both in the copy/spread tree. A post
  *  shown in a screenshot ("screenshotted") is never in it, even when another edge (a reply to it,

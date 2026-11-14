@@ -949,11 +949,11 @@ export class Graph {
       const match = isMatchRel(e.e.rel);
       const shot = e.e.rel === "screenshot_of";
       const role = this.colors[e.b.d.role] ?? C.ink2;
-      const col = on ? role : e.e.rel === "variant" ? "#a2ffb5" : match ? "rgba(245,245,245,0.9)" : shot ? ROLE.screenshotted.color : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
+      const col = on ? role : e.e.rel === "variant" ? "#a2ffb5" : e.e.rel === "history" ? "rgba(228,179,106,0.9)" : e.e.rel === "derived" ? "rgba(217,120,61,0.85)" : match ? "rgba(245,245,245,0.9)" : shot ? ROLE.screenshotted.color : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
       c.save();
       c.globalAlpha = dim ? 0.1 : on ? 1 : match ? 0.75 : 0.7;
       c.strokeStyle = col;
-      c.lineWidth = (on ? 2.2 : match ? 1.1 : 1.3) / k;
+      c.lineWidth = (on ? 2.2 : match ? 1.1 : e.e.rel === "history" ? 3 : e.e.rel === "derived" ? 2 : 1.3) / k;
       if (match || e.e.rel === "cites") c.setLineDash([7 / k, 6 / k]);
       else if (shot) c.setLineDash([2 / k, 5 / k]);
       else if (e.e.rel === "variant") c.setLineDash(relOf("variant").dash.map((length) => length / k));
@@ -1015,18 +1015,18 @@ export class Graph {
         c.fill();
       }
       c.globalAlpha = 1;
-      if (k > 0.45 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on)) {
+      if (k > 0.45 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites" || e.e.label) && (!e.b.compact || on)) {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
         // a score tag half under a card reads as a glitch: skip it
-        const text = e.e.sim != null ? e.e.sim.toFixed(2) : "CITES";
-        const cap = e.e.sim != null ? relOf(e.e.rel).label.toUpperCase() : "";
+        const text = e.e.label ?? (e.e.sim != null ? e.e.sim.toFixed(2) : "CITES");
+        const cap = !e.e.label && e.e.sim != null ? relOf(e.e.rel).label.toUpperCase() : "";
         const fs = 10.5 / Math.max(k, 0.65);
         c.font = `600 ${fs}px ${MONO}`;
         const pw = c.measureText(text + cap).width + fs * 2;
         const ph = fs * 1.7;
         const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + pw / 2 && Math.abs(n.y - my) < n.h / 2 + ph / 2);
-        if (!covered) this.pill(c, mx, my, text, shot ? ROLE.screenshotted.color : e.e.sim != null ? C.cv : "#5b8fe6", cap);
+        if (!covered) this.pill(c, mx, my, text, shot ? ROLE.screenshotted.color : e.e.label ? (/NEW/.test(e.e.label) ? "#e2533c" : e.e.rel === "history" ? "#e4b36a" : "#d9783d") : e.e.sim != null ? C.cv : "#5b8fe6", cap);
       }
     }
     // far zoom: cities on the map

@@ -149,3 +149,4 @@
 .meme-finding-word { padding-bottom: 14px; border-bottom: 2px solid var(--vc); font: 400 26px/1.1 var(--wide); letter-spacing: 0.22em; color: var(--text); }
 .meme-finding p { margin: 14px 0 0; font: 400 15px/1.55 var(--sans); color: var(--text); }
 .meme-changes h3 .meme-direction { display: block; margin-top: 8px; font: 400 12px/1.5 var(--mono); letter-spacing: 0; text-transform: none; color: var(--text-2); }
+a.meme-list-item { text-decoration: none; }

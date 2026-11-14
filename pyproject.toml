@@ -21,6 +21,7 @@ dependencies = [
     "pillow>=13.0.0",
     "imagehash>=4.3.2",
     "tldextract>=5.1",
+    "opencv-python-headless>=4.10",
 ]
 
 [dependency-groups]
