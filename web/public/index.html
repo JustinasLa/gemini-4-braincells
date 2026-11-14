@@ -171,7 +171,7 @@
     .hist i { flex: 1; background: #5a5650; min-height: 0; }
     .hist .obs { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--shill); }
     .axis { display: flex; justify-content: space-between; gap: 12px; font: 11.5px/1.4 var(--mono); color: var(--text-3); margin-top: 6px; }
-    .axis span:nth-child(2) { text-align: center; }
+    .axis .mid { text-align: center; }
     .chart-caption { font-size: 14px; color: var(--text-2); margin-top: 12px; }
     .key { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: var(--text-3); margin-top: 8px; }
     .key i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
@@ -208,7 +208,8 @@
     td { padding: 9px 8px 9px 0; border-top: 1px solid var(--line); color: var(--text-2); }
     td a { color: var(--text); text-decoration: none; }
     td a:hover { text-decoration: underline; }
-    th.r, td.r { padding-right: 0; }
+    th.r, td.r { padding-left: 14px; }
+    th:last-child, td:last-child { padding-right: 0; }
     .handle { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .post { padding: 14px 0; border-top: 1px solid var(--line); }
@@ -242,7 +243,7 @@
     .planned { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
     .planned div { background: var(--surface); padding: 16px 18px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 20px; align-items: baseline; }
     .planned strong { font-weight: 600; }
-    .planned p { grid-column: 1; color: var(--text-2); font-size: 14px; }
+    .planned p { grid-column: 1 / -1; color: var(--text-2); font-size: 14px; }
     .planned .tag { grid-column: 2; grid-row: 1; margin: 0; }
 
     /* method */
@@ -304,7 +305,7 @@
       .card { padding: 18px; }
       .level { grid-template-columns: 26px minmax(0,1fr) 88px; }
       .sig-top { grid-template-columns: minmax(0,1fr) 92px; gap: 12px; }
-      .axis span:nth-child(2) { display: none; }
+      .axis .mid { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
   </style>
@@ -378,6 +379,8 @@
   const sigName = (n) => SIGNAL[n] || String(n || 'Signal').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
   const WINDOW = { '10m': '10-minute windows', '1h': '1-hour windows' };
   const fired = (s) => num(s.score) > 0;
+  // display-only tidy of detector prose: comparison signs and "1 shared items"
+  const tidy = (t) => String(t || '').replace(/>=/g, '≥').replace(/<=/g, '≤').replace(/(^|[^\d.,])1 ((?:shared |member |)(?:item|post|account|action|link|image|key|file))s\b/g, (m, pre, noun) => `${pre}1 ${noun}`);
 
   // ---------- data
   const api = async (path) => {
@@ -411,7 +414,7 @@
     const list = sigs.filter((s) => s.summary).slice().sort((a, b) => (num(b.score) || 0) - (num(a.score) || 0));
     const guard = c.status === 'likely_organic' && list.find((s) => s.polarity === 'against' && fired(s));
     const best = guard || list.find((s) => s.polarity !== 'against' && fired(s)) || list[0];
-    return best ? best.summary.replace(/\s*\([^)]*\)\s*$/, '').replace(/^./, (x) => x.toUpperCase()) : `${plural(c.size || 0, 'account')} grouped together`;
+    return best ? tidy(best.summary).replace(/\s*\([^)]*\)\s*$/, '').replace(/^./, (x) => x.toUpperCase()) : `${plural(c.size || 0, 'account')} grouped together`;
   };
 
   // ---------- router
@@ -436,11 +439,12 @@
     const items = state.clusters.filter((c) => state.filter === 'all' || c.status === state.filter);
     const tab = (key, label) => `<button class="tab ${key === 'all' ? 'tab-all' : `s-${key}`}" data-filter="${key}" aria-pressed="${state.filter === key}"><b>${key === 'all' ? state.clusters.length : counts[key]}</b>${label}</button>`;
     const note = state.filter === 'all' ? 'Every call the detector made, newest first.' : STATUS[state.filter].note;
+    const staleWarn = state.error && state.feedAt ? `<p class="warn" role="alert">Couldn’t refresh the feed. Showing results from ${esc(tf.format(state.feedAt))}.</p>` : '';
     let body;
     if (!state.loaded) body = `<div class="list"><div class="state">Loading the live feed…</div></div>`;
     else if (state.error && !state.clusters.length) body = `<div class="list"><div class="state" role="alert"><h2>The live feed is unavailable</h2><p>${esc(state.error)}</p><button class="btn" data-retry>Try again</button></div></div>`;
-    else if (!items.length) body = `<div class="list"><div class="state"><h2>No ${state.filter === 'all' ? '' : esc(word(state.filter).toLowerCase()) + ' '}clusters right now</h2><p>None of the newest ${state.clusters.length} clusters. New windows are scored every few minutes.</p></div></div>`;
-    else body = `${state.error ? `<p class="warn" role="alert">Couldn’t refresh the feed. Showing results from ${esc(tf.format(state.feedAt))}.</p>` : ''}
+    else if (!items.length) body = `${staleWarn}<div class="list"><div class="state"><h2>No ${state.filter === 'all' ? '' : esc(word(state.filter).toLowerCase()) + ' '}clusters ${state.error ? 'in the last update' : 'right now'}</h2><p>None of the newest ${state.clusters.length} clusters. New windows are scored every few minutes.</p></div></div>`;
+    else body = `${staleWarn}
       <div class="list">
         <div class="list-head" aria-hidden="true"><span class="label">Call</span><span class="label">What the accounts did</span><span class="label r">Accounts</span><span class="label">Coordination</span><span class="label c-op">Gemini</span><span class="label r">Last active</span></div>
         <ul class="rows">${items.slice(0, state.shown).map((c) => `<li>${row(c)}</li>`).join('')}</ul>
@@ -508,14 +512,15 @@
   async function showCluster(id) {
     document.title = `Cluster #${id} · Noise Radar`;
     const cached = state.details.get(id);
-    if (cached) return renderCluster(cached);
-    app.innerHTML = `<a class="back" href="#/">← All clusters</a><div class="card state">Loading cluster #${id}…</div>`;
+    if (cached) renderCluster(cached);
+    else app.innerHTML = `<a class="back" href="#/">← All clusters</a><div class="card state">Loading cluster #${id}…</div>`;
     try {
       const c = await api(`/api/clusters/${encodeURIComponent(id)}`);
       state.details.set(id, c);
-      if (location.hash === `#/cluster/${id}`) renderCluster(c);
+      const changed = !cached || cached.updated_at !== c.updated_at || JSON.stringify(cached.analyst) !== JSON.stringify(c.analyst);
+      if (location.hash === `#/cluster/${id}` && changed) { const y = window.scrollY; renderCluster(c); window.scrollTo(0, y); }
     } catch (e) {
-      if (location.hash !== `#/cluster/${id}`) return;
+      if (location.hash !== `#/cluster/${id}` || cached) return;
       app.innerHTML = `<a class="back" href="#/">← All clusters</a><div class="card state" role="alert"><h2>Couldn’t open cluster #${id}</h2><p>${esc(e.message)}</p><button class="btn" data-retry>Try again</button></div>`;
       app.querySelector('[data-retry]').onclick = () => showCluster(id);
     }
@@ -528,6 +533,7 @@
     const byId = new Map(evidence.map((e) => [e.id, e]));
     const handles = new Map((c.members || []).map((m) => [m.did, m.handle || m.did]));
     const span = c.window_start && c.window_end ? `${when(c.window_start)} – ${tf.format(new Date(c.window_end))}` : '';
+    const win = sig.window && sig.window.start && sig.window.end ? `${tf.format(new Date(sig.window.start))} – ${tf.format(new Date(sig.window.end))}` : '';
     // evidence ids that get an anchor on this page, so citations only link to things that exist
     const anchored = new Set([...signals.map((s) => s.evidence_id), ...evidence.filter((e) => e.kind === 'media' || e.kind === 'source').map((e) => e.id)].filter(Boolean));
     app.innerHTML = `
@@ -535,13 +541,13 @@
       <section class="detail-head">
         <div>${chip(c.status, 'lg')}${c.synthetic ? '<span class="tag">Test data</span>' : ''}</div>
         <h1>${esc(headline(c, signals))}</h1>
-        <div class="facts num"><span>Cluster #${Number(c.id)}</span><span>${plural(c.size || 0, 'account')}</span><span>Active ${esc(span)}</span>${c.window_kind ? `<span>Scored in ${esc(WINDOW[c.window_kind] || c.window_kind)}</span>` : ''}${sig.detector_version ? `<span>Detector ${esc(sig.detector_version)}</span>` : ''}</div>
+        <div class="facts num"><span>Cluster #${Number(c.id)}</span><span>${plural(c.size || 0, 'account')}</span><span>Tracked ${esc(span)}</span>${win ? `<span>Latest window ${esc(win)}</span>` : c.window_kind ? `<span>Scored in ${esc(WINDOW[c.window_kind] || c.window_kind)}</span>` : ''}${sig.detector_version ? `<span>Detector ${esc(sig.detector_version)}</span>` : ''}</div>
       </section>
       <div class="detail">
         <div class="col">
           ${callCard(c)}
-          ${signalsCard(signals, byId)}
-          ${timingCard(c, handles)}
+          ${signalsCard(signals, byId, win)}
+          ${timingCard(c, handles, win)}
           ${postsCard(c, handles)}
         </div>
         <div class="col">
@@ -566,7 +572,7 @@
     const fam = Array.isArray(sig.families_fired) ? sig.families_fired : [];
     const famTotal = Object.keys(sig.family_scores || {}).length || 4;
     const combined = sig.null_model && sig.null_model.combined;
-    const ruleRow = (key) => (rules[key] ? `<div class="rule s-${key} ${c.status === key ? 'met' : ''}"><span class="lbl">${chip(key)}${c.status === key ? '<span class="small">rule met</span>' : '<span class="small">not met</span>'}</span><span class="mono">${esc(rules[key])}</span></div>` : '');
+    const ruleRow = (key) => (rules[key] ? `<div class="rule s-${key} ${c.status === key ? 'met' : ''}"><span class="lbl">${chip(key)}${c.status === key ? '<span class="small">rule met</span>' : '<span class="small">not met</span>'}</span><span class="mono">${esc(tidy(rules[key]))}</span></div>` : '');
     const hasRules = rules.coordinated || rules.likely_organic;
     return `<section class="card o-call" aria-labelledby="h-call">
       <div class="card-head"><h2 id="h-call">The detector’s call</h2><span class="label">Rule-based decision</span></div>
@@ -597,7 +603,7 @@
       <span class="muted" style="font:11px var(--mono)">evidence #${Number(e.id)}</span>
     </div></details>`;
   }
-  function signalsCard(all, byId) {
+  function signalsCard(all, byId, win) {
     if (!all.length) return '';
     const byScore = (a, b) => (num(b.score) || 0) - (num(a.score) || 0);
     const forCo = all.filter((s) => s.polarity !== 'against' && fired(s)).sort(byScore);
@@ -606,9 +612,9 @@
     const one = (s) => `<div class="sig ${fired(s) ? '' : 'off'}"${s.evidence_id ? ` id="ev-${Number(s.evidence_id)}"` : ''}>
         <div class="sig-top"><div class="sig-name">${esc(sigName(s.name))}<span class="label">${esc(FAMILY[s.family] || s.family || '')}</span></div>
         <div class="meter"><span class="num">${fix2(s.score)}</span><span class="bar"><i style="width:${clamp01(s.score) * 100}%"></i></span></div></div>
-        <p>${esc(s.summary || '')}</p>${receipt(byId.get(s.evidence_id))}</div>`;
+        <p>${esc(tidy(s.summary))}</p>${receipt(byId.get(s.evidence_id))}</div>`;
     return `<section class="card o-sig" aria-labelledby="h-sig">
-      <div class="card-head"><h2 id="h-sig">Evidence</h2><span class="label">${plural(all.length, 'check')}, ${forCo.length + guards.length} fired</span></div>
+      <div class="card-head"><h2 id="h-sig">Evidence</h2><span class="label">${win ? 'Latest window · ' : ''}${forCo.length + guards.length} of ${all.length} fired</span></div>
       <h3 class="label group-label">Points to coordination</h3>
       ${forCo.length ? `<div>${forCo.map(one).join('')}</div>` : '<p class="muted">No coordination signal fired.</p>'}
       ${guards.length ? `<h3 class="label group-label">Organic safeguards that held</h3><div>${guards.map(one).join('')}</div>` : ''}
@@ -616,7 +622,7 @@
     </section>`;
   }
 
-  function timingCard(c, handles) {
+  function timingCard(c, handles, win) {
     const sig = c.signals || {};
     const nd = sig.null_distribution;
     const tl = Array.isArray(sig.timeline) ? sig.timeline.filter((p) => num(p.t) != null) : [];
@@ -632,7 +638,8 @@
       parts.push(`<div class="hist" role="img" aria-label="Synchrony in ${worlds} shuffled worlds; the real accounts score ${fix2(nd.observed)}.">
           ${nd.counts.map((n) => `<i style="height:${(n / max) * 100}%"></i>`).join('')}
           <span class="obs" style="left:calc(${left}% - 1px)"></span></div>
-        <div class="axis" aria-hidden="true"><span>${fix2(lo)}</span><span>share of actions in the same burst</span><span>${fix2(hi)}</span></div>
+        <div class="axis" aria-hidden="true"><span>${fix2(lo)}</span><span class="mid">share of actions in the same burst</span><span>${fix2(hi)}</span></div>
+        <p class="muted small" style="margin-top:4px">Horizontal axis: share of the accounts’ actions that fall in the same tight burst.</p>
         <div class="key"><span><i style="background:#5a5650"></i>Shuffled timing</span><span><i style="background:var(--shill)"></i>Real accounts: ${fix2(nd.observed)}</span></div>
         <p class="chart-caption">We shuffled each account’s activity in time ${worlds.toLocaleString()} times.${k != null ? ` <strong>${k.toLocaleString()}</strong> of those shuffles were as synchronised as the real accounts` : ''}${timingP != null ? ` (timing p = ${pval(timingP)}).` : '.'}</p>`);
     }
@@ -656,7 +663,7 @@
         <div class="key"><span>One row per account. One colour per shared link, text or image${keys.length > palette.length ? `; grey for the other ${keys.length - palette.length}` : ''}.</span></div>`);
     }
     if (!parts.length) return '';
-    return `<section class="card o-time" aria-labelledby="h-time"><div class="card-head"><h2 id="h-time">Timing test</h2><span class="label">Against chance</span></div>${parts.join('')}</section>`;
+    return `<section class="card o-time" aria-labelledby="h-time"><div class="card-head"><h2 id="h-time">Timing test</h2><span class="label">${win ? `Latest window · ${esc(win)}` : 'Against chance'}</span></div>${parts.join('')}</section>`;
   }
 
   function opinionCard(c, anchored) {
@@ -679,7 +686,7 @@
       <div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div>
       <p class="opinion-line">${chip(call)}<span>${agrees ? 'Agrees with the detector' : 'Reads it differently'}</span></p>
       <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.</p>
-      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> The detector said ${esc(word(thenStatus))} at the time of this review.</p>` : ''}
+      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> The detector said ${esc(word(thenStatus))} at the time of this review.</p>` : older ? `<p class="notice"><strong>Reviewed an earlier snapshot.</strong> Account and post counts may differ from the evidence on this page.</p>` : ''}
       ${a.summary ? `<p style="margin-top:14px">${prose(a.summary)}</p>` : ''}
       ${!agrees && !callChanged && a.disagreement_reason ? `<p class="notice"><strong>Why it disagrees:</strong> ${prose(a.disagreement_reason)}</p>` : ''}
       <div class="reasons">
@@ -687,7 +694,7 @@
         ${list('What points the other way', ((v && v.counter_evidence) || []).map(prose))}
         ${list('What would change its mind', ((v && v.would_change_verdict) || []).map(prose))}
       </div>
-      <div class="foot-meta">${a.model ? `<span>${esc(a.model)}</span>` : ''}${tools ? `<span>${plural(tools, 'tool call')}</span>` : ''}${v && v.cost_usd != null ? `<span>$${Number(v.cost_usd).toFixed(3)}</span>` : ''}${a.created_at ? `<span>${esc(when(a.created_at))}</span>` : ''}${older && !callChanged ? '<span>before the latest activity</span>' : ''}</div>
+      <div class="foot-meta">${a.model ? `<span>${esc(a.model)}</span>` : ''}${tools ? `<span>${plural(tools, 'tool call')}</span>` : ''}${v && v.cost_usd != null ? `<span>$${Number(v.cost_usd).toFixed(3)}</span>` : ''}${a.created_at ? `<span>${esc(when(a.created_at))}</span>` : ''}</div>
     </section>`;
   }
 
@@ -706,7 +713,7 @@
         ${d.media_url ? `<button class="thumb" type="button" aria-pressed="false" aria-label="Show the image"><img src="${esc(d.media_url)}" alt="${esc(d.description || 'Image posted by the cluster')}" loading="lazy" referrerpolicy="no-referrer"><span>Show image</span></button>` : ''}
         <p>${esc(d.description || e.summary || '')}</p>
         ${ocr ? `<p class="muted">Text in image: “${esc(ocr)}”</p>` : ''}
-        <span class="muted small">Same file from ${plural(Number(d.n_accounts || 0), 'account')}${d.n_posts ? ` in ${plural(Number(d.n_posts), 'post')}` : ''}${e.source_url ? ` · ${ext(e.source_url, 'first post ↗', 'out')}` : ''}</span>
+        <span class="muted small">${Number(d.n_accounts || 0) > 1 ? `Same file from ${plural(Number(d.n_accounts), 'account')}${d.n_posts ? ` in ${plural(Number(d.n_posts), 'post')}` : ''}` : 'Posted by one account'}${e.source_url ? ` · ${ext(e.source_url, 'first post ↗', 'out')}` : ''}</span>
       </div>`;
     });
     const notes = [];
@@ -721,11 +728,13 @@
     if (!src.length) return '';
     const items = src.map((e, i) => {
       const d = e.detail || {};
-      const hits = Array.isArray(d.hits) ? d.hits.slice(0, 3) : [];
+      const allHits = Array.isArray(d.hits) ? d.hits : [];
+      const hit = (h) => `<a href="${esc(h.url)}" target="_blank" rel="noreferrer noopener"><b>${esc(h.domain || host(h.url))}</b>${esc(h.title || h.url)}</a>`;
       const by = d.requested_by && String(d.requested_by).startsWith('gemini') ? `<p class="muted small">Requested by Gemini${d.why ? `: ${esc(d.why)}` : ''}</p>` : '';
       const url = e.source_url || d.final_url || d.url;
       return `<div class="item" id="ev-${Number(e.id)}"${i >= 4 ? ' hidden' : ''}><p style="color:var(--text)">${esc(e.summary || d.title || 'Web check')}</p>${by}
-        ${hits.length ? `<div class="hits">${hits.map((h) => `<a href="${esc(h.url)}" target="_blank" rel="noreferrer noopener"><b>${esc(h.domain || host(h.url))}</b>${esc(h.title || h.url)}</a>`).join('')}</div>` : ''}
+        ${allHits.length ? `<div class="hits">${allHits.slice(0, 3).map(hit).join('')}</div>` : ''}
+        ${allHits.length > 3 ? `<details><summary>${allHits.length - 3} more ${allHits.length - 3 === 1 ? 'result' : 'results'}</summary><div class="hits" style="margin-top:6px">${allHits.slice(3).map(hit).join('')}</div></details>` : ''}
         ${url ? ext(url, `${esc(host(url))} ↗`, 'out') : '<span class="muted small">No source URL recorded.</span>'}</div>`;
     });
     return `<section class="card o-src" aria-labelledby="h-src" data-fold><div class="card-head"><h2 id="h-src">On the web</h2><span class="label">Oxylabs, live</span></div>
@@ -735,10 +744,10 @@
   function accountsCard(c) {
     const ms = c.members || [];
     if (!ms.length) return '';
-    const age = (d) => { if (!d) return '–'; const days = Math.floor((Date.now() - new Date(d)) / 864e5); return days > 730 ? `${Math.floor(days / 365)} years` : plural(days, 'day'); };
+    const age = (d) => { if (!d) return '–'; const days = Math.max(0, Math.floor((Date.now() - new Date(d)) / 864e5)); return `${days.toLocaleString()} d`; };
     const rows = ms.map((m, i) => `<tr${i >= 10 ? ' hidden' : ''}><td class="handle">${ext(m.profile_url, esc(m.handle || shortDid(m.did)))}</td><td class="r num">${age(m.account_created_at)}</td><td class="r num">${m.followers == null ? '–' : Number(m.followers).toLocaleString()}</td></tr>`).join('');
     return `<section class="card o-acc" aria-labelledby="h-acc" data-fold><div class="card-head"><h2 id="h-acc">Accounts</h2><span class="label">${ms.length}</span></div>
-      <table><thead><tr><th>Handle</th><th class="r">Age</th><th class="r">Followers</th></tr></thead><tbody>${rows}</tbody></table>
+      <table><thead><tr><th>Handle</th><th class="r" title="Account age in days">Age</th><th class="r">Followers</th></tr></thead><tbody>${rows}</tbody></table>
       ${ms.length > 10 ? `<button class="linkish" data-showall style="margin-top:12px">Show all ${ms.length}</button>` : ''}</section>`;
   }
 
@@ -759,7 +768,7 @@
     organic_live: { order: 1, q: 'Does it flag real organic crowds?', what: 'Real bursts of organic activity in recorded windows, picked by a fixed rule that never looks at the detector.', metric: 'fpr', unit: 'called coordinated', items: 'organic bursts' },
     organic_synth: { order: 2, q: 'Does it flag look-alike organic crowds?', what: 'Synthetic viral, news-link, live-event and fandom bursts injected into real traffic.', metric: 'fpr', unit: 'called coordinated', items: 'organic bursts' },
     synthetic_campaigns: { order: 3, q: 'Does it catch planted campaigns?', what: 'Synthetic campaigns of three difficulty levels injected into real traffic.', metric: 'recall', unit: 'caught', items: 'campaigns' },
-    live_hand_labels: { order: 4, q: 'Do people agree when it says coordinated?', what: 'Live clusters labelled blind by two people.', metric: 'precision', unit: 'confirmed by both labellers', items: 'labelled clusters' },
+    live_hand_labels: { order: 4, q: 'Do people agree when it says coordinated?', what: 'Live clusters labelled blind by two people; precision is measured against their agreed label.', metric: 'precision', unit: 'confirmed by the agreed human label', items: 'flagged clusters' },
     bluesky_takedowns: { order: 5, q: 'Does Bluesky later act on the accounts it flags?', what: 'Flagged accounts that Bluesky takes down or suspends afterwards, compared with random active accounts.', metric: null, items: 'accounts' },
     calibration: { order: 6, q: 'Is its confidence calibrated?', what: 'How well the score and the verdict confidence match labelled outcomes.', metric: null, items: 'cases' },
   };
@@ -779,9 +788,12 @@
     const metric = meta.metric || ['fpr', 'recall', 'precision', 'f1'].find((m) => main[m] != null);
     let big;
     if (metric && main[metric] != null) {
-      const n = num(main.n);
-      const k = n != null ? Math.round(num(main[metric]) * n) : null;
-      const ci = d[`${metric}_ci95`];
+      // live_hand_labels keeps its own k/n/interval per metric (weighted); never derive k from a rate there
+      const sub = d.metrics && d.metrics[metric];
+      const exact = sub && num(sub.k) != null && num(sub.n) != null && Number.isInteger(Number(sub.k));
+      const n = exact ? num(sub.n) : num(main.n);
+      const k = exact ? num(sub.k) : (n != null && metric !== 'precision' ? Math.round(num(main[metric]) * n) : null);
+      const ci = d[`${metric}_ci95`] || (sub && sub.ci95);
       big = `<div class="big"><b>${pct(main[metric], 1)}</b><span>${METRIC_WORD[metric]}</span></div>
         <div class="ci">${k != null && meta.unit ? `${k} of ${n.toLocaleString()} ${meta.items} ${meta.unit}` : n != null ? `n = ${n.toLocaleString()}` : ''}${Array.isArray(ci) ? ` · 95% interval ${pct(ci[0], 1)} to ${pct(ci[1], 1)}` : ''}</div>
         ${ciBar(ci, main[metric])}`;
@@ -811,6 +823,7 @@
     const groups = new Map();
     state.metrics.filter((m) => m && m.dataset).forEach((r) => { if (!groups.has(r.dataset)) groups.set(r.dataset, []); groups.get(r.dataset).push(r); });
     const ordered = [...groups.keys()].sort((a, b) => ((DATASETS[a] || {}).order || 99) - ((DATASETS[b] || {}).order || 99));
+    const missing = Object.entries(DATASETS).filter(([k]) => !groups.has(k)).map(([, m]) => m);
     const head = (p) => `<section class="page-head"><div><h1>How often is it wrong?</h1><p>${p}</p></div></section>`;
     if (!state.loaded) { app.innerHTML = head('Loading evaluation runs…'); return; }
     if (state.metricsError) { app.innerHTML = `${head('Error rates measured by the evaluation harness.')}<div class="card state" role="alert"><h2>Evaluation results are unavailable</h2><p>${esc(state.metricsError)}</p></div>`; return; }
@@ -825,7 +838,8 @@
         <div><strong>Held-out results lead</strong>Odd UTC hours are held out and never used for tuning. Results on the development split are labelled as such.</div>
         <div><strong>Read the interval</strong>Small samples get wide 95% intervals. The range matters as much as the number.</div>
       </div>
-      <div class="acc-grid">${ordered.map((ds) => accCard(ds, groups.get(ds))).join('')}</div>`;
+      <div class="acc-grid">${ordered.map((ds) => accCard(ds, groups.get(ds))).join('')}</div>
+      ${missing.length ? `<h2 class="label" style="margin:40px 0 12px">Not measured on this deployment yet</h2><div class="planned">${missing.map((m) => `<div><strong>${esc(m.q)}</strong><span class="tag">Not measured yet</span><p>${esc(m.what)}</p></div>`).join('')}</div>` : ''}`;
   }
 
   // ---------- method
