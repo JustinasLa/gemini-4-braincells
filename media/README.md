@@ -191,8 +191,9 @@ variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, fro
 `caption_changed`, `text_added`, `text_removed`, `element_added`, `element_removed`,
 `face_changed`, `cropped`, `recolored`, `watermark`, `other`), `text_before` / `text_after`
 (legible text in each), `confidence`, `model` (as the response returned it), `latency_ms`. No
-visible change gives `changes == []`. It returns None, never raises, on bad image bytes, an image
-over 24 MP, timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
+visible change gives `changes == []`. Inputs: JPEG (incl. MPO), PNG, GIF, WebP; formats that
+decode inside `Image.open` (ICO) are refused. It returns None, never raises, on bad image bytes,
+another format, an image over 24 MP (checked from the header, before decoding), timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
 could lose an unfinished `content_flags`) or an unusable reply. A non-Super-VL response, which
 stops the worker, is logged at ERROR here but still returns None: the lookup must not break.
 
@@ -211,7 +212,9 @@ stops the worker, is logged at ERROR here but still returns None: the lookup mus
   box/outline/border/frame" sentence is dropped as our own marker.
 - **Wording:** describes the media, never names a person. A sentence with deepfake, fake, real,
   authentic, genuine, bot, shill, troll or propaganda in our own words is dropped with its kind.
-  Quoted image text is exempt, so a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported. Adult or graphic
+  A quoted span is exempt only when the reply's own transcription confirms it is image text (a
+  whole transcribed line, or 2+ consecutive transcribed words), so a caption swap from 'REAL
+  NEWS' to 'FAKE NEWS' is reported, while scare quotes or a quoted 'red box' are not exempt. Adult or graphic
   media (model flag or the shared `safe_description` word list) gives exactly "Adult content." or
   "Graphic content." with no text lists.
 

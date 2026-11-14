@@ -716,7 +716,13 @@ def test_colour_key_transparency_survives_downscaling(images, mode):
     ],
 )
 def test_forbidden_words_inside_quoted_image_text_are_kept(images, sentence):
-    payload = {**FULL, "changes": [sentence], "kinds": ["caption_changed"]}
+    payload = {
+        **FULL,
+        "changes": [sentence],
+        "kinds": ["caption_changed"],
+        "text_before": ["REAL NEWS", "DON'T TRUST BOTS", "REAL"],
+        "text_after": ["FAKE NEWS", "TRUST THE", "PROPAGANDA", "deepfake alert!", "FAKE"],
+    }
     result, _ = compare(images, payload)
     assert result.changes == [sentence] and result.kinds == ["caption_changed"]
 
@@ -727,10 +733,14 @@ def test_forbidden_words_inside_quoted_image_text_are_kept(images, sentence):
         "The face was replaced with a fake one.",
         "The dog's 'GOOD BOY' caption looks fake.",
         "A real 'WARNING' label was added.",
+        'The face was replaced with a "fake" one.',  # scare quotes, not image text
+        '"The face was replaced with a fake one."',  # quoted narration
+        "The caption changed to 'FAKE'.",  # 'FAKE' is not in the transcription
+        "The caption 'GOOD BOY' became a 'fake' label.",  # one word of a line is not a line
     ],
 )
 def test_forbidden_words_outside_quotes_still_drop(images, sentence):
-    payload = {**FULL, "changes": [sentence], "kinds": ["other"]}
+    payload = {**FULL, "changes": [sentence], "kinds": ["other"], "text_after": ["GOOD BOY"]}
     result, _ = compare(images, payload)
     assert result.changes == []
 
@@ -787,3 +797,47 @@ def test_no_request_with_less_than_min_budget(images, monkeypatch, clock):
     client = FakeClient(response(json.dumps(FULL)))
     assert describe_changes(client, *images, timeout_s=2.0) is None
     assert client.requests == []
+
+
+def test_quoted_marker_not_exempt(images):
+    payload = {
+        **FULL,
+        "changes": ["A 'red box' was added around the caption.", *FULL["changes"]],
+        "kinds": ["element_added", "caption_changed"],
+    }
+    result, _ = compare(images, payload, edited_region=(0.1, 0.1, 0.5, 0.5))
+    assert result.changes == FULL["changes"]
+
+
+def test_ico_is_refused_before_decoding(images, monkeypatch):
+    """ICO decodes inside Image.open (before any size check): not an accepted format."""
+    from PIL import IcoImagePlugin
+
+    decoded = []
+    real = IcoImagePlugin.IcoFile.getimage
+
+    def record(self, *args, **kwargs):
+        decoded.append(args)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(IcoImagePlugin.IcoFile, "getimage", record)
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64), "white").save(buffer, format="ICO")
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, buffer.getvalue(), images[1], timeout_s=2) is None
+    assert decoded == [] and client.requests == []
+
+
+@pytest.mark.parametrize("format", ["JPEG", "PNG", "GIF", "WEBP"])
+def test_meme_formats_accepted(images, format):
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64), "white").save(buffer, format=format)
+    compare((buffer.getvalue(), images[1]))
+
+
+def test_min_budget_rechecked_after_limiter_wait(images, clock):
+    """The limiter's real wait can overshoot its plan: re-check right before the request."""
+    client = FakeClient(response(json.dumps(FULL)))
+    client._limiter.wait.side_effect = lambda: clock.__setitem__(0, clock[0] + 1.7)
+    assert describe_changes(client, *images, timeout_s=2.0) is None  # 0.3 s left after it
+    assert client.requests == [] and client.calls == 0

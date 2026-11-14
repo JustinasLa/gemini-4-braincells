@@ -65,9 +65,13 @@ _FORBIDDEN = re.compile(
 _MARKER = re.compile(
     r"\bred\s+(?:(?:thin|rectangular|square)\s+)*(?:box|outline|border|frame|rectangle)\b", re.I
 )
-# Quoted image text ('...' or "...", not an apostrophe): the wording guard skips it, so a
-# caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported, quoted, not dropped.
+# Quoted image text ('...' or "...", not an apostrophe) that the reply's own OCR confirms is
+# exempt from the wording guard, so a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported.
 _QUOTED = re.compile(r"(?<!\w)'.*?'(?!\w)|\"[^\"]*\"|\u2018.*?\u2019(?!\w)|\u201c[^\u201d]*\u201d")
+_WORD = re.compile(r"[^\W_]+")
+# Formats that read only the header on open, so the size check runs before any decoding
+# (ICO, for one, decodes its largest image inside Image.open). Memes and screenshots use these.
+_FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
 # Larger inputs are refused from the header, before decoding (decompression bombs). This is far
@@ -141,7 +145,7 @@ class ImageDiff:
 
 
 def _image(data: bytes) -> Image.Image:
-    with Image.open(io.BytesIO(data)) as source:
+    with Image.open(io.BytesIO(data), formats=_FORMATS) as source:
         if source.width * source.height > _MAX_PIXELS:
             raise ValueError(f"image too large: {source.width}x{source.height}")
         source.seek(0)
@@ -253,8 +257,9 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
     kinds = kinds if isinstance(kinds, list) else []
     changes: list[str] = []
     aligned: list[ChangeKind] = []
+    ocr = _OcrText(before + after)
     for index, sentence in enumerate(sentences):
-        unquoted = _QUOTED.sub("''", sentence)  # quoted image text may say anything
+        unquoted = _QUOTED.sub(lambda m: _image_text(m.group(), ocr), sentence)
         if not sentence or _FORBIDDEN.search(unquoted) or (marked and _MARKER.search(unquoted)):
             continue
         sentence = sentence if sentence.endswith(".") else sentence + "."
@@ -274,6 +279,32 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
     except (TypeError, ValueError, OverflowError):
         confidence = 0.5
     return ImageDiff(changes, aligned, before, after, round(confidence, 4), model, 0)
+
+
+class _OcrText:
+    """The reply's own transcription of A and B, as word sequences."""
+
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = {tuple(_words(line)) for line in lines}
+        self.joined = " " + " ".join(" ".join(_words(line)) for line in lines) + " "
+
+    def confirms(self, words: list[str]) -> bool:
+        """A whole transcribed line, or a run of 2+ words of the transcription."""
+        if not words:
+            return False
+        if tuple(words) in self.lines:
+            return True
+        return len(words) >= 2 and f" {' '.join(words)} " in self.joined
+
+
+def _words(text: str) -> list[str]:
+    return _WORD.findall(text.casefold())
+
+
+def _image_text(quoted: str, ocr: _OcrText) -> str:
+    """Blank a quoted span the transcription confirms; keep anything else for the guards
+    (scare quotes, quoted narration, a quoted 'red box')."""
+    return "''" if ocr.confirms(_words(quoted)) else quoted
 
 
 def describe_changes(
@@ -334,6 +365,8 @@ def describe_changes(
         for attempt in (1, 2):
             if deadline - time.monotonic() <= 0:
                 raise TimeoutError("time budget spent before the request")
+            if deadline - time.monotonic() < _MIN_REQUEST_S:  # after the limiter's real wait
+                raise TimeoutError("too little time budget left for the request")
             started, pending = time.monotonic(), True
             client.calls += 1
             try:
