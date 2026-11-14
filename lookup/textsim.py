@@ -141,23 +141,37 @@ def domains(text: str | None, limit: int = 2) -> list[str]:
     return out[:limit]
 
 
+_DOTTED = re.compile(r"(?:\.[a-z0-9-]+)+", re.I)
+
+
+def _other_site(text: str, end: int) -> bool:
+    """`text[end:]` continues a name into another site address (".online", ".co.uk"), not a
+    file name (".js", ".min.js", ".bundle.js") or the end of a sentence."""
+    m = _DOTTED.match(text, end)
+    if not m:
+        return False
+    last = m.group().rsplit(".", 1)[-1].lower()
+    return last.isalpha() and 2 <= len(last) <= 24 and last not in _NOT_TLD
+
+
 def domain_hits(text: str | None, doms: list[str]) -> list[str]:
     """Where `text` names one of the sites `doms`, as written (for highlighting): the address
     itself, or its name part (8+ letters) as a hashtag (#standwithjensen) or under another
-    ending (standwithjensen.online). Never the name part as a plain word: information.com's
-    "information" is in ordinary sentences."""
+    ending (standwithjensen.online). Never the name part as a plain word (information.com's
+    "information" is in ordinary sentences) or in a file name (analytics.min.js)."""
     if not text or not doms:
         return []
     out: list[str] = []
     for d in doms:
         label = domain_label(d)
         name = re.escape(label)
-        # another domain ending (standwithjensen.online), never a file name (analytics.js)
-        not_file = "|".join(sorted(_NOT_TLD))
-        other_ending = rf"{name}(?=\.(?!(?:{not_file})(?![\w-]))[a-z]{{2,24}}(?![\w-]))"
-        alts = re.escape(d) + (f"|#{name}|{other_ending}" if len(label) >= DOMAIN_LABEL_MIN else "")
+        long_name = len(label) >= DOMAIN_LABEL_MIN
         # the full address first, so "StandWithJensen.com" is one match, not two
+        alts = re.escape(d) + (f"|#{name}|{name}(?=\\.)" if long_name else "")
         for m in re.finditer(rf"(?<![\w#-])(?:{alts})(?![\w-])", text, re.I):
-            if m.group() not in out:
-                out.append(m.group())
+            hit = m.group()
+            if hit.lower() == label.lower() and not _other_site(text, m.end()):
+                continue  # the bare name before a dot: only as another site's address
+            if hit not in out:
+                out.append(hit)
     return out
