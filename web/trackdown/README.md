@@ -144,3 +144,17 @@ field with a flag, a verdigris CHILL field with sunglasses, and the legend
 `blender/pack.py`. Shill lands on frame 0, Chill on frame 24, and "Can't tell (yet)" lands on
 its edge and wobbles. The rail and panel use stills; the abstain still is a motion-blurred,
 still-spinning coin. The font is Cinzel (OFL).
+
+## Meme trace (image matches)
+
+Optional `image_matches` add an earliest-match Original card and grouped variations to the map,
+timeline and panel. Select a variation to compare the submission with it (side by side or a keyboard
+slider; slider on phones). Image dates say “first seen by TinEye” (an upper bound, not publication),
+“page dated”, “time from post id”, or “date unknown”; an upload never becomes its own origin.
+Descriptions are Nemotron’s reading, not verified facts. Say “edited”, “changed”, “variation”, never
+“fake”, “deepfake”, or claims about intent. Different-looking matches are not counted as variations.
+Dev-only `?mockLookup=meme`, `?mockLookup=meme-empty`, `?mockLookup=meme-failed`, and
+`?mockLookup=meme-blocked` show fictional `.example` results and self-contained images, including
+progressive searching/comparing states. The mock submission is a link with a local image; it needs
+no backend. `?mockLookup=meme-loading` holds each loading phase for 15 seconds for inspection.
+All mocks remain dev-only and labelled MOCK. Run `npm run check:meme` for pure checks.

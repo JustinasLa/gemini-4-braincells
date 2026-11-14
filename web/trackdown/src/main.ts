@@ -16,6 +16,7 @@ import { esc, fmtDate, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format"
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
+import { initMemeTrace } from "./ui/variations";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -93,6 +94,7 @@ $("#legend").innerHTML =
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source", "screenshotted"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
   `<div class="li"><span class="sw member" style="--c:${ROLE.amplifier.color}"></span>Cluster member · zoom in to read</div>` +
   `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="ln" style="--s:dotted;--c:${ROLE.screenshotted.color}"></span>Screenshot of a real post (checked, not a copy)</div><div class="legend-hint">Select a marker to read the post.</div>`;
+initMemeTrace(() => current);
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done

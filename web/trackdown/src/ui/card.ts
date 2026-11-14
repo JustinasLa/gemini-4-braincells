@@ -3,6 +3,7 @@ import type { Media, TraceNode } from "../types";
 import { esc, fmtDate, fmtNum, roleOf } from "./format";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
+import { imageCardHtml } from "./variations";
 
 export const PLATFORM: Record<string, string> = { text: "Submitted text", x: "𝕏", bluesky: "Bluesky", web: "Web page", news: "News", forum: "Forum", video: "Video", chat: "Chat", factcheck: "Web page", print: "Print", letter: "Letter" };
 
@@ -51,6 +52,7 @@ const flagClass = (f: string) => (/old|followers|templated|every|first seen|neve
 
 /** Dispatch (full card) or slip (compact cluster member). `no` is the catalogue number. */
 export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?: number): string {
+  if (n.imageMatch) return imageCardHtml(n);
   const a = n.author;
   const fresh = (a.ageDays ?? 999) < 30;
   const shield = cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: compact ? 22 : 30 });
