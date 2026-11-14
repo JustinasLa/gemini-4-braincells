@@ -1,0 +1,139 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7CJ7A9N8Z2T2S8PKP09RWBR",
+  "session_id": "bfa758a0-97a2-4ab6-a367-9c178e2053b8",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-14T08:19:18.016754783Z",
+  "branch": "perf/lookup-verify-read-cap",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "lookup/service.py",
+    "tests/test_lookup_fast.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "2680586a5d3b",
+  "checkpoint_transcript_start": 1735,
+  "transcript_lines_at_start": 1735,
+  "compact_transcript_start": 233,
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 5758,
+    "cache_read_tokens": 2462412,
+    "output_tokens": 3757,
+    "api_call_count": 6
+  },
+  "redaction": {
+    "replacements": 44,
+    "layers": {
+      "betterleaks": 4,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 20,
+      "credentialed_uri": 4,
+      "entropy": 10,
+      "key_context": 10,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01KYgZQgzSUGTuUaKqsrQyz2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "full-send"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "adbc38c01381",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1010,
+        "end": 1011,
+        "entry_ids": [
+          "0a56754d-a2fa-48d7-b3df-c4bf3e3c497b"
+        ],
+        "tool_use_id": "toolu_01KYgZQgzSUGTuUaKqsrQyz2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01KYgZQgzSUGTuUaKqsrQyz2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: full-send",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01ULbqqUAMF5mhuqrbvj4pFq",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "file-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "2680586a5d3b",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1323,
+        "end": 1324,
+        "entry_ids": [
+          "27ca5277-b3fb-4f33-a607-0092d1c9fe7f"
+        ],
+        "tool_use_id": "toolu_01ULbqqUAMF5mhuqrbvj4pFq"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01ULbqqUAMF5mhuqrbvj4pFq"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: file-pr",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01NENBbXG937HeTfUWaWFmW7",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "babysit-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "2680586a5d3b",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1553,
+        "end": 1554,
+        "entry_ids": [
+          "e1ae5bcb-4f1f-4931-b05d-c69b0bf3d9fc"
+        ],
+        "tool_use_id": "toolu_01NENBbXG937HeTfUWaWFmW7"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01NENBbXG937HeTfUWaWFmW7"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: babysit-pr",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 10
+  }
+}
