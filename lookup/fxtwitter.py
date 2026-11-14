@@ -14,6 +14,7 @@ cursor for more; `/2/status/<id>` the post alone. A missing post is HTTP 404 wit
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -159,33 +160,14 @@ class FxTwitterClient:
         t0 = time.monotonic()
         if end - t0 <= 0.2:
             raise FxTwitterError("no time left for FxTwitter")
-        http = httpx.Client(
-            headers={"User-Agent": UA},
-            follow_redirects=True,
-            transport=self._transport,
-            timeout=min(OP_TIMEOUT_S, end - t0),
-        )
-        out: dict = {}
-
-        def fetch() -> None:
-            try:
-                with http.stream("GET", f"{self.base_url}{path}", params=params) as r:
-                    out["status"] = r.status_code
-                    body = bytearray()
-                    for chunk in r.iter_bytes():
-                        body += chunk
-                        if len(body) > MAX_BYTES:
-                            raise FxTwitterError("FxTwitter answer too large")
-                    out["body"] = bytes(body)
-            except BaseException as exc:  # handed to the caller
-                out["error"] = exc
-
-        worker = threading.Thread(target=fetch, name="fxtwitter-read", daemon=True)
+        read = _Read(self, path, params, min(OP_TIMEOUT_S, end - t0))
+        worker = threading.Thread(target=read.run, name="fxtwitter-read", daemon=True)
         worker.start()
         worker.join(max(0.0, end - time.monotonic()))
         late = worker.is_alive()
-        http.close()  # late: this ends the worker's blocked read on that connection
-        status = out.get("status")
+        if late:
+            read.cancel()  # its socket is shut down now or the moment it connects
+        status = read.status
         self._local.last_call = {
             "endpoint": path.rsplit("/", 1)[0],
             "latency_ms": int((time.monotonic() - t0) * 1000),
@@ -194,13 +176,12 @@ class FxTwitterClient:
         }
         if late:
             raise FxTwitterError("FxTwitter answer not complete in time")
-        err = out.get("error")
-        if isinstance(err, FxTwitterError):
-            raise err
-        if err is not None:
-            raise FxTwitterError(f"FxTwitter request failed: {type(err).__name__}") from err
+        if isinstance(read.error, FxTwitterError):
+            raise read.error
+        if read.error is not None:
+            raise FxTwitterError(f"FxTwitter request failed: {type(read.error).__name__}")
         try:
-            data = json.loads(out["body"])
+            data = json.loads(read.body)
         except ValueError as exc:
             raise FxTwitterError(f"FxTwitter answered HTTP {status}, not JSON") from exc
         if not isinstance(data, dict):
@@ -259,6 +240,78 @@ class FxTwitterClient:
             raise
         except Exception as exc:  # any other shape surprise: not a readable answer
             raise FxTwitterError(f"FxTwitter answer not understood: {type(exc).__name__}") from exc
+
+
+class _Read:
+    """One FxTwitter GET on its own connection, run by a worker thread, that the caller can
+    cancel at any point: connecting (httpcore's trace hook hands over each socket as it
+    opens; one opened after the cancel is shut at once), the headers or the body (the socket
+    is shut down, which ends a blocked read). The worker closes its own client however it
+    ends, so a cancelled read leaves no thread or socket behind."""
+
+    def __init__(self, client: FxTwitterClient, path: str, params: dict | None, op_s: float):
+        self.url = f"{client.base_url}{path}"
+        self.params = params
+        self.http = httpx.Client(
+            headers={"User-Agent": UA},
+            follow_redirects=True,
+            transport=client._transport,
+            timeout=op_s,
+        )
+        self.lock = threading.Lock()
+        self.cancelled = False
+        self.streams: list[Any] = []
+        self.status: int | None = None
+        self.body = b""
+        self.error: BaseException | None = None
+
+    @staticmethod
+    def _shut(stream: Any) -> None:
+        sock = stream.get_extra_info("socket") if hasattr(stream, "get_extra_info") else None
+        try:
+            if sock is not None:
+                sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def _trace(self, name: str, info: dict) -> None:
+        if name in ("connection.connect_tcp.complete", "connection.start_tls.complete"):
+            stream = info.get("return_value")
+            with self.lock:
+                if stream is not None:
+                    self.streams.append(stream)
+                late = self.cancelled
+            if late and stream is not None:
+                self._shut(stream)
+        with self.lock:
+            if self.cancelled:
+                raise FxTwitterError("FxTwitter read cancelled")
+
+    def cancel(self) -> None:
+        with self.lock:
+            self.cancelled = True
+            streams = list(self.streams)
+        for stream in streams:
+            self._shut(stream)
+
+    def run(self) -> None:
+        try:
+            with self.http.stream(
+                "GET", self.url, params=self.params, extensions={"trace": self._trace}
+            ) as r:
+                self.status = r.status_code
+                body = bytearray()
+                for chunk in r.iter_bytes():
+                    body += chunk
+                    if self.cancelled:
+                        raise FxTwitterError("FxTwitter read cancelled")
+                    if len(body) > MAX_BYTES:
+                        raise FxTwitterError("FxTwitter answer too large")
+                self.body = bytes(body)
+        except BaseException as exc:  # handed to the caller
+            self.error = exc
+        finally:
+            self.http.close()
 
 
 def _now() -> datetime:

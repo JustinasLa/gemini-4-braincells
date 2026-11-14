@@ -392,6 +392,66 @@ def test_slow_header_server_cannot_hold_a_read_past_its_bound():
         with pytest.raises(FxTwitterError, match="not complete in time"):
             c.status(VG_ID, deadline=_time.monotonic() + 0.5)
         assert _time.monotonic() - t0 < 0.9
+        assert _workers_end(1.0)  # the read itself stopped, not only the wait for it
+    finally:
+        stop.set()
+        srv.close()
+
+
+def _workers_end(within_s: float) -> bool:
+    import threading
+    import time as _time
+
+    end = _time.monotonic() + within_s
+    while _time.monotonic() < end:
+        if not any(t.name == "fxtwitter-read" for t in threading.enumerate()):
+            return True
+        _time.sleep(0.05)
+    return False
+
+
+def test_a_connection_opened_after_the_bound_is_cut_at_once(monkeypatch):
+    """Slow DNS: the bound passes before the connection exists; when it opens, it is shut and
+    the worker ends, however the server trickles."""
+    import socket
+    import threading
+    import time as _time
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    stop = threading.Event()
+    accepted = threading.Event()
+
+    def serve():
+        conn, _ = srv.accept()
+        accepted.set()
+        try:
+            conn.recv(4096)
+            conn.sendall(b"HTTP/1.1 200 OK\r\n")
+            while not stop.is_set():
+                conn.sendall(b"X-Slow: a\r\n")
+                _time.sleep(0.3)
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    real = socket.getaddrinfo
+
+    def slow_dns(*a, **kw):
+        _time.sleep(0.8)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(socket, "getaddrinfo", slow_dns)
+    c = FxTwitterClient(base_url=f"http://localhost:{srv.getsockname()[1]}")
+    t0 = _time.monotonic()
+    try:
+        with pytest.raises(FxTwitterError, match="not complete in time"):
+            c.status(VG_ID, deadline=_time.monotonic() + 0.5)
+        assert _time.monotonic() - t0 < 0.7
+        assert _workers_end(2.0)  # DNS answers at 0.8 s; the new connection is cut at once
     finally:
         stop.set()
         srv.close()
