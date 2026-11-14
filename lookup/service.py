@@ -48,15 +48,17 @@ STEPS = [
     ("author", "oxylabs", "Read the author's profile and recent posts"),
     ("linked", "oxylabs", "Read the linked page"),
     ("copies_web", "oxylabs", "Search the web for the same text"),
-    ("copies_x", "oxylabs", "Find copies and quotes on X"),
+    ("copies_x", "oxylabs", "Search X for the same text"),
     ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
     ("coverage", "oxylabs", "Find coverage of the story"),
     ("media", "nemotron", "Read the images with Nemotron VL"),
+    ("verify", "oxylabs", "Read candidate copies on their own pages"),
     ("monitor", "detector", "Check the clusters we monitor"),
     ("assess", "gemini", "Gemini reads the receipts"),
 ]
 VERBATIM = 0.8
 COPY_MIN = 0.5
+ASSESS_RESERVE_S = 25.0  # the last seconds of the budget are Gemini's
 X_MIN_SIM = 0.35  # an X search hit sharing fewer words with the text is not about it
 OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message worth searching
 _REL_AGO = re.compile(r"^\s*(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", re.I)
@@ -75,18 +77,42 @@ UA = "Mozilla/5.0 (compatible; shill-or-chill-lookup/1.0)"
 _BSKY_POST = re.compile(r"https?://bsky\.app/profile/([^/\s?#]+)/post/([a-z0-9]+)")
 
 
+class BudgetExceeded(RuntimeError):
+    """The lookup's time budget is used up: no new provider call starts."""
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def snippet_time(snippet: str, at: datetime) -> datetime | None:
-    """'23 hours ago · ...' -> at - 23 h; 'Nov 13, 2026 — ...' -> that date. A hint only."""
+def snippet_time(snippet: str, at: datetime) -> tuple[datetime | None, float | None]:
+    """A search engine's date hint and how uncertain it is (seconds after `time`).
+
+    '23 hours ago' -> (at - 23 h, 3600): the engine rounds to the unit. 'Nov 13, 2026 — ...'
+    -> (that midnight UTC, 86400): any time that day."""
     if m := _REL_AGO.match(snippet or ""):
-        return at - timedelta(seconds=int(m.group(1)) * _REL_UNIT[m.group(2).lower()])
+        unit = _REL_UNIT[m.group(2).lower()]
+        return at - timedelta(seconds=(int(m.group(1)) + 1) * unit), 2 * unit
     from sources.oxylabs import leading_date
 
     d = leading_date(snippet or "")
-    return datetime(d.year, d.month, d.day, tzinfo=UTC) if d else None
+    return (datetime(d.year, d.month, d.day, tzinfo=UTC), 86400.0) if d else (None, None)
+
+
+def _page_time(published_at: str | None) -> tuple[datetime | None, float | None]:
+    """The publisher's date as extracted, and its uncertainty (seconds after `time`)."""
+    if not published_at:
+        return None, None
+    raw = published_at.strip()
+    try:
+        t = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None, None
+    if len(raw) <= 10:  # a date only: any time that day
+        return t.replace(tzinfo=UTC), 86400.0
+    if t.tzinfo is None:  # a clock time in an unknown zone: within about 14 h of UTC
+        return t.replace(tzinfo=UTC) - timedelta(hours=14), 28 * 3600.0
+    return t, 0.0
 
 
 def _x_title(title: str) -> tuple[str | None, str | None]:
@@ -155,6 +181,12 @@ class Lookup:
             st.state, st.started_at = "running", _now()
         try:
             yield st
+        except BudgetExceeded:
+            with self.lock:
+                st.state = "skipped" if not st.found else "done"
+                st.detail = (st.detail + " · " if st.detail else "") + "time budget used up"
+                st.ended_at = _now()
+            return
         except Exception as exc:  # recorded, never fatal for the run
             log.warning("lookup %s step %s failed: %s", self.result.id, sid, exc, exc_info=True)
             with self.lock:
@@ -212,11 +244,11 @@ class Lookup:
                 if old.id != p.id:
                     continue
                 pinned = next((r for r in ("submitted", "origin") if r in (old.role, p.role)), None)
-                better = (p.verified and not old.verified) or old.role in (
-                    "mention",
-                    "author_recent",
-                )
-                base = p if better or p.role == "submitted" else old
+                if old.verified != p.verified:  # a post's own page/API beats a search snippet
+                    base = p if p.verified else old
+                else:
+                    better = p.role == "submitted" or old.role in ("mention", "author_recent")
+                    base = p if better else old
                 if base is p and old.similarity is not None and p.similarity is None:
                     base = p.model_copy(update={"similarity": old.similarity})
                 merged = base.model_copy(update={"role": pinned or base.role})
@@ -224,6 +256,8 @@ class Lookup:
                     merged.similarity = 1.0
                 self.result.posts[k] = merged
                 return merged
+            if p.role == "submitted":
+                p = p.model_copy(update={"similarity": 1.0})
             self.result.posts.append(p)
             return p
 
@@ -273,6 +307,11 @@ class Lookup:
     def _left(self) -> float:
         return max(1.0, self.deadline - time.monotonic())
 
+    def _spend(self, need_s: float = 3.0, reserve_s: float = ASSESS_RESERVE_S) -> None:
+        """Gate before every paid or slow provider call; keeps time back for Gemini's reading."""
+        if time.monotonic() + need_s + reserve_s > self.deadline:
+            raise BudgetExceeded("time budget used up")
+
     # ---------------------------------------------------------------- run
     def run(self) -> None:
         try:
@@ -305,62 +344,74 @@ class Lookup:
             }[kind]
             if t:
                 st.detail += f" · {t.url}"
-        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="lookup") as pool:
-            first = []
-            if kind == "x_post":
-                first.append(pool.submit(self._x_post))
-                if t and t.handle:
-                    first.append(pool.submit(self._x_author, t.handle, True))
-                else:
-                    self.skip("author", "no handle in the link")
-            elif kind == "x_profile":
-                self.skip("post", "a profile, not a post")
-                first.append(pool.submit(self._x_author, t.handle, True))
-            elif kind == "bsky_post":
-                first.append(pool.submit(self._bsky_post))
-                first.append(pool.submit(self._bsky_author, t.handle))
-            elif kind == "bsky_profile":
-                self.skip("post", "a profile, not a post")
-                first.append(pool.submit(self._bsky_author, t.handle))
-            elif kind == "web":
-                self.skip("post", "a web page, not a social post")
-                self.skip("author", "a web page, not a social post")
-                first.append(pool.submit(self._linked, t.url, True))
-            else:
-                self.skip("post", "text input")
-                self.skip("author", "text input")
-                self.skip("linked", "text input")
-            wait(first, timeout=self._left())
-
-            if kind in ("x_profile", "bsky_profile"):
-                for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
-                    self.skip(sid, "profile lookup")
-                second = [pool.submit(self._monitor)]
-            else:
-                second = []
-                if not textsim.phrase(self._subject_text) and self._media_urls:
-                    # image-only post: read the image first, then search for its text
-                    self._media(ocr_as_text=True)
-                if kind != "web":
-                    if self._card_url:
-                        second.append(pool.submit(self._linked, self._card_url, False))
-                    else:
-                        self.skip("linked", "the post links no page")
-                if self._step("media").state == "pending":
-                    second.append(pool.submit(self._media))
-                second += [
-                    pool.submit(self._copies_web),
-                    pool.submit(self._copies_x),
-                    pool.submit(self._copies_bsky),
-                    pool.submit(self._coverage),
-                    pool.submit(self._monitor),
-                ]
-            wait(second, timeout=self._left())
+        pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="lookup")
+        try:
+            self._phases(pool, t, kind)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         self._finish_graph()
         self._assess()
 
+    def _phases(self, pool: ThreadPoolExecutor, t: Target | None, kind: str) -> None:
+        first = []
+        if kind == "x_post":
+            first.append(pool.submit(self._x_post))
+            if t and t.handle:
+                first.append(pool.submit(self._x_author, t.handle, True))
+            else:
+                self.skip("author", "no handle in the link")
+        elif kind == "x_profile":
+            self.skip("post", "a profile, not a post")
+            first.append(pool.submit(self._x_author, t.handle, True))
+        elif kind == "bsky_post":
+            first.append(pool.submit(self._bsky_post))
+            first.append(pool.submit(self._bsky_author, t.handle))
+        elif kind == "bsky_profile":
+            self.skip("post", "a profile, not a post")
+            first.append(pool.submit(self._bsky_author, t.handle))
+        elif kind == "web":
+            self.skip("post", "a web page, not a social post")
+            self.skip("author", "a web page, not a social post")
+            first.append(pool.submit(self._linked, t.url, True))
+        else:
+            self.skip("post", "text input")
+            self.skip("author", "text input")
+            self.skip("linked", "text input")
+        wait(first, timeout=self._left())
+
+        if kind in ("x_profile", "bsky_profile"):
+            for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
+                self.skip(sid, "profile lookup")
+            second = []
+        else:
+            second = []
+            if not textsim.phrase(self._subject_text) and self._media_urls:
+                # image-only post: read the image first, then search for its text
+                self._media(ocr_as_text=True)
+            if kind != "web":
+                if self._card_url:
+                    second.append(pool.submit(self._linked, self._card_url, False))
+                else:
+                    self.skip("linked", "the post links no page")
+            if self._step("media").state == "pending":
+                second.append(pool.submit(self._media))
+            second += [
+                pool.submit(self._copies_web),
+                pool.submit(self._copies_x),
+                pool.submit(self._copies_bsky),
+                pool.submit(self._coverage),
+            ]
+        wait(second, timeout=self._left())
+        if kind not in ("x_profile", "bsky_profile"):
+            self._verify()  # after every search, so candidates from all of them are read
+        else:
+            self.skip("verify", "profile lookup")
+        # last: the link, text and accounts found by every step above are known now
+        self._monitor()
+
     # ---------------------------------------------------------------- X
     def _scrape_x(self, url: str) -> tuple[str, dict]:
+        self._spend()
         md, _meta = self.deps.oxylabs.scrape_markdown(url)
         return md, dict(self.deps.oxylabs.last_call)
 
@@ -598,6 +649,7 @@ class Lookup:
         with self.step("post") as st:
             if not self.deps.bsky:
                 raise RuntimeError("Bluesky client not configured")
+            self._spend()
             th = self.deps.bsky.thread(t.handle, t.post_id, depth=1)
             pv = th.get("post")
             if not pv:
@@ -637,6 +689,7 @@ class Lookup:
         with self.step("author") as st:
             if not self.deps.bsky:
                 raise RuntimeError("Bluesky client not configured")
+            self._spend()
             pr = self.deps.bsky.profile(actor)
             created = parse_time(pr.get("createdAt"))
             ref = self._subject_time or _now()
@@ -714,16 +767,11 @@ class Lookup:
         with self.step("linked") as st:
             short = url
             url = self._resolve(url)
+            self._spend()
             facts = self.deps.oxylabs.scrape_facts(url)
             call = dict(self.deps.oxylabs.last_call)
             pub = facts.published_at
-            ptime = None
-            if pub:
-                try:
-                    ptime = datetime.fromisoformat(pub.replace("Z", "+00:00"))
-                    ptime = ptime if ptime.tzinfo else ptime.replace(tzinfo=UTC)
-                except ValueError:
-                    ptime = None
+            ptime, punc = _page_time(pub)
             rid = self.receipt(
                 "oxylabs",
                 "/scrape",
@@ -745,6 +793,7 @@ class Lookup:
                     claims=facts.claims,
                     time=ptime,
                     time_source="page" if ptime else None,
+                    time_uncertainty_s=punc,
                     receipt_id=rid,
                 )
             )
@@ -761,6 +810,7 @@ class Lookup:
 
     # ---------------------------------------------------------------- searches
     def _search(self, query: str, n: int = 10):
+        self._spend()
         hits = self.deps.oxylabs.search(query, max_results=n)
         return hits, dict(self.deps.oxylabs.last_call)
 
@@ -786,7 +836,7 @@ class Lookup:
             sim = sim_own if sim_own is not None else sim_snip
             if max(sim, sim_snip) < max(min_sim, X_MIN_SIM):
                 return None
-            role = "copy" if sim >= COPY_MIN and sim_own is not None else "mention"
+            # a search hit is a candidate only; its own page decides copy/quote/reply (verify)
             post = self.add_post(
                 Post(
                     id=pid,
@@ -797,7 +847,7 @@ class Lookup:
                     text=own or snippet,
                     created_at=snowflake_time(sid),
                     time_source="snowflake",
-                    role=role,
+                    role="mention",
                     similarity=round(sim, 2),
                     receipt_id=rid,
                 )
@@ -810,7 +860,7 @@ class Lookup:
         sim = textsim.similarity(snippet, reference, truncated=True) if snippet else 0.0
         if sim < min_sim:
             return None
-        t = snippet_time(hit.snippets[0] if hit.snippets else "", at)
+        t, unc = snippet_time(hit.snippets[0] if hit.snippets else "", at)
         pg = self.add_page(
             Page(
                 id="",
@@ -821,6 +871,7 @@ class Lookup:
                 published_hint=hit.published_hint.isoformat() if hit.published_hint else None,
                 time=t,
                 time_source="search_hint" if t else None,
+                time_uncertainty_s=unc,
                 receipt_id=rid,
             )
         )
@@ -864,38 +915,66 @@ class Lookup:
             )
             ref = self._subject_text or phrase
             found = [i for h in hits if (i := self._classify_hit(h, rid, at, reference=ref))]
-            # verify: read each candidate post's own page (copy? quote? reply?)
-            with self.lock:
-                cands = [
-                    p
-                    for p in self.result.posts
-                    if p.platform == "x"
-                    and not p.verified
-                    and p.role in ("copy", "mention")
-                    and p.id in found
-                ]
+            st.found = found
+            st.detail = f"{len(found)} candidate posts on X (read on their own pages next)"
+
+    def _verify(self) -> None:
+        ref = self._subject_text or self._phrase()
+        with self.lock:
+            cands = [
+                p
+                for p in self.result.posts
+                if p.platform == "x"
+                and not p.verified
+                and p.role == "mention"
+                and (p.similarity or 0) >= X_MIN_SIM
+                and p.id != self.result.subject_id
+            ]
+        if not ref or not cands:
+            self.skip("verify", "no candidate copies to read")
+            return
+        with self.step("verify") as st:
             cands.sort(key=lambda p: -(p.similarity or 0))
             cands = cands[: self.deps.verify_max]
             with ThreadPoolExecutor(max_workers=6) as pool:
-                list(pool.map(lambda p: self._verify_x(p, ref), cands, timeout=self._left()))
+                list(pool.map(lambda p: self._safe_verify(p, ref), cands, timeout=self._left()))
             # who are the copiers? read a few profiles (account age, followers)
             with self.lock:
                 copiers = list(
                     dict.fromkeys(
                         p.author_handle
                         for p in self.result.posts
-                        if p.platform == "x" and p.role in ("copy", "quote") and p.author_handle
+                        if p.platform == "x"
+                        and p.verified
+                        and p.role in ("copy", "quote")
+                        and p.author_handle
                     )
                 )[: self.deps.profiles_max]
             with ThreadPoolExecutor(max_workers=4) as pool:
                 list(pool.map(self._safe_x_author, copiers, timeout=self._left()))
+            ids = {p.id for p in cands}
             with self.lock:
-                kinds = [p.role for p in self.result.posts if p.id in found]
-            st.found = found
+                kinds = [p.role for p in self.result.posts if p.id in ids]
+                present = {p.id for p in self.result.posts}
+                unread = sum(
+                    1
+                    for p in self.result.posts
+                    if p.platform == "x" and not p.verified and p.role == "mention"
+                )
+            st.found = [i for i in ids if i in present]
             st.detail = (
-                f"{kinds.count('copy')} copies · {kinds.count('quote')} quotes · "
-                f"{kinds.count('reply')} replies · {len(cands)} pages checked"
+                f"{len(cands)} read: {kinds.count('copy')} copies · {kinds.count('quote')} quotes"
+                f" · {kinds.count('reply')} replies"
+                + (f" · {unread} more candidates not read" if unread else "")
             )
+
+    def _safe_verify(self, p: Post, reference: str) -> None:
+        try:
+            self._verify_x(p, reference)
+        except BudgetExceeded:
+            pass
+        except Exception as exc:
+            log.info("verify %s failed: %s", p.url, exc)
 
     def _safe_x_author(self, handle: str) -> None:
         try:
@@ -905,11 +984,7 @@ class Lookup:
 
     def _verify_x(self, p: Post, reference: str) -> None:
         sid = p.id.split(":", 1)[1]
-        try:
-            md, call = self._scrape_x(p.url)
-        except Exception as exc:
-            log.info("verify %s failed: %s", p.url, exc)
-            return
+        md, call = self._scrape_x(p.url)
         page = parse_post_page(md, sid)
         m = page.main
         if m is None:
@@ -918,8 +993,13 @@ class Lookup:
         sim_own = textsim.similarity(m.text, reference)
         sim_quoted = textsim.similarity(m.quoted_text, reference) if m.quoted_text else 0.0
         replies_to_subject = any(f"x:{a.status_id}" == subj for a in page.ancestors)
-        if subj and m.quoted_id and f"x:{m.quoted_id}" == subj or sim_quoted >= VERBATIM:
-            role, sim = "quote", sim_quoted or 1.0
+        quoted_pid = f"x:{m.quoted_id}" if m.quoted_id else None
+        quoted_other = None  # the post it quotes, when that is another post carrying the text
+        if subj and quoted_pid == subj:
+            role, sim = "quote", 1.0
+        elif quoted_pid and sim_quoted >= COPY_MIN:
+            role, sim = "quote", sim_quoted
+            quoted_other = quoted_pid
         elif replies_to_subject:
             role, sim = "reply", sim_own
         elif sim_own >= COPY_MIN:
@@ -949,7 +1029,25 @@ class Lookup:
         if m.quoted_text and role == "quote":
             post.text = (m.text + "\n\n> " + m.quoted_text).strip()
         self.add_post(post)
-        if subj and role in ("quote", "reply"):
+        if quoted_other:
+            # the quoted post's text and id were read on this page: it carries the text too
+            q = self.add_post(
+                Post(
+                    id=quoted_other,
+                    platform="x",
+                    url=x_post_url(m.quoted_handle, m.quoted_id),
+                    author_handle=m.quoted_handle,
+                    text=m.quoted_text or "",
+                    created_at=snowflake_time(m.quoted_id),
+                    time_source="snowflake",
+                    role="copy" if sim_quoted >= COPY_MIN else "mention",
+                    similarity=round(sim_quoted, 2),
+                    receipt_id=rid,
+                    verified=True,
+                )
+            )
+            self.add_edge(q.id, post.id, "quote", note="quotes this post")
+        elif subj and role in ("quote", "reply"):
             self.add_edge(subj, post.id, role)
 
     def _copies_bsky(self) -> None:
@@ -959,6 +1057,7 @@ class Lookup:
             return
         with self.step("copies_bsky") as st:
             q = f'"{phrase}"'
+            self._spend()
             posts = self.deps.bsky.search(q, limit=25)
             rid = self.receipt(
                 "bluesky",
@@ -1031,6 +1130,7 @@ class Lookup:
                 if data is None:
                     continue
                 h = hashlib.sha256(data).hexdigest()
+                self._spend(10)
                 started = time.monotonic()
                 a = self.deps.nemotron.analyze(
                     MediaInput(media_hash=f"lookup:{h}", mime_type=mime, data=data, url=url),
@@ -1128,6 +1228,15 @@ class Lookup:
             variants = sorted({v for u in urls for v in (u, normalize_url(u)) if v})
             phrase = textsim.phrase(self._subject_text)
             found: dict[int, Any] = {}
+            why: dict[int, set[str]] = {}
+
+            def add(rows, reason: str) -> None:
+                for c in rows:
+                    found[c.id] = c
+                    why.setdefault(c.id, set()).add(reason)
+
+            with self.lock:
+                handles = list(self._bsky_handles)[:10]
             try:
                 store_cm = self.deps.store()
                 store = store_cm.__enter__()
@@ -1138,22 +1247,42 @@ class Lookup:
                 return
             try:
                 if variants:
-                    found.update((c.id, c) for c in store.clusters_for_url(variants))
+                    add(store.clusters_for_url(variants), "link")
                 if phrase:
-                    found.update((c.id, c) for c in store.clusters_for_text(phrase))
-                for h in list(self._bsky_handles)[:10]:
-                    found.update((c.id, c) for c in store.clusters_for_handle(h))
+                    add(store.clusters_for_text(phrase), "text")
+                for h in handles:  # accounts seen in this lookup: context, not a verdict on it
+                    add(store.clusters_for_handle(h), "account")
             finally:
                 store_cm.__exit__(None, None, None)
+            # the verdict applies only when the cluster shared this link or this text
+            applies = {cid for cid, r in why.items() if r & {"link", "text"}}
             self.receipt(
-                "detector", "db", f"Monitored clusters checked: {len(found)} match", query=phrase
+                "detector",
+                "db",
+                f"Monitored clusters checked: {len(applies)} share the link or text, "
+                f"{len(found) - len(applies)} only share an account",
+                query=phrase,
             )
+            rows = []
+            for cid, c in found.items():
+                row = c.model_dump(mode="json")
+                row["match"] = sorted(why[cid])
+                row["verdict_applies"] = cid in applies
+                rows.append(row)
+            rows.sort(key=lambda r: (not r["verdict_applies"], -(r.get("score") or 0)))
             with self.lock:
-                self.result.clusters = [c.model_dump(mode="json") for c in found.values()]
-                if found:
+                self.result.clusters = rows
+                if applies:
                     self.result.status = "matched"
+            if found and not applies:
+                self.note(
+                    "Some accounts in this lookup also appear in monitored clusters about other "
+                    "content. That is context about those accounts, not a verdict on this link."
+                )
             st.detail = (
-                f"in {len(found)} monitored cluster(s)"
+                f"the link or text is in {len(applies)} monitored cluster(s)"
+                if applies
+                else f"accounts seen here are in {len(found)} other cluster(s); not this link"
                 if found
                 else "not in the Bluesky clusters we monitor"
             )
@@ -1169,6 +1298,7 @@ class Lookup:
                     p
                     for p in posts
                     if p.created_at
+                    and p.verified  # only posts read on their own page or API
                     and p.role in ("submitted", "copy", "bluesky")
                     and (p.similarity or 0) >= COPY_MIN
                 ),
@@ -1176,17 +1306,23 @@ class Lookup:
             )
             origin_id = carriers[0].id if carriers else self.result.subject_id
             origin_t = carriers[0].created_at if carriers else self._subject_time
-            # a page that carries the text and is clearly older than every post is the origin
+
+            # a page that carries the text is the origin only if even the latest time its date
+            # allows (hint precision) is before every post
+            def latest(pg: Page) -> datetime:
+                return pg.time + timedelta(seconds=pg.time_uncertainty_s or 0)
+
             older = sorted(
                 (
                     pg
                     for pg in self.result.pages
                     if pg.role == "reference"
                     and pg.time
+                    and pg.time_uncertainty_s is not None
                     and origin_t
-                    and pg.time < origin_t - timedelta(hours=1)
+                    and latest(pg) < origin_t - timedelta(minutes=5)
                 ),
-                key=lambda pg: pg.time,
+                key=latest,
             )
             if older:
                 origin_id = older[0].id
@@ -1234,6 +1370,7 @@ class Lookup:
             self.skip("assess", "nothing was found to read")
             return
         with self.step("assess") as st:
+            self._spend(need_s=15, reserve_s=0)
             with self.lock:
                 snap = self.result.model_copy(deep=True)
             a = self.deps.assessor.assess(snap)

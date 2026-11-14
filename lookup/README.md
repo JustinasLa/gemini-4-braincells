@@ -62,7 +62,8 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "pages": [Page],
   "media": [MediaFinding],
   "edges": [Edge],
-  "clusters": [ClusterSummary],       // api/schemas.py ClusterSummary, matched monitored clusters
+  "clusters": [ClusterSummary],       // api/schemas.py ClusterSummary + "match": ["link"|"text"|"account"]
+                                      // + "verdict_applies" (true only for link/text matches)
   "spread": Spread | null,
   "receipts": [Receipt],
   "assessment": Assessment | null,
@@ -82,6 +83,8 @@ Post {
   "created_at": "2026-11-13T23:14:58.508Z",
   "time_source": "snowflake",         // snowflake | api | page | search_hint
   "role": "submitted",                // submitted | origin | copy | quote | reply | mention | author_recent | bluesky
+                                      // copy/quote/reply only after the post's own page was read
+                                      // ("verified": true); a search hit is "mention" until then
   "similarity": 1.0,                  // token similarity to the submitted text, 0..1, null if n/a
   "metrics": {"views": 22300, "replies": 14, "reposts": 108, "likes": 205, "bookmarks": 21, "quotes": null},
   "metrics_as_of": "...",             // when the page was read
@@ -106,6 +109,7 @@ Page {
   "headline": "...", "claims": ["..."], "snippet": "...",
   "time": "2026-11-13T21:05:00Z",     // best known time (published_at, else search hint), or null
   "time_source": "page",              // page | search_hint | null
+  "time_uncertainty_s": 86400,        // true time is in [time, time + this]; null if unknown
   "receipt_id": 7
 }
 MediaFinding {
@@ -148,7 +152,11 @@ Step {
 ```
 
 Step ids in order: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`,
-`copies_bsky`, `coverage`, `media`, `monitor`, `assess`. Steps that don't apply are `skipped`.
+`copies_bsky`, `coverage`, `media`, `verify`, `monitor`, `assess`. Steps that don't apply are
+`skipped`. Order of work: post + author; then the searches, linked page and media in parallel;
+then `verify` (candidates from every search); then `monitor` (with every link, text and account
+found); then Gemini. Every provider call checks the time budget first (the last 25 s are kept
+for Gemini); a step that runs out says "time budget used up".
 
 ## Rules that keep it honest (and why)
 
@@ -156,8 +164,10 @@ Step ids in order: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`
   only seen in a search result, has its exact creation time. Bluesky times are the record's
   `createdAt`. Web pages get the publisher's date when the scrape extracts one, otherwise the
   search engine's hint ("3 hours ago" relative to the search) marked `search_hint`.
-- **Counts.** X hides zero counts on the logged-out page, so a missing number is `null`, never
-  0. Counts are what the page showed at `metrics_as_of`.
+- **Counts.** X hides zero counts on the logged-out page, and the reposts / likes / bookmarks
+  numbers carry no label, so they are assigned only when all of them are shown; otherwise they
+  are `null` (never guessed, never 0). Replies and the post's views are labelled and kept.
+  Counts are what the page showed at `metrics_as_of`.
 - **Copies are verified.** A search hit only says the text appears there. Up to
   `LOOKUP_VERIFY_MAX` candidate X posts are read on their own page: a quote of the post, a
   reply to it, or a copy of its words (similarity = share of the post's words the copy
@@ -167,8 +177,12 @@ Step ids in order: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`
   post text. Link-card thumbnails are described but not searched (their text is a photo label).
   A post that is only an image is searched by the text inside it.
 - **Short links** (t.co etc.) are resolved before the page is scraped.
-- **No verdict from a footprint.** `status` is `matched` only when the monitor's database has a
-  cluster with the link, text or Bluesky accounts. Gemini's `llm_reading` is shown as its
+- **Origin needs a clear lead.** A page is the origin only if the latest time its date allows
+  (a day for a date-only hint, the unit for "3 hours ago") is before every post. Only posts read
+  on their own page or API count as copies, in the spread and for the origin.
+- **No verdict from a footprint.** `status` is `matched` only when a monitored cluster shared
+  the link or the text. A cluster that only contains an account seen in the lookup is listed as
+  context (`verdict_applies: false`), never as this link's verdict. Gemini's `llm_reading` is shown as its
   reading, never as the status, and keeps only citations of receipts that exist.
 
 ## Try it

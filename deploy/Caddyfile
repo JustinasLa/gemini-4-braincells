@@ -1,4 +1,13 @@
 # PUBLIC_DOMAIN=example.com gets automatic HTTPS. Unset, it serves plain HTTP on :80.
+{
+	servers {
+		# On the VPS, Traefik (Docker bridge, private address) is the only client and sets
+		# X-Forwarded-For to the visitor; trust it so the API's per-visitor lookup limit sees
+		# the visitor, not Traefik. Requests from public addresses get their XFF replaced.
+		trusted_proxies static private_ranges
+	}
+}
+
 {$PUBLIC_DOMAIN} {
 	encode gzip
 	handle /api/* {

@@ -93,7 +93,7 @@ export interface LookupResult {
   pages: LookupPage[];
   media: LookupMedia[];
   edges: { from: string; to: string; rel: Relation; sim: number | null; tool: LookupTool; note: string | null }[];
-  clusters: ClusterSummary[];
+  clusters: (ClusterSummary & { match?: string[]; verdict_applies?: boolean })[];
   spread: LookupSpread | null;
   receipts: { id: number; tool: LookupTool; endpoint: string; summary: string; source_url: string | null; query: string | null; request_id: string | null; latency_ms: number | null; cached: boolean; at: string }[];
   assessment: {
@@ -229,8 +229,10 @@ export function lookupCase(result: LookupResult): TraceCase {
   const resolve = (id: string) => aliases.get(id) ?? id;
   const edges = result.edges.map((edge) => ({ ...edge, from: resolve(edge.from), to: resolve(edge.to), sim: edge.sim ?? undefined, tool: toolFor(edge.tool), note: edge.note ?? undefined }))
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to) && edge.from !== edge.to);
-  const matched = result.status === "matched" ? result.clusters[0] : undefined;
-  const clusters: Cluster[] = result.clusters.map((cluster) => ({ id: `monitor-${cluster.id}`, label: `Monitored cluster ${cluster.id}`, status: cluster.status, members: [], stat: `${cluster.size ?? "Unknown number of"} accounts · detector status · membership not supplied by lookup` }));
+  // Only a cluster that shared this link or this text carries a verdict for it; a cluster that
+  // merely contains an account seen here is context about that account.
+  const matched = result.status === "matched" ? result.clusters.find((cluster) => cluster.verdict_applies) : undefined;
+  const clusters: Cluster[] = result.clusters.map((cluster) => ({ id: `monitor-${cluster.id}`, label: cluster.verdict_applies ? `Monitored cluster ${cluster.id} · same ${(cluster.match ?? []).filter((m) => m !== "account").join(" + ") || "link"}` : `Monitored cluster ${cluster.id} · shares an account only, not a verdict on this link`, status: cluster.verdict_applies ? cluster.status : "insufficient", members: [], stat: `${cluster.size ?? "Unknown number of"} accounts · detector status ${cluster.status} · membership not supplied by lookup` }));
   if (result.spread && result.spread.n_accounts >= 3) {
     const members = result.posts.filter((post) => ["submitted", "origin", "copy", "quote", "bluesky"].includes(post.role) && (post.similarity ?? 0) >= 0.8).map((post) => post.id);
     clusters.push({ id: "lookup-copies", label: "Observed copy sample · not a verdict", status: "insufficient", members, stat: `${result.spread.n_accounts} accounts · same text · ${result.spread.span_s == null ? "time span unknown" : fmtDur(result.spread.span_s * 1000)}` });

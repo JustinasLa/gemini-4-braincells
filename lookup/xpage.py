@@ -6,8 +6,9 @@ A profile page has the profile header, then the account's recent posts as the sa
 
 Counts: X hides zero counts, so a missing number is shown by the page as nothing at all. The
 post itself shows replies (link), reposts, likes, bookmarks, with views next to the date; other
-items show replies (link), reposts, likes, views. When fewer numbers are shown we fill them in
-that order and leave the rest None (a hidden count is most often 0, but we don't claim it).
+items show replies (link), reposts, likes, views. Replies (a labelled link) and the post's own
+views (labelled) are always safe. The unlabelled numbers are assigned only when every slot is
+shown; with fewer we can't tell which count is hidden, so they all stay None (never guessed).
 """
 
 from __future__ import annotations
@@ -85,6 +86,7 @@ class XItem:
     card_url: str | None = None
     card_domain: str | None = None
     card_image: str | None = None
+    counts_shown: int = 0  # unlabelled numbers the page showed (fewer than slots = ambiguous)
 
     @property
     def created_at(self):
@@ -187,13 +189,11 @@ def _parse_item(lines: list[str]) -> XItem | None:
     item.text = _clean_text(own)
     item.quoted_text = _clean_text(quoted) or None
     counts = [parse_count(x) for x in numbers]
-    if item.is_main:
-        for name_, val in zip(("reposts", "likes", "bookmarks"), counts, strict=False):
+    slots = ("reposts", "likes", "bookmarks") if item.is_main else ("reposts", "likes", "views")
+    if len(counts) == len(slots):  # all shown: positions are unambiguous
+        for name_, val in zip(slots, counts, strict=True):
             setattr(item, name_, val)
-    elif counts:
-        item.views = counts[-1]
-        for name_, val in zip(("reposts", "likes"), counts[:-1], strict=False):
-            setattr(item, name_, val)
+    item.counts_shown = len(counts)
     return item
 
 
@@ -202,7 +202,13 @@ def _looks_like_tail(lines: list[str], i: int) -> bool:
     return all(not ln.strip() or _NUMBER.match(ln.strip()) for ln in lines[i:])
 
 
+def _unescape(md: str) -> str:
+    """Markdown escapes inside handles ('@alb\\_olmos') would break the handle patterns."""
+    return md.replace("\\_", "_")
+
+
 def parse_items(md: str) -> list[XItem]:
+    md = _unescape(md)
     out = []
     for block in _items_block(md):
         it = _parse_item(block)
@@ -213,7 +219,7 @@ def parse_items(md: str) -> list[XItem]:
 
 def title_text(md: str) -> tuple[str | None, str | None]:
     """('Steve Lookner', 'full post text') from the page title line, if present."""
-    for ln in md.splitlines():
+    for ln in _unescape(md).splitlines():
         if ln.startswith("# ") and " on X: " in ln:
             m = _TITLE.match(ln)
             if m:
@@ -289,6 +295,7 @@ _MONTHS = {
 
 def parse_profile(md: str, handle: str) -> Profile:
     p = Profile(handle=handle)
+    md = _unescape(md)
     lines = [ln.strip() for ln in md.split("* [![@", 1)[0].splitlines()]
     for k, ln in enumerate(lines):
         if m := re.match(r"^([\d.,]+[KMB]?) posts$", ln):

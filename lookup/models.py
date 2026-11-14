@@ -78,6 +78,8 @@ class Page(BaseModel):
     snippet: str | None = None
     time: datetime | None = None
     time_source: Literal["page", "search_hint"] | None = None
+    # the true time lies in [time, time + time_uncertainty_s]; None when unknown
+    time_uncertainty_s: float | None = None
     receipt_id: int | None = None
 
 

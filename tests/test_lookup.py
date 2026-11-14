@@ -201,8 +201,10 @@ def test_parse_quote_post():
     m = parse_post_page(QUOTE_MD, COPY).main
     assert m.text == "🤷" and m.quoted_handle == "ada_example" and m.quoted_id == SUBJ
     assert m.quoted_text == TEXT
-    # X hides zero counts: only replies, reposts, likes shown -> bookmarks unknown, not 0
-    assert (m.views, m.replies, m.reposts, m.likes, m.bookmarks) == (1928, 6, 2, 26, None)
+    # X hides zero counts: 2 of 3 unlabelled numbers shown -> we can't tell which is hidden,
+    # so none is guessed; the labelled ones (views, replies) stay
+    assert (m.views, m.replies, m.reposts, m.likes, m.bookmarks) == (1928, 6, None, None, None)
+    assert m.counts_shown == 2
 
 
 def test_parse_profile():
@@ -231,7 +233,10 @@ def test_counts_and_text_helpers():
     assert textsim.phrase("too short") is None
     assert textsim.strip_snippet("23 hours ago · The comets ...") == "The comets"
     at = datetime(2026, 11, 14, 0, 0, tzinfo=UTC)
-    assert snippet_time("2 hours ago - x", at) == datetime(2026, 11, 13, 22, 0, tzinfo=UTC)
+    t, unc = snippet_time("2 hours ago - x", at)
+    assert t == datetime(2026, 11, 13, 21, 0, tzinfo=UTC) and unc == 7200  # 21:00-23:00
+    t, unc = snippet_time("Nov 13, 2026 — x", at)
+    assert t == datetime(2026, 11, 13, tzinfo=UTC) and unc == 86400  # any time that day
     assert _x_title('Bob on X: "Ha, sure." / X') == ("Bob", "Ha, sure.")
     assert _x_title("Bob on X") == ("Bob", None)
 
@@ -259,17 +264,33 @@ class FakeOxylabs:
         self.calls.append(("search", query))
         if query.startswith("site:x.com"):
             return [
-                SearchHit(url=f"https://x.com/cy_example/status/{COPY}", title="Cy on X",
-                          snippets=[TEXT], position=1),
-                SearchHit(url=f"https://x.com/ada_example/status/{SUBJ}", title="Ada on X",
-                          snippets=[TEXT], position=2),
-                SearchHit(url="https://x.com/zed/status/2121364193509277999",
-                          title='Zed on X: "unrelated cats"', snippets=["cats"], position=3),
-            ]  # fmt: skip
+                SearchHit(
+                    url=f"https://x.com/cy_example/status/{COPY}",
+                    title="Cy on X",
+                    snippets=[TEXT],
+                    position=1,
+                ),
+                SearchHit(
+                    url=f"https://x.com/ada_example/status/{SUBJ}",
+                    title="Ada on X",
+                    snippets=[TEXT],
+                    position=2,
+                ),
+                SearchHit(
+                    url="https://x.com/zed/status/2121364193509277999",
+                    title='Zed on X: "unrelated cats"',
+                    snippets=["cats"],
+                    position=3,
+                ),
+            ]
         return [
-            SearchHit(url="https://news.example/story", title="Comet joke", position=1,
-                      snippets=[f"1 hour ago · {TEXT}"]),
-        ]  # fmt: skip
+            SearchHit(
+                url="https://news.example/story",
+                title="Comet joke",
+                position=1,
+                snippets=[f"1 hour ago · {TEXT}"],
+            ),
+        ]
 
 
 class FakeStore:
@@ -277,9 +298,15 @@ class FakeStore:
         return []
 
     def clusters_for_text(self, phrase):
-        return [ClusterSummary(id=7, status="coordinated", score=0.9,
-                               window_start=datetime(2026, 11, 13, tzinfo=UTC),
-                               window_end=datetime(2026, 11, 13, tzinfo=UTC))]  # fmt: skip
+        return [
+            ClusterSummary(
+                id=7,
+                status="coordinated",
+                score=0.9,
+                window_start=datetime(2026, 11, 13, tzinfo=UTC),
+                window_end=datetime(2026, 11, 13, tzinfo=UTC),
+            )
+        ]
 
     def clusters_for_handle(self, handle):
         return []
@@ -309,8 +336,7 @@ def test_lookup_run_end_to_end():
     # the search said "copy"; reading its page showed it quotes the post
     assert posts[f"x:{COPY}"].role == "quote" and posts[f"x:{COPY}"].verified
     assert "x:2121364193509277999" not in posts  # loose keyword hit dropped
-    assert any(e.from_ == f"x:{SUBJ}" and e.to == f"x:{COPY}" and e.rel == "quote"
-               for e in r.edges)  # fmt: skip
+    assert any(e.from_ == f"x:{SUBJ}" and e.to == f"x:{COPY}" and e.rel == "quote" for e in r.edges)
     acct = next(a for a in r.accounts if a.handle == "ada_example")
     assert acct.followers == 252_600 and acct.joined == "2009-06" and acct.age_days > 6000
     assert r.status == "insufficient"  # never a verdict from one link's footprint
@@ -331,8 +357,14 @@ def test_matched_cluster_sets_status():
 def test_guard_drops_unknown_citations():
     job = Lookup("lk_g", LookupInput(text=TEXT), make_deps())
     job.run()
-    d = _Draft(summary="s", origin="o", corroboration="c", spread_pattern="p",
-               cites=[999], llm_reading="copy_campaign_looking")  # fmt: skip
+    d = _Draft(
+        summary="s",
+        origin="o",
+        corroboration="c",
+        spread_pattern="p",
+        cites=[999],
+        llm_reading="copy_campaign_looking",
+    )
     a = guard(d, job.result, model="gemini-test")
     assert a.cites == [] and a.llm_reading == "unclear"
     d.cites = [1]
@@ -382,3 +414,153 @@ def test_submitted_role_survives_merge_order():
     job.add_post(Post(id="x:1", platform="x", role="author_recent", verified=True))
     (p,) = job.result.posts
     assert p.role == "submitted" and p.similarity == 1.0 and p.text == "t"
+
+
+# ---- regressions from review (Sol r1)
+
+
+def test_escaped_handle_in_avatar_label():
+    md = QUOTE_MD.replace("[![@cy_example]", "[![@cy\\_example]")
+    assert parse_post_page(md, COPY).main is not None
+
+
+def test_likes_only_tail_is_not_reposts():
+    md = POST_MD.replace("\n\n  87\n\n  2.5K\n\n  242K", "\n\n  35K")
+    r = parse_post_page(md, SUBJ).replies[0]
+    assert (r.reposts, r.likes, r.views) == (None, None, None)
+
+
+def _job(text=TEXT, store=None):
+    return Lookup("lk_r", LookupInput(text=text), make_deps(store=store))
+
+
+def test_unverified_hit_is_not_a_copy_or_origin():
+    from lookup.models import Post
+
+    job = _job()
+    # a search snippet claims an older copy; it was never read on its own page
+    job.add_post(
+        Post(
+            id="x:1",
+            platform="x",
+            role="mention",
+            similarity=1.0,
+            text=TEXT,
+            created_at=datetime(2026, 11, 1, tzinfo=UTC),
+        )
+    )
+    job.add_post(
+        Post(
+            id="x:2",
+            platform="x",
+            role="submitted",
+            verified=True,
+            text=TEXT,
+            created_at=datetime(2026, 11, 13, tzinfo=UTC),
+        )
+    )
+    job.result.subject_id = "x:2"
+    job._finish_graph()
+    assert job.result.origin_id == "x:2"
+    assert job.result.spread.n_posts == 1
+
+
+def test_snippet_does_not_overwrite_verified_post():
+    from lookup.models import Post
+
+    job = _job()
+    job.add_post(Post(id="x:5", platform="x", role="mention", verified=True, text="read"))
+    job.add_post(Post(id="x:5", platform="x", role="copy", verified=False, text="snippet"))
+    (p,) = job.result.posts
+    assert p.verified and p.text == "read" and p.role == "mention"
+
+
+def test_date_only_page_is_not_an_earlier_origin():
+    from lookup.models import Page, Post
+
+    job = _job()
+    job.add_post(
+        Post(
+            id="x:2",
+            platform="x",
+            role="submitted",
+            verified=True,
+            text=TEXT,
+            created_at=datetime(2026, 11, 13, 21, 50, tzinfo=UTC),
+        )
+    )
+    job.result.subject_id = "x:2"
+    job.add_page(
+        Page(
+            id="",
+            url="https://a.example/",
+            role="reference",
+            time=datetime(2026, 11, 13, tzinfo=UTC),
+            time_uncertainty_s=86400,
+        )
+    )
+    job._finish_graph()
+    assert job.result.origin_id == "x:2"  # the page may be later the same day
+    job.add_page(
+        Page(
+            id="",
+            url="https://b.example/",
+            role="reference",
+            time=datetime(2026, 11, 12, tzinfo=UTC),
+            time_uncertainty_s=86400,
+        )
+    )
+    job._finish_graph()
+    assert job.result.origin_id == "page:2"  # the whole day before: really earlier
+
+
+class AccountOnlyStore(FakeStore):
+    def clusters_for_text(self, phrase):
+        return []
+
+    def clusters_for_handle(self, handle):
+        return FakeStore.clusters_for_text(self, "")
+
+
+def test_account_only_match_is_context_not_verdict():
+    @contextmanager
+    def store():
+        yield AccountOnlyStore()
+
+    job = _job(store=store)
+    job._bsky_handles.add("copier.bsky.social")
+    job.run()
+    assert job.result.status == "insufficient"
+    (c,) = job.result.clusters
+    assert c["match"] == ["account"] and c["verdict_applies"] is False
+
+
+def test_quote_of_another_post_is_attributed_to_it():
+    from lookup.models import Post
+
+    other = "2121361111111111111"
+    md = QUOTE_MD.replace(f"/ada_example/status/{SUBJ})", f"/ada_example/status/{other})")
+    job = Lookup("lk_q", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps())
+    job.result.subject_id = f"x:{SUBJ}"
+    job.deps.oxylabs.scrape_markdown = lambda url: (md, {})
+    job._verify_x(
+        Post(
+            id=f"x:{COPY}",
+            platform="x",
+            url=f"https://x.com/cy_example/status/{COPY}",
+            role="mention",
+        ),
+        TEXT,
+    )
+    edges = {(e.from_, e.to, e.rel) for e in job.result.edges}
+    assert (f"x:{other}", f"x:{COPY}", "quote") in edges
+    assert not any(e[0] == f"x:{SUBJ}" for e in edges)
+
+
+def test_time_budget_stops_provider_calls():
+    deps = make_deps()
+    deps.time_budget_s = 0.0
+    job = Lookup("lk_b", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    job.run()
+    assert job.result.state == "done"
+    assert deps.oxylabs.calls == []  # nothing started after the budget was gone
