@@ -42,9 +42,9 @@ test("source leads distinguish text copies and linked pages from coverage", () =
     { url: "https://example.org/report", role: "coverage" },
   ];
   const html = factualFindings(lookup);
-  assert.match(html, /Text-copy candidate · Search lead/);
-  assert.match(html, /Linked page · Search lead/);
-  assert.match(html, /Coverage candidate · Search lead/);
+  assert.match(html, /Text copy · search lead/);
+  assert.match(html, /Linked page · search lead/);
+  assert.match(html, /Coverage · search lead/);
 });
 
 test("supported facts remain visible when coordination is insufficient", () => {
@@ -94,9 +94,8 @@ test("image-only inputs and legacy media readings retain a provenance warning", 
   const lookup = result();
   lookup.posts = [{ id: "post:1", media_urls: ["https://image.example/photo.jpg"] }];
   const html = factualFindings(lookup);
-  assert.match(html, /Source discovery and exact-image verification are separate/);
-  assert.match(html, /OCR alone do not authenticate/);
-  assert.match(html, /not necessarily the original source/);
+  assert.match(html, /Finding a source is not verifying the image/);
+  assert.match(html, /not proof of the original/);
 });
 
 test("all factual finding labels are distinct from coordination", () => {
@@ -142,14 +141,14 @@ test("source articles remain visible when the model times out", () => {
   }];
   let html = factualFindings(lookup);
   assert.match(html, /Contemporary photo coverage/);
-  assert.match(html, /Search lead · page not read/);
-  assert.match(html, /Search date hint: 2022-08-08/);
+  assert.match(html, /· search lead/);
+  assert.match(html, /· ~2022-08-08/);
   assert.doesNotMatch(html, /No claim-level factual assessment/);
   lookup.receipts[0].endpoint = "/scrape";
   lookup.pages[0].published_at = "2022-08-08";
   html = factualFindings(lookup);
-  assert.match(html, /Source page read · not automatic verification/);
-  assert.match(html, /Published: 2022-08-08/);
+  assert.match(html, /· page read/);
+  assert.match(html, /· 2022-08-08/);
 });
 
 test("source attribution is shown with its receipt rather than a blanket denial", () => {

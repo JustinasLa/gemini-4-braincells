@@ -20,6 +20,7 @@ import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
 import { comparisonSource } from "./ui/compare";
 import { initMemeTrace } from "./ui/variations";
+import { mountStory } from "./ui/story";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -53,6 +54,9 @@ document.querySelector("#app")!.innerHTML = `
 </div>`;
 
 const app = $(".app");
+const story = mountStory(app);
+// the picture being traced, as a local address: the story shows it before the server has it
+let storyPreview: { url: string; lookup: string } | null = null;
 const nav = $("#judge-links");
 $("#judge-menu").addEventListener("click", () => { nav.hidden = !nav.hidden; nav.style.display = nav.hidden ? "none" : "flex"; $("#judge-menu").setAttribute("aria-expanded", String(!nav.hidden)); });
 const view = new URLSearchParams(location.search).get("view");
@@ -140,6 +144,8 @@ function chipOf(c: TraceCase): { short: string; css: string } | null {
   return finding && finding !== "pending" ? { short: finding.word, css: finding.color } : null;
 }
 function renderResources(c: TraceCase) {
+  if (storyPreview && c.lookup && storyPreview.lookup === "lookup-pending" && c.lookup.id !== "lookup-pending") storyPreview.lookup = c.lookup.id;
+  story.update(c, storyPreview && c.lookup && storyPreview.lookup === c.lookup.id ? storyPreview.url : undefined);
   const v = chipOf(c);
   $("#title").textContent = c.title;
   const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
@@ -509,17 +515,17 @@ function showHome() {
   const cases = simulatedCases();
   const sims = cases.filter((c) => !c.historical);
   const hist = cases.filter((c) => c.historical);
-  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical record</em>' : ""}</button>`;
+  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical</em>' : ""}</button>`;
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
-      <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
-      <form class="home-form" aria-describedby="home-note"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
-      <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
+      <p class="home-tag">Drop a meme. Find the original and what changed.</p>
+      <form class="home-form"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Drop a meme or paste a link" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace</button></form>
+      <details class="home-ex"><summary class="label">Simulated examples</summary>${[...sims, ...hist].map(caseBtn).join("")}</details>
     </div>
-    <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
+    <span class="credit">Botticelli, c. 1485</span>`;
   document.body.appendChild(homeEl);
   const img = new Image();
   img.src = venusFullUrl;
@@ -529,7 +535,7 @@ function showHome() {
   // Do not summon the on-screen keyboard just because the home screen opened.
   // Desktop keeps the quick keyboard workflow; touch users can choose the field when ready.
   if (!matchMedia("(pointer: coarse)").matches) setTimeout(() => input.focus(), 400);
-  // a pasted image sits in the search box until Trace it (or Enter) sends it
+  // a pasted image sits in the search box until Trace (or Enter) sends it
   const q = $<HTMLElement>(".home-q", homeEl);
   const att = $<HTMLElement>(".home-att", homeEl);
   const placeholder = input.placeholder;
@@ -630,6 +636,8 @@ async function startTrace(raw: LookupRequest, mock = false) {
   cancelTrace();
   closeEvent();
   hideHome();
+  if (storyPreview) URL.revokeObjectURL(storyPreview.url);
+  storyPreview = image ? { url: URL.createObjectURL(image), lookup: "lookup-pending" } : null;
   const run = tracing = ++traceSequence;
   const controller = new AbortController();
   lookupController = controller;

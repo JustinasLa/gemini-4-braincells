@@ -64,9 +64,11 @@ input:focus-visible { outline: none; }
 .hud { transition: opacity 0.4s; }
 .app:not(.tools) .minimap, .app:not(.tools) .legend { display: none; }
 .app.tools .zoom button[data-z="tools"] { color: var(--text); background: var(--surface-2); }
-.term { display: none; }
-.term.lookup-progress { display: flex; flex-direction: column; }
-.lookup-active .st-skip { display: none; }
+/* No per-action readout: neither the step console nor the "TOOL · what it did" line is shown.
+   The bar keeps only Skip, for a replayed example; a live lookup shows its progress in the result. */
+.term, .term.lookup-progress { display: none; }
+.status::before, .status .st-tool, .status .st-txt { display: none; }
+.lookup-active .status { display: none; }
 .lookup-active .panel { border-left-color: var(--line); }
 @media (min-width: 860px) {
   .app.lookup-active { grid-template-columns: 0px 1fr 400px; }
@@ -552,7 +554,6 @@ input:focus-visible { outline: none; }
 /* ---------- status line (the only thing on screen besides the canvas while tracing) ---------- */
 .status { position: absolute; left: 50%; bottom: 22px; transform: translate(-50%, 12px); z-index: 9; display: flex; align-items: center; gap: 12px; max-width: calc(100% - 40px); padding: 10px 14px; background: #060608; border: 1px solid var(--line-2); font: 400 13px/1.3 var(--mono); color: var(--text); opacity: 0; pointer-events: none; transition: opacity 0.4s, transform 0.5s var(--ease-out); }
 .status.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
-.status::before { content: ""; width: 8px; height: 8px; border: 1.5px solid var(--cv); flex: none; }
 .status .st-tool { text-transform: uppercase; letter-spacing: 0.1em; font-size: 10.5px; color: var(--tc); flex: none; }
 .status .st-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status .st-skip { flex: none; margin-left: 6px; padding: 8px 6px; margin-block: -8px; }
