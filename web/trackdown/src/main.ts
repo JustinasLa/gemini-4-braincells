@@ -20,6 +20,8 @@ import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
 import { comparisonSource } from "./ui/compare";
 import { initMemeTrace } from "./ui/variations";
+import { mountStory } from "./ui/story";
+import { PANEL_MIN, clampPanel, panelMax, parseSaved, stepPanel } from "./ui/panelwidth";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -50,9 +52,13 @@ document.querySelector("#app")!.innerHTML = `
     <div class="vignette"></div>
   </main>
   <aside class="panel" id="panel"></aside>
+  <div class="panel-grip" id="panel-grip" role="separator" aria-orientation="vertical" aria-controls="panel" aria-label="Resize panel" tabindex="0" title="Drag to resize · double-click to reset"></div>
 </div>`;
 
 const app = $(".app");
+const story = mountStory(app);
+// the picture being traced, as a local address: the story shows it before the server has it
+let storyPreview: { url: string; lookup: string } | null = null;
 const nav = $("#judge-links");
 $("#judge-menu").addEventListener("click", () => { nav.hidden = !nav.hidden; nav.style.display = nav.hidden ? "none" : "flex"; $("#judge-menu").setAttribute("aria-expanded", String(!nav.hidden)); });
 const view = new URLSearchParams(location.search).get("view");
@@ -83,6 +89,78 @@ phoneMq.addEventListener("change", () => {
 });
 const stage = $("#stage");
 const g = new Graph(stage);
+
+// ---------------------------------------------------------------- panel width: drag the grip on its left edge
+{
+  const grip = $("#panel-grip");
+  const KEY = "trackdown.panelW";
+  // `want` is the width the user chose; what's applied is that, clamped to the current window
+  let want: number | null = null;
+  const apply = () => {
+    const max = panelMax(innerWidth);
+    grip.setAttribute("aria-valuemax", String(max));
+    if (want == null) {
+      app.style.removeProperty("--panel-w");
+      grip.setAttribute("aria-valuenow", String(Math.round(parseFloat(getComputedStyle(app).getPropertyValue("--panel-w")) || 400)));
+    } else {
+      const w = clampPanel(want, innerWidth);
+      app.style.setProperty("--panel-w", `${w}px`);
+      grip.setAttribute("aria-valuenow", String(w));
+    }
+  };
+  const current = () => clampPanel(want ?? (parseFloat(getComputedStyle(app).getPropertyValue("--panel-w")) || 400), innerWidth);
+  const save = () => {
+    try {
+      want == null ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, String(want));
+    } catch {}
+  };
+  try {
+    want = parseSaved(localStorage.getItem(KEY));
+  } catch {}
+  grip.setAttribute("aria-valuemin", String(PANEL_MIN));
+  apply();
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    app.classList.add("resizing");
+    const startX = e.clientX;
+    const startW = current();
+    const move = (ev: PointerEvent) => {
+      want = clampPanel(startW + (startX - ev.clientX), innerWidth);
+      apply();
+    };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      grip.removeEventListener("lostpointercapture", up);
+      app.classList.remove("resizing");
+      save();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+    grip.addEventListener("lostpointercapture", up);
+  });
+  grip.addEventListener("dblclick", () => {
+    want = null;
+    apply();
+    save();
+  });
+  grip.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") return;
+    e.stopPropagation(); // the grip's keys are its own, never a graph or playback shortcut
+    const w = stepPanel(current(), e.key, e.shiftKey, innerWidth);
+    if (w == null) return;
+    e.preventDefault();
+    want = w;
+    apply();
+    save();
+  });
+  // a smaller window squeezes the panel; the chosen width comes back when the window grows again
+  addEventListener("resize", apply);
+}
 (window as unknown as { __g: Graph }).__g = g;
 const panel = new Panel($("#panel"), g);
 const dock = new Dock($("#dock"), g);
@@ -140,6 +218,8 @@ function chipOf(c: TraceCase): { short: string; css: string } | null {
   return finding && finding !== "pending" ? { short: finding.word, css: finding.color } : null;
 }
 function renderResources(c: TraceCase) {
+  if (storyPreview && c.lookup && storyPreview.lookup === "lookup-pending" && c.lookup.id !== "lookup-pending") storyPreview.lookup = c.lookup.id;
+  story.update(c, storyPreview && c.lookup && storyPreview.lookup === c.lookup.id ? storyPreview.url : undefined);
   const v = chipOf(c);
   $("#title").textContent = c.title;
   const tag = c.mock ? '<span class="tag sim">Mock · fictional data</span>' : c.synthetic ? '<span class="tag sim">Simulated</span>' : c.historical ? '<span class="tag hist">Historical record</span>' : "";
@@ -515,11 +595,11 @@ function showHome() {
   homeEl.innerHTML = `<canvas></canvas>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
-      <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
-      <form class="home-form" aria-describedby="home-note"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
-      <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
+      <p class="home-tag">Drop a meme. Find the original and what changed.</p>
+      <form class="home-form"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Drop a meme or paste a link" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><span class="trace-wrap"><button class="btn solid" type="submit">Trace</button><button type="button" class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span></form>
+      <details class="home-ex"><summary class="label">Simulated examples</summary>${[...sims, ...hist].map(caseBtn).join("")}</details>
     </div>
-    <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
+    <span class="credit">Botticelli, c. 1485</span>`;
   document.body.appendChild(homeEl);
   const img = new Image();
   img.src = venusFullUrl;
@@ -529,7 +609,7 @@ function showHome() {
   // Do not summon the on-screen keyboard just because the home screen opened.
   // Desktop keeps the quick keyboard workflow; touch users can choose the field when ready.
   if (!matchMedia("(pointer: coarse)").matches) setTimeout(() => input.focus(), 400);
-  // a pasted image sits in the search box until Trace it (or Enter) sends it
+  // a pasted image sits in the search box until Trace (or Enter) sends it
   const q = $<HTMLElement>(".home-q", homeEl);
   const att = $<HTMLElement>(".home-att", homeEl);
   const placeholder = input.placeholder;
@@ -630,6 +710,8 @@ async function startTrace(raw: LookupRequest, mock = false) {
   cancelTrace();
   closeEvent();
   hideHome();
+  if (storyPreview) URL.revokeObjectURL(storyPreview.url);
+  storyPreview = image ? { url: URL.createObjectURL(image), lookup: "lookup-pending" } : null;
   const run = tracing = ++traceSequence;
   const controller = new AbortController();
   lookupController = controller;

@@ -10,7 +10,7 @@ from common.db import connect
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-app = FastAPI(title="Noise Radar API", version="0.2.0")
+app = FastAPI(title="Shill or Chill API", version="0.2.0")
 app.include_router(clusters.router)
 app.include_router(metrics.router)
 app.include_router(analyze.router)
