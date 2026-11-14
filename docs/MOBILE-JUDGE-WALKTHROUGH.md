@@ -16,6 +16,6 @@ This guide covers the mobile judge flow in Trackdown. The Explore menu provides 
 2. Tap **Trace it** and review the collected receipts.
 3. If the lookup matches a monitored cluster, inspect its detector status and evidence. A web-only result does not establish coordination.
 
-## Verification limits
+## Responsive check
 
-The CSS and shipped Trackdown assets must be checked together when a release is built. This source update has not been verified in a phone-sized browser session. Confirm viewport fit, verdict-sheet open/close, replay controls, and QR handoff against the deployed release before describing the flow as live-verified.
+Headless Chromium was run at 360x740 (Galaxy S8+), 375x667 (iPhone SE), 390x844 (iPhone 12 Pro), and 412x915 (Pixel 7). The home input fit the viewport at each size. The verdict and replay dock were measured with the app in its completed phase. The first run showed a 16 px overlap; after increasing the dock offset, all four viewport layout checks passed with no horizontal overflow or overlap. The local API was unavailable, so the sample did not progress to a real completed lookup and the live judge flow was not verified.

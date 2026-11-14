@@ -119,7 +119,7 @@ def test_entry_links_to_dashboard_and_explains_the_call(make_client):
     (entry,) = feed.findall("a:entry", NS)
     assert entry.find("a:id", NS).text.endswith("cluster/7")
     assert entry.find("a:title", NS).text == (
-        "Coordinated: 14 accounts acting together, 3 signal families (cluster #7)"
+        "Shill: 14 accounts acting together, 3 signal families (cluster #7)"
     )
     link = entry.find("a:link[@rel='alternate']", NS).get("href")
     assert link == "https://radar.example/?cluster=7"
@@ -128,7 +128,7 @@ def test_entry_links_to_dashboard_and_explains_the_call(make_client):
     assert text.startswith("Fresh accounts pushed one link within seconds.")
     assert "- 14 accounts posted the same link" in text
     assert "coordination score 0.91; timing p-value 0.002; 10m window" in text
-    assert "Gemini reads it differently (Can’t tell); the detector's call stands." in text
+    assert "Gemini reads it differently (Can’t tell (yet)); the detector's call stands." in text
     assert "not proof of who is behind it" in text
 
 
@@ -188,7 +188,7 @@ def test_older_verdict_without_agree_flag_follows_dashboard_rule(make_client):
     )
     c, _ = make_client([cluster(6, verdict=v)])
     text = parse(c.get("/api/feed.atom")).find("a:entry/a:summary", NS).text
-    assert "Gemini reads it differently (Can’t tell); the detector's call stands." in text
+    assert "Gemini reads it differently (Can’t tell (yet)); the detector's call stands." in text
 
 
 def test_window_text_is_utc_and_dates_a_window_across_midnight(make_client):
@@ -208,4 +208,4 @@ def test_window_text_is_utc_and_dates_a_window_across_midnight(make_client):
 def test_feed_title_per_status(make_client):
     c, _ = make_client([])
     feed = parse(c.get("/api/feed.atom", params={"status": "insufficient"}))
-    assert feed.find("a:title", NS).text == "Noise Radar: new can’t tell clusters"
+    assert feed.find("a:title", NS).text == "Shill or Chill: Can’t tell (yet) verdicts"
