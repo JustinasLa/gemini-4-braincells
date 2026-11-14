@@ -1,0 +1,8 @@
+Delegated task node:delegated-task:command%3Amcp%3A17caffd4-a92b-46b2-b28c-dfb53545103a%3Adelegate-task%3A350353e9-be23-4754-9585-a9ad03cc440f (Sol review r2: Nemotron fast lookup) [completed]:
+1. **must-fix — [lookup/service.py:1479](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:1479): Image calls can still consume the primary reading’s reserve.** `IMAGE_NEED_S=23` assumes at most three seconds of rate-limit waiting, but `MEDIA_RPM` is configurable. With `MEDIA_RPM=1` and two uncached images on an image-only post, the second call waits 60 seconds; synchronous `_media()` blocks the coordinator and the primary reading is skipped. Reproduced with a fake clock/client. Pass the provider deadline through the limiter and image call, reject calls that cannot fit, and bound the synchronous media wait.
+
+2. **should-fix — [lookup/assess.py:171](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/assess.py:171): Gemini’s model label still uses the requested identifier.** When a requested alias resolves to a different `res.model_version`, `Assessment.model` records the alias, violating the returned-model invariant and README contract. Confirmed with a local fake response. Store the returned version and handle a missing version explicitly.
+
+The 56 permitted tests and TypeScript `--noEmit` check passed. No files changed.
+
+VERDICT: changes requested
