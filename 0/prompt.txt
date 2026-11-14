@@ -1,0 +1,65 @@
+Delegated task node:delegated-task:command%3Amcp%3A4d8feec2-68bf-4f66-9c13-20930b39f2f4%3Athread-send%3A6cab6a91-7db1-4d6e-9306-7dd04c267c6f (#19 publisher feed transparent_automation) [completed]:
+I'm stopping again with no code change: v1.7 (6778faa) already fixes #19 for these accounts after enrichment.
+
+**What I did with your update:**
+1. **Evals:** I never started an eval run, so there was nothing to kill. There is no `evals/feeds` folder to delete. Only `baseline/` and `baseline-v16-partial/` exist, and I didn't touch them.
+2. **Rebase:** I had no commits, so I fast-forwarded the worktree to origin/main 6778faa. That includes #38 and #43 as merged. `VERSION` is v1.7 and I didn't change it. The tree is clean.
+3. **Bios:** I checked them read-only through the public AppView (`getProfiles`) against v1.7's own `_DECLARED_BOT` pattern. Six of the seven accounts that appear in clusters 682 and 859 match on "feed" ("A JD Supra news feed" / "law feed"). Only `frank-jdsupra` doesn't ("Lead Engineer at JD Supra."). All of them were created in Nov 2024 or Feb 2025.
+
+**Cluster 682's shape re-run on 6778faa** (same accounts, same jdsupra.com links 1 s apart):
+
+| Account info | Status | Strongest guard |
+|---|---|---|
+| None yet | `coordinated` | none, 0.0 |
+| Looked up, with bios | `insufficient` | `declared_automation` 0.8 |
+| Looked up, bios not loaded | `insufficient` | `established_accounts` 0.6, exactly at the cut-off |
+| Same handles, 3 days old | `coordinated` | none, so brand-new accounts don't get a pass |
+
+**The handle-token branch still wouldn't help.** Only 3 of 5 handles in cluster 682 contain "jdsupra", and 2 of 5 in cluster 859. That's under the 80% bar, and it adds nothing over the 0.6 that `established_accounts` already gives.
+
+**The remaining flip can't be fixed by a guard.** The early `coordinated` call happens when no account info is loaded yet. Then the detector has no handles, ages or bios, so no account guard can fire. Since v1.6 each pass looks accounts up before scoring, so this only happens when the lookup fails or the 400-account cap runs out. Fixing it would mean a separate rule for clusters whose members haven't been looked up, not a guard.
+
+There's no branch, PR, head SHA or eval delta table, and I didn't run `run.sh`, because there's no change to measure. My suggestion is still to close #19 citing #35 and #38. Optional follow-ups: a JD Supra regression test for `declared_automation`, or the rule for not-yet-looked-up clusters. Tell me if you want either one.
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A4d8feec2-68bf-4f66-9c13-20930b39f2f4%3Adelegate-task%3A42dbf824-a446-46c4-945f-1b3beaaef642 (#17 CJK/Thai text keys + search phrase) [completed]:
+I opened PR #52 as ready for review, not a draft, because held-out FPR did not go up. Japanese, Chinese and Thai copy-paste text now gets content keys and a web-search phrase; space-separated text and `text_hash` are unchanged. Nothing is merged or deployed, and `VERSION` stays v1.7.
+
+**Eval delta.** Before is origin/main 6778faa. After is 6778faa plus this diff (run commit `d1ea2e0`); the PR head is the same diff re-applied on 3193d20. 3193d20 only clamps the p_value written to the database, so detector output doesn't change and the baseline doesn't need a re-run.
+
+| metric | before | after |
+|---|---|---|
+| organic_synth heldout FPR (n=84) | 0.0, 0 coordinated of 42 clustered | same |
+| organic_live heldout FPR (n=211) | 0.0, 0 coordinated of 40 clustered (likely_organic 30, insufficient 10, no_cluster 171) | 0.0, 0 coordinated of 41 clustered (likely_organic 32, insufficient 9, no_cluster 170) |
+| organic_synth dev FPR (n=72) | 0.0, 0 coordinated of 36 clustered | same |
+| organic_live dev | n=0 | n=0 |
+| recall heldout L1 / L2 / L3 / all | 35/35, 34/35, 0/35, 69/105 | same |
+| recall dev L1 / L2 / L3 / all | 30/30, 26/30, 0/30, 56/90 | same |
+| calibration heldout (n=49) | precision 1.0, recall 0.667, FPR 0.0, Brier 0.252, ECE 0.301 | same |
+
+The only movement is in organic_live heldout `link_burst`: one more window now forms a cluster, and it is called likely_organic, not coordinated. In the recall runs, statuses of a few non-campaign background clusters shift slightly; campaign results are identical.
+
+**What changed**
+- **Word counting:** each character of an unspaced script (kana, CJK ideographs, Thai, Lao, Myanmar, Khmer) now counts as one word, for the minimum-length check and for near-duplicate matching.
+- **Short texts:** the existing 25-character minimum still applies, so greetings like 'おはようございます' don't become keys.
+- **Web-search phrase:** sentences also split on 。！？; an unspaced sentence needs 10+ characters and is cut to 30.
+- **Not changed:** the semantic-embedding filters still split on spaces, so Japanese posts are still not sent for embedding. That could be a follow-up; I left it out to avoid extra Gemini calls.
+
+**Tests added**
+- `tests/test_signals.py`:
+  - English and Russian tokens and all `text_hash` values match those recorded before the change.
+  - The Japanese example gives 5+ tokens.
+  - Japanese or Thai posted by 5 accounts gives both a duplicate-text and a near-duplicate key.
+  - A short Japanese greeting gives no key.
+- `tests/test_sources_checker.py`:
+  - `claim_phrase` returns a phrase for the Japanese and Thai examples and None for short greetings in both.
+  - It cuts long unspaced text at 30 characters.
+
+**pytest:** `391 passed, 9 skipped` in the clone. ruff check and format pass.
+
+**Analyze note:** you said I could edit it after #45, so it's in the PR: "Text too short for a reliable exact-phrase web search (needs 5+ words, or 10+ characters in Japanese, Chinese or Thai)."
+
+**Where the work lives:** git in the original worktree broke after the prune, so the branch was rebuilt and pushed from `~/work/cjk`. The shared .git was not touched.
+
+PR https://github.com/JustinasLa/gemini-4-braincells/pull/52, head c8548ee3b788885435197e7c95b393b5761935d5, checks and reviews: none reported yet.
