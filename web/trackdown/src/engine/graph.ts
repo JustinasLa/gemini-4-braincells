@@ -616,7 +616,8 @@ export class Graph {
     this.stopFollow();
     const base = this.zoomTarget?.k ?? this.k;
     this.camAnim = null;
-    this.zoomTarget = { k: clamp(base * f, 0.06, 2.6), sx, sy };
+    // fit() may frame a long timeline below the 0.06 manual limit: never jump in from there
+    this.zoomTarget = { k: clamp(base * f, Math.min(0.06, base), 2.6), sx, sy };
   }
 
   private cameraStep(dt: number) {
@@ -715,7 +716,7 @@ export class Graph {
         const mx = (a.x + b.x) / 2;
         const my = (a.y + b.y) / 2;
         const before = this.toWorld(this.pinch.mx, this.pinch.my);
-        this.k = clamp((this.pinch.k * d) / this.pinch.d, 0.06, 2.6);
+        this.k = clamp((this.pinch.k * d) / this.pinch.d, Math.min(0.06, this.pinch.k), 2.6);
         const after = this.toWorld(mx, my);
         this.cx += before.x - after.x;
         this.cy += before.y - after.y;
