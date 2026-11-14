@@ -14,6 +14,7 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS): the site i
 [`/api/metrics`](https://noise-radar.srv2159172.hstgr.cloud/api/metrics).
 
 Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
+Mobile judge walkthrough: **[docs/MOBILE-JUDGE-WALKTHROUGH.md](docs/MOBILE-JUDGE-WALKTHROUGH.md)** (cluster feed, evidence, metrics, judge input and viewport check).
 
 Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
 API are on `main` and live, and so is the eval harness (its results are at `/api/metrics`).
