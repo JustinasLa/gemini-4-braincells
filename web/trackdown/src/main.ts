@@ -56,7 +56,11 @@ const syncDrawers = () => {
   const rail = $(".rail");
   const pnl = $("#panel");
   rail.inert = !app.classList.contains("rail-open");
-  pnl.inert = phone ? !app.classList.contains("sheet-open") : !app.classList.contains("panel-open");
+  const sheet = phone && app.classList.contains("sheet-open");
+  pnl.inert = phone ? !sheet : !app.classList.contains("panel-open");
+  // an open sheet covers the page: nothing behind it may take focus
+  $(".topbar").inert = sheet;
+  stage.inert = sheet;
   document.querySelector('[data-act="rail"]')?.setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
   document.querySelector("#peek")?.setAttribute("aria-expanded", String(app.classList.contains("sheet-open")));
 };
@@ -85,6 +89,7 @@ initTooltips();
 $("#legend").innerHTML =
   `<div class="legend-title"><span class="label">Key</span></div>` +
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
+  `<div class="li"><span class="sw member" style="--c:${ROLE.amplifier.color}"></span>Cluster member · zoom in to read</div>` +
   `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="legend-hint">Select a marker to read the post.</div>`;
 
 
@@ -97,13 +102,19 @@ function setPhase(p: Phase) {
   app.classList.toggle("panel-open", p === "done");
   if (p !== "done") app.classList.remove("rail-open");
   setInsets();
-  if (p === "done") setTimeout(() => g.fit(undefined, 900), 650);
+  if (p === "done") setTimeout(() => {
+    setInsets(); // the dock has finished moving in by now
+    g.fit(undefined, 900);
+  }, 650);
 }
 
 /** camera insets follow the layout: phones stack the verdict bar and a two-row dock at the bottom */
 function setInsets() {
   const phone = phoneMq.matches;
-  g.insets.bottom = app.dataset.phase === "done" ? (phone ? 196 : 112) : 64;
+  // frame above whatever sits at the bottom of the stage (dock, phone verdict bar), measured
+  const dock = $("#dock").getBoundingClientRect();
+  const st = stage.getBoundingClientRect();
+  g.insets.bottom = app.dataset.phase === "done" && dock.height ? Math.max(64, st.bottom - dock.top + 12) : 64;
   g.insets.right = phone ? 24 : 72;
 }
 
@@ -159,16 +170,16 @@ function renderRail() {
   const sims = simulatedCases();
   const live = liveRows
     .map(
-      (r) => `<button class="cat-item live" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(2)}"></span>
-      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster #${r.id}</span>
+      (r) => `<button class="cat-item live${current?.id === `live-${r.id}` ? " on" : ""}" data-live="${r.id}" style="--vc:${STATUS[r.status].css}">
+      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">#${r.id}</span>
       <span class="meta">${r.size ?? "?"} accounts</span></button>`,
     )
     .join("");
   $("#rail").innerHTML = `
     ${userCases.length ? `<div class="label"><span>your traces</span><span>${userCases.length}</span></div>${userCases.map(railItem).join("")}` : ""}
-    ${live ? `<div class="label"><span>live from the monitor</span><span>${liveRows.length}</span></div>${live}` : ""}
     <div class="label"><span>case files</span><span>${sims.length}</span></div>
     ${sims.map(railItem).join("")}
+    ${live ? `<div class="label"><span>live from the monitor</span><span>${liveRows.length}</span></div>${live}` : ""}
     <p class="rail-note"><b>Case files are simulated</b> (fictional accounts, <span class="mono" style="font-size:11px">.example</span> sites) except Dürer's Rhinoceros, which is real history. ${live ? "Live clusters come straight from the detector." : "Live clusters appear here when the monitor API is reachable."}</p>`;
 }
 $("#rail").addEventListener("click", async (e) => {
@@ -249,6 +260,7 @@ dock.onScrub = () => {
 panel.onReplay = () => current && runTrace(current);
 panel.onCloseSheet = () => {
   app.classList.remove("sheet-open");
+  syncDrawers(); // un-inert the page now, so focus can land on Details
   $("#peek").focus();
 };
 
@@ -503,15 +515,15 @@ function showHome() {
   const cases = simulatedCases();
   const sims = cases.filter((c) => !c.historical);
   const hist = cases.filter((c) => c.historical);
-  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>real history</em>' : ""}</button>`;
+  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical record</em>' : ""}</button>`;
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
-      <form class="home-form"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
-      <div class="home-ex"><span class="label">Or explore a simulated example</span>${[...sims, ...hist].map(caseBtn).join("")}</div>
+      <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
+      <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
   document.body.appendChild(homeEl);
@@ -583,6 +595,7 @@ document.addEventListener("keydown", (e) => {
     else if (g.selId) g.select(null);
     else if (app.classList.contains("sheet-open")) {
       app.classList.remove("sheet-open");
+      syncDrawers();
       $("#peek").focus();
     } else if (app.classList.contains("rail-open")) {
       app.classList.remove("rail-open");

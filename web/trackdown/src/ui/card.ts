@@ -30,7 +30,9 @@ function mediaHtml(m: Media, seed: string, score?: number): string {
   const cv = m.kind === "link" ? "" : cvBoxes(seed, score);
   switch (m.kind) {
     case "link":
-      return `<div class="media link"><div class="thumb"></div><div class="lk"><div class="dom">${esc(m.domain ?? "link")}</div><div class="lt">${esc(m.title)}</div></div></div>${note}`;
+      // a bare URL is implementation detail: show the domain and a plain label instead
+      const bare = !/\s/.test(m.title) && m.title.includes("/");
+      return `<div class="media link"><div class="thumb"></div><div class="lk"><div class="dom">${esc(m.domain ?? "link")}</div><div class="lt${bare ? " bare" : ""}">${bare ? "Shared link" : esc(m.title)}</div></div></div>${note}`;
     case "screenshot": {
       const cropped = /crop/i.test(m.note ?? "") || m.domain === "screenshot";
       return `<div class="media shot${cropped ? " cropped" : ""}">${cv}<div class="mast"><span>${esc((m.domain ?? "").toUpperCase())}</span><span class="tag2">SATIRE</span></div><div class="hl">${esc(m.title)}</div><div class="bars"></div></div>${note}`;

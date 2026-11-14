@@ -245,7 +245,7 @@ export class Graph {
     const breakAt = Math.max(3 * 86400000, span / 40);
     this.grid = new Map();
     const xs: number[] = [];
-    const COLW = 252; // chip width 218 + a clear gutter
+    const COLW = 268; // chip width 232 + a clear gutter
     for (const g of groups) {
       const gap = g[0].d.t - prevT;
       // at least ~170 px between moments, so a few posts minutes apart read left to right, not as a column
@@ -313,7 +313,7 @@ export class Graph {
       if (!kids.length) {
         const gr = this.grid.get(n);
         if (gr) {
-          const RH = 84;
+          const RH = 90;
           let top = gridTop.get(gr.id);
           if (top == null) {
             top = slot;
@@ -323,7 +323,7 @@ export class Graph {
           n.py = top + gr.row * RH + RH / 2;
           return n.py;
         }
-        const gap = n.compact ? 84 : n.h + 40;
+        const gap = n.compact ? 90 : n.h + 40;
         n.py = slot + gap / 2;
         slot += gap;
         return n.py;
@@ -870,7 +870,8 @@ export class Graph {
     const ox = this.W / 2 - this.cx * k;
     const oy = this.H / 2 - this.cy * k;
     // semantic zoom: until a card's smallest text renders at ~11px (~0.9x) it is a labelled marker
-    const op = clamp((k - 0.74) / 0.08, 0, 1); // short crossfade: half-faded cards let lines show through
+    // cards only once their smallest evidence text renders at >= 11px (12px at layout scale)
+    const op = clamp((k - 0.84) / 0.08, 0, 1); // short crossfade: half-faded cards let lines show through
     if (Math.abs(op - this.cardOpacity) > 0.001) {
       this.cardOpacity = op;
       this.world.style.setProperty("--card-op", op.toFixed(3));
@@ -929,39 +930,6 @@ export class Graph {
       }
     c.stroke();
     c.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
-    // compressed time: hatched no-man's-land
-    if (this.mode === "timeline") {
-      const top = -oy / k;
-      const bot = (this.H - oy) / k;
-      for (const b of this.timeBreaks) {
-        const w = 56;
-        c.save();
-        c.beginPath();
-        c.rect(b.x - w / 2, top, w, bot - top);
-        c.clip();
-        c.fillStyle = "rgba(0,0,0,0.35)";
-        c.fillRect(b.x - w / 2, top, w, bot - top);
-        c.strokeStyle = "rgba(255,255,255,0.07)";
-        c.lineWidth = 1 / k;
-        for (let y = top - w; y < bot; y += 10) {
-          c.beginPath();
-          c.moveTo(b.x - w / 2, y + w);
-          c.lineTo(b.x + w / 2, y);
-          c.stroke();
-        }
-        c.restore();
-        c.strokeStyle = "rgba(255,255,255,0.22)";
-        c.lineWidth = 1 / k;
-        c.setLineDash([6 / k, 6 / k]);
-        c.beginPath();
-        c.moveTo(b.x - w / 2, top);
-        c.lineTo(b.x - w / 2, bot);
-        c.moveTo(b.x + w / 2, top);
-        c.lineTo(b.x + w / 2, bot);
-        c.stroke();
-        c.setLineDash([]);
-      }
-    }
     // territories
     this.clusterTabs = [];
     if (this.case) this.case.clusters.forEach((cl) => this.drawHull(c, cl, now, op));
@@ -1064,8 +1032,12 @@ export class Graph {
         c.globalAlpha = clamp(1 - op * 1.7, 0, 1) * (dim ? 0.25 : 1);
         c.fillStyle = col;
         if (n.compact && !lit) {
-          // a cluster member: one small dot; the hull around them carries the label and count
-          c.fillRect(n.x - r * 0.5, n.y - r * 0.5, r, r);
+          // a cluster member: a small square marker; the hull around them carries the label and count
+          c.fillRect(n.x - r * 0.6, n.y - r * 0.6, r * 1.2, r * 1.2);
+          c.globalAlpha *= 0.55;
+          c.strokeStyle = col;
+          c.lineWidth = 1 / k;
+          c.strokeRect(n.x - r, n.y - r, r * 2, r * 2);
           continue;
         }
         c.fillRect(n.x - r * 0.6, n.y - r * 0.6, r * 1.2, r * 1.2);
