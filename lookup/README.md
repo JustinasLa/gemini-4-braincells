@@ -190,8 +190,10 @@ Every provider call checks the time budget first (`LOOKUP_TIME_BUDGET_S`, 60 s; 
 are kept for Nemotron's reading). The second reading has its own bound
 (`LOOKUP_SECOND_READING_S`, 45 s) and never delays the first. A step that runs out says "time
 budget used up". Same Oxylabs search or page read within `LOOKUP_PROVIDER_CACHE_TTL_S` (10 min)
-and the same image (by URL or bytes, 24 h) are served from a process cache (`lookup/cache.py`),
-marked `cached` on their receipts.
+and the same image with the same post text (by URL or bytes, 24 h) are served from a process
+cache (`lookup/cache.py`), marked `cached` on their receipts with the original read's time
+(search snippets' "3 hours ago" stays relative to that read). Images are downloaded and read
+only while a bounded call still fits before the reading's reserve.
 
 ## Rules that keep it honest (and why)
 

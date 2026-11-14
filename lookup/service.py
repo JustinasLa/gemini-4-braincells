@@ -68,6 +68,8 @@ OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message wort
 SEARCH_CAP_S = 10.0
 PAGE_CAP_S = 15.0  # X post/profile pages (markdown)
 FACTS_CAP_S = 20.0  # /scrape with AI extraction
+IMAGE_DOWNLOAD_S = 10.0  # an image from the platform CDN
+IMAGE_NEED_S = 23.0  # a Nemotron image call: client timeout 20 s + the rate limiter's spacing
 _REL_AGO = re.compile(r"^\s*(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", re.I)
 _REL_UNIT = {
     "second": 1,
@@ -485,10 +487,10 @@ class Lookup:
                 self.skip("linked", "the post links no page")
         if self._step("media").state == "pending":
             rest.append(pool.submit(self._media))
-        wait(x_searches, timeout=self._left())
+        wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
         self._queue_older_pages()  # web hits dated before the post: read their own date
-        wait(rest + side, timeout=self._left())
+        wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # candidates the search for the image's text found
         self._queue_older_pages()
         # the link, text and Bluesky accounts are known now; verify adds only X posts
@@ -496,13 +498,18 @@ class Lookup:
         self._join_verify()
 
     def _wait_text(self, futures: list[Future]) -> None:
-        """Until the subject's text is known or every future that could give it is done."""
+        """Until one of `futures` has finished with the subject's text known, or all are done.
+
+        Only a finished future counts: a step sets the text before the card, images and time,
+        so a text seen mid-step would start the next steps without them."""
         pending = set(futures)
-        while pending and not self._phrase():
-            left = self._left() - 1.0
+        while pending:
+            left = self._provider_deadline() - time.monotonic()
             if left <= 0:
                 return
-            _, pending = wait(pending, timeout=left, return_when=FIRST_COMPLETED)
+            done, pending = wait(pending, timeout=left, return_when=FIRST_COMPLETED)
+            if not done or self._phrase():
+                return
 
     # ---------------------------------------------------------------- X
     def _scrape_x(self, url: str) -> tuple[str, dict]:
@@ -1040,7 +1047,7 @@ class Lookup:
         with self.step("copies_web") as st:
             q = f'"{phrase}"'
             hits, call = self._search(q)
-            at = _now()
+            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
             rid = self.receipt(
                 "oxylabs",
                 "/search",
@@ -1060,7 +1067,7 @@ class Lookup:
         with self.step("copies_x") as st:
             q = f'site:x.com "{phrase}"'
             hits, call = self._search(q)
-            at = _now()
+            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
             rid = self.receipt(
                 "oxylabs",
                 "/search",
@@ -1355,7 +1362,7 @@ class Lookup:
         with self.step("coverage") as st:
             q = q.replace('"', "")
             hits, call = self._search(q, 10)
-            at = _now()
+            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
             rid = self.receipt(
                 "oxylabs", "/search", f"Coverage search: {len(hits)} results", query=q, call=call
             )
@@ -1416,7 +1423,7 @@ class Lookup:
                 # the image's own text, searched like the post text: where does it circulate?
                 q = f'"{ocr}"'
                 hits, call = self._search(q, 10)
-                at = _now()
+                at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
                 rid = self.receipt(
                     "oxylabs",
                     "/search",
@@ -1447,33 +1454,38 @@ class Lookup:
 
     def _read_image(self, http: httpx.Client, url: str) -> Any:
         """One image read by Nemotron; the analysis, None (not an image / not a VL model) or
-        the exception. A known image (same URL or same bytes) is not read again: its receipt
-        says cached."""
+        the exception. A known image (same URL or bytes, same post text as context) is not
+        read again: its receipt says cached and keeps the time of the original reading."""
         from media.nemotron import MediaInput, is_vl_model
 
         try:
             cache, by_url = self.deps.media_cache, self.deps.media_urls
+            context = (self._subject_text or "")[:500]  # what analyze() shows the model
+            ctx = hashlib.sha256(context.encode()).hexdigest()[:16]
             h = by_url.get(url) if by_url is not None else None
-            a = cache.get(f"lookup:{h}") if h and cache is not None else None
-            if a is None:
-                data, mime = _download_image(http, url)
+            hit = cache.get(f"lookup:{h}:{ctx}") if h and cache is not None else None
+            if hit is None:
+                self._spend(IMAGE_NEED_S)
+                data, mime = _download_image(
+                    http, url, deadline=self._provider_deadline(IMAGE_DOWNLOAD_S)
+                )
                 if data is None:
                     return None
                 h = hashlib.sha256(data).hexdigest()
                 if by_url is not None:
                     by_url[url] = h
-                a = cache.get(f"lookup:{h}") if cache is not None else None
-                if a is None:
-                    self._spend(10)  # one bounded Nemotron attempt
-                    a = self.deps.nemotron.analyze(
-                        MediaInput(media_hash=f"lookup:{h}", mime_type=mime, data=data, url=url),
-                        context=self._subject_text,
-                    )
-                    cached = False
-                else:
-                    cached = True
+                hit = cache.get(f"lookup:{h}:{ctx}") if cache is not None else None
+            if hit is None:
+                self._spend(IMAGE_NEED_S)  # one bounded attempt (client timeout + rate limiter)
+                a = self.deps.nemotron.analyze(
+                    MediaInput(media_hash=f"lookup:{h}", mime_type=mime, data=data, url=url),
+                    context=self._subject_text,
+                )
+                read_at, cached = _now(), False
+                if cache is not None and is_vl_model(a.model):
+                    cache[f"lookup:{h}:{ctx}"] = (a, read_at)
             else:
-                cached = True
+                (a, read_at), cached = hit, True
         except Exception as exc:
             log.info("lookup %s image %s not read: %s", self.result.id, url, exc)
             return exc
@@ -1488,8 +1500,8 @@ class Lookup:
             "chat.completions",
             f"Nemotron read the image: {a.description[:200]}",
             source_url=url,
+            call={"fetched_at": read_at, "cached": cached},
             latency_ms=0 if cached else a.latency_ms,
-            cached=cached,
         )
         with self.lock:
             self.result.media.append(
@@ -1701,6 +1713,8 @@ class Lookup:
             if time.monotonic() + 1.0 > deadline:
                 raise BudgetExceeded("time budget used up")
             a = model.assess(snap, deadline=deadline)
+            if time.monotonic() > deadline:  # past its own bound: not published
+                raise BudgetExceeded("the reading came after its time bound")
             provider = getattr(model, "provider", "gemini")
             rid = self.receipt(
                 provider,
@@ -1735,9 +1749,13 @@ class Lookup:
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 
-def _download_image(http: httpx.Client, url: str) -> tuple[bytes | None, str]:
-    """Stream at most MAX_IMAGE_BYTES of an image; (None, '') if it isn't an image or too big."""
-    with http.stream("GET", url, headers={"user-agent": UA}) as res:
+def _download_image(
+    http: httpx.Client, url: str, deadline: float | None = None
+) -> tuple[bytes | None, str]:
+    """Stream at most MAX_IMAGE_BYTES of an image; (None, '') if it isn't an image, too big,
+    or not complete by `deadline` (time.monotonic(): a trickling CDN can't hold the lookup)."""
+    timeout = 20.0 if deadline is None else max(0.5, min(20.0, deadline - time.monotonic()))
+    with http.stream("GET", url, headers={"user-agent": UA}, timeout=timeout) as res:
         res.raise_for_status()
         mime = res.headers.get("content-type", "").split(";")[0].strip()
         if not mime.startswith("image/"):
@@ -1746,6 +1764,8 @@ def _download_image(http: httpx.Client, url: str) -> tuple[bytes | None, str]:
         for chunk in res.iter_bytes():
             buf += chunk
             if len(buf) > MAX_IMAGE_BYTES:
+                return None, ""
+            if deadline is not None and time.monotonic() > deadline:
                 return None, ""
     return bytes(buf), mime
 

@@ -109,7 +109,8 @@ class CachedOxylabs:
 
 # One of each per process (lookup/jobs.py runs every lookup in the API process).
 _OXYLABS: TTLCache | None = None
-MEDIA = TTLCache(ttl_s=24 * 3600, max_items=512)  # Nemotron image readings by image hash
+# Nemotron image readings, "lookup:<image hash>:<context hash>" -> (MediaAnalysis, read at UTC)
+MEDIA = TTLCache(ttl_s=24 * 3600, max_items=512)
 MEDIA_URLS = TTLCache(ttl_s=24 * 3600, max_items=1024)  # image URL -> hash (CDN URLs are immutable)
 
 

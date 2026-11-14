@@ -762,3 +762,132 @@ def test_bsky_last_call_is_per_thread():
     assert seen["search"]["endpoint"] == "app.bsky.feed.searchPosts"
     assert seen["profile"]["status"] == seen["search"]["status"] == 200
     assert c.last_call == {}  # the main thread made no request
+
+
+# ---------------------------------------------------------------- review round 1 (Sol) fixes
+
+
+class EarlyTextLookup(Lookup):
+    """A post step that publishes its text before its card and images (as _x_post does: the
+    text is set a few statements before the card). The scheduler must wait for the step."""
+
+    def _x_post(self):
+        self._subject_text = TEXT
+        _until_s(lambda: self._step("copies_x").state != "pending", 0.3)
+        super()._x_post()
+
+
+def _until_s(pred, seconds: float) -> bool:
+    end = time.monotonic() + seconds
+    while not pred():
+        if time.monotonic() > end:
+            return False
+        threading.Event().wait(0.002)
+    return True
+
+
+def test_searches_wait_for_the_whole_post_step_not_just_its_text():
+    ox = GatedOxylabs()
+    job = EarlyTextLookup("lk_e", LookupInput(url=X_URL), _deps(ox, http=_redirects()))
+    job.run()
+    st = _steps(job)
+    assert st["copies_x"].started_at >= st["post"].ended_at
+    assert st["linked"].state == "done"  # the card was known when the steps were planned
+    assert st["media"].detail != "the post has no images"
+
+
+IMG_URL = "https://pbs.twimg.com/media/HXAAAA?format=jpg&name=large"
+
+
+class FakeImageReader:
+    def __init__(self):
+        self.calls: list[str | None] = []
+
+    def analyze(self, media, *, context=None):
+        from media.nemotron import MediaAnalysis
+
+        self.calls.append(context)
+        return MediaAnalysis(
+            media_hash=media.media_hash, description="A chart.", extracted_text=[],
+            reuse_cues=[], manipulation_cues=[], confidence=0.8, model=SUPER_VL, latency_ms=900,
+        )  # fmt: skip
+
+
+def _image_http(chunks=(b"\xff\xd8jpegbytes",), pause_s: float = 0.0) -> httpx.Client:
+    def body():
+        for c in chunks:
+            if pause_s:
+                threading.Event().wait(pause_s)
+            yield c
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=body())
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_cached_image_reading_keeps_its_time_and_depends_on_the_post_text():
+    reader = FakeImageReader()
+    media, urls = lcache.TTLCache(ttl_s=600), lcache.TTLCache(ttl_s=600)
+
+    def read(text: str):
+        job = Lookup("lk_i", LookupInput(text=TEXT), _deps(nemotron=reader, media_cache=media,
+                                                            media_urls=urls))  # fmt: skip
+        job._subject_text = text
+        assert job._read_image(_image_http(), IMG_URL).description == "A chart."
+        (rc,) = [r for r in job.result.receipts if r.tool == "nemotron"]
+        return rc
+
+    first = read("a caption")
+    assert not first.cached and "(cached read" not in first.summary and len(reader.calls) == 1
+    (_, read_at) = media.get(next(iter(media._data)))
+    second = read("a caption")
+    assert second.cached and second.latency_ms == 0 and len(reader.calls) == 1
+    assert f"(cached read from {read_at:%H:%M:%S} UTC)" in second.summary
+    third = read("another caption on the same photo")  # the context changes the reading
+    assert not third.cached and len(reader.calls) == 2
+
+
+def test_image_download_stops_at_its_deadline():
+    from lookup.service import _download_image
+
+    http = _image_http(chunks=[b"\xff\xd8"] + [b"x" * 10] * 20, pause_s=0.03)
+    data, _ = _download_image(http, IMG_URL, deadline=time.monotonic() + 0.1)
+    assert data is None
+
+
+def test_no_image_call_without_room_for_it_before_the_reading():
+    reader = FakeImageReader()
+    # 25 s budget: 10 s reading reserve leaves 15 s, less than one bounded image call needs
+    job = _run(LookupInput(url=X_URL), _deps(nemotron=reader, http=_image_http(),
+                                             time_budget_s=25))  # fmt: skip
+    assert reader.calls == []
+    assert "time budget used up" in (_steps(job)["media"].detail or "")
+
+
+def test_cached_search_dates_are_relative_to_the_original_read():
+    _inner, _store, one, two, _ = _two_cached_runs()
+
+    def hint_time(job):
+        return next(pg.time for pg in job.result.pages if pg.url == "https://news.example/story")
+
+    assert hint_time(one) is not None and hint_time(two) == hint_time(one)
+
+
+class SlowReader(FakeReader):
+    def assess(self, r, *, deadline=None):
+        self.started = True
+        threading.Event().wait(1.4)  # past second_reading_s=1.2: the start check lets it run
+        return super().assess(r, deadline=deadline)
+
+
+def test_a_reading_past_its_own_bound_is_not_published():
+    primary = FakeReader("nemotron", SUPER_VL, "organic_looking")
+    late = SlowReader("gemini", "gemini-test", "copy_campaign_looking")
+    job = _run(LookupInput(text=TEXT), _deps(assessor=primary, second_assessor=late,
+                                             second_reading_s=1.2))  # fmt: skip
+    assert getattr(late, "started", False)  # it was called, and answered too late
+    assert [a.model for a in job.result.readings] == [SUPER_VL]
+    assert not job.result.readings_disagree
+    st = _steps(job)["second_reading"]
+    assert st.state == "skipped" and "time" in (st.detail or "")

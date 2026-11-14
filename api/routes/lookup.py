@@ -58,7 +58,6 @@ def make_deps() -> Deps:
                 key,
                 base_url=base,
                 model=model,
-                cache=cache.MEDIA,  # image readings shared across lookups, by image hash
                 rpm=s.media_rpm,
                 max_tokens=s.media_max_tokens,
                 reasoning=s.media_reasoning,
