@@ -97,6 +97,27 @@ def test_analyze_requires_input(client):
     assert c.post("/api/analyze", json={"text": "  "}).status_code == 422
 
 
+def test_analyze_strips_nul_and_control_chars(client):
+    c, store = client
+    text = "five words here and \u0000 then more words after it"
+    res = c.post(
+        "/api/analyze",
+        json={"text": text, "handle": "bot.bsky\u0000.social", "url": "https://news.example/\u0000a"},
+    )
+    assert res.status_code == 200
+    assert ("handle", "bot.bsky.social") in store.calls
+    assert ("url", ["https://news.example/a"]) in store.calls
+    phrases = [arg for kind, arg in store.calls if kind == "text"]
+    assert phrases and all("\x00" not in p for p in phrases)
+    assert all("\x00" not in str(arg) for _, arg in store.calls)
+
+
+def test_analyze_nul_only_input_is_422(client):
+    c, _ = client
+    assert c.post("/api/analyze", json={"text": "\u0000 "}).status_code == 422
+    assert c.post("/api/analyze", json={"handle": "\u0000", "url": "\x01"}).status_code == 422
+
+
 def test_analyze_matched_handle(client):
     c, store = client
     body = c.post("/api/analyze", json={"handle": "@bot.bsky.social"}).json()

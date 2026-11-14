@@ -1,11 +1,16 @@
 """Response and request models: the JSON contract the dashboard reads (see README.md)."""
 
+import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Status = Literal["coordinated", "likely_organic", "insufficient"]
+
+# C0 control characters (and DEL) except tab, newline and carriage return. PostgreSQL text
+# cannot hold NUL, and none of these carry meaning in a handle, link or post text.
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class SignalBrief(BaseModel):
@@ -103,6 +108,11 @@ class AnalyzeRequest(BaseModel):
     text: str | None = Field(default=None, max_length=5000)
     url: str | None = Field(default=None, max_length=2000)
     handle: str | None = Field(default=None, max_length=300)
+
+    @field_validator("text", "url", "handle")
+    @classmethod
+    def _strip_control(cls, v: str | None) -> str | None:
+        return _CONTROL.sub("", v) if v else v
 
     @model_validator(mode="after")
     def _one_input(self) -> "AnalyzeRequest":
