@@ -2,6 +2,7 @@
 // Keypoints and match scores come from OpenCV ORB run on the painting (assets/venus-cv.json).
 import cv from "../assets/venus-cv.json";
 import venusUrl from "../assets/venus-banner.webp";
+import { MONO } from "./format";
 
 interface Pt { x: number; y: number; s: number; score: number; pin?: boolean; fx?: number; fy?: number } // pin: always shown (covers nudity), showing the picture at fx, fy
 const PTS = (cv as { points: Pt[] }).points;
@@ -203,7 +204,7 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
           return;
         }
         const shown = p.score * Math.min(1, tt / 520);
-        ctx.font = `600 ${Math.max(9, Math.min(12, sz / 5))}px "JetBrains Mono", monospace`;
+        ctx.font = `600 ${Math.max(9, Math.min(12, sz / 5))}px ${MONO}`;
         ctx.fillStyle = "#fff";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
