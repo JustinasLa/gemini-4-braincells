@@ -11,7 +11,7 @@ export function imageCardHtml(node: TraceNode): string {
   const url = pageUrl(match.page_url);
   return `<div class="meme-card meme-${relation}" data-ui>
     <button class="meme-card-open" data-ui data-meme-compare="${esc(node.id)}" aria-label="Compare ${esc(relation)} copy on ${esc(domainOf(match))}">
-      <span class="meme-eyebrow">// ${node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
+      <span class="meme-eyebrow">${node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
       <strong>${esc(domainOf(match))}</strong>
       <span class="meme-card-preview">Compare with submission ↗</span>
     </button>
@@ -36,7 +36,7 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
   const finding = trace.lookup ? memeFinding(trace.lookup) : null;
   const button = (id: string, title: string, subtitle: string) => `<button class="meme-list-item" data-meme-compare="${esc(id)}"><span>${esc(title)}</span><small>${esc(subtitle)}</small><span class="meme-list-arrow" aria-hidden="true">↗</span></button>`;
   const html = `<section class="meme-section" aria-label="Meme trace">
-    <h2 class="meme-eyebrow">// ${trace.mock ? "MOCK · " : ""}MEME TRACE</h2>
+    <h2 class="meme-eyebrow">${trace.mock ? "MOCK · " : ""}MEME TRACE</h2>
     ${finding && finding !== "pending" ? `<div class="meme-finding" style="--vc:${finding.color}"><div class="label">What the image search found · not a coordination call</div><div class="meme-finding-word">${esc(finding.word.toUpperCase())}</div><p>${esc(finding.sentence)}</p></div>` : ""}
     <h3>Original <small>earliest match found</small></h3>
     ${state.searching ? '<p class="meme-scanning" role="status">Searching for earlier copies…</p>' : ""}
