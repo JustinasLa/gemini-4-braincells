@@ -131,7 +131,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                     description_len = coalesce(%(desc)s, description_len),
                     description = coalesce(%(descr)s, description),
                     has_avatar = coalesce(%(avatar)s, has_avatar),
-                    profile_fetched_at = %(now)s,
+                    profile_fetched_at = coalesce(%(profile_fetched)s, profile_fetched_at),
                     did_created_at = coalesce(%(plc_created)s, did_created_at),
                     handle_changes = coalesce(%(hc)s, handle_changes),
                     pds_host = coalesce(%(pds)s, pds_host),
@@ -141,6 +141,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                 {
                     "did": d,
                     "now": now,
+                    "profile_fetched": now if p is not None else None,
                     "plc_ok": q is not None,
                     "handle": p.get("handle") if p else None,
                     "dn": (p.get("displayName") or "")[:200] if p else None,
