@@ -1332,17 +1332,26 @@ class Lookup:
         # one critical section: the fact extraction (_linked) must not land between the check
         # and the add, or this quick read's receipt would replace the facts' (RLock: re-entrant)
         with self.lock:
-            if any(pg.url == short for pg in self.result.pages):
-                return  # the fact extraction was quicker: its read stands, nothing to add
+            pg = next((pg for pg in self.result.pages if pg.url == short), None)
+            if pg is not None and (self._subject_text or self._card_title or self._unreadable):
+                return  # facts already supplied the text, or confirmed a tombstone
             rid = self.receipt(
                 "oxylabs", "/scrape", f'Page text read, headline: "{head[:200]}"',
                 source_url=final, call=call,
             )  # fmt: skip
-            pg = self.add_page(
-                Page(
-                    id="", url=short, final_url=final, role="linked", headline=head, receipt_id=rid
+            # Facts can arrive first without a headline: keep their page and receipt, but
+            # use this read's heading for the searches rather than discarding readable text.
+            if pg is None:
+                pg = self.add_page(
+                    Page(
+                        id="",
+                        url=short,
+                        final_url=final,
+                        role="linked",
+                        headline=head,
+                        receipt_id=rid,
+                    )
                 )
-            )
             self._subject_text = self._subject_text or head
             self._card_title = self._card_title or head
             self.result.subject_id = self.result.subject_id or pg.id
