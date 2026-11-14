@@ -16,7 +16,7 @@ export function memeFixture(flag = "meme", origin = "http://localhost:3005"): Lo
   });
   const matches = [
     base("img:origin", "same"),
-    base("img:same", "same", { domain: "mirror.example", first_seen: "2026-11-13T00:00:00Z", time_source: "page", relation_note: "Same picture and caption" }),
+    base("img:same", "same", { domain: "mirror.example", first_seen: "2026-11-13T00:00:00Z", time_source: "page", time_uncertainty_s: 86400, relation_note: "Same picture and caption" }),
     base("img:resized", "resized", { domain: "small.example", width: 240, height: 160, image_url: picture("THE MOON IS OPEN", 240, 160), first_seen: "2026-11-13T04:00:00Z", relation_note: "Same picture, smaller dimensions", distance: 1 }),
     base("img:cropped", "cropped", { domain: "crop.example", image_url: picture("THE MOON IS OPEN", 360, 240, true), thumb_url: picture("THE MOON IS OPEN", 360, 240, true), width: 360, height: 240, first_seen: null, crop_box: [0.125, 0.125, 0.875, 0.875], relation_note: "Edges cropped from the observatory picture", distance: 4, changes: ["Outer edges are cropped."], change_kinds: ["cropped"] }),
     base("img:edited", "edited", { domain: "caption.example", image_url: picture("THE MOON IS CLOSED"), thumb_url: picture("THE MOON IS CLOSED", 240, 160), first_seen: "2026-11-13T12:00:00Z", time_source: "page", distance: 6, edited_region: [0.031, 0.05, 0.969, 0.213], changes: ["Caption changed from ‘THE MOON IS CLOSED’ to ‘THE MOON IS OPEN’."], change_kinds: ["caption_changed"], changes_from: "match", relation_note: "Observatory picture with a changed caption" }),

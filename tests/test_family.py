@@ -342,3 +342,55 @@ def test_event_entry_from_text_search_needs_the_same_picture(monkeypatch):
     assert kym.scraped == [FakeKym.PAGE]  # the gallery is skipped, the entry read
     assert builder.sources == []
     assert any("'Storm Area 51'" in n and "not this photograph" in n for n in builder.notes)
+
+
+def source_of(result):
+    return next(n for n in result.family.nodes if n.kind == "source").members[0]
+
+
+def test_source_photo_uses_a_page_dates_uncertainty(monkeypatch):
+    # a date-only page date (any time that day) vs an exact post-id time later that day: the
+    # post id is provably earlier, as imagetrace's origin rule says
+    fake_reads(monkeypatch)
+    job, trace, _ = job_and_trace()
+    day = datetime(2008, 7, 17, tzinfo=UTC)
+    trace.matches["img:1"] = trace.matches["img:1"].model_copy(
+        update={"first_seen": day, "time_source": "page", "time_uncertainty_s": 86400.0}
+    )
+    trace.matches["img:5"] = trace.matches["img:5"].model_copy(
+        update={"first_seen": day.replace(hour=10), "time_source": "snowflake"}
+    )
+    family.Builder(job, trace).run()
+    assert source_of(job.result) == "img:5"
+    member = next(m for m in job.result.family.members if m.id == "img:1")
+    assert member.time_uncertainty_s == 86400.0
+
+
+def test_page_dates_that_land_during_the_reads_count_and_then_freeze(monkeypatch):
+    fake_reads(monkeypatch)
+    job, trace, _ = job_and_trace()
+    frozen = []
+    trace.freeze_page_dates = lambda: frozen.append(True)
+    import media.memeread as memeread
+
+    original = memeread.read_meme
+
+    def read_and_land(client, data, *, timeout_s):
+        # a page date for img:5 arrives from imagetrace while the copies are being read
+        with job.lock:
+            trace.matches["img:5"] = trace.matches["img:5"].model_copy(
+                update={
+                    "first_seen": datetime(2000, 1, 1, tzinfo=UTC),
+                    "time_source": "page",
+                    "time_uncertainty_s": 86400.0,
+                    "page_url": "https://blog.example/2000/post",
+                }
+            )
+        return original(client, data, timeout_s=timeout_s)
+
+    monkeypatch.setattr("media.memeread.read_meme", read_and_land)
+    family.Builder(job, trace).run()
+    assert frozen == [True]
+    assert source_of(job.result) == "img:5"
+    member = next(m for m in job.result.family.members if m.id == "img:5")
+    assert member.time_source == "page" and member.page_url == "https://blog.example/2000/post"

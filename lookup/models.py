@@ -22,7 +22,14 @@ class ImageMatch(BaseModel):
     # x_replies: a picture in an X reply thread (lookup/threadvariants.py), not a search engine
     engine: Literal["tineye", "yandex", "x_replies"]
     first_seen: datetime | None = None
+    # crawl_date: the day TinEye first saw it (an upper bound); snowflake: the time inside an
+    # X post id of the match's page or image URL; page: the date printed on the matched page
     time_source: Literal["crawl_date", "page", "snowflake"] | None = None
+    # the true time lies in [first_seen, first_seen + time_uncertainty_s]; None: one day for
+    # crawl_date, exact otherwise
+    time_uncertainty_s: float | None = None
+    # the receipt behind first_seen when it is not the engine's own (page read, post id)
+    time_receipt_id: int | None = None
     width: int | None = None
     height: int | None = None
     # template: the same page, app screen or meme template with other content (another name,
@@ -84,6 +91,8 @@ class FamilyMember(BaseModel):
     # Archive's earliest capture of the page or image (also an upper bound); page / snowflake
     # as on ImageMatch
     time_source: Literal["crawl_date", "page", "snowflake", "wayback"] | None = None
+    # as ImageMatch.time_uncertainty_s (a page date's); None for the other sources
+    time_uncertainty_s: float | None = None
     archived_url: str | None = None
     # the proof it is the same photograph: geometrically consistent keypoints (media.align)
     inliers: int | None = None

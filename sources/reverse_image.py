@@ -40,7 +40,7 @@ class ImageHit:
     page_url: str | None  # the page that shows the copy
     domain: str | None  # of page_url, else of image_url (sources.links.domain)
     first_seen: datetime | None  # tz-aware UTC midnight of the earliest backlink crawl_date
-    time_source: Literal["crawl_date"] | None
+    time_source: Literal["crawl_date", "snowflake"] | None  # snowflake: lookup.imagetrace
     width: int | None
     height: int | None
     title: str | None  # page title (Yandex sites) or image_name (TinEye)

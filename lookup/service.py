@@ -242,6 +242,8 @@ class Deps:
     public_base_url: str = ""
     image_matches_max: int = 20
     image_diffs_max: int = 4
+    # matched pages read for the date printed on them (one /scrape each, verify_read_s cap)
+    image_page_dates_max: int = 3
     relate: Callable | None = None
     describe_changes: Callable | None = None
     match_templates: Callable | None = None  # media.templatematch.same_template (tests: a fake)
@@ -2539,10 +2541,7 @@ class Lookup:
                     # an upload: the page must carry a real part of the image's text in what its
                     # own read returned (not the search snippet or headline it was found by); a
                     # page that only names the site is about it, like a short post
-                    and (
-                        not image
-                        or self._carries_caption(*self._page_read.get(pg.id, ()))
-                    )
+                    and (not image or self._carries_caption(*self._page_read.get(pg.id, ())))
                 ),
                 key=latest,
             )

@@ -9,13 +9,15 @@ import socket
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
 from lookup.models import ImageMatch
+from lookup.urls import X_HOSTS, classify, domain, snowflake_time
 from sources import reverse_image
 
 log = logging.getLogger(__name__)
@@ -24,6 +26,13 @@ DOWNLOAD_S = 5.0
 DOWNLOAD_BYTES = 8 * 1024 * 1024
 DIFF_S = 20.0
 DIFF_NEED_S = DIFF_S + 3.0
+# cap on each matched-page date read (Oxylabs /scrape with AI extraction, observed 4-12 s): the
+# reads are never waited for, so this bounds their cost, not the lookup's time
+PAGE_DATE_S = 15.0
+# a page date before the web, or after the read, is a misread, not a date
+PAGE_DATE_MIN = datetime(1991, 1, 1, tzinfo=UTC)
+_X_DOMAINS = {host.removeprefix("www.") for host in X_HOSTS}
+_IMAGE_FILE = re.compile(r"\.(?:jpe?g|png|gif|webp|avif|bmp|svg)$", re.I)
 # slots kept for TinEye (one result page; at most half the cap): only its dated matches can be
 # the image origin, so faster Yandex hits never fill the whole cap before TinEye answers
 TINEYE_RESERVE = 10
@@ -76,8 +85,63 @@ def _family_copy(data: bytes) -> bytes:
 
 
 def _bound(item):
-    """Latest moment the picture is known to have existed (a day-only crawl ends at midnight)."""
+    """Latest moment the picture is known to have existed: first_seen plus its uncertainty (a
+    day-only crawl or page date ends at midnight; a post id's time is exact)."""
+    unc = getattr(item, "time_uncertainty_s", None)
+    if unc is not None:
+        return item.first_seen + timedelta(seconds=unc)
     return item.first_seen + timedelta(days=item.time_source == "crawl_date")
+
+
+_FRONT_PAGES = {"", "index", "home", "default", "start", "main", "portal"}
+
+
+def _host(url: str | None) -> str:
+    """A URL's host without www./m.: the same site only on the same host (conservative: a
+    blog host serves many independent sites, alice.blogspot.com is not bob.blogspot.com)."""
+    host = (urlsplit(url or "").hostname or "").lower()
+    for prefix in ("www.", "m."):
+        host = host.removeprefix(prefix)
+    return host
+
+
+def _front_page(url: str) -> bool:
+    path = urlsplit(url).path.strip("/").lower()
+    return path.rsplit(".", 1)[0] in _FRONT_PAGES  # /, /index.html, /home, /default.aspx
+
+
+def _same_page(asked: str, final: str) -> bool:
+    """Whether the page the scraper ended on is still the matched page: a redirect to another
+    host (a repurposed domain, another blog on the same service) or to the site's front page
+    prints someone else's date."""
+    if _host(asked) != _host(final):
+        return False
+    return not _front_page(final) or _front_page(asked)
+
+
+# the first snowflake ids (2010-11-04) are ~10^15; sequential pre-snowflake ids (to ~3*10^10)
+# would decode to the epoch's first seconds: an id whose time is within a day of the epoch is
+# not read as a time
+MIN_DATED_ID = 86_400_000 << 22
+
+
+def _printed_day(item) -> str:
+    """The day a page date prints: the middle of its window (service._page_time stores a clock
+    time without a zone as that time minus 14 h, with 28 h of uncertainty), not its lower edge."""
+    unc = getattr(item, "time_uncertainty_s", None) or 0
+    return (item.first_seen + timedelta(seconds=unc / 2)).date().isoformat()
+
+
+def _post_time(hit) -> tuple[datetime, str, str] | None:
+    """(created_at, post URL, status id) when the hit's page or image URL is an X status: the
+    post's own time is in its id (lookup.urls.snowflake_time), exact, and the picture was on X
+    by then."""
+    for url in (hit.page_url, hit.image_url):
+        target = classify(url) if url else None
+        if target and target.kind == "x_post" and (target.post_id or "").isdigit():
+            if int(target.post_id) >= MIN_DATED_ID and (when := snowflake_time(target.post_id)):
+                return when, target.url, target.post_id
+    return None
 
 
 def _num(value):
@@ -169,6 +233,15 @@ class Trace:
         # family step (lookup/family.py) matches the photograph inside them
         self.images: dict[str, bytes] = {}
         self.base: bytes | None = job._upload
+        self.post_receipts: dict[str, int] = {}  # X status URL -> its post-id time receipt
+        self.page_reads: set[str] = set()  # page URLs (being) read for their printed date
+        self.page_dates: dict[str, tuple[datetime, float | None, int]] = {}  # url -> date read
+        # match id -> every page it was found on (a match shows one page_url; a later hit for
+        # the same picture can come from another page, and any of them can date it)
+        self.match_pages: dict[str, list[str]] = {}
+        self.page_futures: list[Future] = []
+        # no more page dates: the family step read its copies' dates, or finish() chose the origin
+        self.settled = threading.Event()
 
     def _active(self) -> bool:
         return (
@@ -205,9 +278,26 @@ class Trace:
                 return None
             return self.job.receipt(tool, endpoint, _wording(summary), source_url=url, ok=False)
 
-    def _complete(self, rid, summary, *, ok=True, call=None, source_url=None, latency_ms=None):
+    def _pages_open(self) -> bool:
+        """Page-date reads outlive the trace's future (they never delay it or the family step)
+        and count until finish() chooses the origin."""
+        return (
+            not self.settled.is_set()
+            and self.job._final is None
+            and time.monotonic() < self.job._provider_deadline()
+        )
+
+    def freeze_page_dates(self):
+        """No more page dates: the family step (lookup/family.py) has read its copies' dates,
+        and the image origin must rest on the same ones (job.lock held or not)."""
         with self.job.lock:
-            if not self._active():
+            self.settled.set()
+
+    def _complete(
+        self, rid, summary, *, ok=True, call=None, source_url=None, latency_ms=None, gate=None
+    ):
+        with self.job.lock:
+            if not (gate or self._active)():
                 return
             receipt = self.job.result.receipts[rid - 1]
             receipt.summary, receipt.ok = _wording(summary)[:400], ok
@@ -269,6 +359,12 @@ class Trace:
             if not self._active():
                 return added
             for hit, rid in sorted(pairs, key=lambda pair: self._priority(pair[0])):
+                posted = _post_time(hit)
+                if posted and (not hit.first_seen or posted[0] < _bound(hit)):
+                    # the post's exact time beats a crawl date that day or later
+                    hit = replace(hit, first_seen=posted[0], time_source="snowflake")
+                else:
+                    posted = None
                 urls = [url for url in (hit.image_url, hit.thumb_url) if url]
                 mid = next((self.aliases[url] for url in urls if url in self.aliases), None)
                 if mid is not None:
@@ -291,9 +387,18 @@ class Trace:
                         and (not match.first_seen or _bound(hit) < _bound(match))
                     ):
                         match.first_seen, match.time_source = hit.first_seen, hit.time_source
+                        match.time_uncertainty_s = None
+                        if hit.page_url:  # the page shown is the one the date is about
+                            match.page_url = hit.page_url
+                            match.domain = hit.domain or domain(hit.page_url)
+                        match.time_receipt_id = self._post_receipt(posted) if posted else None
                         match.engine = hit.engine
                     elif not match.first_seen and hit.engine == "tineye":
                         match.engine = hit.engine
+                    pages = self.match_pages.setdefault(mid, [])
+                    if hit.page_url and hit.page_url not in pages:
+                        pages.append(hit.page_url)
+                    match = self._with_page_date(match)  # a page read for another match
                     self.matches[mid] = match
                     if match.changes_from and self._match_is_older(match) != (
                         match.changes_from == "match"
@@ -322,6 +427,7 @@ class Trace:
                             continue
                         del self.matches[worst]
                         del self.priorities[worst]
+                        self.match_pages.pop(worst, None)
                         self.aliases = {
                             url: old for url, old in self.aliases.items() if old != worst
                         }
@@ -336,16 +442,32 @@ class Trace:
                         engine=hit.engine,
                         first_seen=hit.first_seen,
                         time_source=hit.time_source,
+                        time_receipt_id=self._post_receipt(posted) if posted else None,
                         width=hit.width,
                         height=hit.height,
                         receipt_id=rid,
                     )
+                    self.match_pages[mid] = [hit.page_url] if hit.page_url else []
+                    match = self._with_page_date(match)  # its page was read for another match
                     self.matches[mid] = match
                     self.priorities[mid] = self._priority(hit)
                     added.append(match)
                 self.aliases.update(dict.fromkeys(urls, mid))
             self._sync_matches()
         return added
+
+    def _post_receipt(self, posted) -> int | None:
+        """One receipt per X status whose id dates a match (job.lock held; no provider call)."""
+        when, url, status_id = posted
+        if url not in self.post_receipts:
+            self.post_receipts[url] = self.job.receipt(
+                "x-id",
+                "snowflake",
+                f"Image match on X post {status_id}: posted {when:%Y-%m-%d %H:%M:%S} UTC "
+                "(time inside the post id, not read from the page)",
+                source_url=url,
+            )
+        return self.post_receipts[url]
 
     @staticmethod
     def _priority(match, rank=None):
@@ -358,11 +480,166 @@ class Trace:
     @staticmethod
     def _comparison_summary(match):
         summary = f"Image comparison with the upload: {match.relation}"
-        if match.first_seen:
+        if match.first_seen and match.time_source == "page":
+            summary += f"; page dated {_printed_day(match)} (date printed on the page)"
+        elif match.first_seen:
             summary += f"; {match.engine} first seen {match.first_seen.isoformat()}"
             if match.time_source == "crawl_date":
                 summary += " (crawl date, not publication)"
+            elif match.time_source == "page":
+                summary += " (date printed on the page)"
+            elif match.time_source == "snowflake":
+                summary += " (time inside the X post id)"
         return summary
+
+    def _page_candidates(self) -> list[str]:
+        """Matched pages to read for their printed date, best match first (_priority: TinEye's
+        earliest first, then Yandex's undated ones), each page once, at most
+        image_page_dates_max per lookup. X posts are skipped (their id has the exact time), and
+        so are bare image files and matches already compared as a different picture."""
+        with self.job.lock:
+            if not self._active():
+                return []
+            left = max(0, self.job.deps.image_page_dates_max) - len(self.page_reads)
+            picked = []
+            for mid in sorted(self.matches, key=self.priorities.__getitem__):
+                match = self.matches[mid]
+                for url in self.match_pages.get(mid) or [match.page_url]:
+                    if left <= len(picked):
+                        break
+                    if (
+                        url in self.page_reads
+                        or url in picked
+                        or match.relation == "different"
+                        or not url
+                        or not url.startswith(("http://", "https://"))
+                        or match.engine == "x_replies"
+                        or url in (match.image_url, match.thumb_url)
+                        or domain(url) in _X_DOMAINS
+                        or _IMAGE_FILE.search(urlsplit(url).path)
+                    ):
+                        continue
+                    picked.append(url)
+            self.page_reads.update(picked)
+        return picked
+
+    def _with_page_date(self, match):
+        """`match` dated by the earliest printed date of the pages it was found on, when that
+        bound is earlier than the one it has; else `match` itself (job.lock held)."""
+        got = [
+            (*self.page_dates[url], url)
+            for url in self.match_pages.get(match.id) or [match.page_url]
+            if url in self.page_dates
+        ]
+        if not got:
+            return match
+        when, unc, rid, url = min(got, key=lambda d: d[0] + timedelta(seconds=d[1] or 0))
+        dated = match.model_copy(
+            update={
+                # the page shown is the one whose printed date this is
+                "page_url": url,
+                "domain": domain(url),
+                "first_seen": when,
+                "time_source": "page",
+                "time_uncertainty_s": unc,
+                "time_receipt_id": rid,
+            }
+        )
+        if match.first_seen and _bound(dated) >= _bound(match):
+            return match  # an earlier bound is already known
+        return dated
+
+    def _page_date(self, url):
+        """Read the publication date printed on a matched page, as the text lookup reads a
+        source page (Oxylabs scrape_facts, service._page_time): a dated bound with its own
+        receipt. It replaces the match's date only when its latest possible time is earlier."""
+        from lookup.service import (  # service imports this module
+            FACTS_CAP_S,
+            BudgetExceeded,
+            _page_time,
+        )
+
+        with self.job.lock:
+            if not self._pages_open():
+                return None
+            try:
+                self.job._spend()
+            except BudgetExceeded:
+                return None  # an optional read: the trace's own steps are not "out of time"
+            rid = self.job.receipt(
+                "oxylabs", "/scrape", "Matched page read: date not confirmed", source_url=url,
+                ok=False,
+            )  # fmt: skip
+        client = self.job.deps.oxylabs
+        try:
+            facts = client.scrape_facts(
+                url,
+                deadline=self.job._provider_deadline(min(FACTS_CAP_S, PAGE_DATE_S)),
+            )
+            call = dict(client.last_call)
+            if facts.unavailable:
+                raise ValueError(f"page unavailable: {facts.unavailable}")
+            if facts.http_status is not None and facts.http_status >= 400:
+                raise ValueError(f"page returned HTTP {facts.http_status}")
+        except Exception as exc:
+            log.info("image trace %s page date %s failed: %s", self.job.result.id, url, exc)
+            self._complete(
+                rid,
+                "Matched page read: page could not be read, no date",
+                ok=False,
+                source_url=url,
+                call=dict(getattr(client, "last_call", None) or {}),
+                gate=self._pages_open,
+            )
+            return None
+        when, unc = _page_time(facts.published_at)
+        if when is not None and not (PAGE_DATE_MIN <= when <= datetime.now(UTC)):
+            when = None
+        final = facts.final_url or url
+        moved = not _same_page(url, final)
+        # one transaction: a date finish() no longer takes leaves its receipt "not confirmed"
+        with self.job.lock:
+            if not self._pages_open():
+                return None
+            return self._settle_page(url, rid, facts, final, when, unc, moved, call)
+
+    def _settle_page(self, url, rid, facts, final, when, unc, moved, call):
+        """The page read's receipt and its date for every match on the page (job.lock held)."""
+        self._complete(
+            rid,
+            f"Matched page read: {facts.publisher or domain(final) or 'page'}"
+            + (
+                f"; the page now redirects to {domain(final)}"
+                + ("'s front page" if _host(url) == _host(final) else "")
+                + ", so its date is not the matched page's"
+                if moved
+                else f", published {facts.published_at} (the date printed on the page)"
+                if when
+                else ", no publication date found"
+            ),
+            call=call,
+            source_url=final,
+            gate=self._pages_open,
+        )
+        if when is None or moved:
+            return None
+        # every match on this page: the page existed with them by its date
+        self.page_dates[url] = (when, unc, rid)
+        changed = []
+        for mid, match in list(self.matches.items()):
+            dated = self._with_page_date(match)
+            if dated is match:
+                continue
+            self.matches[mid] = dated
+            if dated.changes_from and self._match_is_older(dated) != (
+                dated.changes_from == "match"
+            ):
+                self._withdraw_description(mid)
+            self.priorities[mid] = self._priority(dated, self.priorities[mid][2])
+            changed.append(mid)
+        if changed:
+            self._sync_matches()
+        return changed
 
     def _search(self, engine_view):
         engine, sites = engine_view
@@ -652,6 +929,11 @@ class Trace:
         searches = ThreadPoolExecutor(max_workers=3, thread_name_prefix="image-trace-search")
         comparisons = ThreadPoolExecutor(max_workers=8, thread_name_prefix="image-trace-compare")
         descriptions = ThreadPoolExecutor(max_workers=4, thread_name_prefix="image-trace-diff")
+        # page-date reads: started beside the comparisons, never waited for (see _pages_open)
+        pages = ThreadPoolExecutor(
+            max_workers=max(1, min(4, self.job.deps.image_page_dates_max)),
+            thread_name_prefix="image-trace-page",
+        )
         pending = {}
         answered = finished = diffs_started = diffs_done = 0
         initialized = False
@@ -681,6 +963,11 @@ class Trace:
                             waiting.extend(self._accept(*value))
                         if stage == "search:tineye":
                             waiting.extend(self._settle_tineye())
+                        if self.tineye_settled:
+                            # TinEye's dated matches are known: their pages, and the undated
+                            # ones', are read for a printed date beside the comparisons
+                            for item in self._page_candidates():
+                                self.page_futures.append(pages.submit(self._page_date, item))
                         self._step(
                             "reverse_image",
                             ("done" if answered else "skipped" if self.out_of_time else "failed")
@@ -757,6 +1044,7 @@ class Trace:
         finally:
             for pool in (searches, comparisons, descriptions):
                 pool.shutdown(wait=False, cancel_futures=True)
+            pages.shutdown(wait=False)  # running and queued reads finish on their own
         if skip or not initialized:
             self._step("variations", "skipped", skip or "No candidate images to compare")
             return
@@ -780,6 +1068,7 @@ class Trace:
         """Close late workers and choose the image origin only after post verification joins."""
         with self.job.lock:
             self.closed.set()
+            self.settled.set()  # page dates that landed by now count; later ones are dropped
             for sid in ("reverse_image", "variations"):
                 step = self.job._step(sid)
                 if step.state in ("pending", "running"):
@@ -815,23 +1104,31 @@ class Trace:
                 and post.media_urls
                 and (post.role in PICTURE_ROLES or own & {_media_id(u) for u in post.media_urls})
             ]
-            origins = [
-                match
-                for match in matches
-                if match.relation in ("same", "resized", "cropped")
-                and match.first_seen
-                and match.time_source
-                and all(
-                    match.first_seen + timedelta(days=match.time_source == "crawl_date") < created
-                    for created in posts
-                )
-            ]
+            # the earliest trustworthy time: the copy whose latest possible time (crawl day,
+            # page date with its uncertainty, exact post-id time) is earliest, and before every
+            # post that may carry the picture
+            origins = sorted(
+                (
+                    match
+                    for match in matches
+                    if match.relation in ("same", "resized", "cropped")
+                    and match.first_seen
+                    and match.time_source
+                    and all(_bound(match) < created for created in posts)
+                ),
+                key=lambda match: (_bound(match), match.id),
+            )
             result.image_origin_id = origins[0].id if origins else None
             if any(match.time_source == "crawl_date" for match in matches):
                 self.job.note(
                     "A crawl date is when the engine first saw the picture, "
                     "not a publication date. "
                     "The picture is at least that old; its true first appearance may be earlier."
+                )
+            if any(match.time_source == "page" for match in matches):
+                self.job.note(
+                    "A page date is the publication date printed on the matched page; "
+                    "a page edited later can carry a newer picture under an older date."
                 )
             if not origins:
                 self.job.note(
