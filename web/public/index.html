@@ -781,7 +781,9 @@
     const main = runs.find((r) => r.split === 'heldout') || runs[0];
     const others = runs.filter((r) => r !== main);
     const d = main.details || {};
-    const metric = meta.metric || ['fpr', 'recall', 'precision', 'f1'].find((m) => main[m] != null);
+    // a known dataset without a headline rate (calibration, takedowns) gets its own block below;
+    // only unknown datasets fall back to the first rate the row has
+    const metric = meta.metric || (DATASETS[ds] ? null : ['fpr', 'recall', 'precision', 'f1'].find((m) => main[m] != null));
     let big;
     if (metric && main[metric] != null) {
       // live_hand_labels keeps its own k/n/interval per metric (weighted); never derive k from a rate there
@@ -793,6 +795,12 @@
       big = `<div class="big"><b>${pct(main[metric], 1)}</b><span>${METRIC_WORD[metric]}</span></div>
         <div class="ci">${k != null && meta.unit ? `${k} of ${n.toLocaleString()} ${meta.items} ${meta.unit}` : n != null ? `n = ${n.toLocaleString()}` : ''}${Array.isArray(ci) ? ` · 95% interval ${pct(ci[0], 1)} to ${pct(ci[1], 1)}` : ''}</div>
         ${ciBar(ci, main[metric])}`;
+    } else if (ds === 'calibration' && d.verdict_confidence && d.coordination_score) {
+      // reliability, not a rate: expected calibration error (0 = confidence matches outcomes)
+      const vc = d.verdict_confidence, cs = d.coordination_score;
+      big = `<div class="big"><b>${fix2(vc.ece)}</b><span>calibration error of the verdict confidence</span></div>
+        <div class="ci">ECE, 0 = a confidence of 0.8 is right 80% of the time · Brier ${fix2(vc.brier)} · n = ${num(vc.n) ?? '–'} decided verdicts</div>
+        <p class="ci" style="margin-top:14px">Raw coordination score against the coordination label: ECE ${fix2(cs.ece)}, Brier ${fix2(cs.brier)} (n = ${num(cs.n) ?? '–'}); it ranks clusters and is not a probability. Synthetic cases only (${num(main.n) ?? '–'}), a designed mix, not live prevalence.</p>`;
     } else if (ds === 'bluesky_takedowns' && d.headline) {
       const h = d.headline;
       big = `<div class="big"><b>${pct(h.coordinated_moderated_rate, 1)}</b><span>of flagged accounts taken down</span></div><div class="ci">vs. ${pct(h.random_active_moderated_rate, 1)} of random active accounts${d.horizon_h ? ` · within ${Number(d.horizon_h)} h` : ''}</div>`;
