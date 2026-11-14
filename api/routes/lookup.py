@@ -10,6 +10,7 @@ import re
 import time
 from contextlib import contextmanager
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -191,6 +192,14 @@ def start_lookup(
         raise HTTPException(400, "input contains a NUL character or an unpaired surrogate")
     if url:
         if len(url) > 2000 or not url.lower().startswith(("http://", "https://")):
+            raise HTTPException(400, "url must be an http(s) link")
+        try:
+            parts = urlsplit(url)
+            # Accessing .port validates its syntax and range; urlsplit alone does not.
+            _ = parts.port
+        except ValueError as exc:
+            raise HTTPException(400, "url must be an http(s) link") from exc
+        if not parts.hostname:
             raise HTTPException(400, "url must be an http(s) link")
         inp = LookupInput(url=url)
     elif profile := handle_profile_url(text):  # an @handle: look up that Bluesky account
