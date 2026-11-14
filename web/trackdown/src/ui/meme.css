@@ -32,7 +32,7 @@
 
 /* canvas card */
 .card:has(.meme-card) { padding: 0; }
-.card:has(.meme-edited) { border-color: rgba(217, 120, 61, 0.6); }
+.card:has(.meme-edited), .card:has(.meme-cropped) { border-color: rgba(217, 120, 61, 0.6); }
 .meme-card { padding: 12px; }
 .meme-card .meme-eyebrow { margin-bottom: 6px; font-size: 9.5px; }
 .meme-card-open { display: block; width: 100%; padding: 4px 0 10px; text-align: left; }
@@ -64,6 +64,7 @@
 .meme-close { flex: none; width: 36px; height: 36px; display: grid; place-items: center; color: var(--text-3); border: 1px solid var(--line-2); transition: color 0.2s, border-color 0.2s; }
 .meme-close svg { width: 16px; height: 16px; }
 .meme-close:hover { color: var(--text); border-color: var(--text-2); }
+@media (max-width: 600px), (pointer: coarse) { .meme-close { width: 44px; height: 44px; } }
 .meme-compare-body { padding: 4px 28px 28px; }
 
 /* layout switch: the panel's tabs */
@@ -74,18 +75,18 @@
 
 .meme-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; position: relative; }
 .meme-plane { display: flex; position: relative; flex-direction: column; align-items: center; justify-content: center; min-width: 0; height: 360px; padding-top: 34px; background: #000; border: 1px solid var(--line-2); }
-.meme-plane h3 { position: absolute; top: 0; left: 0; right: 0; z-index: 2; margin: 0; padding: 0 12px; height: 34px; display: flex; align-items: center; font: 500 10.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); background: rgba(11, 11, 13, 0.9); }
+.meme-plane h3 { position: absolute; top: 0; left: 0; right: 0; z-index: 2; margin: 0; padding: 0 12px; height: 34px; font: 500 10.5px/34px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); background: rgba(11, 11, 13, 0.9); }
 .meme-comparison[data-view=overlay] { display: block; height: 380px; }
 .meme-comparison[data-view=overlay] .meme-plane { position: absolute; inset: 0; width: 100%; height: 100%; isolation: isolate; }
 .meme-comparison[data-view=overlay] .meme-variant { clip-path: inset(0 calc(100% - var(--reveal)) 0 0); }
-.meme-comparison[data-view=overlay] .meme-upload h3 { justify-content: flex-end; }
+.meme-comparison[data-view=overlay] .meme-upload h3 { text-align: right; }
 .meme-slider-line { display: none; }
 .meme-comparison[data-view=overlay] .meme-slider-line { display: block; position: absolute; left: var(--reveal); top: 0; bottom: 0; z-index: 3; border-left: 1.5px dashed var(--text); pointer-events: none; }
 .meme-comparison[data-view=overlay] .meme-slider-line::after { content: ""; position: absolute; top: 50%; left: -8px; width: 14px; height: 14px; background: var(--text); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); transform: translateY(-50%); }
 .meme-comparison[data-view=overlay]:has([data-unavailable]) { display: grid; grid-template-columns: 1fr; height: auto; }
 .meme-comparison[data-view=overlay]:has([data-unavailable]) .meme-plane { position: relative; inset: auto; height: 240px; clip-path: none; }
 .meme-comparison[data-view=overlay]:has([data-unavailable]) .meme-plane:has([data-unavailable]) { height: 160px; }
-.meme-comparison[data-view=overlay]:has([data-unavailable]) .meme-upload h3 { justify-content: flex-start; }
+.meme-comparison[data-view=overlay]:has([data-unavailable]) .meme-upload h3 { text-align: left; }
 .meme-comparison[data-view=overlay]:has([data-unavailable]) .meme-slider-line, .meme-comparison[data-view=overlay]:has([data-unavailable]) + .meme-slider { display: none; }
 .meme-slider { display: block; padding: 16px 0 4px; font: 500 10.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
 .meme-slider output { float: right; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -118,11 +119,11 @@
 .meme-changes h3 { margin: 24px 0 6px; font: 500 11px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
 .meme-changes ul { margin: 0; padding: 0; list-style: none; }
 .meme-changes li { position: relative; padding: 9px 0 9px 22px; font: 400 14px/1.5 var(--sans); color: var(--text); border-bottom: 1px dashed var(--line); }
-.meme-changes li::before { content: "↺"; position: absolute; left: 2px; color: var(--vc); }
+.meme-changes li::before { content: "↺" / ""; position: absolute; left: 2px; color: var(--vc); }
 .meme-kind-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .meme-kind-chips:empty { display: none; }
-.meme-kind-chips span { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px; font: 600 10.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--vc); border: 1px solid var(--vc); white-space: nowrap; }
-.meme-kind-chips span::before { content: ""; width: 6px; height: 6px; background: var(--vc); }
+.meme-kind-chips span { display: inline-flex; align-items: center; gap: 7px; min-height: 22px; max-width: 100%; padding: 4px 8px; font: 600 10.5px/1.3 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--vc); border: 1px solid var(--vc); overflow-wrap: anywhere; }
+.meme-kind-chips span::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--vc); }
 .meme-honesty { margin: 16px 0 0; padding: 10px 12px; font: 400 12.5px/1.5 var(--sans); color: var(--text-2); border: 1px dashed rgba(228, 179, 106, 0.45); }
 
 @media (max-width: 860px) {
@@ -133,7 +134,6 @@
   .meme-compare { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); clip-path: none; }
   .meme-dialog-head { margin: 0 16px; padding: 16px 0 14px; }
   .meme-dialog-head h2 { font-size: 16px; letter-spacing: 0.14em; }
-  .meme-close { width: 44px; height: 44px; }
   .meme-compare-body { padding: 16px 16px 20px; }
   .meme-modes { display: none; }
   .meme-comparison[data-view=overlay]:not(:has([data-unavailable])) { height: 270px; }

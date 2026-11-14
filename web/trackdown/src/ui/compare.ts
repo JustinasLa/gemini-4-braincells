@@ -115,6 +115,7 @@ export function refreshComparison(trace: TraceCase) {
   if (!active || active.dataset.trace !== trace.id) return;
   const match = trace.lookup?.image_matches?.find((candidate) => candidate.id === active!.dataset.match);
   if (!match) return showRemoved(active);
+  if (active.dataset.removed) return; // its body is gone: a match that comes back stays "no longer a match"
   active.dataset.relation = relationOf(match);
   active.querySelector("#meme-compare-title")!.textContent = titleText(match);
   renderPictures(active, trace, match);
