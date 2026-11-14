@@ -23,7 +23,7 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <button class="wordmark" data-act="home" title="Start over" aria-label="Shill or Chill: start over">SHILL OR CHILL</button>
+    <a class="wordmark" href="../" title="Back to the live monitor" aria-label="Noise Radar: back to the live monitor">NOISE RADAR</a>
     <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
@@ -146,7 +146,7 @@ function renderResources(c: TraceCase) {
   if (c.findingsOnly) app.dataset.notime = "";
   else delete app.dataset.notime;
   $("#empty").hidden = !empty;
-  document.title = `${c.title} · Shill or Chill`;
+  document.title = `${c.title} · Trackdown · Noise Radar`;
 }
 
 // ---------------------------------------------------------------- outliner
@@ -566,7 +566,9 @@ function showHome() {
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
+    <a class="home-back" href="../">← Live monitor</a>
     <div class="home-c">
+      <div class="home-eyebrow label">Noise Radar · Trackdown</div>
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
       <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
@@ -577,7 +579,7 @@ function showHome() {
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-back, .home-eyebrow, .home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
   $("form", homeEl).addEventListener("submit", (e) => {
