@@ -372,9 +372,14 @@ def _reader(monkeypatch, frames_per_host):
 
 
 def test_reader_always_ends_the_queue_with_stop(monkeypatch):
-    # A frame the reader can't handle kills its thread; the writer must still get STOP
+    # Anything that kills the reader thread; the writer must still get STOP
     # instead of waiting on an empty queue forever.
-    consumer, q, reader, _ = _reader(monkeypatch, [["[]"]])
+    consumer, q, reader, _ = _reader(monkeypatch, [["{}"]])
+
+    def boom(*a, **k):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(consumer.json, "loads", boom)
     monkeypatch.setattr("threading.excepthook", lambda args: None)
     reader.start()
     reader.join(5)
@@ -389,3 +394,102 @@ def test_failover_requested_while_disconnected_does_not_drop_the_next_host(monke
     reader.run()
     assert hosts == ["h1"]
     assert q.get_nowait()[1]["did"] == "did:plc:x"
+
+
+# ---- fuzzing regressions (Sat 14 Nov: mutated live events + Gemini-written adversarial events)
+_T = 1794598323302197
+
+
+def _commit(record, collection="app.bsky.feed.post", **commit):
+    c = {
+        "rev": "r",
+        "operation": "create",
+        "collection": collection,
+        "rkey": "3abc",
+        "record": record,
+    }
+    c.update(commit)
+    return {"did": "did:plc:fz", "time_us": _T, "kind": "commit", "commit": c}
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"did": "did:plc:fz", "time_us": _T, "kind": "account", "account": ["did:plc:fz", False]},
+        {"did": "did:plc:fz", "time_us": _T, "kind": "identity", "identity": "x"},
+        {"did": "did:plc:fz", "time_us": _T, "kind": "commit", "commit": 10**30},
+        _commit({"text": "hi"}, collection={"$type": 5}),
+        _commit({"text": "hi"}, collection=["app.bsky.feed.post"]),
+        {"did": "did:plc:fz", "time_us": 10**30, "kind": "account", "account": {}},
+        {"did": "did:plc:fz", "time_us": 2**64 - 1, "kind": "account", "account": {}},
+        {"did": "did:plc:fz", "time_us": -5, "kind": "account", "account": {}},
+        {"did": "did:plc:fz", "time_us": True, "kind": "account", "account": {}},
+        {"did": "a\x00b", "time_us": _T, "kind": "account", "account": {}},
+    ],
+)
+def test_malformed_events_are_dropped_not_raised(event):
+    # each of these crashed normalize() before (AttributeError, TypeError, OverflowError...)
+    assert normalize(event) is None or isinstance(normalize(event), AccountEvent)
+
+
+def test_sequence_numbers_beyond_bigint_are_dropped_not_stored():
+    ev = {"did": "did:plc:fz", "time_us": _T, "kind": "identity"}
+    ev["identity"] = {"handle": "a.test", "seq": 2**63}
+    assert normalize(ev).seq is None
+    ev["identity"]["seq"] = 41
+    assert normalize(ev).seq == 41
+
+
+def test_text_with_lone_surrogates_and_nul_is_storable():
+    row = normalize(_commit({"text": "bad \ud800 text \x00 here", "langs": ["e\udfffn"]}))
+    for s in [row.text, *row.langs]:
+        s.encode("utf-8")  # Postgres needs valid UTF-8: this raised UnicodeEncodeError before
+        assert "\x00" not in s
+
+
+def test_rkey_with_nul_gives_a_clean_uri():
+    row = normalize(_commit({}, operation="delete", rkey="3ab\x00c"))
+    assert isinstance(row, Delete) and "\x00" not in row.uri
+
+
+def test_reader_skips_a_non_object_frame_and_keeps_reading(monkeypatch):
+    frame = '{"did": "did:plc:x", "time_us": 1794598323302197, "kind": "account"}'
+    consumer, q, reader, hosts = _reader(monkeypatch, [["[]", "123", frame]])
+    reader.run()
+    assert reader.bad_frames == 2 and hosts == ["h1"]  # no reconnect, no failover
+    assert q.get_nowait()[1]["did"] == "did:plc:x"
+
+
+def test_write_loop_survives_an_event_the_normaliser_cannot_read(monkeypatch):
+    import queue
+
+    from ingest import consumer
+
+    class W:
+        flushed = []
+
+        def dedupe(self, row):
+            return False
+
+        def flush(self, batch, host, eps):
+            self.flushed.append(batch.n)
+            return 0.0
+
+    real = consumer.normalize
+
+    def boom(ev):
+        if ev.get("boom"):
+            raise RuntimeError("unexpected record shape")
+        return real(ev)
+
+    monkeypatch.setattr(consumer, "normalize", boom)
+    q = queue.Queue()
+    good = {"did": "did:plc:x", "time_us": _T, "kind": "account", "account": {"active": True}}
+    q.put(("{}", {"boom": True}))
+    q.put(("{}", good))
+    q.put(consumer.STOP)
+    assert consumer.write_loop(q, W(), flush_s=0.01) == 2
+    assert sum(W.flushed) == 1

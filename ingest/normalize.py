@@ -24,10 +24,38 @@ _MAX_TEXT = 10_000  # posts are capped at 3000 graphemes; anything bigger is mal
 
 
 def clean(s: object) -> str | None:
-    """Text safe for Postgres (no NUL bytes), or None."""
+    """Text safe for Postgres (no NUL bytes, valid UTF-8), or None."""
     if not isinstance(s, str):
         return None
-    return s.replace("\x00", "")[:_MAX_TEXT]
+    s = s.replace("\x00", "")[:_MAX_TEXT]
+    try:
+        s.encode("utf-8")
+    except (
+        UnicodeEncodeError
+    ):  # lone surrogates ("\ud800" is valid JSON): Postgres can't store them
+        s = s.encode("utf-8", "replace").decode("utf-8")
+    return s
+
+
+# Jetstream's time_us: microseconds since 1970; anything outside 1970-2100 is malformed.
+_MAX_TIME_US = 4_102_444_800_000_000
+_INT64 = 2**63
+
+
+def _int64(value: object) -> int | None:
+    """An int that fits Postgres bigint, else None (bool is not an int here)."""
+    if isinstance(value, int) and not isinstance(value, bool) and -_INT64 <= value < _INT64:
+        return value
+    return None
+
+
+def valid_time_us(value: object) -> bool:
+    """A Jetstream time_us we can store and resume from (an int between 1970 and 2100)."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 < value < _MAX_TIME_US
+
+
+def _dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
 
 
 def us_to_dt(time_us: int) -> datetime:
@@ -199,43 +227,43 @@ def normalize(event: dict) -> Row | None:
     """One Jetstream event -> one row, or None for events we don't store."""
     did = event.get("did")
     time_us = event.get("time_us")
-    if not isinstance(did, str) or not isinstance(time_us, int):
-        return None
+    if not isinstance(did, str) or clean(did) != did or not valid_time_us(time_us):
+        return None  # Jetstream never sends these; a malformed event is dropped, not stored
     seen_at = us_to_dt(time_us)
     kind = event.get("kind")
 
     if kind == "account":
-        acc = event.get("account") or {}
+        acc = _dict(event.get("account"))
         return AccountEvent(
             did=did,
             kind="account",
             active=acc.get("active") if isinstance(acc.get("active"), bool) else None,
             status=clean(acc.get("status")) or ("active" if acc.get("active") else None),
             handle=None,
-            seq=acc.get("seq") if isinstance(acc.get("seq"), int) else None,
+            seq=_int64(acc.get("seq")),
             time_us=time_us,
             event_time=parse_ts(acc.get("time")),
         )
     if kind == "identity":
-        ident = event.get("identity") or {}
+        ident = _dict(event.get("identity"))
         return AccountEvent(
             did=did,
             kind="identity",
             active=None,
             status=None,
             handle=clean(ident.get("handle")),
-            seq=ident.get("seq") if isinstance(ident.get("seq"), int) else None,
+            seq=_int64(ident.get("seq")),
             time_us=time_us,
             event_time=parse_ts(ident.get("time")),
         )
     if kind != "commit":
         return None
 
-    commit = event.get("commit") or {}
+    commit = _dict(event.get("commit"))
     collection = commit.get("collection")
-    rkey = commit.get("rkey")
+    rkey = clean(commit.get("rkey"))
     op = commit.get("operation")
-    if collection not in TABLE_FOR or not isinstance(rkey, str):
+    if not isinstance(collection, str) or collection not in TABLE_FOR or not rkey:
         return None
     uri = f"at://{did}/{collection}/{rkey}"
     table = TABLE_FOR[collection]

@@ -47,6 +47,18 @@ about 1 GB per hour of raw data. Anything a cluster references is copied to
   queue is nearly empty (the host is late, not us), the reader drops that host and moves to the
   next one, resuming from the cursor (`INGEST_FAILOVER_LAG_S`, `INGEST_FAILOVER_AFTER_S`).
 - Logs `events/s`, `lag_s`, queue size, rows and duplicates every 30 s.
+- One malformed event never stops ingest:
+  - A non-object frame is skipped by the reader (`bad_frames`).
+  - An event the normaliser can't read is logged and skipped.
+  - A row Postgres rejects, or that the driver can't encode (lone surrogates), is skipped by the
+    row-by-row retry. This covers deletes and account events too.
+  - Text is NUL-free valid UTF-8; seq values beyond bigint and `time_us` outside 1970-2100 are
+    dropped, and the cursor never resumes from a malformed `time_us`.
+- Fuzzed on Sat 14 Nov with 6,000 mutated live events, 200 adversarial events written by Gemini
+  and odd top-level frames. Before the fix there were 7 crash classes, each of which would have
+  crash-looped ingest (the restart resumes before the same event). After it there were none, and
+  normalising 30,000 real events gives identical rows. The regressions are in
+  `tests/test_ingest_normalize.py` and `tests/test_ingest_writer_db.py`.
 
 ## Recording and replay
 

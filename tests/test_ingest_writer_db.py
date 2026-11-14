@@ -93,3 +93,66 @@ def test_bad_row_in_a_new_hour_keeps_that_hours_partition():
         assert w.rows_skipped == 1
         for t in ("posts", "reposts", "likes", "follows"):
             conn.execute(f"DROP TABLE IF EXISTS {t}_p2020010103")
+
+
+def test_rows_the_driver_cannot_encode_are_skipped_not_fatal():
+    """Rows that bypass the normaliser with a lone surrogate (UnicodeEncodeError, not a psycopg
+    error), a bad delete or a seq beyond bigint: the batch falls back to row by row and only
+    those rows are skipped; the good row and the cursor are written."""
+    from common.migrate import migrate
+    from ingest.normalize import AccountEvent, Delete
+
+    migrate(URL)
+    now = datetime(2026, 11, 14, 6, 10, tzinfo=UTC)
+    with psycopg.connect(URL, autocommit=True) as conn:
+        conn.execute("DELETE FROM posts WHERE did LIKE 'did:plc:wenc%'")
+        w = Writer(conn, stream="test-enc")
+        b = Batch()
+        good = Post(
+            uri="at://did:plc:wencgood/app.bsky.feed.post/1",
+            cid=None,
+            did="did:plc:wencgood",
+            text="fine",
+            langs=None,
+            created_at=now,
+            seen_at=now,
+        )
+        bad = Post(
+            uri="at://did:plc:wencbad/app.bsky.feed.post/1",
+            cid=None,
+            did="did:plc:wencbad",
+            text="bad \ud800",
+            langs=None,
+            created_at=now,
+            seen_at=now,
+        )
+        b.add(good, 1794636600000000)
+        b.add(bad, 1794636600000001)
+        b.add(
+            Delete(
+                table="posts",
+                uri="at://did:plc:wencbad/app.bsky.feed.post/\x00",
+                did="did:plc:wencbad",
+                seen_at=now,
+            ),
+            1794636600000002,
+        )
+        b.add(
+            AccountEvent(
+                did="did:plc:wencgood",
+                kind="identity",
+                active=None,
+                status=None,
+                handle="x.test",
+                seq=2**63,
+                time_us=1794636600000003,
+                event_time=None,
+            ),
+            1794636600000003,
+        )
+        w.flush(b, "test-host", None)
+        uris = {r[0] for r in conn.execute("SELECT uri FROM posts WHERE did LIKE 'did:plc:wenc%'")}
+        assert uris == {good.uri}
+        assert w.rows_skipped == 3
+        cur = conn.execute("SELECT cursor_time_us FROM ingest_state WHERE stream = 'test-enc'")
+        assert cur.fetchone()[0] == 1794636600000003
