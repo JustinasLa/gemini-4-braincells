@@ -529,11 +529,14 @@ class Trace:
             update={"changes": [], "change_kinds": [], "changes_from": None}
         )
         if match.receipt_id:
-            self._complete(
-                match.receipt_id,
+            # written here, not through _complete: this runs inside an _accept_hits transaction
+            # that was admitted under job.lock (the job can't freeze mid-way), and a deadline
+            # passing since then must not leave the wrong-way sentences on an ok receipt
+            receipt = self.job.result.receipts[match.receipt_id - 1]
+            receipt.ok = False
+            receipt.summary = (
                 "Image change description withdrawn: a later date for this copy changed which "
-                "picture it starts from",
-                ok=False,
+                "picture it starts from"
             )
 
     def _diff(self, item):

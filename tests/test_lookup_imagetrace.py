@@ -1511,3 +1511,40 @@ def test_a_date_arriving_after_publication_withdraws_the_description():
     receipt = job.result.receipts[rid - 1]
     assert not receipt.ok and receipt.summary.startswith("Image change description withdrawn")
     assert all(m.changes_from is None for m in job.result.image_matches if m.id == match.id)
+
+
+def test_withdrawal_marks_the_receipt_even_when_the_deadline_passes_mid_way(monkeypatch):
+    """Sol r3: _accept_hits is admitted just before the deadline; the withdrawal must still
+    mark the description's receipt failed (no second deadline gate)."""
+
+    def quick(client, original, variant, *, timeout_s):
+        return SimpleNamespace(
+            changes=["A caption was added"], kinds=["text_added"], latency_ms=4, model="m"
+        )
+
+    job = job_for(describe_changes=quick)
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    undated = replace(hit("edited.png", engine="yandex", when=None), page_url=None)
+    [match] = trace._accept(result("yandex", "query", [undated]), 1)
+    trace._publish_match(match.model_copy(update={"relation": "edited"}))
+    trace._diff((trace.matches[match.id], EDITED, BASE, quick))
+    rid = trace.matches[match.id].receipt_id
+    assert job.result.receipts[rid - 1].ok
+    calls = iter([True])  # admitted once, then the deadline has passed
+    monkeypatch.setattr(imagetrace.Trace, "_active", lambda self: next(calls, False))
+    dated = replace(undated, engine="tineye", first_seen=OLD, time_source="crawl_date")
+    trace._accept(result("tineye", "query", [dated]), 2)
+    assert trace.matches[match.id].changes == [] and trace.matches[match.id].changes_from is None
+    receipt = job.result.receipts[rid - 1]
+    assert not receipt.ok and receipt.summary.startswith("Image change description withdrawn")
