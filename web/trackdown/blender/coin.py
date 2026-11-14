@@ -18,7 +18,9 @@ RES = int(sys.argv[2]) if len(sys.argv) > 2 else 400
 SAMPLES = int(sys.argv[3]) if len(sys.argv) > 3 else 48
 FRAMES = int(sys.argv[4]) if len(sys.argv) > 4 else 48
 HERE = os.path.dirname(os.path.abspath(__file__))
-FONT = os.path.join(HERE, "fonts", "Cinzel.ttf")  # OFL, Roman inscriptional capitals; download from google/fonts (ofl/cinzel)
+FONT = os.path.join(
+    HERE, "fonts", "Cinzel.ttf"
+)  # OFL, Roman inscriptional capitals; download from google/fonts (ofl/cinzel)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
@@ -115,8 +117,18 @@ def mat_lacquer(name, color, rough=0.5, var=0.25):
     noise.inputs["Detail"].default_value = 8.0
     mix = nt.nodes.new("ShaderNodeMix")
     mix.data_type = "RGBA"
-    mix.inputs[6].default_value = (color[0] * (1 - var), color[1] * (1 - var), color[2] * (1 - var), 1)
-    mix.inputs[7].default_value = (min(1, color[0] * (1 + var)), min(1, color[1] * (1 + var)), min(1, color[2] * (1 + var)), 1)
+    mix.inputs[6].default_value = (
+        color[0] * (1 - var),
+        color[1] * (1 - var),
+        color[2] * (1 - var),
+        1,
+    )
+    mix.inputs[7].default_value = (
+        min(1, color[0] * (1 + var)),
+        min(1, color[1] * (1 + var)),
+        min(1, color[2] * (1 + var)),
+        1,
+    )
     nt.links.new(noise.outputs["Fac"], mix.inputs[0])
     nt.links.new(mix.outputs[2], b.inputs["Base Color"])
     bump = nt.nodes.new("ShaderNodeBump")
@@ -155,7 +167,9 @@ def add_bevel(obj, width, segs=4):
 
 
 def cyl(name, radius, depth, y, mat, verts=160, bevel=0.0):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=radius, depth=depth, location=(0, y, 0), rotation=(math.pi / 2, 0, 0))
+    bpy.ops.mesh.primitive_cylinder_add(
+        vertices=verts, radius=radius, depth=depth, location=(0, y, 0), rotation=(math.pi / 2, 0, 0)
+    )
     o = bpy.context.active_object
     o.name = name
     o.data.materials.append(mat)
@@ -174,7 +188,9 @@ body = cyl("body", R, D, 0, GOLD, bevel=0.035)
 n_ridges = 120
 for i in range(n_ridges):
     a = 2 * math.pi * i / n_ridges
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(math.cos(a) * (R + 0.002), 0, math.sin(a) * (R + 0.002)))
+    bpy.ops.mesh.primitive_cube_add(
+        size=1, location=(math.cos(a) * (R + 0.002), 0, math.sin(a) * (R + 0.002))
+    )
     o = bpy.context.active_object
     o.scale = (0.012, D * 0.78, 0.018)
     o.rotation_euler = (0, -a, 0)
@@ -183,7 +199,14 @@ for i in range(n_ridges):
 
 # raised rim ring on both faces (torus)
 for side in (-1, 1):
-    bpy.ops.mesh.primitive_torus_add(major_radius=R * 0.9, minor_radius=0.035, major_segments=160, minor_segments=16, location=(0, side * D / 2, 0), rotation=(math.pi / 2, 0, 0))
+    bpy.ops.mesh.primitive_torus_add(
+        major_radius=R * 0.9,
+        minor_radius=0.035,
+        major_segments=160,
+        minor_segments=16,
+        location=(0, side * D / 2, 0),
+        rotation=(math.pi / 2, 0, 0),
+    )
     t = bpy.context.active_object
     t.data.materials.append(GOLD)
     bpy.ops.object.shade_smooth()
@@ -192,6 +215,7 @@ for side in (-1, 1):
 # enamel field on each face (slightly recessed disc)
 front_field = cyl("field_front", R * 0.86, 0.02, -D / 2 - 0.002, RED, bevel=0.006)
 back_field = cyl("field_back", R * 0.86, 0.02, D / 2 + 0.002, MINT, bevel=0.006)
+
 
 # inscription around the rim on each face, Roman capitals bent along a circle
 def ring_text(body_text, y, flip):
@@ -257,7 +281,9 @@ FACE_Y = -D / 2 - 0.03  # just in front of the front face
 def make_flag(y):
     """Embossed flag emblem: pole + waving pennant, built for the front face."""
     parts = []
-    bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=0.03, depth=0.78, location=(-0.24, y, 0.2), rotation=(0, 0, 0))
+    bpy.ops.mesh.primitive_cylinder_add(
+        vertices=24, radius=0.03, depth=0.78, location=(-0.24, y, 0.2), rotation=(0, 0, 0)
+    )
     pole = bpy.context.active_object
     pole.data.materials.append(GOLD)
     bpy.ops.object.shade_smooth()
@@ -275,7 +301,9 @@ def make_flag(y):
     bpy.ops.object.mode_set(mode="OBJECT")
     for v in p.data.vertices:
         x, zz = v.co.x + 0.5, v.co.y  # x in 0..1
-        v.co = Vector((x * 0.56, 0.05 * math.sin(x * 7.0) * x, zz * 0.36 + 0.03 * math.sin(x * 6.0)))
+        v.co = Vector(
+            (x * 0.56, 0.05 * math.sin(x * 7.0) * x, zz * 0.36 + 0.03 * math.sin(x * 6.0))
+        )
     p.location = (-0.21, y, 0.39)
     sol = p.modifiers.new("solid", "SOLIDIFY")
     sol.thickness = 0.03
@@ -290,7 +318,13 @@ def make_shades(y):
     """Embossed sunglasses emblem."""
     parts = []
     for sx in (-1, 1):
-        bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=0.17, depth=0.05, location=(sx * 0.255, y, 0.26), rotation=(math.pi / 2, 0, 0))
+        bpy.ops.mesh.primitive_cylinder_add(
+            vertices=64,
+            radius=0.17,
+            depth=0.05,
+            location=(sx * 0.255, y, 0.26),
+            rotation=(math.pi / 2, 0, 0),
+        )
         lens = bpy.context.active_object
         lens.scale = (1.2, 0.78, 1)  # wide lens
         lens.rotation_euler = (math.pi / 2, sx * math.radians(-12), 0)
@@ -298,14 +332,21 @@ def make_shades(y):
         lens.data.materials.append(INK)
         bpy.ops.object.shade_smooth()
         parts.append(lens)
-        bpy.ops.mesh.primitive_torus_add(major_radius=0.175, minor_radius=0.026, location=(sx * 0.255, y, 0.26), rotation=(math.pi / 2, 0, 0))
+        bpy.ops.mesh.primitive_torus_add(
+            major_radius=0.175,
+            minor_radius=0.026,
+            location=(sx * 0.255, y, 0.26),
+            rotation=(math.pi / 2, 0, 0),
+        )
         fr = bpy.context.active_object
         fr.scale = (1.2, 0.78, 1)
         fr.rotation_euler = (math.pi / 2, sx * math.radians(-12), 0)
         fr.data.materials.append(GOLD)
         bpy.ops.object.shade_smooth()
         parts.append(fr)
-    bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=0.024, depth=0.12, location=(0, y, 0.3), rotation=(0, math.pi / 2, 0))
+    bpy.ops.mesh.primitive_cylinder_add(
+        vertices=24, radius=0.024, depth=0.12, location=(0, y, 0.3), rotation=(0, math.pi / 2, 0)
+    )
     br = bpy.context.active_object
     br.data.materials.append(GOLD)
     bpy.ops.object.shade_smooth()
@@ -349,6 +390,7 @@ scene.collection.objects.link(cam)
 cam.location = (0, -6.5, 0.0)
 cam.rotation_euler = (math.pi / 2, 0, 0)
 scene.camera = cam
+
 
 # ---- studio lighting: softboxes the metal reflects, invisible to camera
 def softbox(name, loc, size, strength, color=(1, 1, 1)):
