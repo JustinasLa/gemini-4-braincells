@@ -1314,3 +1314,22 @@ def test_x_author_rate_skips_pre_snowflake_ids(monkeypatch):
     acct = job._x_author("ada_example", False)
     assert acct is not None and acct.recent_posts_per_day == 48.0  # 2 gaps in 42 min -> 1 h
 
+
+def test_resolve_closes_the_client_it_makes(monkeypatch):
+    import httpx
+
+    made = []
+    real = httpx.Client
+
+    def client(**kw):
+        def redirect(req):
+            return httpx.Response(301, headers={"location": "https://news.example/story"})
+
+        c = real(transport=httpx.MockTransport(redirect), **kw)
+        made.append(c)
+        return c
+
+    monkeypatch.setattr(httpx, "Client", client)
+    job = Lookup("lk_short", LookupInput(text=TEXT), make_deps())
+    assert job._resolve("https://t.co/abc") == "https://news.example/story"
+    assert len(made) == 1 and made[0].is_closed

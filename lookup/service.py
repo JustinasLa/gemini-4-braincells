@@ -1034,6 +1034,9 @@ class Lookup:
             return loc if res.is_redirect and loc.startswith(("https://", "http://")) else url
         except httpx.HTTPError:
             return url
+        finally:
+            if http is not self.deps.http:  # made for this call: close its connection pool
+                http.close()
 
     def _user_text(self) -> str | None:
         return (self.result.input.text or "").strip() or None
