@@ -196,9 +196,10 @@ over 24 MP, timeout, an API error, a non-Super-VL response, a reply cut at `max_
 could lose an unfinished `content_flags`) or an unusable reply.
 
 - **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`).
-  `timeout_s` bounds the whole call from entry: image decoding, the rate-limiter wait (skipped,
-  returning None, if it would not fit) and the request, which gets only what is left. A bare 5xx
-  gets one retry if at least 3 s of the budget is left. Each attempt is logged by `log_call_attempt` with `task=imagediff`, and the Super VL check
+  `timeout_s` counts from entry: image decoding, then the rate-limiter wait (skipped, returning
+  None, if it would not fit), then the request, which gets what is left as its HTTP timeout.
+  That timeout applies per read, so a reply that completes after the deadline is dropped (None).
+  A bare 5xx gets one retry if at least 3 s of the budget is left. Each attempt is logged by `log_call_attempt` with `task=imagediff`, and the Super VL check
   applies. It calls the OpenAI client directly, not `NemotronClient._complete`, whose 4-try
   backoff cannot keep to a lookup's budget.
 - **Layout:** Verda accepts two images per request, so both were measured. The default is one

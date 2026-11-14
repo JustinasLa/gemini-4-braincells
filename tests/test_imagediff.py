@@ -2,7 +2,6 @@ import base64
 import io
 import json
 import logging
-import time
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -35,6 +34,28 @@ def image_bytes(size=(320, 180), mode="RGB", color="white", format="PNG"):
 @pytest.fixture
 def images():
     return image_bytes(), image_bytes(color="gray")
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """A controlled monotonic clock for media.imagediff (tests advance ``clock[0]``)."""
+    import media.imagediff as imagediff
+
+    now = [1000.0]
+    monkeypatch.setattr(imagediff, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    return now
+
+
+def slow_decoding(monkeypatch, clock, seconds):
+    import media.imagediff as imagediff
+
+    real = imagediff._image
+
+    def decode(data):
+        clock[0] += seconds
+        return real(data)
+
+    monkeypatch.setattr(imagediff, "_image", decode)
 
 
 def response(content, model=RETURNED_MODEL, finish="stop"):
@@ -354,11 +375,11 @@ def test_truncated_reply_is_never_used(images, content):
 
 
 @pytest.mark.parametrize("layout", ["pair", "composite"])
-def test_request_contract(images, layout):
+def test_request_contract(images, layout, clock):
     _, client = compare(images, layout=layout, max_tokens=1234)
     request = client.requests[0]
     assert request["model"] == MODEL
-    assert request["timeout"] == pytest.approx(2.5, abs=0.05)
+    assert request["timeout"] == 2.5
     assert request["max_tokens"] == 1234
     assert request["temperature"] == 0.1
     assert request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
@@ -368,6 +389,8 @@ def test_request_contract(images, layout):
     assert len(sent_images(client)) == (2 if layout == "pair" else 1)
     text = request["messages"][1]["content"][0]["text"]
     assert "red box" not in text  # no edited_region: the model is not told about a box
+    system = request["messages"][0]["content"]
+    assert "rectangle" not in system and "red box" not in system
     assert "earlier/original" in text and "later/variant" in text
 
 
@@ -587,42 +610,41 @@ def test_marker_guard_keeps_other_red_edits(images, sentence):
     assert result.changes == [sentence]
 
 
-def test_budget_covers_limiter_wait(images):
+def test_budget_covers_limiter_wait(images, clock):
     """timeout_s starts at the call: a limiter wait that would use it up means no request."""
     client = FakeClient(response(json.dumps(FULL)))
-    client._limiter._next = time.monotonic() + 5
+    client._limiter._next = clock[0] + 5
     assert describe_changes(client, *images, timeout_s=1) is None
     assert client.requests == [] and client.calls == 0
     client._limiter.wait.assert_not_called()
 
 
-def test_request_timeout_is_what_is_left(images, monkeypatch):
-    import media.imagediff as imagediff
-
-    real = imagediff._image
-
-    def slow_image(data):
-        time.sleep(0.2)
-        return real(data)
-
-    monkeypatch.setattr(imagediff, "_image", slow_image)
-    _, client = compare(images)  # timeout_s=2.5, about 0.4 s spent decoding
-    assert 1.5 < client.requests[0]["timeout"] < 2.2
+def test_request_timeout_is_what_is_left(images, monkeypatch, clock):
+    slow_decoding(monkeypatch, clock, 0.4)  # two images: 0.8 s of a 2.5 s budget
+    _, client = compare(images)
+    assert client.requests[0]["timeout"] == pytest.approx(1.7)
 
 
-def test_spent_budget_makes_no_request(images, monkeypatch):
-    import media.imagediff as imagediff
-
-    real = imagediff._image
-
-    def slow_image(data):
-        time.sleep(0.06)
-        return real(data)
-
-    monkeypatch.setattr(imagediff, "_image", slow_image)
+def test_spent_budget_reserves_no_slot_and_logs_nothing(images, monkeypatch, clock, caplog):
+    slow_decoding(monkeypatch, clock, 1.0)
     client = FakeClient(response(json.dumps(FULL)))
-    assert describe_changes(client, *images, timeout_s=0.1) is None
-    assert client.requests == []
+    assert describe_changes(client, *images, timeout_s=1.5) is None
+    assert client.requests == [] and client.calls == 0
+    client._limiter.wait.assert_not_called()
+    assert call_records(caplog) == []
+
+
+def test_reply_after_deadline_is_dropped(images, clock, caplog):
+    class LateClient(FakeClient):
+        def create(self, **kwargs):
+            self.requests.append(kwargs)
+            clock[0] += 3.0  # a reply that trickled in past the 2 s budget
+            return self.result
+
+    client = LateClient(response(json.dumps(FULL)))
+    assert describe_changes(client, *images, timeout_s=2) is None
+    records = call_records(caplog)
+    assert len(records) == 1 and records[0]["outcome"] == "TimeoutError"
 
 
 def test_client_without_model_returns_none(images):
@@ -647,8 +669,37 @@ def test_oversized_image_refused_before_decoding(images):
     assert client.requests == []
 
 
-def test_large_jpeg_is_drafted_down(images):
+def test_large_jpeg_is_drafted_down(images, monkeypatch):
+    """JPEG draft decodes at a reduced scale before any full-size copy is made."""
+    import media.imagediff as imagediff
+
+    seen = []
+    real = imagediff.ImageOps.exif_transpose
+
+    def record(image):
+        out = real(image)
+        seen.append(out.size)
+        return out
+
+    monkeypatch.setattr(imagediff.ImageOps, "exif_transpose", record)
     buffer = io.BytesIO()
     Image.new("RGB", (4000, 3000), "gray").save(buffer, format="JPEG")
     _, client = compare((buffer.getvalue(), images[1]), layout="pair")
+    assert seen[0][0] <= 2000  # drafted (JPEG scales by 1/2..1/8), not 4000 wide
     assert max(sent_images(client)[0].size) <= 1024
+
+
+@pytest.mark.parametrize("mode", ["L", "RGB"])
+def test_colour_key_transparency_survives_downscaling(images, mode):
+    """A tRNS key (no alpha band) must not blend into visible pixels when resized."""
+    image = Image.new(mode, (2048, 2048), "white")
+    pixels = image.load()
+    black = 0 if mode == "L" else (0, 0, 0)
+    for y in range(0, 2048, 2):
+        for x in range(0, 2048, 2):
+            pixels[x, y] = black  # transparent: the whole image should read as white
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", transparency=black)
+    _, client = compare((buffer.getvalue(), images[1]), layout="pair")
+    sent = sent_images(client)[0].convert("L")
+    assert sent.getextrema()[0] > 230

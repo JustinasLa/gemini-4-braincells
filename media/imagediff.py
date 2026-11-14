@@ -90,8 +90,7 @@ Return only JSON: text_before, text_after, changes, kinds, content_flags, confid
   authorship or truth. Never use deepfake, fake, faked, real, authentic, genuine, bot, shill,
   troll or propaganda. For a swapped face say:
   "The face of the person in the centre was replaced with a different face."
-- B may carry a thin red rectangle drawn by our tool to mark where pixels differ. It is not
-  part of the image: never report it; look inside it for the change. Ignore the A/B labels.
+- Ignore the "A: earlier" / "B: later" labels.
 - content_flags: subset of ["adult", "graphic"]. Sexual/nude material: ["adult"].
   Gore/violence: ["graphic"]. Do not describe bodies or acts in either case.
 - confidence: a number from 0 to 1."""
@@ -141,9 +140,12 @@ def _image(data: bytes) -> Image.Image:
             if source.width * source.height > _MAX_PIXELS:
                 raise ValueError(f"image too large: {source.width}x{source.height}")
             source.seek(0)
+            keyed = "transparency" in source.info  # tRNS: a colour key, not an alpha band
             source.draft("RGB", (_MAX_SIDE, _MAX_SIDE))  # JPEG: decode at a reduced scale
             image = ImageOps.exif_transpose(source)
-    if image.mode not in ("RGB", "RGBA", "L"):  # palette/1-bit resize badly; flatten first
+    # Resizing blends a colour key into its neighbours, and palette/1-bit images resize badly:
+    # flatten those to RGBA first.
+    if keyed or image.mode not in ("RGB", "RGBA", "L"):
         image = image.convert("RGBA")
     image.thumbnail((_MAX_SIDE, _MAX_SIDE), Image.Resampling.LANCZOS)
     image = image.convert("RGBA")
@@ -263,6 +265,7 @@ def describe_changes(
     """One bounded call (``timeout_s`` covers everything); never raises into the lookup."""
     entered = time.monotonic()
     started, response, media_hash, attempt, model = None, None, "", 1, "unknown"
+    pending = False  # a request was sent and its attempt is not logged yet
     try:
         model = str(client.model)
         if not math.isfinite(timeout_s) or timeout_s <= 0:
@@ -293,14 +296,16 @@ def describe_changes(
             },
         ]
         # Same-package private access: _complete's retry loop cannot honour a lookup budget.
+        # Checked before reserving a limiter slot, so a lookup out of budget costs none.
         limiter = client._limiter
-        if getattr(limiter, "_next", 0.0) - time.monotonic() >= deadline - time.monotonic():
-            raise TimeoutError("rate limiter wait exceeds the time budget")
+        now = time.monotonic()
+        if deadline - now <= 0 or getattr(limiter, "_next", 0.0) - now >= deadline - now:
+            raise TimeoutError("no time budget left for the request")
         limiter.wait()
         for attempt in (1, 2):
-            started = time.monotonic()
-            if deadline - started <= 0:
+            if deadline - time.monotonic() <= 0:
                 raise TimeoutError("time budget spent before the request")
+            started, pending = time.monotonic(), True
             client.calls += 1
             try:
                 response = client._client.chat.completions.create(
@@ -308,6 +313,8 @@ def describe_changes(
                     messages=messages,
                     temperature=0.1,
                     max_tokens=max_tokens,
+                    # httpx applies this per read, not to the whole reply: the deadline
+                    # check below drops a reply that trickled in after it.
                     timeout=deadline - started,
                     response_format={
                         "type": "json_schema",
@@ -334,6 +341,9 @@ def describe_changes(
                     error_type=type(exc).__name__,
                     task="imagediff",
                 )
+                pending = False
+        if time.monotonic() > deadline:
+            raise TimeoutError("reply arrived after the time budget")
         if not is_super_vl_model(response.model):
             raise NotVisionModelError("image comparison response is not Super VL")
         if not response.choices:
@@ -355,7 +365,7 @@ def describe_changes(
         )
         return replace(result, latency_ms=latency)
     except Exception as exc:
-        if started is not None:
+        if pending and started is not None:
             _log_failure(model, media_hash, started, response, attempt, type(exc).__name__)
         log.warning("image comparison unavailable: %s: %.300s", type(exc).__name__, exc)
         return None
