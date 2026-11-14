@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3001",
     "build": "tsc --noEmit && vite build",
+    "ship": "npm run build && node scripts/ship.mjs",
     "preview": "vite preview --host 0.0.0.0 --port 3001"
   },
   "devDependencies": {

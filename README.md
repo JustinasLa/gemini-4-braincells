@@ -87,6 +87,7 @@ that anyone was paid or why.
 | `signals/` | The coordination detector: windows, shared keys, account graph, clusters, four signal families, permutation null model, organic guards, deterministic status, enrichment. See `signals/README.md`. |
 | `sources/` | Oxylabs Web API: `/scrape` with AI extraction on a cluster's most-shared links, `/search` for its headline and repeated text. Every fact keeps its source URL. |
 | `media/` | Nemotron 3.5 Super VL: describes images and video thumbnails in candidate clusters, extracts their text (OCR), notes reuse and manipulated-context cues, links different images that share one text template. `media/README.md`. |
+| `lookup/` | Trace any link (X post, Bluesky post, profile, web page) with live data: Oxylabs `/scrape` reads the post, its counts and the author's profile; `/search` finds the same text on the web, on X and Bluesky and the coverage of the story; candidate copies are verified on their own pages (copy, quote or reply); exact X post times from the post id; Nemotron reads the images; Gemini writes a cited reading. Coordination verdict only when the link is in a monitored cluster. `lookup/README.md`. |
 | `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
 | `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. In review (PRs #9, #10). |
 | `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
@@ -266,6 +267,7 @@ evidence `kind` is `signal | media | source | analyst`.
 - `GET /api/clusters?status=&min_score=&limit=&include_synthetic=` → cluster summaries, newest first, each with `top_signals` and the latest analyst `verdict` *(implemented)*
 - `GET /api/clusters/{id}` → summary + `signals` + `members` + `posts` (25, with bsky.app links) + `evidence` (signal/media/source) + `analyst` (full latest verdict) *(implemented)*
 - `GET /api/metrics` → latest `eval_runs` per (dataset, split) *(implemented)*
+- `POST /api/lookup` `{url}` or `{text}` → 202 + `LookupResult` (`state: running`); `GET /api/lookup/{id}` polls it until `done`. Live, receipted trace of one link; schema in `lookup/README.md` *(implemented)*
 - `POST /api/analyze` `{text?, url?, handle?}` → `{status: matched|insufficient, clusters, web_findings, notes}`. `matched` = the input is in a monitored cluster (its verdicts apply); otherwise live Oxylabs findings only, never a verdict *(implemented)*
 
 **Analyst verdict** (stored in `evidence.detail` with `kind='analyst'`):

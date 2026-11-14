@@ -64,6 +64,7 @@
         <button class="nav-btn active" data-page="feed">Live feed</button>
         <button class="nav-btn" data-page="metrics">Metrics</button>
         <button class="nav-btn" data-page="methodology">Methodology</button>
+        <a class="button" href="trackdown/" title="Trace any X, Bluesky or news link with live data">Trace a link</a>
       </nav>
     </header>
     <section class="hero"><div><div class="eyebrow">Read the pattern, not the opinion</div><h2>Find coordinated amplification before it becomes noise.</h2><p>Noise Radar detects unusual coordination between accounts, shows the evidence behind every cluster, and abstains when the evidence is not strong enough.</p></div><div class="health"><span class="dot" id="health-dot"></span><span id="health-text">Connecting to monitor…</span></div></section>
@@ -92,13 +93,15 @@
   }
   function renderFeed() {
     const items = filtered();
-    app.innerHTML = `<div class="toolbar"><div><h2>Live cluster feed</h2><div class="muted">Newest detector results appear here. Select a cluster to inspect its evidence.</div></div><div class="filters"><select id="status-filter" aria-label="Filter by detector status"><option value="all">All detector calls</option><option value="coordinated">Coordinated</option><option value="likely_organic">Likely organic</option><option value="insufficient">Insufficient evidence</option></select><select id="score-filter" aria-label="Minimum score"><option value="0">Any score</option><option value="0.5">Score >= 50%</option><option value="0.7">Score >= 70%</option><option value="0.9">Score >= 90%</option></select><button class="button" id="refresh">Refresh</button></div></div>${liveSummary()}<div class="grid" id="cluster-grid">${state.error ? `<div class="error">${esc(state.error)}</div>` : items.length ? items.map(clusterCard).join('') : '<div class="empty">No clusters match the current filters.</div>'}</div><div class="panel" style="margin-top:16px"><div class="section-title">Ask the monitor</div><form class="analyze" id="analyze-form"><input name="text" placeholder="Paste a post or claim" maxlength="5000"><input name="url" type="url" placeholder="https://example.com/story"><input name="handle" placeholder="@handle or DID"><button class="button primary">Check input</button></form><div id="analysis-result" class="analysis-result"></div></div>`;
+    app.innerHTML = `<div class="toolbar"><div><h2>Live cluster feed</h2><div class="muted">Newest detector results appear here. Select a cluster to inspect its evidence.</div></div><div class="filters"><select id="status-filter" aria-label="Filter by detector status"><option value="all">All detector calls</option><option value="coordinated">Coordinated</option><option value="likely_organic">Likely organic</option><option value="insufficient">Insufficient evidence</option></select><select id="score-filter" aria-label="Minimum score"><option value="0">Any score</option><option value="0.5">Score >= 50%</option><option value="0.7">Score >= 70%</option><option value="0.9">Score >= 90%</option></select><button class="button" id="refresh">Refresh</button></div></div>${liveSummary()}<div class="grid" id="cluster-grid">${state.error ? `<div class="error">${esc(state.error)}</div>` : items.length ? items.map(clusterCard).join('') : '<div class="empty">No clusters match the current filters.</div>'}</div><div class="panel" style="margin-top:16px"><div class="section-title">Ask the monitor</div><form class="analyze" id="analyze-form"><input name="text" placeholder="Paste a post or claim" maxlength="5000"><input name="url" type="url" placeholder="https://example.com/story"><input name="handle" placeholder="@handle or DID"><button class="button primary">Check input</button></form><div class="muted" style="margin-top:8px">Got an X, Bluesky or news link? <a id="trace-link" href="trackdown/">Trace it with live data &rarr;</a></div><div id="analysis-result" class="analysis-result"></div></div>`;
     document.querySelector('#status-filter').value = state.filter; document.querySelector('#score-filter').value = state.minScore;
     document.querySelector('#status-filter').onchange = e => { state.filter = e.target.value; render(); };
     document.querySelector('#score-filter').onchange = e => { state.minScore = Number(e.target.value); render(); };
     document.querySelector('#refresh').onclick = load;
     document.querySelectorAll('[data-cluster]').forEach(b => b.onclick = () => openCluster(Number(b.dataset.cluster)));
     document.querySelector('#analyze-form').onsubmit = analyze;
+    const traceLink = document.querySelector('#trace-link');
+    if (traceLink) traceLink.onclick = () => { const u = document.querySelector('#analyze-form [name=url]')?.value?.trim(); traceLink.href = u ? `trackdown/?lookup=${encodeURIComponent(u)}` : 'trackdown/'; };
   }
   function liveSummary() {
     const coordinated = state.clusters.filter(c => c.status === 'coordinated').length;

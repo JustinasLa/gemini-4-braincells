@@ -3,7 +3,9 @@
 
 export type Status = "coordinated" | "likely_organic" | "insufficient";
 
-export type Platform = "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter";
+import type { LookupResult } from "./data/lookup";
+
+export type Platform = "x" | "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter";
 
 /** What a node is in the story. */
 export type Role =
@@ -19,7 +21,7 @@ export type Role =
 export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" | "cites";
 
 /** Which part of the pipeline produced a link or a receipt. */
-export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive";
+export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive" | "bluesky";
 
 export interface Author {
   name: string;
@@ -52,6 +54,8 @@ export interface TraceNode {
   likes?: number;
   cluster?: string;
   flags?: string[]; // short behaviour chips ("acct 3 d old", "same text")
+  timeUnknown?: boolean;
+  realData?: { label: string; facts: { label: string; value: string }[]; url?: string; receiptId?: number | null }[];
 }
 
 export interface TraceEdge {
@@ -76,6 +80,10 @@ export interface Receipt {
   text: string;
   url?: string;
   against?: boolean; // counter-evidence
+  id?: number;
+  endpoint?: string;
+  latencyMs?: number | null;
+  requestId?: string | null;
 }
 
 export interface TraceStep {
@@ -84,6 +92,9 @@ export interface TraceStep {
   hop?: number;
   found?: string[]; // node ids confirmed in this step
   rejected?: number; // candidates looked at and rejected
+  id?: string;
+  state?: "pending" | "running" | "done" | "failed" | "skipped";
+  detail?: string | null;
 }
 
 export interface TraceCase {
@@ -105,4 +116,6 @@ export interface TraceCase {
   wouldChange: string[];
   steps: TraceStep[];
   summary: string;
+  lookup?: LookupResult;
+  mock?: boolean;
 }

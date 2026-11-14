@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
-from api.routes import analyze, clusters, metrics
+from api.routes import analyze, clusters, lookup, metrics
 from common.db import connect
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -14,6 +14,7 @@ app = FastAPI(title="Noise Radar API", version="0.2.0")
 app.include_router(clusters.router)
 app.include_router(metrics.router)
 app.include_router(analyze.router)
+app.include_router(lookup.router)
 
 
 @app.get("/api/health")

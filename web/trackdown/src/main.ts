@@ -4,6 +4,7 @@ import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
 import { analyze, listLive, liveCase, type ClusterSummary } from "./data/api";
 import { simulatedCases } from "./data/cases";
+import { LookupError, lookupCase, startLookup, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
 import { Graph, type Mode } from "./engine/graph";
 import type { TraceCase } from "./types";
@@ -57,6 +58,8 @@ const ruler = $<HTMLCanvasElement>("#ruler");
 const consoleEl = $("#console");
 let current: TraceCase | null = null;
 let tracing = 0;
+let traceSequence = 0;
+let lookupController: AbortController | null = null;
 let skipFlag = false;
 let liveRows: ClusterSummary[] = [];
 preloadCoin();
@@ -85,7 +88,7 @@ function setPhase(p: Phase) {
 function renderResources(c: TraceCase) {
   const v = STATUS[c.status];
   $("#title").textContent = c.title;
-  const tag = c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
+  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
   $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
   document.title = `${c.title} · Shill or Chill`;
 }
@@ -199,7 +202,7 @@ g.onFrame = () => {
 dock.onScrub = () => {
   if (tracing) cancelTrace();
 };
-panel.onReplay = () => current && runTrace(current);
+panel.onReplay = () => current && (current.lookup ? openCase(current, "static") : runTrace(current));
 
 // ---------------------------------------------------------------- opening a case
 function openCase(c: TraceCase, how: "spread" | "static") {
@@ -239,7 +242,12 @@ function hideConsole() {
   consoleEl.classList.add("hidden");
 }
 function cancelTrace() {
-  if (tracing) skipFlag = true;
+  if (tracing) { skipFlag = true; tracing = 0; }
+  lookupController?.abort();
+  lookupController = null;
+  consoleEl.classList.remove("lookup-progress");
+  app.classList.remove("lookup-active");
+  setStatus(null, "");
 }
 function consoleHead(state: "run" | "done", c: TraceCase) {
   const mode = c.synthetic ? "--simulated" : c.historical ? "--archive" : "";
@@ -247,7 +255,10 @@ function consoleHead(state: "run" | "done", c: TraceCase) {
 }
 const statusEl = $("#status");
 statusEl.addEventListener("click", (e) => {
-  if ((e.target as HTMLElement).closest("[data-skip]")) skipFlag = true;
+  if ((e.target as HTMLElement).closest("[data-skip]") && !lookupController) skipFlag = true;
+});
+consoleEl.addEventListener("click", (event) => {
+  if ((event.target as HTMLElement).closest("[data-close-console]")) hideConsole();
 });
 function setStatus(tool: keyof typeof TOOL | null, text: string) {
   statusEl.classList.toggle("on", !!text);
@@ -276,7 +287,8 @@ async function typeLine(body: HTMLElement, tool: keyof typeof TOOL, text: string
 
 const CV = "#3fe07a";
 async function runTrace(c: TraceCase) {
-  const run = ++tracing;
+  cancelTrace();
+  const run = tracing = ++traceSequence;
   skipFlag = false;
   closeEvent();
   hideHome();
@@ -486,22 +498,108 @@ function hideHome() {
     el.remove();
   }, 700);
 }
-async function startTrace(raw: string) {
+async function startTrace(raw: string, mock = false) {
   const text = raw.trim();
   if (!text) {
     homeEl?.querySelector(".home-form")?.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(6px)" }, { transform: "translateX(0)" }], { duration: 300 });
     return;
   }
-  const btn = homeEl?.querySelector<HTMLButtonElement>(".home-form button");
-  if (btn) btn.textContent = "Checking…";
-  let c = await analyze(text);
-  if (!c) {
-    c = simulateFromInput(text);
-    toast("// live API not reachable: running a simulated trackdown");
+  cancelTrace();
+  closeEvent();
+  hideHome();
+  const run = tracing = ++traceSequence;
+  const controller = new AbortController();
+  lookupController = controller;
+  skipFlag = false;
+  setPhase("trace");
+  app.classList.add("lookup-active");
+  consoleEl.classList.add("lookup-progress");
+  consoleEl.classList.remove("hidden");
+  dock.pause();
+  dock.u = 1;
+  let graphSignature = "";
+  const latest: { result: LookupResult | null } = { result: null };
+  const update = (result: LookupResult) => {
+    if (controller.signal.aborted || run !== tracing) return;
+    latest.result = result;
+    const trace = lookupCase(result);
+    trace.mock = mock;
+    if (mock) { trace.live = false; trace.synthetic = true; trace.kicker = "Development mock"; }
+    current = trace;
+    const signature = JSON.stringify([trace.nodes, trace.edges, trace.clusters]);
+    if (signature !== graphSignature) {
+      const selected = g.selId;
+      const prior = new Map(g.nodes.map((node) => [node.d.id, { x: node.x, y: node.y }]));
+      g.load(trace, { revealAll: true });
+      for (const node of g.nodes) {
+        const position = prior.get(node.d.id);
+        if (position) { node.x = position.x; node.y = position.y; }
+        else node.el.classList.add("enter");
+      }
+      if (selected && g.byId.has(selected)) g.select(selected);
+      if (trace.nodes.length && !selected) g.fit(undefined, graphSignature ? 800 : 0, 1);
+      graphSignature = signature;
+    } else g.case = trace;
+    renderResources(trace);
+    panel.set(trace, result.state !== "done");
+    const rows = trace.steps.map((step) => `<div class="line ${step.state === "running" ? "active" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"><b>${esc(step.text)}</b>${step.detail ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${esc(step.state ?? "pending")}${step.found?.length ? ` · ${step.found.length}` : ""}</span></div>`).join("");
+    const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
+    consoleEl.innerHTML = `<div class="term-head"><span class="d g"></span><span class="file">${mock ? "MOCK · fictional data" : "Live lookup"} · ${esc(result.state)}</span><button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
+    $(".term-body", consoleEl).scrollTop = scroll;
+    const running = trace.steps.find((step) => step.state === "running");
+    setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
+  };
+  update({ id: "lookup-pending", state: "running", error: null, input: { url: /^https?:\/\//i.test(text) ? text : null, text: /^https?:\/\//i.test(text) ? null : text }, kind: "text", started_at: new Date().toISOString(), finished_at: null, status: "insufficient", subject_id: null, origin_id: null, posts: [], accounts: [], pages: [], media: [], edges: [], clusters: [], spread: null, receipts: [], assessment: null, steps: [{ id: "input", tool: "you", label: "Start lookup", state: "running", detail: "Requesting live data; no coordination verdict yet.", found: [], started_at: null, ended_at: null }], notes: [] });
+  try {
+    const result = mock && import.meta.env.DEV
+      ? await (await import("./data/mockLookup")).runMockLookup(update, controller.signal)
+      : await startLookup(text, update, controller.signal);
+    if (controller.signal.aborted || run !== tracing) return;
+    const trace = current!;
+    if (result.state === "failed") {
+      setPhase("done");
+      toast(result.error || "Lookup failed. Partial receipts remain available; no verdict was issued.");
+      return;
+    }
+    if (!mock) {
+      const existing = userCases.findIndex((item) => item.id === trace.id);
+      if (existing >= 0) userCases.splice(existing, 1);
+      userCases.unshift(trace);
+      saveUserCases();
+    }
+    renderRail();
+    panel.set(trace, false);
+    setPhase("done");
+    await showEvent(trace, run);
+  } catch (error) {
+    if (controller.signal.aborted || run !== tracing) return;
+    const message = error instanceof Error ? error.message : "Lookup failed. Please try again later.";
+    if (error instanceof LookupError && error.unavailable) {
+      setStatus(null, "Lookup unavailable; trying the legacy web analysis…");
+      toast(`${message} Trying web analysis instead.`);
+      let trace: TraceCase | null = null;
+      try { trace = await analyze(text); } catch { trace = null; }
+      if (controller.signal.aborted || run !== tracing) return;
+      if (!trace) {
+        trace = simulateFromInput(text);
+        toast("// live APIs not reachable: running a simulated trackdown");
+      }
+      userCases.unshift(trace);
+      saveUserCases();
+      runTrace(trace);
+    } else {
+      if (latest.result) update({ ...latest.result, state: "failed", error: message, steps: latest.result.steps.map((step) => step.state === "running" ? { ...step, state: "failed", detail: message } : step.state === "pending" ? { ...step, state: "skipped" } : step) });
+      setPhase("done");
+      toast(message);
+    }
+  } finally {
+    if (lookupController === controller) {
+      lookupController = null;
+      app.classList.remove("lookup-active");
+      tracing = 0;
+      setStatus(null, "");
+    }
   }
-  userCases.unshift(c);
-  saveUserCases();
-  runTrace(c);
 }
 
 let toastT = 0;
@@ -563,7 +661,9 @@ document.addEventListener("keydown", (e) => {
 renderRail();
 const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
-if (params.has("static")) openCase(first, "static");
+if (params.has("mockLookup") && import.meta.env.DEV) void startTrace("https://social.example/newsroom/status/100", true);
+else if (params.get("lookup")) void startTrace(params.get("lookup")!);
+else if (params.has("static")) openCase(first, "static");
 else if (params.has("case")) runTrace(first);
 else {
   setPhase("home");
