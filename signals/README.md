@@ -163,6 +163,22 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
   only say the same thing and share no action at all never form a cluster: semantic similarity
   is not used to build the graph (cost), a known gap.
 
+## Results summary (detector v1.6, Sat 14 Nov early morning)
+
+| What | Result | How |
+|---|---|---|
+| Recall, synthetic campaigns in recorded live windows, **dev** hours (20, 22, 00 UTC) | L1 18/18, L2 17/18, L3 0/18 (all L3 shown as "can't tell") | `python -m eval recall --split dev --repeats 1 --base-rates ...` |
+| Recall, **heldout** hours | HELDOUT_PLACEHOLDER | same, `--split heldout` (nothing tuned on these hours) |
+| External validation: Bluesky took down / suspended within 3 h | `coordinated` 56/458 accounts (12.2%, CI 9.5-15.6%); `likely_organic` 0/8,402; random active 0/1,200; clusters 13/81 vs 0/1,188 | `python -m eval takedowns --horizon-h 3` |
+| Gemini red team (fictional paraphrase campaigns vs organic look-alikes) | fresh-account campaigns 16/16 coordinated, aged 0/16, look-alikes 0/16; semantic signal 32/32 vs 0/16 | `python -m signals.attack_eval` |
+| Speed (2-vCPU budget, warm cache) | 10m pass ~5 s CPU, 1h pass ~40 s CPU + ~19 s DB; live worker 10-12 s per 10m pass | profiling in PR #34 |
+
+The one L2 miss on dev had three families firing and p = 0.018, just above 0.01 (its accounts are
+3-8 weeks old, so "under 30 days" only partly fires). Left as is: no threshold was tuned on dev.
+Future work, not done because it can't be checked tonight without new labels: a rank test of
+member account ages against the baseline sample (would catch weeks-old farms, but may also flag
+fandoms of recent joiners).
+
 ## Error analysis (live review, Sat 14 Nov 03:30-04:00)
 
 Every `coordinated` cluster stored by v1.5 in the previous 40 minutes (36) was read by hand:
