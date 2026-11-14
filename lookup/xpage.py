@@ -47,6 +47,7 @@ _BADGE = re.compile(r"\[!\[[^\]]*\]\([^)]*\)\]\(/[A-Za-z0-9_]{1,15}\)")
 _LINKS_ONLY = re.compile(r"^(?:\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|\[[^\]]*\]\([^)]*\))+$")
 _HEADER_LINES = 4  # name, up to two badge lines, @handle
 _LEADING_MENTIONS = re.compile(r"^(?:@[A-Za-z0-9_]{1,15}\s+)+")
+_ONE_MENTION = re.compile(r"^@[A-Za-z0-9_]{1,15}\s+")
 # X page controls that sit inside a post's text block but are not its words
 _CHROME = frozenset(("Show more", "GIF", "Made with AI", "Quote", "00:00", "Show translation"))
 _TITLE = re.compile(r'^# (.+?) on X: "(.*)"\s*$', re.S)
@@ -333,6 +334,24 @@ class PostPage:
     replies: list[XItem]
 
 
+def _title_words(full: str, body: str) -> str:
+    """The title's text without the @handles a reply's title starts with. The post body (and
+    screenshots of it) show those apart from the text ("Replying to"), so they aren't its words;
+    a body may still start with a mention of its own. Mentions are cut until the title lines up
+    with the body's first word; with nothing to line up with, a body that doesn't start with a
+    mention means all of them go."""
+    first = body.split(maxsplit=1)[0] if body.strip() else ""
+    rest = full
+    while first:
+        if rest.startswith(first):
+            return rest
+        m = _ONE_MENTION.match(rest)
+        if not m:
+            break
+        rest = rest[m.end() :]
+    return full if body.startswith("@") else _LEADING_MENTIONS.sub("", full)
+
+
 def parse_post_page(md: str, status_id: str) -> PostPage:
     items = parse_items(md)
     idx = next((k for k, it in enumerate(items) if it.status_id == status_id), None)
@@ -340,10 +359,8 @@ def parse_post_page(md: str, status_id: str) -> PostPage:
         return PostPage(None, [], [])
     main = items[idx]
     _, full = title_text(md)
-    if full and not main.text.startswith("@"):
-        # a reply's title starts with the @handles it replies to; the post body and screenshots
-        # of it show them apart from the text ("Replying to"), so they aren't its words
-        full = _LEADING_MENTIONS.sub("", full)
+    if full:
+        full = _title_words(full, main.text)
     if full and len(full) > len(main.text) and not main.quoted_text:
         main.text = full  # timeline items can be truncated ("... Show more"); the title isn't
     seen = {main.status_id}

@@ -1493,3 +1493,23 @@ def test_title_keeps_a_text_that_really_starts_with_a_mention():
 """
     m = parse_post_page(md, SUBJ).main
     assert m.text == "@bob_example is right about the ferry times"
+
+
+def test_title_of_a_reply_that_starts_with_its_own_mention():
+    # a reply to @bob whose own text starts with "@carol": only the reply prefix goes
+    md = f"""# Ada Example on X: "@bob @carol is right about the ferry times"
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)
+
+  [![X](https://pbs.twimg.com/profile_images/9/x_normal.jpg)](/X)
+
+  [@ada\\_example](/ada_example)
+
+  [@carol](/carol) is right Show more
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})
+"""
+    m = parse_post_page(md, SUBJ).main
+    assert m.text == "@carol is right about the ferry times"
