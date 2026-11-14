@@ -99,10 +99,19 @@ def _side(data: bytes) -> int:
         return 0
 
 
-def _bound(when: datetime | None, source: str | None) -> datetime:
+def _bound(when: datetime | None, source: str | None, unc: float | None = None) -> datetime:
+    """Latest possible time: `unc` seconds after `when` when known (a page date's uncertainty,
+    lookup.imagetrace._bound), else one day for a crawl date and none otherwise."""
     if when is None:
         return datetime.max.replace(tzinfo=UTC)
+    if unc is not None:
+        return when + timedelta(seconds=unc)
     return when + timedelta(days=source == "crawl_date")
+
+
+def _late(c) -> datetime:
+    """A copy's latest possible time (_bound)."""
+    return _bound(c.first_seen, c.time_source, c.time_uncertainty_s)
 
 
 def _shrink(data: bytes) -> bytes:
@@ -134,6 +143,7 @@ class _Copy:
     kind: str = "copy"
     first_seen: datetime | None = None
     time_source: str | None = None
+    time_uncertainty_s: float | None = None  # a page date's (ImageMatch.time_uncertainty_s)
     archived_url: str | None = None
     receipt_id: int | None = None
     changes: list[str] | None = None  # the submission: every change from the source photo
@@ -308,10 +318,11 @@ class Builder:
                     placement=placement,
                     first_seen=match.first_seen if match else None,
                     time_source=match.time_source if match else None,
+                    time_uncertainty_s=match.time_uncertainty_s if match else None,
                 )
             )
         checked = len(images)
-        copies.sort(key=lambda c: (_bound(c.first_seen, c.time_source), c.id))
+        copies.sort(key=lambda c: (_late(c), c.id))
         submitted = _Copy(
             id="submitted",
             data=base,
@@ -337,6 +348,18 @@ class Builder:
             if submitted_read.done() and submitted_read.result():
                 submitted.read, submitted.receipt_id = submitted_read.result()
 
+        # the trace's page dates (lookup/imagetrace.py) that landed during the reads count; later
+        # ones are dropped, so this tree and the image origin rest on the same dates
+        with self.job.lock:
+            freeze = getattr(self.trace, "freeze_page_dates", None)
+            if freeze is not None:
+                freeze()
+            for c in copies:
+                if (m := self.trace.matches.get(c.id)) is not None:
+                    c.match, c.first_seen, c.time_source = m, m.first_seen, m.time_source
+                    c.time_uncertainty_s = m.time_uncertainty_s
+        copies.sort(key=lambda c: (_late(c), c.id))
+
         self._drop_scene_text([c for c in copies if c.read] + [submitted])
 
         # 4. the source photo: the earliest copy with nothing added (largest on a tie)
@@ -346,7 +369,7 @@ class Builder:
         root = min(
             clean,
             key=lambda c: (
-                _bound(c.first_seen, c.time_source),
+                _late(c),
                 -((c.match.width or 0) * (c.match.height or 0)) if c.match else 0,
             ),
             default=None,
@@ -555,8 +578,9 @@ class Builder:
                 f"Internet Archive: earliest capture of the {what} on {when:%Y-%m-%d}",
                 url=snap.get("url"),
             )
-            if _bound(when, "wayback") < _bound(c.first_seen, c.time_source):
+            if _bound(when, "wayback") < _late(c):
                 c.first_seen, c.time_source, c.archived_url = when, "wayback", snap.get("url")
+                c.time_uncertainty_s = None
                 c.receipt_id = c.receipt_id or rid
             elif c.archived_url is None:
                 c.archived_url = snap.get("url")
@@ -687,6 +711,7 @@ class Builder:
             engine=m.engine if m else None,
             first_seen=c.first_seen,
             time_source=c.time_source,
+            time_uncertainty_s=c.time_uncertainty_s,
             archived_url=c.archived_url,
             inliers=c.placement.inliers if c.placement and c.id != "submitted" else None,
             coverage=c.placement.coverage if c.placement and c.id != "submitted" else None,
@@ -724,6 +749,9 @@ class Builder:
 
     @staticmethod
     def _date(c: _Copy) -> str | None:
+        if c.first_seen and c.time_source == "page" and c.time_uncertainty_s:
+            # the day the page prints: the middle of its window (imagetrace._printed_day)
+            return (c.first_seen + timedelta(seconds=c.time_uncertainty_s / 2)).date().isoformat()
         return c.first_seen.date().isoformat() if c.first_seen else None
 
     def _assemble(self, root: _Copy | None, copies: list[_Copy], submitted: _Copy) -> Family:
@@ -765,12 +793,7 @@ class Builder:
             parent=parent,
             kind="source",
             label="Source photo" if root else "Source photo (no clean copy found)",
-            members=[
-                c.id
-                for c in sorted(
-                    clean, key=lambda c: (c is not root, _bound(c.first_seen, c.time_source))
-                )
-            ],
+            members=[c.id for c in sorted(clean, key=lambda c: (c is not root, _late(c)))],
             date=root_date,
             time_source=root.time_source if root else None,
             change="earliest copy found with nothing added" if root else None,
@@ -821,14 +844,14 @@ class Builder:
 
         order = sorted(
             variants.items(),
-            key=lambda kv: min(_bound(c.first_seen, c.time_source) for g in kv[1] for c in g),
+            key=lambda kv: min(_late(c) for g in kv[1] for c in g),
         )
         variant_of_submission: str | None = None
         n = 0
         for kind, groups in order:
-            groups.sort(key=lambda g: min(_bound(c.first_seen, c.time_source) for c in g))
+            groups.sort(key=lambda g: min(_late(c) for c in g))
             for g in groups:
-                g.sort(key=lambda c: _bound(c.first_seen, c.time_source))
+                g.sort(key=lambda c: _late(c))
             bid = branch(kind, self._date(groups[0][0]))
             for g in groups:
                 n += 1

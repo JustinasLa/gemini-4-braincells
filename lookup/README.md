@@ -253,7 +253,9 @@ ImageMatch {
   "page_url": "https://example.org/story" | null, "domain": "example.org" | null,
   "engine": "tineye",               // tineye | yandex
   "first_seen": "2012-03-01T00:00:00Z" | null,
-  "time_source": "crawl_date" | null, // crawl_date | page | snowflake | null
+  "time_source": "crawl_date" | null, // crawl_date | page | snowflake | null, see below
+  "time_uncertainty_s": 86400 | null, // true time in [first_seen, first_seen + this]; see below
+  "time_receipt_id": 14 | null,      // the page read or post-id receipt behind first_seen
   "width": 388, "height": 257,       // either can be null
   "relation": "cropped",            // same | resized | cropped | edited | different | unknown
   "distance": 6,                     // null when not compared
@@ -294,6 +296,33 @@ frame: `crop_box` is where the match sits inside the upload (null when the match
 `edited_region` is where it differs (draw it on the upload, or on the aligned match).
 `different` matches are removed after comparison. Candidate IDs remain stable, so arrays can
 shrink and IDs can have gaps. An unavailable comparison stays `unknown`, not an image origin.
+Match dates. `first_seen` is the earliest upper bound known for the picture's first appearance,
+from one of three sources: `crawl_date` (the day TinEye first saw a copy, not a publication
+date; one day of slack), `snowflake` (the match's page or image URL is an X status: the post's
+exact time from its id, `lookup.urls.snowflake_time`, no slack, receipt `x-id` /`snowflake`; an
+id within a day of the snowflake epoch, i.e. a pre-snowflake sequential id, is not read as a
+time), or `page` (the publication date printed on the matched page, read like a text lookup's
+source page: Oxylabs `scrape_facts` + `service._page_time`, receipt `oxylabs` /`/scrape`).
+`time_uncertainty_s` is `_page_time`'s uncertainty for a page date (86400 for a date only, 28 h
+for a clock time without a zone, 0 with one); null means one day for `crawl_date` and exact
+otherwise. A match keeps the source whose latest possible time is earliest. Page dates are read
+for at most `Deps.image_page_dates_max` (3) matched pages per lookup, best match first (TinEye's
+earliest, then undated ones), skipping X posts, bare image files and matches compared as a
+different picture, each capped at 15 s (`imagetrace.PAGE_DATE_S`), started once TinEye has
+answered. They run beside the downloads and comparisons and are never waited for (the trace's
+end, which the family step waits on, does not move): a date counts if it lands before the family
+step (lookup/family.py) reads its copies' dates, after its picture reads, or else before the
+origin is chosen after post verification; a later one is dropped and its receipt stays "date not
+confirmed", so the family tree and `image_origin_id` rest on the same dates. The family step
+uses the same latest-possible-time rule (`FamilyMember.time_uncertainty_s`). Each page is read
+once; its date applies to every match found on it (a match remembers every page it was found on,
+not only its `page_url`), and a match takes the earliest of its pages' dates. `page_url` and
+`domain` follow the date: they name the page (or the engine hit) whose date `first_seen` is. A
+page that now redirects to another host (a repurposed domain, another blog on the same service,
+even another subdomain: conservative) or to a front page (`/`, `/index.html`, `/home`, ...)
+gives no date. A page date before 1991 or in the future is ignored. `image_origin_id` is the
+same, resized or cropped match whose latest possible time is earliest and before every verified
+post that may carry the picture.
 `receipt_id` identifies the engine result until comparison, then the downloaded/comparison
 receipt, or the Nemotron diff receipt; all earlier receipts remain in `receipts`.
 

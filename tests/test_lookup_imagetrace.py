@@ -9,7 +9,7 @@ import struct
 import threading
 import time
 import zlib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,12 +18,13 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from lookup import imagetrace
+from lookup import family, imagetrace
 from lookup.assess import brief
 from lookup.models import ImageMatch, ImageRef, LookupInput, Post
 from lookup.service import Deps, Lookup
 from media.nemotron import MediaAnalysis
 from sources import reverse_image
+from sources.models import PageFacts
 from sources.oxylabs import OxylabsError
 from sources.reverse_image import ImageHit, ReverseResult
 
@@ -210,6 +211,8 @@ def run_trace(job):
     with ThreadPoolExecutor(max_workers=1) as pool:
         trace = imagetrace.start(job, pool)
         trace.future.result(timeout=5)
+        # the lookup chooses the origin after post verification: page-date reads are back by then
+        wait(trace.page_futures, timeout=5)
         trace.finish()
     return trace
 
@@ -1577,3 +1580,396 @@ def test_variations_detail_counts_only_descriptions_still_shown():
     step = job._step("variations")
     shown = sum(m.changes_from is not None for m in job.result.image_matches)
     assert step.detail.endswith(f"; {shown} change descriptions")
+
+
+# ---------------------------------------------------------------- dates beyond the crawl date
+
+
+def status_id(when):
+    """An X post id whose snowflake time is `when` (lookup.urls.snowflake_time inverse)."""
+    from lookup.urls import TWITTER_EPOCH_MS
+
+    return str((int(when.timestamp() * 1000) - TWITTER_EPOCH_MS) << 22)
+
+
+def dated_hit(name, *, page, when=None, engine="tineye", rank=0, image=None):
+    return ImageHit(
+        engine=engine,
+        image_url=image or f"https://images.example/{name}.png",
+        thumb_url=None,
+        page_url=page,
+        domain=None,
+        first_seen=when,
+        time_source="crawl_date" if when else None,
+        width=388,
+        height=257,
+        title=name,
+        rank=rank,
+    )
+
+
+class PageSources(TextSources):
+    """Oxylabs double: scrape_facts returns the date printed on each page (or raises)."""
+
+    def __init__(self, dates, delay=0.0):
+        self.dates, self.delay, self.reads = dates, delay, []
+
+    def scrape_facts(self, url, *, deadline=None):
+        self.reads.append((url, deadline - time.monotonic() if deadline else None))
+        time.sleep(self.delay)
+        published = self.dates.get(url)  # other pages: no date printed
+        if isinstance(published, Exception):
+            raise published
+        return PageFacts(
+            url=url, final_url=url, http_status=200, publisher="Example", published_at=published
+        )
+
+
+def copy_post(created):
+    return Post(
+        id="x:copy",
+        platform="x",
+        role="copy",
+        created_at=created,
+        verified=True,
+        media_urls=["https://pbs.twimg.com/media/copy.jpg?name=large"],
+    )
+
+
+def test_x_status_page_dates_a_match_by_its_post_id_without_crawl_slack():
+    posted = datetime(2015, 6, 1, 9, 30, tzinfo=UTC)
+    page = f"https://twitter.com/someone/status/{status_id(posted)}"
+    job = job_for(Searches([dated_hit("tweet", page=page, when=datetime(2017, 1, 1, tzinfo=UTC))]))
+    # a post the same day: a crawl date would need the whole day before it, a post id doesn't
+    job.result.posts.append(copy_post(datetime(2015, 6, 1, 12, tzinfo=UTC)))
+    run_trace(job)
+    match = job.result.image_matches[0]
+    assert match.time_source == "snowflake" and match.first_seen == posted
+    assert match.time_uncertainty_s is None
+    receipt = job.result.receipts[match.time_receipt_id - 1]
+    assert receipt.tool == "x-id" and receipt.endpoint == "snowflake"
+    assert (
+        receipt.source_url.endswith(status_id(posted)) and "2015-06-01 09:30:00" in receipt.summary
+    )
+    assert job.result.image_origin_id == match.id
+
+
+def test_x_status_image_url_dates_an_undated_yandex_match():
+    posted = datetime(2013, 2, 3, tzinfo=UTC)
+    url = f"https://x.com/i/web/status/{status_id(posted)}"
+    searches = Searches([])
+    searches.yandex = lambda client, u, *, sites, deadline: result(
+        "yandex", u, [dated_hit("y", page=None, engine="yandex", image=url)]
+    )
+    job = job_for(searches)
+    run_trace(job)
+    match = job.result.image_matches[0]
+    assert (match.engine, match.time_source, match.first_seen) == ("yandex", "snowflake", posted)
+
+
+def test_earlier_crawl_date_keeps_precedence_over_a_later_post_id():
+    page = f"https://x.com/someone/status/{status_id(datetime(2019, 1, 1, tzinfo=UTC))}"
+    job = job_for(Searches([dated_hit("tweet", page=page, when=OLD)]))
+    run_trace(job)
+    match = job.result.image_matches[0]
+    assert (match.time_source, match.first_seen, match.time_receipt_id) == ("crawl_date", OLD, None)
+    assert not any(receipt.tool == "x-id" for receipt in job.result.receipts)
+
+
+def test_page_date_is_read_like_a_source_page_and_beats_a_later_crawl_date():
+    page = "https://blog.example/2006/05/girl"
+    pages = PageSources({page: "2006-05-01"})
+    job = job_for(Searches([dated_hit("blog", page=page, when=OLD)]), oxylabs=pages)
+    run_trace(job)
+    match = job.result.image_matches[0]
+    assert match.time_source == "page" and match.first_seen == datetime(2006, 5, 1, tzinfo=UTC)
+    assert match.time_uncertainty_s == 86400.0  # a date only: any time that day
+    receipt = job.result.receipts[match.time_receipt_id - 1]
+    assert receipt.tool == "oxylabs" and receipt.ok and receipt.source_url == page
+    assert "published 2006-05-01" in receipt.summary
+    assert match.receipt_id != match.time_receipt_id  # the comparison receipt stays
+    assert pages.reads[0][0] == page  # TinEye's dated match first, then Yandex's
+    assert all(0 < left <= imagetrace.PAGE_DATE_S for _, left in pages.reads)
+    assert job.result.image_origin_id == match.id
+    assert any("page date" in note for note in job.result.notes)
+
+
+def test_later_or_unreadable_page_dates_change_nothing():
+    later, broken, future = (f"https://site.example/{n}" for n in ("later", "broken", "future"))
+    pages = PageSources(
+        {later: "2020-01-01T10:00:00+00:00", broken: OxylabsError("boom"), future: "2999-01-01"}
+    )
+    hits = [
+        dated_hit(n, page=u, when=OLD, rank=i)
+        for i, (n, u) in enumerate((("later", later), ("broken", broken), ("future", future)))
+    ]
+    job = job_for(Searches(hits), oxylabs=pages)
+    run_trace(job)
+    ours = [m for m in job.result.image_matches if m.page_url in (later, broken, future)]
+    assert len(ours) == 3
+    assert all(m.time_source == "crawl_date" and m.first_seen == OLD for m in ours)
+    reads = [
+        r
+        for r in job.result.receipts
+        if r.tool == "oxylabs" and r.source_url in (later, broken, future)
+    ]
+    assert len(reads) == 3
+    assert any("published 2020-01-01" in r.summary and r.ok for r in reads)
+    assert any(not r.ok and "could not be read" in r.summary for r in reads)
+    assert any(r.ok and "no publication date" in r.summary for r in reads)
+
+
+def test_page_reads_are_capped_and_skip_x_posts_and_image_files():
+    hits = [
+        dated_hit(f"p{i}", page=f"https://site{i}.example/post", when=OLD, rank=i) for i in range(5)
+    ]
+    hits += [
+        dated_hit("x", page=f"https://x.com/a/status/{status_id(RECENT)}", rank=6),
+        dated_hit("file", page="https://cdn.example/picture.JPG", rank=7),
+    ]
+    pages = PageSources({hit.page_url: "2001-01-01" for hit in hits})
+    job = job_for(Searches(hits), oxylabs=pages, image_page_dates_max=2)
+    run_trace(job)
+    assert [url for url, _ in pages.reads] == [
+        "https://site0.example/post",
+        "https://site1.example/post",
+    ]
+
+
+def test_page_reads_never_delay_the_trace_and_late_ones_are_dropped():
+    hits = [
+        dated_hit(f"p{i}", page=f"https://site{i}.example/post", when=OLD, rank=i) for i in range(3)
+    ]
+    pages = PageSources({hit.page_url: "2001-01-01" for hit in hits}, delay=0.6)
+    job = job_for(Searches(hits), oxylabs=pages)
+    job._add_upload_post()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        trace = imagetrace.start(job, pool)
+        started = time.monotonic()
+        trace.future.result(timeout=5)
+        # the trace (and the family step that waits for it) does not wait for the reads
+        assert time.monotonic() - started < 0.5 and len(trace.page_futures) == 3
+        trace.finish()  # the origin is chosen before the reads are back
+        wait(trace.page_futures, timeout=5)
+    assert all(m.time_source == "crawl_date" for m in job.result.image_matches if m.first_seen)
+    assert sum(m.time_source == "crawl_date" for m in job.result.image_matches) == 3
+    reads = [r for r in job.result.receipts if r.tool == "oxylabs"]
+    assert len(reads) == 3 and all(not r.ok and "not confirmed" in r.summary for r in reads)
+
+
+@pytest.mark.parametrize(
+    "page_date,post_at,expected",
+    [
+        # crawl day 04-21 (ends 04-22 00:00), post id 04-21 10:00 (exact), page date-only: the
+        # earliest latest-possible time wins, so the exact post-id time beats both midnights
+        ("2012-04-21", None, "snowflake"),
+        ("2012-04-21", datetime(2012, 4, 21, 12, tzinfo=UTC), "snowflake"),
+        ("2012-04-21", datetime(2012, 4, 21, 9, tzinfo=UTC), None),
+        # a page date a day earlier ends first; it must end before the post to count
+        ("2012-04-20", None, "page"),
+        ("2012-04-20", datetime(2012, 4, 20, 23, tzinfo=UTC), None),
+        ("2012-04-20", datetime(2012, 4, 21, 0, 0, 1, tzinfo=UTC), "page"),
+    ],
+)
+def test_origin_is_the_earliest_trustworthy_time_when_sources_disagree(
+    page_date, post_at, expected
+):
+    crawl = dated_hit(
+        "crawl", page="https://old.example/a.html", when=datetime(2012, 4, 21, tzinfo=UTC), rank=0
+    )
+    tweet = dated_hit(
+        "tweet",
+        page=f"https://x.com/a/status/{status_id(datetime(2012, 4, 21, 10, tzinfo=UTC))}",
+        rank=1,
+    )
+    paged = dated_hit("paged", page="https://news.example/story", rank=2)
+    pages = PageSources({crawl.page_url: OxylabsError("down"), paged.page_url: page_date})
+    job = job_for(Searches([crawl, tweet, paged]), oxylabs=pages)
+    if post_at:
+        job.result.posts.append(copy_post(post_at))
+    run_trace(job)
+    by_source = {m.time_source: m.id for m in job.result.image_matches if m.time_source}
+    assert set(by_source) == {"crawl_date", "snowflake", "page"}
+    assert job.result.image_origin_id == (by_source[expected] if expected else None)
+
+
+def test_date_only_page_date_on_the_post_day_is_not_older():
+    page = "https://news.example/story"
+    job = job_for(
+        Searches([dated_hit("paged", page=page)]), oxylabs=PageSources({page: "2010-07-04"})
+    )
+    job.result.posts.append(copy_post(datetime(2010, 7, 4, 23, tzinfo=UTC)))
+    run_trace(job)
+    assert job.result.image_matches[0].time_source == "page"
+    assert job.result.image_origin_id is None
+
+
+def test_a_page_is_read_once_and_dates_every_match_on_it_even_one_found_later():
+    page = "https://blog.example/post"
+    searches = Searches([dated_hit("a", page=page, when=OLD), dated_hit("b", page=page, rank=1)])
+    gate = threading.Event()
+
+    def late_yandex(client, u, *, sites, deadline):
+        if sites:  # the Yandex sites view answers after the page was read
+            gate.wait(5)
+            return result("yandex", u, [dated_hit("c", page=page, engine="yandex")])
+        return result("yandex", u, [])
+
+    searches.yandex = late_yandex
+    pages = PageSources({page: "2007-01-02"})
+    original = imagetrace.Trace._page_date
+
+    def page_date(self, url):
+        try:
+            return original(self, url)
+        finally:
+            gate.set()
+
+    job = job_for(searches, oxylabs=pages)
+    imagetrace.Trace._page_date = page_date
+    try:
+        run_trace(job)
+    finally:
+        imagetrace.Trace._page_date = original
+    assert [url for url, _ in pages.reads] == [page]
+    dated = [m for m in job.result.image_matches if m.page_url == page]
+    assert len(dated) == 3 and all(m.time_source == "page" for m in dated)
+    assert len({m.time_receipt_id for m in dated}) == 1
+
+
+def test_a_match_compared_as_a_different_picture_is_not_read():
+    page = "https://other.example/post"
+    job = job_for(Searches([]), oxylabs=PageSources({page: "2007-01-02"}))
+    job._add_upload_post()
+    trace = imagetrace.Trace(job)
+    trace.query_url = "https://public.example/q.png"
+    trace.tineye_settled = True
+    with job.lock:
+        trace._accept_hits([(dated_hit("different", page=page), 1)])
+        trace.matches["img:1"] = trace.matches["img:1"].model_copy(update={"relation": "different"})
+    assert trace._page_candidates() == []
+
+
+@pytest.mark.parametrize(
+    "asked,final,counts",
+    [
+        ("http://www.zooomr.com/photos/labels/fire", "https://www.bowerystreet.com/", False),
+        ("https://news.example/2009/story", "https://news.example/", False),
+        ("https://news.example/2009/story", "https://www.news.example/index.html", False),
+        ("https://news.example/story", "https://news.example/default.aspx", False),
+        # another blog on the same service is another site, and so (conservatively) is a move
+        # to another subdomain
+        ("https://alice.blogspot.com/p/1", "https://bob.blogspot.com/p/1", False),
+        ("http://community.livejournal.com/a/1.html", "https://a.livejournal.com/1.html", False),
+        ("http://news.example/a/1", "https://www.news.example/a/articles/1", True),
+        ("https://www.bbc.co.uk/news/1", "https://m.bbc.co.uk/news/articles/1", True),
+        ("https://shop.example.co.uk/a", "https://other.co.uk/a", False),
+    ],
+)
+def test_a_redirect_to_another_site_or_its_front_page_gives_no_date(asked, final, counts):
+    class Moved(PageSources):
+        def scrape_facts(self, url, *, deadline=None):
+            return (
+                super().scrape_facts(url, deadline=deadline).model_copy(update={"final_url": final})
+            )
+
+    job = job_for(
+        Searches([dated_hit("a", page=asked, when=OLD)]), oxylabs=Moved({asked: "2001-01-01"})
+    )
+    run_trace(job)
+    match = next(m for m in job.result.image_matches if m.page_url == asked)
+    assert (match.time_source == "page") is counts
+    receipt = next(r for r in job.result.receipts if r.tool == "oxylabs" and r.source_url == final)
+    assert ("redirects" in receipt.summary) is not counts
+
+
+def test_an_earlier_page_date_beats_a_post_id_time_in_either_order():
+    blog = "https://blog.example/post"
+    tweet = f"https://x.com/a/status/{status_id(datetime(2015, 1, 1, tzinfo=UTC))}"
+    image = "https://images.example/same.png"
+    for order in ((blog, tweet), (tweet, blog)):
+        hits = [dated_hit("same", page=page, image=image, rank=i) for i, page in enumerate(order)]
+        job = job_for(Searches(hits), oxylabs=PageSources({blog: "2007-03-04"}))
+        run_trace(job)
+        match = next(m for m in job.result.image_matches if m.image_url == image)
+        assert match.time_source == "page", order
+        assert match.first_seen == datetime(2007, 3, 4, tzinfo=UTC), order
+        # the page shown is the one whose printed date it is, not the X post
+        assert (match.page_url, match.domain) == (blog, "blog.example"), order
+
+
+@pytest.mark.parametrize("sid", ["20000000000", "29700859247", str(imagetrace.MIN_DATED_ID - 1)])
+def test_pre_snowflake_status_ids_give_no_time(sid):
+    job = job_for(Searches([dated_hit("old", page=f"https://twitter.com/a/status/{sid}")]))
+    run_trace(job)
+    assert job.result.image_matches[0].first_seen is None
+    assert not any(r.tool == "x-id" for r in job.result.receipts)
+
+
+def test_a_post_id_or_crawl_date_that_wins_brings_its_own_page():
+    tweet = f"https://x.com/a/status/{status_id(datetime(2012, 5, 6, tzinfo=UTC))}"
+    image = "https://images.example/same.png"
+    hits = [
+        dated_hit("same", page="https://late.example/a", image=image, when=RECENT),
+        dated_hit("same", page=tweet, image=image, rank=1),
+    ]
+    job = job_for(Searches(hits), image_page_dates_max=0)
+    run_trace(job)
+    match = next(m for m in job.result.image_matches if m.image_url == image)
+    assert (match.time_source, match.page_url, match.domain) == ("snowflake", tweet, "x.com")
+
+
+def test_page_dates_stop_once_the_family_step_has_read_its_copies_dates():
+    page = "https://blog.example/post"
+    pages = PageSources({page: "2001-01-01"}, delay=0.3)
+    job = job_for(Searches([dated_hit("a", page=page, when=OLD)]), oxylabs=pages)
+    job._add_upload_post()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        trace = imagetrace.start(job, pool)
+        trace.future.result(timeout=5)
+        trace.freeze_page_dates()  # what lookup/family.py does before choosing its source
+        wait(trace.page_futures, timeout=5)
+        trace.finish()
+    match = next(m for m in job.result.image_matches if m.page_url == page)
+    assert match.time_source == "crawl_date"
+    read = next(r for r in job.result.receipts if r.tool == "oxylabs" and r.source_url == page)
+    assert not read.ok and "not confirmed" in read.summary
+
+
+def test_a_zoneless_page_clock_time_is_shown_on_its_printed_day():
+    match = ImageMatch(
+        id="img:1",
+        engine="tineye",
+        image_url="https://images.example/a.png",
+        relation="same",
+        first_seen=datetime(2012, 5, 5, 20, tzinfo=UTC),  # _page_time("2012-05-06T10:00:00")
+        time_source="page",
+        time_uncertainty_s=100800.0,
+    )
+    assert imagetrace._printed_day(match) == "2012-05-06"
+    assert "page dated 2012-05-06" in imagetrace.Trace._comparison_summary(match)
+    assert (
+        family.Builder._date(
+            family._Copy(
+                id="img:1",
+                data=b"",
+                match=match,
+                first_seen=match.first_seen,
+                time_source="page",
+                time_uncertainty_s=100800.0,
+            )
+        )
+        == "2012-05-06"
+    )
+
+
+def test_the_reading_brief_carries_a_page_dates_window():
+    page = "https://blog.example/post"
+    job = job_for(
+        Searches([dated_hit("a", page=page, when=OLD)]),
+        oxylabs=PageSources({page: "2006-05-06T10:00:00"}),
+    )
+    run_trace(job)
+    entry = next(m for m in json.loads(brief(job.result))["image_matches"] if m["page_url"] == page)
+    assert entry["time_source"] == "page" and entry["time_uncertainty_s"] == 100800.0
+    assert entry["time_receipt_id"]

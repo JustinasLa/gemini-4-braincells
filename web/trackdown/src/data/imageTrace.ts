@@ -11,6 +11,9 @@ export interface ImageMatch {
   engine?: string | null;
   first_seen?: string | null;
   time_source?: string | null;
+  /** Seconds from first_seen to the latest possible time; null uses the source's default. */
+  time_uncertainty_s?: number | null;
+  time_receipt_id?: number | null;
   width?: number | null;
   height?: number | null;
   relation?: string | null;
@@ -49,18 +52,39 @@ export const imageTime = (match: ImageMatch) => {
   const time = Date.parse(match.first_seen);
   return Number.isFinite(time) ? time : undefined;
 };
+/** Latest possible time, including the one-day default slack for a crawl date. */
+export const latestImageTime = (match: ImageMatch) => {
+  const time = imageTime(match);
+  const slack = match.time_uncertainty_s ?? (match.time_source === "crawl_date" ? 86400 : 0);
+  return time == null ? undefined : time + slack * 1000;
+};
 /** How to read a match's change sentences: the compare heading and the finale's lead-in. */
 export function changeDirection(match: ImageMatch): { heading: string; lead: string } {
   if (match.changes_from === "match") return { heading: "This copy → your picture", lead: "From that copy to this picture, as a model reads it:" };
   if (match.changes_from === "upload") return { heading: "Your picture → this copy", lead: "From this picture to that copy, as a model reads it:" };
   return { heading: "", lead: "What changed, as a model reads it:" };
 }
+/** Where a match's time is shown and placed: a page date in the middle of its window (the server
+ *  stores a date-only page as that day's midnight + 24 h, and a clock time without a zone as that time
+ *  minus 14 h + 28 h), so the printed day and time, not the window's lower edge. As lookup.ts places
+ *  pages. Comparisons keep the window's edges (imageTime, latestImageTime). */
+export const shownImageTime = (match: ImageMatch) => {
+  const time = imageTime(match);
+  return time == null || match.time_source !== "page" ? time : time + (match.time_uncertainty_s ?? 0) * 500;
+};
+/** how uncertain a page date's shown time is, as lookup.ts says it for pages */
+export const pagePrecision = (match: ImageMatch): string[] => {
+  const unc = match.time_source === "page" && imageTime(match) != null ? match.time_uncertainty_s ?? 0 : 0;
+  // by the window alone: a zoneless 14:00 also starts at midnight (14:00 - 14 h) but has 28 h
+  return unc === 86400 ? ["date only, time unknown"] : unc > 0 ? [`time ±${Math.max(1, Math.round(unc / 7200))} h`] : [];
+};
+const pageDate = (match: ImageMatch) => new Date(shownImageTime(match)!).toISOString().slice(0, 10);
 export function firstSeenLabel(match: ImageMatch): string {
   const time = imageTime(match);
   if (time == null) return "date unknown";
   const date = new Date(time).toISOString().slice(0, 10);
   if (match.time_source === "crawl_date") return `first seen by TinEye on ${date} · upper bound, not a publish date`;
-  if (match.time_source === "page") return `page dated ${date}`;
+  if (match.time_source === "page") return `page dated ${pageDate(match)}`;
   return `time from post id · ${new Date(time).toISOString().replace("T", " ").replace(".000Z", " UTC")}`;
 }
 
@@ -93,7 +117,8 @@ export function imageTraceState(result: LookupResult) {
     return true;
   });
   // an "original" published (page or post-id time) after the submitted post cannot be its source: it stays a
-  // match. A TinEye crawl date is only an upper bound, so a later one says nothing about order.
+  // match. Compare the earliest possible time: an overlapping page window is not definitely after.
+  // A TinEye crawl date is only an upper bound, so a later one says nothing about order.
   const posted = Date.parse(result.posts.find((post) => post.id === result.subject_id)?.created_at ?? "");
   const after = (match: ImageMatch) => match.time_source !== "crawl_date" && (imageTime(match) ?? -Infinity) > posted;
   const origin = matches.find((match) => match.id === result.image_origin_id && relationOf(match) !== "different" && !after(match));
@@ -122,7 +147,7 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
   const anchor = submitted?.t ?? Date.parse(trace.lookup.started_at);
   const existing = new Set(trace.nodes.map((node) => node.id));
   const nodes: TraceNode[] = state.matches.filter((match) => relationOf(match) !== "different" && !existing.has(match.id)).map((match) => ({
-    id: match.id, t: imageTime(match) ?? (Number.isFinite(anchor) ? anchor : 0),
+    id: match.id, t: shownImageTime(match) ?? (Number.isFinite(anchor) ? anchor : 0),
     // a TinEye crawl date places the card but is no publication time: undated keeps it off "Posted", gaps and the ruler
     timeUnknown: imageTime(match) == null, undated: imageTime(match) == null || match.time_source === "crawl_date",
     platform: match.engine === "x_replies" ? "x" : "web", role: match === state.origin ? "origin" : ["edited", "template"].includes(relationOf(match)) ? "mutation" : "source",
@@ -130,8 +155,11 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
     text: match.relation_note || `${humanLabel(relationOf(match))} image copy`,
     url: pageUrl(match.page_url), imageMatch: match,
     media: { kind: "photo", src: imageUrl(match.thumb_url) ?? imageUrl(match.image_url), title: imageAlt(match) },
-    flags: [firstSeenLabel(match)],
-    realData: [{ label: "Image search match", url: pageUrl(match.page_url), receiptId: match.receipt_id, facts: [{ label: "Image date", value: firstSeenLabel(match) }, { label: "Relation", value: relationOf(match) }, { label: "Engine", value: engineLabel(match) }] }],
+    flags: [firstSeenLabel(match), ...pagePrecision(match)],
+    realData: [
+      { label: "Image search match", url: pageUrl(match.page_url), receiptId: match.receipt_id, facts: [{ label: "Image date", value: firstSeenLabel(match) }, { label: "Relation", value: relationOf(match) }, { label: "Engine", value: engineLabel(match) }] },
+      ...(match.time_receipt_id != null ? [{ label: "Image date", url: pageUrl(match.page_url), receiptId: match.time_receipt_id, facts: [{ label: "Image date", value: firstSeenLabel(match) }] }] : []),
+    ],
   }));
   const all = [...trace.nodes, ...nodes];
   const byId = new Map(all.map((node) => [node.id, node]));
@@ -140,7 +168,7 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
   // post id) in that order; a post origin found by the lookup stays the origin. The origin feeds
   // "Earliest → submitted", "copies back", the earliest-copy line and the dock mark, which would otherwise
   // turn a TinEye crawl date (an upper bound) or a lookup start time into an asserted age or order
-  const ordered = !!origin && !!submitted && submitted.id !== origin.id && !origin.undated && !origin.timeUnknown && !submitted.undated && !submitted.timeUnknown && origin.t <= submitted.t;
+  const ordered = !!origin && !!submitted && submitted.id !== origin.id && !origin.undated && !origin.timeUnknown && !submitted.undated && !submitted.timeUnknown && (latestImageTime(state.origin!) ?? Infinity) < submitted.t;
   const originId = trace.originId || (ordered ? origin!.id : "");
   const note = "Image variation; not evidence of who copied whom";
   const engineTool = (tool?: string): Tool | undefined => tool === "tineye" || tool === "yandex" ? "oxylabs" : tool === "nemotron" ? "nemotron" : undefined;
@@ -183,11 +211,13 @@ export interface MemeFinding {
   match?: ImageMatch & { id: string };
 }
 const FINDING_COLOR: Record<MemeFindingKind, string> = { original: "#e4b36a", first: "#e4b36a", copy: "#c9c4bb", edited: "#d9783d", seen: "#9aa6bf" };
-const DAY = 86_400_000;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const shortDate = (match: ImageMatch) => {
   const time = imageTime(match);
-  return time == null ? "date unknown" : `${match.time_source === "crawl_date" ? "seen by " : ""}${new Date(time).toISOString().slice(0, 10)}`;
+  if (time == null) return "date unknown";
+  const date = new Date(time).toISOString().slice(0, 10);
+  // a tag: the post-id time's date (exact; the card and panel give the full time)
+  return match.time_source === "crawl_date" ? `seen by ${date}` : match.time_source === "page" ? `page dated ${pageDate(match)}` : date;
 };
 
 /** What the image search says the submitted picture is, from facts the lookup returned. Never a
@@ -195,8 +225,8 @@ const shortDate = (match: ImageMatch) => {
  *  no image search to report on (a text lookup, or a search that failed or was skipped).
  *
  *  A match is OLDER than the submission when an upload (it was online before the upload; an uploaded
- *  file has no time of its own), or when its date is before the post (a crawl date gets the server's
- *  one-day slack, since it is only an upper bound). The earliest older match decides Copy vs Edited. */
+ *  file has no time of its own), or when its latest possible time is before the post (using the
+ *  server's uncertainty or the crawl date's default one-day slack). The earliest older match decides Copy vs Edited. */
 export function memeFinding(result: LookupResult): MemeFinding | "pending" | null {
   const state = imageTraceState(result);
   if (!state.enabled) return null;
@@ -215,14 +245,20 @@ export function memeFinding(result: LookupResult): MemeFinding | "pending" | nul
   if (!related.length) return make("first", "First sighting", templates ? `${plural(templates, "reply", "replies")} with the same template` : "No other copies found", "The image search found no other copy of this picture. It may be new, or not indexed yet.");
   if (!upload && !Number.isFinite(posted)) return make("seen", "Seen before", `${plural(related.length, "matching copy", "matching copies")} found`, `The image search found ${plural(related.length, "matching copy", "matching copies")}, but this post has no time to compare their dates with.`);
   const older = related
-    .filter((match) => upload || (imageTime(match) != null && imageTime(match)! + (match.time_source === "crawl_date" ? DAY : 0) < posted))
+    .filter((match) => upload || (latestImageTime(match) ?? Infinity) < posted)
     // earliest first; undated (uploads only) last, a same-picture match before an edited one
-    .sort((a, b) => (imageTime(a) ?? Infinity) - (imageTime(b) ?? Infinity) || Number(relationOf(a) === "edited") - Number(relationOf(b) === "edited"));
+    // by the latest possible time, as the server picks the origin: an exact post-id time at 10:00
+    // is earlier than a date-only page date of the same day
+    .sort((a, b) => (latestImageTime(a) ?? Infinity) - (latestImageTime(b) ?? Infinity) || Number(relationOf(a) === "edited") - Number(relationOf(b) === "edited"));
   const edits = related.filter((match) => relationOf(match) === "edited").length;
   if (!older.length) {
     const undated = related.filter((match) => imageTime(match) == null).length;
+    // later only when its earliest possible time is after the post (as `after` above); a date window
+    // that overlaps the post, or a crawl date (an upper bound only), leaves the order open
+    const later = related.filter((match) => match.time_source !== "crawl_date" && (imageTime(match) ?? -Infinity) > posted).length;
+    const open = related.length - undated - later;
     return make("original", "Original", "Earliest copy we found",
-      `No copy we found is dated before this post${undated ? `; ${plural(undated, "undated copy", "undated copies")} could still be older` : ""}. ${plural(related.length - undated, "later copy", "later copies")} found. A search sample, not proof of who made it.`);
+      `No copy we found is dated before this post${undated ? `; ${plural(undated, "undated copy", "undated copies")} could still be older` : ""}.${open ? ` ${plural(open, "copy is", "copies are")} dated too close to the post, or only by a crawl date, to tell which came first.` : ""}${later ? ` ${plural(later, "later copy", "later copies")} found.` : ""} A search sample, not proof of who made it.`);
   }
   const first = older.find((match) => relationOf(match) !== "unknown");
   if (!first) {

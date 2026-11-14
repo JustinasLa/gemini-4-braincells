@@ -14,6 +14,8 @@ export interface FamilyMember {
   engine?: string | null;
   first_seen?: string | null;
   time_source?: "crawl_date" | "page" | "snowflake" | "wayback" | null;
+  /** as ImageMatch.time_uncertainty_s: a page date's window after first_seen */
+  time_uncertainty_s?: number | null;
   archived_url?: string | null;
   inliers?: number | null;
   coverage?: number | null;
@@ -123,7 +125,9 @@ export function dateBasis(source?: string | null): string {
 /** dates for copies are upper bounds: the copy existed by then */
 export function memberDate(member?: FamilyMember | null): string {
   if (!member?.first_seen) return "undated";
-  return `by ${dateLabel(member.first_seen.slice(0, 10))}`;
+  // a page date: the day it prints, the middle of its window (imageTrace.shownImageTime)
+  const shown = member.time_source === "page" && member.time_uncertainty_s ? new Date(Date.parse(member.first_seen) + member.time_uncertainty_s * 500).toISOString() : member.first_seen;
+  return `by ${dateLabel(shown.slice(0, 10))}`;
 }
 export const memberLink = (member?: FamilyMember | null) => pageUrl(member?.page_url) ?? pageUrl(member?.image_url);
 export const memberDomain = (member?: FamilyMember | null) => member?.domain || (memberLink(member) ? new URL(memberLink(member)!).hostname.replace(/^www\./, "") : "your upload");
@@ -141,6 +145,7 @@ function asMatch(member: FamilyMember, changes: string[]): ImageMatch & { id: st
   return {
     id: member.id, image_url: member.picture || member.image_url, thumb_url: member.picture ? member.image_url : member.thumb_url,
     page_url: member.page_url, domain: member.domain, engine: member.engine, first_seen: member.first_seen, time_source: member.time_source === "wayback" ? "page" : member.time_source,
+    time_uncertainty_s: member.time_source === "wayback" ? null : member.time_uncertainty_s,
     relation: member.kind === "source" || member.kind === "copy" ? "same" : "edited", changes, receipt_id: member.receipt_id,
   };
 }
