@@ -162,7 +162,7 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
         ${words.length ? `<p class="st-words">${words.map((word) => `<q>${esc(word)}</q>`).join("")}</p>` : ""}
         ${facts.length ? `<dl class="st-facts">${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
         ${running ? progress(lookup) : spread(trace)}
-        <div class="st-actions"><button class="btn solid" type="button" data-act="trace">New trace</button><button class="btn" type="button" data-story-view="map">Map</button></div>
+        <div class="st-actions"><button class="btn solid" type="button" data-act="trace">New search</button><button class="btn" type="button" data-story-view="map">Map</button></div>
       </div>
     </section>
     ${family ? origin(family, members) : ""}
