@@ -28,6 +28,8 @@ case ${1:-} in
     pg_user=$(sed -n 's/^POSTGRES_USER=//p' <<<"$creds")
     pg_pass=$(sed -n 's/^POSTGRES_PASSWORD=//p' <<<"$creds")
     pg_db=$(sed -n 's/^POSTGRES_DB=//p' <<<"$creds")
+    unquote() { local v=$1; [[ $v =~ ^\"(.*)\"$ || $v =~ ^\'(.*)\'$ ]] && v=${BASH_REMATCH[1]}; printf '%s' "$v"; }
+    pg_user=$(unquote "$pg_user") pg_pass=$(unquote "$pg_pass") pg_db=$(unquote "$pg_db")  # .env may quote
     rm -f "$sock_dir/.s.PGSQL.5432"
     ssh "${ssh_opts[@]}" -f -N -M -S "$ctl" -o StreamLocalBindUnlink=yes -o StreamLocalBindMask=0177 \
       -L "$sock_dir/.s.PGSQL.5432:$ip:5432" "$user@$host"
