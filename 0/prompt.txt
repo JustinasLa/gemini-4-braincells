@@ -1,0 +1,36 @@
+Task: build part 2 of "Screenshot Receipts" in gemini-4-braincells (Shill or Chill). A screenshot of a social-media post is a claim. Given what Nemotron read from the screenshot, find the real post and check whether it matches. Two sibling threads run in parallel: part 1, "Nemotron screenshot reader" (owns media/, branch `feat/nemotron-screenshot-read`), and part 3, "Nemotron as the fast main AI for lookup" (also edits lookup/service.py). The user's goal: lookups should feel instant, with Nemotron as the main AI for speed. Every call you add must be time-budgeted, and independent calls must run in parallel.
+
+Input contract, produced by part 1 in `media/screenshot.py`. Code against exactly this. Stack on part 1's branch once it is pushed. Until then, use a local copy of the dataclass and drop it when you rebase:
+```python
+@dataclass(frozen=True, slots=True)
+class ScreenshotPost:
+    media_hash: str
+    platform: str            # x | bluesky | threads | facebook | instagram | tiktok | other | unknown
+    display_name: str | None
+    handle: str | None       # without @
+    shown_time: str | None   # verbatim, e.g. "3:14 PM · Nov 13, 2026" or "2h"
+    text: str | None
+    counts: dict[str, int | None]   # replies, reposts, quotes, likes, views, bookmarks; None = not shown
+    ui_oddities: list[str]
+    confidence: float
+    model: str
+    latency_ms: int
+```
+
+Scope:
+1. New `lookup/receipts.py`: `find_original(shot, deps, budget) -> ScreenshotReceipt`.
+   - Bluesky: resolve the handle to a DID (lookup/bsky.py), then search that author's posts for the phrase with `searchPosts` and `from:`, falling back to the author feed.
+   - X: Oxylabs `/search` with `site:x.com/<handle>` plus the exact phrase, then read the candidate post with the existing xpage parser and get its exact time from the snowflake id.
+   - Compare with lookup/textsim.py, and compare shown_time with the real time. Relative times ("2h") get an uncertainty window, like `Page.time_uncertainty_s`.
+   - Labels: `matches` (real post link), `differs` (real post link plus a word-level diff), `not_found` (wording: "no matching post found: it may be deleted, private or never posted", never "fake").
+   - Counts are context only, never a verdict, because posts gain and lose likes.
+   - Every fetch becomes a Receipt, the same as the rest of lookup.
+2. Lookup integration: a new `screenshot` step after `media` (update the step list in lookup/README.md and models.py). Run it for each submitted-post image that Nemotron marked as a screenshot of a post. Add the receipt to `LookupResult` (new field plus README JSON docs) with an `Edge` rel such as `screenshot_of`. Gemini/assessment may cite it. Keep the wiring in service.py small (a call into receipts.py), because part 3 is refactoring service.py for speed. Rebase onto whichever lands first.
+3. Media worker: after part 1 merges, rows that have `detail.screenshot` get an extra evidence row `detail.type='screenshot_receipt'`, upserted on the stable (cluster, media hash) key like ocr_template rows, so the Gemini analyst and the dashboard see it. Add a dashboard card showing the screenshot and the real post side by side, with the diff (web/public/index.html, one file, no build).
+4. Tests with recorded fixtures (no live calls), covering: Bluesky match, X match with snowflake time, text differs, not found, relative time, missing handle (skip with a reason).
+
+Honesty rules from lookup/README.md apply. Never guess values (unknown = null). The label describes the screenshot, never a person.
+
+Working style: use multiple subagents in parallel. For example: one each for the Bluesky resolver, the X resolver, compare+labels, lookup wiring, tests, and dashboard. Then do Sol review rounds: Codex gpt-6.1-sol, reasoning high, via delegate_task, a new delegate each round, until it says approved. Fix the findings yourself. Start with `entire brain brief` + `entire graph query` per .entire/agent-guide.md.
+
+Git: pushes from worktrees of the shared /srv checkout can fail on other users' mode-600 Entire objects. If that happens, clone https://github.com/JustinasLa/gemini-4-braincells.git into ~/work/<name>, fetch your branch into it and push from there. Open a PR once Sol approves. Do NOT merge or deploy: report back with the PR URL and an example lookup result.

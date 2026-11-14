@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7CE4TRDNJJJ527VPCA6S9ZP",
+  "session_id": "6587ee0b-9a66-44d6-b88a-46fc219308f8",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-14T07:08:02.590812199Z",
+  "branch": "feat/screenshot-receipts",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lookup/receipts.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "d758ec305dc2",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 84644,
+    "cache_read_tokens": 1501958,
+    "output_tokens": 17983,
+    "api_call_count": 19
+  },
+  "session_token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 84644,
+    "cache_read_tokens": 1501958,
+    "output_tokens": 17983,
+    "api_call_count": 19
+  },
+  "redaction": {
+    "replacements": 5,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 1,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
