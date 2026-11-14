@@ -143,7 +143,6 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
   const running = lookup.state === "running";
   const facts = [
     first ? ["Since", dateLabel(first.date)] : null,
-    !running || versions ? [family ? "Versions" : group, String(versions)] : null,
     sub?.aimed_at ? ["Aimed at", cap(sub.aimed_at)] : null,
   ].filter((fact): fact is string[] => !!fact);
   const grid = family ? variants.map((node) => versionCard(node, members)).join("") : matches.map(matchCard).join("");
@@ -161,7 +160,7 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
       </div>
     </section>
     ${family ? origin(family, members) : ""}
-    ${grid ? `<section class="st-sec" aria-labelledby="st-versions"><h2 id="st-versions">${group} <span>${versions}</span></h2><div class="st-grid">${grid}</div></section>` : ""}
+    ${grid ? `<section class="st-sec" aria-labelledby="st-versions"><h2 id="st-versions">${group}</h2><div class="st-grid">${grid}</div></section>` : ""}
     ${running ? "" : `<p class="st-fine">Search sample. Dates are upper bounds.</p>`}
   </div>`;
 }
