@@ -105,7 +105,8 @@ def fit_evidence(ctx: ClusterContext) -> ClusterContext:
             continue  # a smaller later item may still fit
         shown.append(item)
         remaining -= size
-    return replace(ctx, evidence=shown, evidence_omitted=len(ctx.evidence) - len(shown))
+    omitted = ctx.evidence_omitted + len(ctx.evidence) - len(shown)  # keeps an earlier fit's count
+    return replace(ctx, evidence=shown, evidence_omitted=omitted)
 
 
 def _evidence_line(e: EvidenceItem) -> str:

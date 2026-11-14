@@ -307,3 +307,73 @@ def test_fit_evidence_guard_sees_only_shown_and_signals_come_first():
     )
     v = enforce(draft, fitted, model="m")
     assert [c.evidence_id for c in v.evidence] == [100]  # the hidden id is not accepted
+
+
+def test_tool_returned_stored_evidence_is_citable_even_if_prompt_left_it_out():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from analyst.context import EvidenceItem
+    from analyst.prompt import fit_evidence
+    from analyst.service import investigate
+    from analyst.verdict import CitedEvidence, VerdictDraft
+
+    big = "x" * 3000
+    filler = [
+        EvidenceItem(
+            id=i,
+            kind="media",
+            summary="m",
+            detail={"description": big, "extracted_text": [big]},
+            source_url=None,
+            model="nemotron-3.5-super-vl",
+        )
+        for i in range(1, 40)
+    ]
+    signal = EvidenceItem(
+        id=1000, kind="signal", summary="s", detail={}, source_url=None, model="detector"
+    )
+    full = replace(ctx(), evidence=[signal, *filler])
+    hidden = next(e for e in filler if e.id not in fit_evidence(full).evidence_ids)
+    draft = VerdictDraft(
+        status="coordinated",
+        confidence=0.8,
+        summary="s",
+        evidence=[
+            CitedEvidence(evidence_id=1000, why="w"),
+            CitedEvidence(evidence_id=hidden.id, why="w"),
+        ],
+        counter_evidence=["c"],
+        would_change_verdict=[],
+        disagreement_reason="",
+    )
+    agent = SimpleNamespace(
+        name="gemini-test",
+        run=lambda *a: SimpleNamespace(draft=draft, model_calls=[], cost_usd=0.0),
+    )
+    tools = SimpleNamespace(returned={hidden.id: hidden}, new_evidence={}, records=[])
+    v = investigate(full, agent, tools)
+    assert [c.evidence_id for c in v.evidence] == [1000, hidden.id]
+
+
+def test_refitting_keeps_the_omission_count():
+    from dataclasses import replace
+
+    from analyst.context import EvidenceItem
+    from analyst.prompt import fit_evidence
+
+    big = "x" * 3000
+    items = [
+        EvidenceItem(
+            id=i,
+            kind="media",
+            summary="m",
+            detail={"description": big, "extracted_text": [big]},
+            source_url=None,
+            model="m",
+        )
+        for i in range(1, 40)
+    ]
+    once = fit_evidence(replace(ctx(), evidence=items))
+    assert once.evidence_omitted > 0
+    assert fit_evidence(once).evidence_omitted == once.evidence_omitted

@@ -29,7 +29,13 @@ def investigate(ctx: ClusterContext, agent: GeminiAgent, tools: ToolBox) -> Verd
     if not ctx.evidence:
         return no_evidence_verdict(ctx)
     result = agent.run(SYSTEM, build_prompt(ctx), tools)
-    full = replace(ctx, evidence=[*ctx.evidence, *tools.new_evidence.values()])
+    # citable: what the prompt showed + everything a tool returned (also stored rows the prompt
+    # had left out for size)
+    shown = ctx.evidence_ids
+    returned = {**tools.returned, **tools.new_evidence}
+    full = replace(
+        ctx, evidence=[*ctx.evidence, *(e for i, e in returned.items() if i not in shown)]
+    )
     verdict = enforce(result.draft, full, model=agent.name)
     return verdict.model_copy(
         update={

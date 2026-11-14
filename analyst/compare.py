@@ -98,8 +98,15 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
                         SYSTEM, build_prompt(ctx), box
                     )
                     draft = res.draft
-                    known = ctx.evidence_ids | set(box.new_evidence)
-                    full = replace(ctx, evidence=[*ctx.evidence, *box.new_evidence.values()])
+                    known = ctx.evidence_ids | set(box.returned) | set(box.new_evidence)
+                    returned = {**box.returned, **box.new_evidence}
+                    full = replace(
+                        ctx,
+                        evidence=[
+                            *ctx.evidence,
+                            *(e for i, e in returned.items() if i not in ctx.evidence_ids),
+                        ],
+                    )
                     rec.update(
                         cost_usd=res.cost_usd,
                         prompt_tokens=sum(c.prompt_tokens or 0 for c in res.model_calls),

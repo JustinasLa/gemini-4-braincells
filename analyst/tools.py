@@ -266,6 +266,8 @@ class ToolBox:
         self._conn = conn
         self._requested_by = requested_by
         self.new_evidence: dict[int, EvidenceItem] = {}
+        # every evidence item a tool returned to the model (new or already stored): citable
+        self.returned: dict[int, EvidenceItem] = {}
         self.records: list[ToolCallRecord] = []
         self._allowed_urls: set[str] = set()
         for e in ctx.evidence:
@@ -443,6 +445,7 @@ class ToolBox:
     def _remember(self, item: EvidenceItem, rec: ToolCallRecord) -> None:
         rec.evidence_id = item.id
         rec.source_url = item.source_url
+        self.returned[item.id] = item
         if item.id not in self.ctx.evidence_ids:
             self.new_evidence[item.id] = item
 
