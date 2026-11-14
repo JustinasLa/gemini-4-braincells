@@ -104,37 +104,60 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
     return json.dumps(data, default=str, ensure_ascii=False)
 
 
+MAX_CALL_S = 90.0  # one reading never waits longer than this
+RETRY_MIN_S = 20.0  # a second try needs at least this much of the lookup's budget left
+RETRY_CODES = frozenset({500, 503, 504})  # Gemini-side blips and DEADLINE_EXCEEDED
+
+
 class Assessor:
-    def __init__(self, api_key: str, model: str, *, cap=None, timeout_s: float = 30.0):
+    def __init__(self, api_key: str, model: str, *, cap=None):
         from google import genai
-        from google.genai import types
 
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set")
-        # bounded: the lookup keeps only a short reserve of its time budget for this call
-        self._client = genai.Client(
-            api_key=api_key, http_options=types.HttpOptions(timeout=int(timeout_s * 1000))
-        )
+        # no client-wide timeout: each call gets what is left of the lookup's budget, because
+        # google-genai also sends the timeout to Gemini as X-Server-Timeout, and Gemini answers
+        # 504 DEADLINE_EXCEEDED when its reading needs longer than that
+        self._client = genai.Client(api_key=api_key)
         if cap is not None:
             self._client = cap.wrap(self._client)
         self.model = model
 
-    def assess(self, r: LookupResult) -> Assessment:
-        from google.genai import types
+    def assess(self, r: LookupResult, *, deadline: float | None = None) -> Assessment:
+        """`deadline` is the lookup's monotonic end; without one a call may take MAX_CALL_S."""
+        from google.genai import errors, types
 
         from analyst.pricing import cost_usd
 
-        started = time.monotonic()
-        res = self._client.models.generate_content(
-            model=self.model,
-            contents=brief(r),
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM,
-                response_mime_type="application/json",
-                response_schema=_Draft,
-                temperature=0.2,
-            ),
-        )
+        prompt_text = brief(r)
+        for attempt in (1, 2):
+            left = MAX_CALL_S if deadline is None else deadline - time.monotonic()
+            timeout_s = max(5.0, min(MAX_CALL_S, left))
+            started = time.monotonic()
+            try:
+                res = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt_text,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM,
+                        response_mime_type="application/json",
+                        response_schema=_Draft,
+                        temperature=0.2,
+                        http_options=types.HttpOptions(timeout=int(timeout_s * 1000)),
+                    ),
+                )
+                break
+            except errors.ServerError as exc:
+                left = MAX_CALL_S if deadline is None else deadline - time.monotonic()
+                if attempt == 2 or exc.code not in RETRY_CODES or left < RETRY_MIN_S:
+                    raise
+                log.warning(
+                    "gemini lookup reading failed after %d ms (%s %s), one more try with %d s left",
+                    int((time.monotonic() - started) * 1000),
+                    exc.code,
+                    exc.status,
+                    int(left),
+                )
         latency = int((time.monotonic() - started) * 1000)
         usage = res.usage_metadata
         prompt = getattr(usage, "prompt_token_count", None)
