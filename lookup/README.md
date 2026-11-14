@@ -36,6 +36,10 @@ census: the notes say so.
 
 ```
 POST /api/lookup             {"url": "https://x.com/user/status/123"}   or {"text": "..."}
+                             a text that is one Bluesky account (`@name.bsky.social`, `@name`,
+                             `name.bsky.social`, `@example.com`, a DID) is looked up as its
+                             profile link `https://bsky.app/profile/<handle>`; other text needs
+                             5+ words (`signals.textnorm.word_count`: CJK/Thai counted per ~2 chars)
   -> 202 LookupResult (state "running"); repeated input within LOOKUP_CACHE_TTL_S -> cached result
 GET  /api/lookup/{id}/events -> text/event-stream: `event: snapshot` + `data: <LookupResult>` at
                                 once and on every change (checked every 150 ms), `event: ping`

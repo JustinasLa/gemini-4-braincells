@@ -80,7 +80,7 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
   them. Parent links are inferred: a post's parent is the earliest earlier post sharing its link,
   image hash or normalised text.
-- **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise,
+- **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise (the API looks up an `@handle` as that Bluesky profile),
   then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
   the step console, cards and receipts. The verdict coin is revealed only for a completed job;
   failures and timeouts leave partial receipts available without a final verdict. Starting another

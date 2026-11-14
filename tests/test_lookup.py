@@ -776,3 +776,49 @@ def test_undated_scrape_still_merges_its_facts():
         ["c"],
         9,
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "url"),
+    [
+        ("@ninhobaby.bsky.social", "https://bsky.app/profile/ninhobaby.bsky.social"),
+        ("  @NinhoBaby.bsky.social ", "https://bsky.app/profile/ninhobaby.bsky.social"),
+        ("ninhobaby.bsky.social", "https://bsky.app/profile/ninhobaby.bsky.social"),
+        ("@ninhobaby", "https://bsky.app/profile/ninhobaby.bsky.social"),
+        ("@nytimes.com", "https://bsky.app/profile/nytimes.com"),
+        (
+            "did:plc:abcdefghijklmnopqrstuvwx",
+            "https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx",
+        ),
+        ("nytimes.com", None),  # a bare domain is a website as often as an account
+        ("@", None),
+        ("@bad_name", None),
+        ("@two words.bsky.social", None),
+        (TEXT, None),
+    ],
+)
+def test_handle_profile_url(text, url):
+    assert lookup_route.handle_profile_url(text) == url
+
+
+def test_api_handle_and_unspaced_text():
+    """Issue #66: an @handle is traced as its Bluesky profile; #17: CJK text counts its words."""
+    seen: list[LookupInput] = []
+
+    class Jobs:
+        def start(self, inp, client):
+            seen.append(inp)
+            return SimpleNamespace(snapshot=lambda: {"id": "lk_t", "state": "running"})
+
+    app.dependency_overrides[lookup_route.get_jobs] = lambda: Jobs()
+    try:
+        c = TestClient(app)
+        assert c.post("/api/lookup", json={"text": "@ninhobaby.bsky.social"}).status_code == 202
+        assert seen[-1] == LookupInput(url="https://bsky.app/profile/ninhobaby.bsky.social")
+        jp = "東京で新しい政策が発表されました今日"  # one whitespace token, ~9 words
+        assert c.post("/api/lookup", json={"text": jp}).status_code == 202
+        assert seen[-1] == LookupInput(text=jp)
+        assert c.post("/api/lookup", json={"text": "too short"}).status_code == 400
+        assert c.post("/api/lookup", json={"text": "nytimes.com"}).status_code == 400
+    finally:
+        app.dependency_overrides.pop(lookup_route.get_jobs, None)
