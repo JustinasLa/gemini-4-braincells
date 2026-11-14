@@ -6,6 +6,11 @@ are None when the other picture is larger; the note identifies that direction.
 Crops with a small additional edit can still be classified as cropped. Unknown means
 a decoded image has a side below 16 pixels or insufficient grayscale variation.
 
+Very small rendered glyph substitutions (for example, a single digit in text
+under roughly 20px on a 600px image) may be reported as resized, by design:
+unchanged reposts must not be called edited. Rendered shape and contrast matter,
+so font size alone does not guarantee detection.
+
 The 300 ms budget targets 2048-pixel photo/meme pairs, not full-entropy noise
 stored as quality-95, 4:4:4 progressive JPEGs: entropy decoding alone can exceed
 that budget even with luminance-only draft decoding.
@@ -31,8 +36,11 @@ _ALIGN_SIDE = 256
 _GRID_SIDE = 32
 # A 512-pixel, 64-block map resolves small text alongside coarse edits.
 _FINE_GRID_SIDE = 64
-_REGISTRATION_LIMIT = 0.015
+_REGISTRATION_LIMIT = 0.04
+_TRIM_LIMIT = 0.015
 _RESIDUAL_SIGMA = 0.85
+_RESIDUAL_STD_FLOOR = 45.0
+_SHARED_EDGE_WEIGHT = 0.04
 # Below 16 original pixels per side, there is too little spatial evidence.
 _MIN_SIDE = 16
 # Less than two grayscale levels of deviation is effectively blank at this scale.
@@ -49,18 +57,18 @@ _ALIGN_MEDIAN = 0.24
 _TEXTURE_QUANTILE = 0.50
 # Two gray levels exclude blank background blocks from that alignment check.
 _TEXTURE_MIN_STD = 2.0
-# Registered coarse noise peaks at .198; the smallest required text is .171
-# and is recovered by the fine map rather than weakening coarse components.
+# Shared-edge suppression keeps coarse repost noise below .28; small glyphs
+# use the fine map rather than weakening coarse components.
 _CHANGE_FLOOR = 0.28
-_FINE_CHANGE_FLOOR = 0.1375
+_FINE_CHANGE_FLOOR = 0.12
 # A .18 margin above median residuals rejects global brightness/contrast shifts.
 _CHANGE_MARGIN = 0.18
 _FINE_CHANGE_MARGIN = 0.10
 # Three adjacent blocks reject noise unless a component contains a strong change.
 _MIN_COMPONENT = 3
-# Registered fine noise peaks at .270 versus .286 for the required text probes;
-# the .275 anchor keeps resize noise out. Some 16px photo edits peak at .063,
-# overlapping that noise, and are deliberately missed rather than false edits.
+# Fine repost noise stays below the .24 anchor; only components with a peak
+# twice the fine threshold count. Smaller glyphs can overlap that noise and
+# are deliberately missed rather than calling an unchanged repost edited.
 _STRONG_CHANGE_FACTOR = 2.0
 # Forty percent admits localized edits but rejects most whole-picture changes.
 _MAX_EDIT_FRACTION = 0.40
@@ -191,8 +199,8 @@ def _register(
     Offsets sample OTHER in BASE's frame. Robust least squares prevents a small
     caption from pulling the geometry; all reductions and FFTs are single-threaded.
     Undo the known aspect normalization so a similarity in original coordinates
-    remains a similarity when fitted in the square working frame. The 1.5% range
-    covers three-pixel trims at 600px, not the existing 2% crops.
+    remains a similarity when fitted in the square working frame. The 4% range
+    also refines near-full crops below the resolution of the crop search grid.
     """
     side = first.shape[0]
     window = np.outer(np.hanning(side), np.hanning(side))
@@ -232,7 +240,7 @@ def _register(
         )
     )
     interior = (rows >= 4) & (rows < side - 4) & (columns >= 4) & (columns < side - 4)
-    for _ in range(8):
+    for _ in range(16):
         dimensions = scale * axes
         residual = _warp(second, dimensions, offset) - first
         valid = interior & (rows * dimensions[0] + offset[0] >= 2)
@@ -259,6 +267,12 @@ def _register(
 def _residual(
     first: np.ndarray, second: np.ndarray, scale: np.ndarray, offset: np.ndarray
 ) -> np.ndarray:
+    """Discount shared blurred edges without hiding new structure on either side.
+
+    A gray-level normalization floor prevents sparse captions on flat templates
+    from amplifying resampling noise. Gradients retain absolute luminance units
+    so the edge weighting does not itself depend on the background's contrast.
+    """
     side = first.shape[0]
     rows, columns = np.indices(first.shape, dtype=np.float32)
     valid = (rows * scale[0] + offset[0] >= 0) & (rows * scale[0] + offset[0] <= side - 1)
@@ -266,9 +280,10 @@ def _residual(
     valid = ndimage.binary_erosion(valid, iterations=3)
     first = ndimage.gaussian_filter(first, _RESIDUAL_SIGMA)
     second = ndimage.gaussian_filter(_warp(second, scale, offset), _RESIDUAL_SIGMA)
-    first = (first - first[valid].mean()) / max(float(first[valid].std()), _MIN_STD)
-    second = (second - second[valid].mean()) / max(float(second[valid].std()), _MIN_STD)
-    return np.where(valid, np.abs(first - second), 0)
+    shared_edges = np.minimum(np.hypot(*np.gradient(first)), np.hypot(*np.gradient(second)))
+    first = (first - first[valid].mean()) / max(float(first[valid].std()), _RESIDUAL_STD_FLOOR)
+    second = (second - second[valid].mean()) / max(float(second[valid].std()), _RESIDUAL_STD_FLOOR)
+    return np.where(valid, np.abs(first - second) / (1 + _SHARED_EDGE_WEIGHT * shared_edges), 0)
 
 
 def _pool(difference: np.ndarray, grid: int) -> np.ndarray:
@@ -483,6 +498,21 @@ def relate(base: bytes, other: bytes) -> Relation:
             )
             region, fraction = _mask_box(changed), float(changed.mean())
         if aligned and region is None and distance <= _RESIZE_DISTANCE:
+            if abs(scale - 1) > _TRIM_LIMIT:
+                origin = (offset + (1 - dimensions) / 2) / _ALIGN_SIDE
+                lower = np.clip(-origin / dimensions, 0, 1)
+                upper = np.clip((1 - origin) / dimensions, 0, 1)
+                box = (float(lower[1]), float(lower[0]), float(upper[1]), float(upper[0]))
+                note = (
+                    "The other picture shows the base picture with extra area around it."
+                    if scale < 1
+                    else (
+                        "The other picture is a crop of the base picture, keeping about "
+                        f"{round((box[2] - box[0]) * 100)}% of its width and "
+                        f"{round((box[3] - box[1]) * 100)}% of its height."
+                    )
+                )
+                return Relation("cropped", distance, None if scale < 1 else box, None, note)
             if first_size == second_size:
                 note = f"Same picture, re-encoded at {second_size[0]}x{second_size[1]}."
             else:
@@ -507,6 +537,7 @@ def relate(base: bytes, other: bytes) -> Relation:
             return Relation("resized", distance, None, None, note)
         if (
             aligned
+            and abs(scale - 1) <= _TRIM_LIMIT
             and region is not None
             and fraction <= _MAX_EDIT_FRACTION
             and distance <= _EDIT_DISTANCE

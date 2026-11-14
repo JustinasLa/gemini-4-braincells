@@ -162,6 +162,75 @@ def test_outlined_caption_resize(quality, scale, resampling):
     _assert_note(result)
 
 
+def _captioned_template(style):
+    image = (
+        _picture(size=(600, 600)) if style == "texture" else Image.new("RGB", (600, 600), "#cfcfcf")
+    )
+    draw = ImageDraw.Draw(image)
+    if style == "bar":
+        draw.rectangle((0, 470, 600, 600), fill="white")
+        draw.rectangle((220, 100, 380, 280), fill="orange")
+    elif style == "stripes":
+        for left in range(0, 600, 16):
+            draw.rectangle((left, 0, left + 7, 600), fill="#808080")
+    for top, text in ((20, "WHEN YOU SEE THE MEME"), (500, "PRICE $10 BUY NOW")):
+        draw.text(
+            (20, top),
+            text,
+            font=ImageFont.load_default(size=32),
+            fill="white",
+            stroke_width=1,
+            stroke_fill="black",
+        )
+    return image
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("style", ["flat", "bar"])
+@pytest.mark.parametrize(
+    "size,resampling", [(1200, Image.Resampling.LANCZOS), (450, Image.Resampling.BILINEAR)]
+)
+def test_flat_caption_resampling(reverse, style, size, resampling):
+    image = _captioned_template(style)
+    base = _bytes(image)
+    other = _bytes(image.resize((size, size), resampling))
+    result = relate(other, base) if reverse else relate(base, other)
+    assert result.kind == "resized", result
+    assert result.edited_region is None
+
+
+@pytest.mark.parametrize("style", ["flat", "bar", "texture"])
+@pytest.mark.parametrize("image_format", ["PNG", "JPEG"])
+@pytest.mark.parametrize("geometry", ["shift", 2, 3])
+def test_caption_template_geometry(style, image_format, geometry):
+    image = _captioned_template(style)
+    if geometry == "shift":
+        other = image.copy()
+        other.paste(image, (0, 1))
+    else:
+        other = image.crop((geometry, geometry, 600 - geometry, 600 - geometry))
+    result = relate(_bytes(image), _bytes(other, image_format, quality=85))
+    assert result.kind == "resized", result
+    assert result.edited_region is None
+
+
+@pytest.mark.parametrize("margin", [6, 9])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_near_full_striped_crop(margin, reverse):
+    image = _captioned_template("stripes")
+    box = (margin, margin, 600 - margin, 600 - margin)
+    base, other = _bytes(image), _bytes(image.crop(box))
+    result = relate(other, base) if reverse else relate(base, other)
+    assert result.kind == "cropped", result
+    assert result.edited_region is None
+    if reverse:
+        assert result.crop_box is None
+        assert "extra area around it" in result.note
+    else:
+        assert result.crop_box == pytest.approx(tuple(value / 600 for value in box), abs=0.02)
+        assert f"{round((600 - 2 * margin) / 6)}% of its width" in result.note
+
+
 @pytest.mark.parametrize(
     "box",
     [
