@@ -182,22 +182,17 @@ def parse_content(content: Any) -> dict[str, Any]:
     # Skip braces inside <think> blocks, but decode the original text: a "<think>" written
     # inside a JSON string value (verbatim post text) must survive.
     thinking = [m.span() for m in re.finditer(r"<think>.*?</think>", content, flags=re.S)]
-    starts = [
-        i for i, c in enumerate(content) if c == "{" and not any(a <= i < b for a, b in thinking)
-    ]
-    if not starts:
+    start = next(
+        (i for i, c in enumerate(content) if c == "{" and not any(a <= i < b for a, b in thinking)),
+        None,
+    )
+    if start is None:
         raise ValueError("no JSON object in response")
-    error: ValueError | None = None
-    for start in starts:
-        try:
-            payload, _ = json.JSONDecoder().raw_decode(content, start)
-        except ValueError as exc:  # a stray brace in prose: try the next one
-            error = error or exc
-            continue
-        if not isinstance(payload, dict):
-            raise ValueError("response JSON is not an object")
-        return payload
-    raise error or ValueError("no JSON object in response")
+    # Only the first object: never promote an object nested in a broken envelope.
+    payload, _ = json.JSONDecoder().raw_decode(content, start)
+    if not isinstance(payload, dict):
+        raise ValueError("response JSON is not an object")
+    return payload
 
 
 def _strings(value: Any, limit: int = 20) -> list[str]:

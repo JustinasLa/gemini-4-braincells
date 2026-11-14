@@ -284,11 +284,25 @@ def test_text_is_verbatim_even_when_it_reads_like_null_or_is_long():
 def test_post_with_nothing_findable_is_none():
     payload = {**FULL, "handle": None, "display_name": "  ", "text": None}
     assert _post(payload) is None
-    assert _post({"is_post": True}) is None
+    assert _post({"is_post": True, "display_name": None, "handle": None, "text": None}) is None
 
 
-def test_missing_handle_with_text_is_still_a_post():
-    payload = {k: v for k, v in FULL.items() if k != "handle"}
+@pytest.mark.parametrize("missing", ["display_name", "handle", "text"])
+def test_post_reply_missing_a_findable_key_raises_so_it_is_retried(missing):
+    with pytest.raises(ValueError):
+        _post({k: v for k, v in FULL.items() if k != missing})
+    with pytest.raises(ValueError):
+        _post({"is_post": True})
+
+
+@pytest.mark.parametrize("bad", [3, ["a"], {"x": 1}, True])
+def test_post_reply_with_a_non_string_findable_field_raises(bad):
+    with pytest.raises(ValueError):
+        _post({**FULL, "handle": bad})
+
+
+def test_null_handle_with_text_is_still_a_post():
+    payload = {**FULL, "handle": None}
     post = _post(payload)
     assert post is not None
     assert post.handle is None
@@ -296,8 +310,9 @@ def test_missing_handle_with_text_is_still_a_post():
 
 
 def test_unreadable_handle_alone_does_not_make_a_post():
-    assert _post({"is_post": True, "handle": "not a handle"}) is None
-    assert _post({"is_post": True, "handle": "@someone"}).handle == "someone"
+    empty = {"is_post": True, "display_name": None, "text": None}
+    assert _post({**empty, "handle": "not a handle"}) is None
+    assert _post({**empty, "handle": "@someone"}).handle == "someone"
 
 
 @pytest.mark.parametrize(
@@ -509,6 +524,8 @@ def test_ui_oddities_judging_dates_against_the_model_are_dropped():
     payload = {
         "is_post": True,
         "handle": "a",
+        "display_name": None,
+        "text": None,
         "ui_oddities": ["The date is in the future", "Mixed fonts in the second line"],
     }
     post = screenshot_from_payload(payload, media_hash="h", model="m", latency_ms=1)
@@ -532,7 +549,7 @@ def test_huge_suffixed_count_is_none_not_overflow():
 
 def test_literal_think_tags_inside_the_post_text_are_kept():
     reply = (
-        '<think>reading {it}</think>\n{"is_post": true, "handle": "a", '
+        '<think>reading {it}</think>\n{"is_post": true, "handle": "a", "display_name": null, '
         '"text": "Example <think>working</think> answer"}'
     )
     post = screenshot_from_payload(parse_content(reply), media_hash="h", model="m", latency_ms=1)

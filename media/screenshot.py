@@ -228,6 +228,9 @@ def screenshot_from_payload(
     (no handle, display name or text). Raises ValueError when is_post is missing or invalid."""
     if not _is_post(payload.get("is_post")):
         return None
+    for key in ("display_name", "handle", "text"):  # an incomplete reply must be retried
+        if key not in payload or not isinstance(payload[key], str | None):
+            raise ValueError(f"{key} must be a string or null")
     display_name = _text(payload.get("display_name"), _MAX_SHORT)
     handle = normalise_handle(payload.get("handle"))
     text = _text(payload.get("text"))  # verbatim, never cut (max_tokens bounds the reply)
