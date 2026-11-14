@@ -175,3 +175,22 @@ test("findings order older copies by their latest possible time, like the server
   assert.equal(finding.kind, "copy");
   assert.equal(finding.match.id, "img:post");
 });
+
+test("a page clock time without a zone is labelled with its printed date, not its window's lower edge", () => {
+  // the page printed 2012-05-06T10:00:00 (no zone): the server stores 2012-05-05T20:00Z + 28 h
+  const result = imageLookup({ time_source: "page", first_seen: "2012-05-05T20:00:00Z", time_uncertainty_s: 100800 });
+  assert.equal(firstSeenLabel(result.image_matches[0]), "page dated 2012-05-06");
+  assert.equal(firstSeenLabel({ ...result.image_matches[0], first_seen: "2012-05-06T00:00:00Z", time_uncertainty_s: 86400 }), "page dated 2012-05-06");
+});
+
+test("a copy whose date window overlaps the post is not called later", () => {
+  const result = imageLookup({ time_source: "page", first_seen: "2026-11-14T00:00:00Z", time_uncertainty_s: 86400 });
+  result.image_origin_id = null;
+  const finding = memeFinding(result);
+  assert.equal(finding.kind, "original");
+  assert.doesNotMatch(finding.sentence, /later cop/);
+  assert.match(finding.sentence, /1 copy is dated too close to the post/);
+  const after = imageLookup({ time_source: "page", first_seen: "2026-11-16T00:00:00Z", time_uncertainty_s: 86400 });
+  after.image_origin_id = null;
+  assert.match(memeFinding(after).sentence, /1 later copy found/);
+});

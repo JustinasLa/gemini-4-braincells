@@ -125,6 +125,13 @@ def _same_page(asked: str, final: str) -> bool:
 MIN_DATED_ID = 86_400_000 << 22
 
 
+def _printed_day(item) -> str:
+    """The day a page date prints: the middle of its window (service._page_time stores a clock
+    time without a zone as that time minus 14 h, with 28 h of uncertainty), not its lower edge."""
+    unc = getattr(item, "time_uncertainty_s", None) or 0
+    return (item.first_seen + timedelta(seconds=unc / 2)).date().isoformat()
+
+
 def _post_time(hit) -> tuple[datetime, str, str] | None:
     """(created_at, post URL, status id) when the hit's page or image URL is an X status: the
     post's own time is in its id (lookup.urls.snowflake_time), exact, and the picture was on X
@@ -473,7 +480,9 @@ class Trace:
     @staticmethod
     def _comparison_summary(match):
         summary = f"Image comparison with the upload: {match.relation}"
-        if match.first_seen:
+        if match.first_seen and match.time_source == "page":
+            summary += f"; page dated {_printed_day(match)} (date printed on the page)"
+        elif match.first_seen:
             summary += f"; {match.engine} first seen {match.first_seen.isoformat()}"
             if match.time_source == "crawl_date":
                 summary += " (crawl date, not publication)"

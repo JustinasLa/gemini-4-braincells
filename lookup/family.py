@@ -749,6 +749,9 @@ class Builder:
 
     @staticmethod
     def _date(c: _Copy) -> str | None:
+        if c.first_seen and c.time_source == "page" and c.time_uncertainty_s:
+            # the day the page prints: the middle of its window (imagetrace._printed_day)
+            return (c.first_seen + timedelta(seconds=c.time_uncertainty_s / 2)).date().isoformat()
         return c.first_seen.date().isoformat() if c.first_seen else None
 
     def _assemble(self, root: _Copy | None, copies: list[_Copy], submitted: _Copy) -> Family:

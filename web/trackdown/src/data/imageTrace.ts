@@ -64,12 +64,15 @@ export function changeDirection(match: ImageMatch): { heading: string; lead: str
   if (match.changes_from === "upload") return { heading: "Your picture → this copy", lead: "From this picture to that copy, as a model reads it:" };
   return { heading: "", lead: "What changed, as a model reads it:" };
 }
+/** The date a page prints: the middle of its window (the server stores a date-only page as that day,
+ *  and a clock time without a zone as that time minus 14 h with 28 h of uncertainty), not its lower edge. */
+const pageDate = (match: ImageMatch, time: number) => new Date(time + (match.time_uncertainty_s ?? 0) * 500).toISOString().slice(0, 10);
 export function firstSeenLabel(match: ImageMatch): string {
   const time = imageTime(match);
   if (time == null) return "date unknown";
   const date = new Date(time).toISOString().slice(0, 10);
   if (match.time_source === "crawl_date") return `first seen by TinEye on ${date} · upper bound, not a publish date`;
-  if (match.time_source === "page") return `page dated ${date}`;
+  if (match.time_source === "page") return `page dated ${pageDate(match, time)}`;
   return `time from post id · ${new Date(time).toISOString().replace("T", " ").replace(".000Z", " UTC")}`;
 }
 
@@ -202,7 +205,7 @@ const shortDate = (match: ImageMatch) => {
   if (time == null) return "date unknown";
   const date = new Date(time).toISOString().slice(0, 10);
   // a tag: the post-id time's date (exact; the card and panel give the full time)
-  return match.time_source === "crawl_date" ? `seen by ${date}` : match.time_source === "page" ? `page dated ${date}` : date;
+  return match.time_source === "crawl_date" ? `seen by ${date}` : match.time_source === "page" ? `page dated ${pageDate(match, time)}` : date;
 };
 
 /** What the image search says the submitted picture is, from facts the lookup returned. Never a
@@ -238,8 +241,12 @@ export function memeFinding(result: LookupResult): MemeFinding | "pending" | nul
   const edits = related.filter((match) => relationOf(match) === "edited").length;
   if (!older.length) {
     const undated = related.filter((match) => imageTime(match) == null).length;
+    // later only when its earliest possible time is after the post (as `after` above); a date window
+    // that overlaps the post, or a crawl date (an upper bound only), leaves the order open
+    const later = related.filter((match) => match.time_source !== "crawl_date" && (imageTime(match) ?? -Infinity) > posted).length;
+    const open = related.length - undated - later;
     return make("original", "Original", "Earliest copy we found",
-      `No copy we found is dated before this post${undated ? `; ${plural(undated, "undated copy", "undated copies")} could still be older` : ""}. ${plural(related.length - undated, "later copy", "later copies")} found. A search sample, not proof of who made it.`);
+      `No copy we found is dated before this post${undated ? `; ${plural(undated, "undated copy", "undated copies")} could still be older` : ""}.${open ? ` ${plural(open, "copy is", "copies are")} dated too close to the post, or only by a crawl date, to tell which came first.` : ""}${later ? ` ${plural(later, "later copy", "later copies")} found.` : ""} A search sample, not proof of who made it.`);
   }
   const first = older.find((match) => relationOf(match) !== "unknown");
   if (!first) {

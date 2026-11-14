@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from lookup import imagetrace
+from lookup import family, imagetrace
 from lookup.assess import brief
 from lookup.models import ImageMatch, ImageRef, LookupInput, Post
 from lookup.service import Deps, Lookup
@@ -1934,3 +1934,30 @@ def test_page_dates_stop_once_the_family_step_has_read_its_copies_dates():
     assert match.time_source == "crawl_date"
     read = next(r for r in job.result.receipts if r.tool == "oxylabs" and r.source_url == page)
     assert not read.ok and "not confirmed" in read.summary
+
+
+def test_a_zoneless_page_clock_time_is_shown_on_its_printed_day():
+    match = ImageMatch(
+        id="img:1",
+        engine="tineye",
+        image_url="https://images.example/a.png",
+        relation="same",
+        first_seen=datetime(2012, 5, 5, 20, tzinfo=UTC),  # _page_time("2012-05-06T10:00:00")
+        time_source="page",
+        time_uncertainty_s=100800.0,
+    )
+    assert imagetrace._printed_day(match) == "2012-05-06"
+    assert "page dated 2012-05-06" in imagetrace.Trace._comparison_summary(match)
+    assert (
+        family.Builder._date(
+            family._Copy(
+                id="img:1",
+                data=b"",
+                match=match,
+                first_seen=match.first_seen,
+                time_source="page",
+                time_uncertainty_s=100800.0,
+            )
+        )
+        == "2012-05-06"
+    )
