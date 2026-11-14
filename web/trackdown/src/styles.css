@@ -57,9 +57,9 @@ input:focus-visible { outline: none; }
 /* calm by default: these appear only when they mean something */
 .dock { transition: opacity 0.5s, transform 0.6s var(--ease-out); }
 .app:not([data-phase="done"]) .dock { opacity: 0; transform: translateY(24px); pointer-events: none; }
-.app:not([data-phase="done"]) .seg, .app:not([data-phase="done"]) .hud { opacity: 0; pointer-events: none; }
+.app:not([data-phase="done"]) .hud { opacity: 0; pointer-events: none; }
 .app:not([data-phase="done"]) #badges .vchip { display: none; }
-.seg, .hud { transition: opacity 0.4s; }
+.hud { transition: opacity 0.4s; }
 .app:not(.tools) .minimap, .app:not(.tools) .legend { display: none; }
 .app.tools .zoom button[data-z="tools"] { color: var(--text); background: var(--surface-2); }
 .term { display: none; }
@@ -114,10 +114,6 @@ input:focus-visible { outline: none; }
 .btn.icon { width: 36px; padding: 0; }
 .btn svg { width: 14px; height: 14px; }
 .btn .kbd { font: 500 9.5px/1 var(--mono); opacity: 0.5; }
-.seg { display: flex; gap: 2px; }
-.seg button { height: 36px; padding: 0 12px; font: 500 10.5px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); border-bottom: 1px solid transparent; transition: color 0.2s, border-color 0.2s; }
-.seg button:hover { color: var(--text-2); }
-.seg button.on { color: var(--text); border-bottom-color: var(--text); }
 
 .sect span:last-child { margin-left: auto; }
 .scrub { outline-offset: 2px; }
@@ -272,9 +268,7 @@ input:focus-visible { outline: none; }
 .hud { position: absolute; right: 16px; bottom: 112px; z-index: 7; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .zoom { display: flex; flex-direction: column; border: 1px solid var(--line-2); background: #08080a; box-shadow: 0 0 0 1px #08080a; }
 .zoom button { background: #08080a; }
-.zoom button[data-z="tools"], .zoom .mode-btn { font: 600 10px/1 var(--mono); letter-spacing: 0.08em; }
-.zoom .mode-btn { display: none; }
-.zoom .mode-btn.on { color: var(--black); background: var(--text); }
+.zoom button[data-z="tools"] { font: 600 10px/1 var(--mono); letter-spacing: 0.08em; }
 .zoom button { width: 36px; height: 36px; display: grid; place-items: center; color: var(--text-2); }
 .zoom button + button { border-top: 1px solid var(--line); }
 .zoom button:hover { color: var(--text); background: var(--surface-2); }
@@ -471,7 +465,7 @@ input:focus-visible { outline: none; }
   .topbar { gap: 8px; padding: 0 10px; }
   .wordmark { font-size: 11px; letter-spacing: 0.18em; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: clip; }
   .case-head { flex: 0 0 auto; }
-  .case-head h1, #badges, .seg, .btn .lbl, .btn .kbd, .minimap { display: none !important; }
+  .case-head h1, #badges, .btn .lbl, .btn .kbd, .minimap { display: none !important; }
   .legend { left: 8px; right: 64px; bottom: 192px; grid-template-columns: 1fr 1fr; gap: 7px 10px; white-space: normal; }
   .legend .li { white-space: normal; }
   .topbar .btn { width: 44px; height: 44px; padding: 0; }
@@ -490,7 +484,6 @@ input:focus-visible { outline: none; }
   .zoom button[data-z="fit"] { border-top: 0; }
   .tabs { padding: 0 6px; }
   .tabs button { letter-spacing: 0.06em; padding: 0 2px; }
-  .zoom .mode-btn { display: grid; } /* the header's Timeline/Web switch is hidden on phones */
   .app .panel { position: fixed; left: 0; right: 0; bottom: 0; height: 74vh; z-index: 45; border-left: 0; border-top: 1px solid var(--line-3); transform: translateY(100%); transition: transform 0.45s var(--ease-out), box-shadow 0.45s; }
   .app.sheet-open .panel { box-shadow: 0 -30px 80px rgba(0, 0, 0, 0.8); }
   .detail .close { display: none; } /* the sheet's own close is the one close control on a phone */
@@ -517,8 +510,8 @@ input:focus-visible { outline: none; }
 .empty-stage h2 { margin: 0; font: 600 16px/1.3 var(--sans); }
 .empty-stage p { margin: 8px 0 0; font: 400 14px/1.5 var(--sans); color: var(--text-2); }
 .empty-stage[hidden] { display: none; }
-.app[data-empty] .dock, .app[data-empty] .hud, .app[data-empty] .ruler, .app[data-empty] .seg { display: none !important; }
-.app[data-notime] .dock, .app[data-notime] .ruler, .app[data-notime] .seg, .app[data-notime] .zoom .mode-btn { display: none !important; }
+.app[data-empty] .dock, .app[data-empty] .hud, .app[data-empty] .ruler { display: none !important; }
+.app[data-notime] .dock, .app[data-notime] .ruler { display: none !important; }
 
 /* ---------- phone: the verdict stays on screen as a bar that opens the sheet ---------- */
 .peek { display: none; }

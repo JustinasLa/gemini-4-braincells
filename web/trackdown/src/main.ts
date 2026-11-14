@@ -6,7 +6,7 @@ import { analyze, liveCase } from "./data/api";
 import { simulatedCases } from "./data/cases";
 import { IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
-import { Graph, type Mode } from "./engine/graph";
+import { Graph } from "./engine/graph";
 import type { TraceCase } from "./types";
 import { flipInto, preloadCoin, wait } from "./ui/coin";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
@@ -24,7 +24,6 @@ document.querySelector("#app")!.innerHTML = `
     <a class="wordmark" href="/" aria-label="Shill or Chill: home">SHILL OR CHILL</a>
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
       <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
     </div>
   </header>
@@ -35,7 +34,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="time" class="mode-btn on" aria-pressed="true" aria-label="Timeline layout">TIME</button><button data-z="web" class="mode-btn" aria-pressed="false" aria-label="Web layout">WEB</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
@@ -140,26 +139,7 @@ function renderResources(c: TraceCase) {
   document.title = `${c.title} · Trackdown · Shill or Chill`;
 }
 
-// ---------------------------------------------------------------- view mode + actions
-const seg = $("#mode");
-seg.addEventListener("click", (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>("[data-mode]");
-  if (b) setMode(b.dataset.mode as Mode);
-});
-function setMode(m: Mode) {
-  stage.querySelectorAll<HTMLElement>(".mode-btn").forEach((b) => {
-    const on = (b.dataset.z === "time") === (m === "timeline");
-    b.classList.toggle("on", on);
-    b.setAttribute("aria-pressed", String(on));
-  });
-  seg.querySelectorAll<HTMLElement>("[data-mode]").forEach((x) => {
-    x.classList.toggle("on", x.dataset.mode === m);
-    x.setAttribute("aria-pressed", String(x.dataset.mode === m));
-  });
-  g.setMode(m);
-  $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
-  setTimeout(() => g.fit(undefined, 1100), 380);
-}
+// ---------------------------------------------------------------- actions
 // An uploaded image lives on the server only while its lookup does (1 h): a saved image trace
 // reopened later says so instead of showing a broken image.
 document.addEventListener("error", (e) => {
@@ -185,8 +165,6 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
   if (z === "tools") app.classList.toggle("tools");
-  if (z === "time") setMode("timeline");
-  if (z === "web") setMode("web");
   stage.querySelector('[data-z="tools"]')!.setAttribute("aria-expanded", String(app.classList.contains("tools")));
 });
 
@@ -758,7 +736,6 @@ document.addEventListener("keydown", (e) => {
     dock.toggle();
   }
   if (e.key === "f" || e.key === "F") g.fit();
-  if (e.key === "t" || e.key === "T") setMode(g.mode === "timeline" ? "web" : "timeline");
   if (e.key === "n" || e.key === "N") {
     e.preventDefault();
     showHome();
