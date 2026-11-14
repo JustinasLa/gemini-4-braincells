@@ -291,7 +291,14 @@ def test_post_skips_cards_and_uses_first_actual_image(kind):
 def test_origin_requires_entire_crawl_day_before_every_verified_post(created, expected):
     job = job_for(Searches([hit()]))
     job.result.posts.append(
-        Post(id="x:old", platform="x", role="copy", created_at=created, verified=True)
+        Post(
+            id="x:old",
+            platform="x",
+            role="copy",
+            created_at=created,
+            verified=True,
+            media_urls=["https://pbs.twimg.com/media/copy.jpg?name=large"],
+        )
     )
     job.result.posts.append(
         Post(id="x:hint", platform="x", created_at=datetime(2000, 1, 1, tzinfo=UTC))
@@ -707,6 +714,7 @@ def test_origin_waits_for_post_verification():
                 platform="x",
                 role="copy",
                 created_at=datetime(2000, 1, 1, tzinfo=UTC),
+                media_urls=["https://pbs.twimg.com/media/copy.jpg?name=large"],
                 verified=True,
             )
         )
@@ -1177,3 +1185,60 @@ def test_nemotron_down_still_returns_visual_matches_and_origin():
         r for r in job.result.receipts if r.tool == "nemotron" and r.endpoint != "chat.completions"
     ]
     assert diffs and not any(r.ok for r in diffs)
+
+
+def _carrier(role, media):
+    return Post(
+        id=f"x:{role}",
+        platform="bluesky" if role == "bluesky" else "x",
+        role=role,
+        created_at=datetime(2000, 1, 1, tzinfo=UTC),
+        verified=True,
+        media_urls=media,
+    )
+
+
+@pytest.mark.parametrize(
+    "role,media,blocks",
+    [
+        ("bluesky", ["https://cdn.bsky.app/img/feed_fullsize/plain/did/x@jpeg"], True),
+        ("copy", [], False),  # a text-only copy can't date the picture
+        ("quote", [], False),
+        ("author_recent", ["https://pbs.twimg.com/media/unrelated.jpg"], False),
+        ("author_recent", ["https://images.example/old.png"], True),  # the picture's own copy
+        ("reply", ["https://images.example/old.png"], True),
+    ],
+)
+def test_image_origin_bounded_by_posts_that_may_carry_the_picture(role, media, blocks):
+    """Sol r4: carriage, not role alone: a verified Bluesky copy with an image blocks; a
+    text-only copy doesn't; any post whose image URL is a same/resized copy blocks."""
+    job = job_for(Searches([hit()]))
+    job.result.posts.append(_carrier(role, media))
+    run_trace(job)
+    assert (job.result.image_origin_id is None) is blocks
+
+
+def test_mismatched_quotes_never_exempt_model_wording():
+    """Sol r4: a straight quote paired with a curly one must not shield unquoted text."""
+    text = 'Caption changed to "FAKE NEWS”. The image is doctored; the logo says “News".'
+    assert not re.search(r"doctored|fake", imagetrace._wording(text), re.I)
+    assert imagetrace._wording("“Fake” added") == "“Fake” added"
+    long = '"' + "fake " * 60 + '"'
+    assert "fake" not in imagetrace._wording(long)
+
+
+def test_relation_numbers_are_plain_floats():
+    """Live run: relate() handed back numpy ints; the model must get plain numbers."""
+    from fractions import Fraction
+
+    def odd(base, other):
+        r = relate(base, other)
+        r.distance = Fraction(6) if r.distance is not None else None
+        if r.crop_box:
+            r.crop_box = tuple(Fraction(int(v * 100), 100) for v in r.crop_box)
+        return r
+
+    job = job_for(Searches([hit("cropped.png")]), relate=odd)
+    run_trace(job)
+    match = next(m for m in job.result.image_matches if m.relation == "cropped")
+    assert type(match.distance) is float and all(type(v) is float for v in match.crop_box)

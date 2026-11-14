@@ -394,9 +394,11 @@ two) still fits before the reading's reserve.
 
 - **Image origin is separate from text origin.** `image_origin_id` is the earliest dated
   `same`/`resized`/`cropped` match whose latest possible first-seen time precedes **every**
-  dated verified post that carries the picture (role `submitted`, `origin`, `copy` or `quote`,
-  including posts discovered during verification). The author's other posts, replies and a
-  screenshotted post say nothing about when this picture appeared, so they don't bound it. A crawl date is an
+  dated verified post that may carry the picture (including posts discovered during
+  verification): a post with an image that is the subject or a copy of it (role `submitted`,
+  `origin`, `copy`, `quote` or `bluesky`), or any post whose image URL is one of the picture's
+  own same/resized/cropped copies. Text-only copies, the author's other posts and replies say
+  nothing about when this picture appeared, so they don't bound it. A crawl date is an
   upper bound on first appearance, not a publication date: the picture is at least that old
   and may be older. For day-only crawls, the conservative upper bound is the next midnight;
   a crawl on the same day as a post is not provably older. Without such posts, the

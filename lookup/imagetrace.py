@@ -28,14 +28,30 @@ DIFF_NEED_S = DIFF_S + 3.0
 # the image origin, so faster Yandex hits never fill the whole cap before TinEye answers
 TINEYE_RESERVE = 10
 MISSING = "variation matching is not installed on this server"
-PICTURE_ROLES = ("submitted", "origin", "copy", "quote")
+# a verified post with an image in one of these roles is the subject or a copy of it, so its
+# image may be this picture; any other verified post counts only when its image URL is one of
+# the picture's own copies (conservative: a possible carrier blocks an origin claim)
+PICTURE_ROLES = ("submitted", "origin", "copy", "quote", "bluesky")
 _UNSUITABLE = re.compile(
     r"\b(?:deepfakes?|fake[ds]?|manipulated|manipulation|doctored|doctoring)\b", re.I
 )
 
 
 # quoted spans ("...", “...”, '...' not inside a word): a caption quoted as evidence stays as is
-_QUOTED = re.compile(r"(\"[^\"]*\"|“[^”]*”|‘[^’]*’|(?<!\w)'[^']*'(?!\w))")
+# one quote style per span, no other quote mark inside, short (a caption, not a paragraph):
+# mismatched quotes never exempt the model's own unquoted words
+_Q = "\"“”‘’'"
+_QUOTED = re.compile(
+    rf"(\"[^{_Q}]{{0,160}}\"|“[^{_Q}]{{0,160}}”|‘[^{_Q}]{{0,160}}’|(?<!\w)'[^{_Q}]{{0,160}}'(?!\w))"
+)
+
+
+def _num(value):
+    return None if value is None else float(value)
+
+
+def _box(value):
+    return None if value is None else tuple(float(v) for v in value)
 
 
 def _wording(text: str) -> str:
@@ -442,9 +458,10 @@ class Trace:
                 relation = relate(base, data)
                 compared = match.model_copy(deep=True)
                 compared.relation = relation.kind
-                compared.distance = relation.distance
-                compared.crop_box = relation.crop_box
-                compared.edited_region = relation.edited_region
+                # plain floats: relate() may hand back numpy numbers
+                compared.distance = _num(relation.distance)
+                compared.crop_box = _box(relation.crop_box)
+                compared.edited_region = _box(relation.edited_region)
                 compared.relation_note = _wording(relation.note)
                 compared.receipt_id = rid
                 compared = ImageMatch.model_validate(compared.model_dump())
@@ -661,12 +678,23 @@ class Trace:
                     match.id,
                 ),
             )
-            # only verified posts that carry the picture bound it: the author's other posts,
-            # replies and a screenshotted post say nothing about when this picture appeared
+            # only verified posts that may carry the picture bound it: the subject or a copy of
+            # it with an image, or any post whose image URL is one of the picture's own copies.
+            # Text-only copies, the author's other posts and replies don't date this picture.
+            own = {self.query_url} | {
+                url
+                for match in matches
+                if match.relation in ("same", "resized", "cropped")
+                for url in (match.image_url, match.thumb_url)
+                if url
+            }
             posts = [
                 post.created_at
                 for post in result.posts
-                if post.verified and post.created_at and post.role in PICTURE_ROLES
+                if post.verified
+                and post.created_at
+                and post.media_urls
+                and (post.role in PICTURE_ROLES or own & set(post.media_urls))
             ]
             origins = [
                 match
