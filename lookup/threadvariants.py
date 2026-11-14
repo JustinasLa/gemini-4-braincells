@@ -110,9 +110,12 @@ class ThreadScan:
         def read(sid: str, pages: int):
             got, cursor = [], None
             for _ in range(pages):
-                conv, call, gone = job._fx_read(sid, replies=True, cursor=cursor)
-                if conv is None:
+                try:
+                    conv, call, gone = job._fx_read(sid, replies=True, cursor=cursor)
                     why = "FxTwitter says the post is gone" if gone else "FxTwitter did not answer"
+                except Exception as exc:  # the time budget, or a client bug: keep what was read
+                    conv, call, why = None, {}, f"not read ({type(exc).__name__})"
+                if conv is None:
                     if got:
                         why = f"reply page {len(got) + 1}: {why}"
                     return got, (sid, why, call)
@@ -147,56 +150,87 @@ class ThreadScan:
             return None if self.closed else self.job.receipt(*args, **kw)
 
     def run(self, roots: list[str]) -> None:
+        """The scan as a step whose every state change goes through _settle(): once the scan
+        is closed (by itself, or by the lookup before its reading), nothing changes it."""
+        from lookup.service import BudgetExceeded, StepUnavailable
+
         job = self.job
-        with job.step("thread_variants"):
-            if job.deps.fxtwitter is None:
-                raise _skip("FxTwitter is not configured on this server")
-            if not roots:
-                raise _skip("no X thread to read")
-            ref = self.ref_bytes or self._download(self.ref_url)
-            if not ref:
-                raise _skip("the traced picture could not be downloaded")
-            threads, failed = self._threads(roots[:THREADS])
-            for sid, why, call in failed:  # missing evidence is recorded, not hidden
-                self._receipt(
-                    "fxtwitter",
-                    "/2/conversation",
-                    f"Replies to post {sid} could not be read: {why}",
-                    source_url=f"https://x.com/i/status/{sid}",
-                    call=call,
-                    ok=False,
-                )
-            if not threads and failed:
-                raise _failed(f"no reply thread could be read ({len(failed)} tried)")
-            with job.lock:
-                self.threads_read, self.unread = len(threads), len(failed)
-            ref_key = _media_key(self.ref_url) if self.ref_url else None
-            seen: set[str] = {ref_key} if ref_key else set()
-            cands: list[tuple[Any, str, str]] = []  # (reply XItem, image url, thread root id)
-            for sid, call, conv in threads:
-                n_photos = 0
-                for r in conv.replies:
-                    for url in r.media_urls:
-                        key = _media_key(url)
-                        if key in seen or httpx.URL(url).host != _IMAGE_HOST:
-                            continue
-                        seen.add(key)
-                        n_photos += 1
-                        if len(cands) < CANDIDATES:
-                            cands.append((r, url, sid))
-                self._receipt(
-                    "fxtwitter",
-                    "/2/conversation",
-                    f"Replies to @{conv.main.handle}'s post read through FxTwitter: "
-                    f"{len(conv.replies)} replies, {n_photos} new reply pictures",
-                    source_url=x_post_url(conv.main.handle, sid),
-                    call=call,
-                )
-            if cands:
-                images = self._download_all([url for _, url, _ in cands])
-                usable = [(c, b) for c, b in zip(cands, images, strict=True) if b]
-                self._compare(ref, usable)
+        with job.lock:
+            if self.closed:
+                return
+            st = job._step("thread_variants")
+            st.state, st.started_at = "running", datetime.now(UTC)
+        try:
+            self._run(roots)
+        except StepUnavailable as exc:
+            self._settle(exc.state, str(exc))
+        except BudgetExceeded:
+            self._settle("skipped", "time budget used up")
+        except Exception as exc:  # recorded, never fatal for the lookup
+            log.warning("lookup %s reply scan failed: %s", job.result.id, exc, exc_info=True)
+            self._settle("failed", f"{type(exc).__name__}: {str(exc)[:200]}")
+        else:
             self.close()
+
+    def _settle(self, state: str, detail: str) -> None:
+        with self.job.lock:
+            if self.closed:
+                return
+            self.closed = True
+            st = self.job._step("thread_variants")
+            st.state, st.detail, st.ended_at = state, detail, datetime.now(UTC)
+
+    def _run(self, roots: list[str]) -> None:
+        job = self.job
+        if job.deps.fxtwitter is None:
+            raise _skip("FxTwitter is not configured on this server")
+        if not roots:
+            raise _skip("no X thread to read")
+        ref = self.ref_bytes or self._download(self.ref_url)
+        if not ref:
+            raise _skip("the traced picture could not be downloaded")
+        threads, failed = self._threads(roots[:THREADS])
+        for sid, why, call in failed:  # missing evidence is recorded, not hidden
+            self._receipt(
+                "fxtwitter",
+                "/2/conversation",
+                f"Replies to post {sid} could not be read: {why}",
+                source_url=f"https://x.com/i/status/{sid}",
+                call=call,
+                ok=False,
+            )
+        if not threads and failed:
+            raise _failed(f"no reply thread could be read ({len(failed)} tried)")
+        with job.lock:
+            if self.closed:
+                return
+            self.threads_read, self.unread = len(threads), len(failed)
+        ref_key = _media_key(self.ref_url) if self.ref_url else None
+        seen: set[str] = {ref_key} if ref_key else set()
+        cands: list[tuple[Any, str, str]] = []  # (reply XItem, image url, thread root id)
+        for sid, call, conv in threads:
+            n_photos = 0
+            for r in conv.replies:
+                for url in r.media_urls:
+                    key = _media_key(url)
+                    if key in seen or httpx.URL(url).host != _IMAGE_HOST:
+                        continue
+                    seen.add(key)
+                    n_photos += 1
+                    if len(cands) < CANDIDATES:
+                        cands.append((r, url, sid))
+            self._receipt(
+                "fxtwitter",
+                "/2/conversation",
+                f"Replies to @{conv.main.handle}'s post read through FxTwitter: "
+                f"{len(conv.replies)} replies, {n_photos} new reply pictures",
+                source_url=x_post_url(conv.main.handle, sid),
+                call=call,
+            )
+        if cands:
+            images = self._download_all([url for _, url, _ in cands])
+            usable = [(c, b) for c, b in zip(cands, images, strict=True) if b]
+            self._compare(ref, usable)
 
     def _detail(self) -> str:
         parts = [f"{self.threads_read} reply pages read"]
@@ -238,6 +272,10 @@ class ThreadScan:
                 )[:400]
                 rec.ok = self.compared > 0
             st = job._step("thread_variants")
+            if st.state == "pending":  # registered, but the lookup settled it before it began
+                st.state, st.detail = "skipped", "time budget used up"
+                st.ended_at = datetime.now(UTC)
+                return
             if st.state != "running":  # skipped or failed by the step itself
                 return
             st.found = [m.id for m in sorted(self.found, key=_order)]

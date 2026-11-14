@@ -306,6 +306,9 @@ class Lookup:
         self._v_pages: list[str] = []  # older-looking pages queued for their own date
         self._v_read = 0  # candidate copy pages that came back (read, whatever they showed)
         self._thread_scan: Any = None  # lookup/threadvariants.ThreadScan, settled before reading
+        # set (under the lock) when the lookup settles the reply scan before its reading: a
+        # scan that hasn't started by then never starts, and nothing it does changes the step
+        self._threads_settled = False
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
@@ -688,10 +691,7 @@ class Lookup:
         if kind == "image":
             self._keep_caption_matches()  # before the image origin is chosen from the posts
         trace.finish()
-        with self.lock:
-            scan = self._thread_scan
-        if scan is not None:
-            scan.close(at_end=True)  # what the reading sees is what the result keeps
+        self._settle_thread_scan()  # what the reading sees is what the result keeps
 
     def _wait_text(self, futures: list[Future]) -> None:
         """Until one of `futures` has finished with the subject's text known, or all are done.
@@ -1417,15 +1417,32 @@ class Lookup:
         url = next((u for u in self._media_urls if "/media/" in u and "pbs.twimg.com" in u), None)
         return None, url
 
+    def _settle_thread_scan(self) -> None:
+        """Before the reading: the running scan is settled (ThreadScan.close), and one that
+        hasn't started is marked so and never starts."""
+        with self.lock:
+            self._threads_settled = True
+            scan = self._thread_scan
+            st = self._step("thread_variants")
+            if scan is None and st.state in ("pending", "running"):
+                st.state, st.detail, st.ended_at = "skipped", "time budget used up", _now()
+        if scan is not None:
+            scan.close(at_end=True)
+
+    def _thread_skip(self, why: str) -> None:
+        with self.lock:
+            if not self._threads_settled:
+                self.skip("thread_variants", why)
+
     def _thread_variants(self) -> None:
         from lookup import threadvariants
 
         if self.result.kind not in ("x_post", "image"):
-            self.skip("thread_variants", "only for an X post or an uploaded image")
+            self._thread_skip("only for an X post or an uploaded image")
             return
         ref = self._thread_reference()
         if ref == (None, None):
-            self.skip("thread_variants", "the post has no picture to look for")
+            self._thread_skip("the post has no picture to look for")
             return
         if self.result.kind == "image":
             # the candidates' own reads (FxTwitter, ~0.5 s) give their reply counts: worth a
@@ -1436,6 +1453,8 @@ class Lookup:
             wait(reads, timeout=max(0.0, min(THREAD_WAIT_S, left)))
         scan = threadvariants.ThreadScan(self, ref)
         with self.lock:
+            if self._threads_settled:  # the lookup is already past this step
+                return
             self._thread_scan = scan
         scan.run(self._thread_roots())
 

@@ -475,3 +475,132 @@ def test_a_failed_second_reply_page_is_recorded():
     assert st.state == "done" and "1 reply pages could not be read" in st.detail
     bad = [x for x in job.result.receipts if x.tool == "fxtwitter" and not x.ok]
     assert bad and "reply page 2" in bad[0].summary
+
+
+# ---------------------------------------------------------------- review round 3
+
+
+def _settle_race_job(monkeypatch, fx, **deps):
+    """An upload lookup with 5 s of provider time; the fake image read is instant."""
+    import lookup.service as svc
+
+    monkeypatch.setattr(svc, "IMAGE_NEED_S", 0.5)
+    data = _png("black")
+    ref = ImageRef(sha256=hashlib.sha256(data).hexdigest(), mime="image/png", bytes=len(data))
+    return Lookup(
+        "lk_race",
+        LookupInput(image=ref),
+        Deps(
+            oxylabs=SiteOxylabs(),
+            fxtwitter=fx,
+            nemotron=SiteReader(),
+            match_templates=FakeMatcher(),
+            image_transport=_cdn([]),
+            time_budget_s=10 + 5.0,
+            **deps,
+        ),
+        image=data,
+    )
+
+
+def _release_during_reading(monkeypatch, release):
+    """The worker held back is let go while the lookup writes its reading."""
+    import threading
+
+    assess = Lookup._assess
+
+    def assess_while_released(self):
+        release.set()
+        threading.Event().wait(0.5)  # the late worker runs now
+        assess(self)
+
+    monkeypatch.setattr(Lookup, "_assess", assess_while_released)
+
+
+def test_a_thread_read_failing_after_settlement_changes_nothing(monkeypatch):
+    import threading
+
+    from lookup.fxtwitter import FxTwitterError
+
+    release = threading.Event()
+    root = _status(ROOT, "campaign", "We're removing fake entries from example-site.org", replies=1)
+
+    class BlockedFx(FakeFx):
+        def conversation(self, sid, *, cursor=None, deadline=None):
+            release.wait(10)
+            raise FxTwitterError("HTTP 503")
+
+    job = _settle_race_job(monkeypatch, BlockedFx({ROOT: [{"status": root}]}))
+    _release_during_reading(monkeypatch, release)
+    job.run()
+    frozen = job.snapshot()
+    st = next(s for s in frozen["steps"] if s["id"] == "thread_variants")
+    assert st["state"] == "done", (st["state"], st["detail"])
+    assert "before the comparison" in st["detail"]
+    assert job._step("thread_variants").state == "done"  # the late failure didn't land
+    assert not any("could not be read" in r["summary"] for r in frozen["receipts"])
+
+
+def test_a_scan_that_starts_after_settlement_never_runs(monkeypatch):
+    import threading
+
+    release = threading.Event()
+    root = _status(ROOT, "campaign", "We're removing fake entries from example-site.org", replies=1)
+    fx = FakeFx({ROOT: [{"status": root, "replies": [_reply(1, "TPL0001")], "cursor": {}}]})
+    job = _settle_race_job(monkeypatch, fx)
+    reference = Lookup._thread_reference
+
+    def late_reference(self):
+        release.wait(10)
+        return reference(self)
+
+    monkeypatch.setattr(Lookup, "_thread_reference", late_reference)
+    _release_during_reading(monkeypatch, release)
+    job.run()
+    frozen = job.snapshot()
+    st = next(s for s in frozen["steps"] if s["id"] == "thread_variants")
+    assert (st["state"], st["detail"]) == ("skipped", "time budget used up")
+    import time as _time
+
+    _time.sleep(0.3)
+    assert job._thread_scan is None
+    assert len(job.result.receipts) == len(frozen["receipts"])
+    assert not any(c[1] is None for c in fx.calls)  # no conversation was read
+
+
+def test_page_two_out_of_time_keeps_page_one():
+    import lookup.service as svc
+
+    subj = _status(SUBJ, "ada_example", "Look at this page", [REF_PHOTO], replies=40)
+    page0 = [_reply(1, "TPL0001", parent=(SUBJ, "ada_example"))]
+
+    class Page2OutOfTime(FakeFx):
+        def conversation(self, sid, *, cursor=None, deadline=None):
+            self.calls.append((sid, cursor))
+            if cursor:
+                raise svc.BudgetExceeded("time budget used up")
+            data = {"status": subj, "replies": page0, "cursor": {"bottom": "1"}}
+            return FxTwitterClient._conversation(data, with_replies=True)
+
+    job = Lookup(
+        "lk_p2",
+        LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"),
+        Deps(
+            oxylabs=FakeOxylabs(),
+            fxtwitter=Page2OutOfTime({SUBJ: [{"status": subj, "replies": [], "cursor": {}}]}),
+            nemotron=object(),
+            match_templates=FakeMatcher(),
+            image_transport=_cdn([]),
+            media_max=0,
+        ),
+    )
+    job.run()
+    st = job._step("thread_variants")
+    assert st.state == "done", st.detail
+    assert (
+        st.detail.startswith("1 reply pages read")
+        and "1 reply pages could not be read" in st.detail
+    )
+    assert len([m for m in job.result.image_matches if m.relation == "template"]) == 1
+    bad = [x for x in job.result.receipts if x.tool == "fxtwitter" and not x.ok]
+    assert bad and "reply page 2: not read (BudgetExceeded)" in bad[0].summary
