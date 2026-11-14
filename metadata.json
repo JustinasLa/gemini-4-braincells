@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7DM42TENWPNP6QHGZ7HRTXP",
+  "strategy": "manual-commit",
+  "branch": "fix/shared-text-navigation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "web/public/trackdown/assets/index-CMTVps_3.js",
+    "web/public/trackdown/assets/index-CTM53AEA.css",
+    "web/public/trackdown/assets/index-D8Ikk5lu.js",
+    "web/public/trackdown/assets/index-q7Dkd-9H.css",
+    "web/public/trackdown/index.html",
+    "web/trackdown/README.md",
+    "web/trackdown/scripts/check-meme.mjs",
+    "web/trackdown/src/main.ts",
+    "web/trackdown/src/ui/compare.ts",
+    "web/trackdown/src/ui/meme.css",
+    "web/trackdown/src/ui/story.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 11184,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1376768,
+    "output_tokens": 2331,
+    "api_call_count": 11
+  },
+  "redaction": {
+    "replacements": 22,
+    "layers": {
+      "betterleaks": 4,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 4,
+      "credentialed_uri": 0,
+      "entropy": 14,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}

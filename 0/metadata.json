@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7DM42TENWPNP6QHGZ7HRTXP",
+  "session_id": "01a1db34-40e4-7bb1-afe2-2a4c34636cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-14T18:11:42.083782039Z",
+  "branch": "fix/shared-text-navigation",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "web/public/trackdown/assets/index-CMTVps_3.js",
+    "web/public/trackdown/assets/index-CTM53AEA.css",
+    "web/public/trackdown/assets/index-D8Ikk5lu.js",
+    "web/public/trackdown/assets/index-q7Dkd-9H.css",
+    "web/public/trackdown/index.html",
+    "web/trackdown/README.md",
+    "web/trackdown/scripts/check-meme.mjs",
+    "web/trackdown/src/main.ts",
+    "web/trackdown/src/ui/compare.ts",
+    "web/trackdown/src/ui/meme.css",
+    "web/trackdown/src/ui/story.ts"
+  ],
+  "agent": "Codex",
+  "model": "",
+  "turn_id": "65ed0622ef07",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 11184,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1376768,
+    "output_tokens": 2331,
+    "api_call_count": 11
+  },
+  "session_token_usage": {
+    "input_tokens": 125971,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4217344,
+    "output_tokens": 14519,
+    "api_call_count": 47
+  },
+  "redaction": {
+    "replacements": 22,
+    "layers": {
+      "betterleaks": 4,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 4,
+      "credentialed_uri": 0,
+      "entropy": 14,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
