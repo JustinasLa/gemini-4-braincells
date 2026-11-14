@@ -1,0 +1,18 @@
+Fix the open rehearsal defects ASAP, before Sunday's feature freeze (final deadline Sun 15 Nov 10:00 Espoo). They are unassigned GitHub issues, untouched so far:
+- #14 POST /api/analyze returns 500 when the text contains a NUL byte
+- #15 /api/analyze ignores bsky.app post links: a post that is in a cluster comes back 'insufficient'
+- #16 ad-hoc /api/analyze web findings use cluster wording ('shared by 1 of 1 accounts', 'The cluster's message text')
+- #17 CJK/Thai text (no spaces) is never a content key or a web-search phrase
+- #18 organic-guard text contradicts itself ('on average only 100% ... (a wider crowd is doing the same thing)')
+- #19 single-publisher feed accounts flip between coordinated and insufficient; transparent_automation misses them
+- #20 default Gemini model gemini-2.5-pro 404s (common/config.py + .env.example); the chosen model is gemini-4-hydrogen (agent) / gemini-3.5-flash-lite (batch), see analyst/README.md
+
+First check each issue against current origin/main (a lot changed since they were filed: link lookup #32, signals v1.4-v1.6, v1.7 open as PR #38 by Kirill) and close any already fixed with evidence. Use subagents in parallel (one per independent issue, each in its own worktree) to speed this up; give each the issue text, the files involved, and a clear test to add. Use the repo agent guide (.entire/agent-guide.md: entire brain brief, entire graph query/impact) to find code and blast radius.
+
+Rules:
+- #17 and #19 touch the detector (signals/). Changing it can move recall/FPR, which another thread is publishing to prod right now. Coordinate: keep detector changes minimal, run the existing evals (eval/README.md) before and after and record the delta, and don't land a detector change that raises held-out FPR. Check Kirill's open PR #38 (signals v1.7) first so you don't conflict; if #19 overlaps it, comment on the issue instead of duplicating.
+- Wording must respect PLAN §2 (/srv/junction-espoo/plan/PLAN.md): product is "Shill or Chill", never call an account "a shill".
+- Every fix gets a regression test; full pytest must pass. Open PRs, review them (code review), squash-merge keeping Entire-Checkpoint trailers in the squash body (AGENTS.md). If pushing from the shared .git fails on unreadable Entire objects, push from a fresh clone in ~/work.
+- A parallel thread is redeploying prod now. After your merges, deploy only fresh origin/main HEAD with deploy/deploy.sh (see README Deploy; root@srv2159172.hstgr.cloud, ~/.ssh/hostinger_ed25519, never print the key or .env) and verify from outside, re-running the relevant cases of /srv/junction-espoo/plan/rehearsal_battery.py against prod.
+
+When done: close fixed issues with evidence, tick the item in /srv/junction-espoo/plan/WIN-CHECKLIST.md (section L), add a DECISIONS.log line (`2026-11-14 HH:MM dev (Justinas, via agent): ...`), and report per issue: fixed / already fixed / deferred and why. Never copy plan/ files into git.
