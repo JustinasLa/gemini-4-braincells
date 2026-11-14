@@ -1,0 +1,235 @@
+"""Same template, other content: find pictures in X reply threads that show the same page, app
+screen or meme template as the traced picture, with other names or text in it.
+
+People answer a screenshot with their own screenshot of the same page (a petition's signer
+search showing another name; a meme template with another caption). Reverse image search and
+perceptual hashes look for the same picture, so they miss these, and replies are not indexed by
+search engines at all. This step reads the threads where they sit:
+
+1. the threads: the submitted X post's own, or for an upload the X posts its text and site
+   searches found (at most THREADS; FxTwitter /2/conversation, one page of ~30 replies each,
+   the submitted post's two pages);
+2. their replies' photos (at most CANDIDATES, deduplicated, not the traced picture itself);
+3. Nemotron sees the traced picture beside each of them and says whether it shows the same
+   template and what differs (media/templatematch.py), all at once.
+
+A match is an `image_matches` entry with relation "template" and engine "x_replies": a picture
+of the same kind, never a copy of this one, so it is never the image origin and never a carrier
+of the text. Each comes with its reply's URL and exact time (snowflake) and its receipt.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+import httpx
+
+from lookup.fxtwitter import Conversation
+from lookup.models import ImageMatch
+from lookup.urls import snowflake_time, x_post_url
+
+if TYPE_CHECKING:
+    from lookup.service import Lookup
+
+log = logging.getLogger(__name__)
+
+THREADS = 6  # conversations read (in parallel, ~0.5 s each)
+SUBJECT_PAGES = 2  # reply pages of the submitted post's own thread
+CANDIDATES = 24  # reply photos compared
+DOWNLOAD_S = 6.0
+COMPARE_S = 15.0  # one Nemotron comparison (p50 ~0.4 s live)
+COMPARE_WORKERS = 8
+ENGINE = "x_replies"
+_IMAGE_HOST = "pbs.twimg.com"
+
+
+def _media_key(url: str) -> str:
+    """One key per X photo, whatever its size/format suffix."""
+    try:
+        path = httpx.URL(url).path
+    except Exception:
+        return url
+    return path.rsplit("/", 1)[-1].split(".", 1)[0]
+
+
+def _small(url: str) -> str:
+    """The 'small' rendition (680 px): enough to read a screenshot, a fraction of the bytes."""
+    u = httpx.URL(url)
+    return str(u.copy_with(params={"format": u.params.get("format") or "jpg", "name": "small"}))
+
+
+def _skip(why: str) -> Exception:
+    """The step can't run here: shown as skipped with this reason."""
+    from lookup.service import StepUnavailable
+
+    return StepUnavailable(why, "skipped")
+
+
+class ThreadScan:
+    def __init__(self, job: Lookup, reference: tuple[bytes | None, str | None]):
+        self.job = job
+        self.ref_bytes, self.ref_url = reference
+        self.matcher = (
+            job.deps.match_templates or import_module("media.templatematch").same_template
+        )
+
+    # ------------------------------------------------------------ threads
+    def _threads(self, roots: list[str]) -> list[tuple[str, dict, Conversation]]:
+        """Read each root's conversation (and the subject's second page); in parallel."""
+        job = self.job
+        out: list[tuple[str, dict, Conversation]] = []
+
+        def read(sid: str, pages: int):
+            got = []
+            cursor = None
+            for _ in range(pages):
+                conv, call, _gone = job._fx_read(sid, replies=True, cursor=cursor)
+                if conv is None:
+                    break
+                got.append((sid, call, conv))
+                cursor = conv.cursor
+                if not cursor:
+                    break
+            return got
+
+        subj = job.result.subject_id
+        with ThreadPoolExecutor(max_workers=len(roots) or 1) as pool:
+            futs = [
+                pool.submit(read, sid, SUBJECT_PAGES if f"x:{sid}" == subj else 1) for sid in roots
+            ]
+            for f in futs:
+                try:
+                    out += f.result()
+                except Exception as exc:  # BudgetExceeded or a client bug: that thread only
+                    log.info("lookup %s: thread read failed: %s", job.result.id, exc)
+        return out
+
+    # ------------------------------------------------------------ run
+    def run(self, roots: list[str]) -> None:
+        job = self.job
+        with job.step("thread_variants") as st:
+            if job.deps.fxtwitter is None:
+                raise _skip("FxTwitter is not configured on this server")
+            if not roots:
+                raise _skip("no X thread to read")
+            ref = self.ref_bytes or self._download(self.ref_url)
+            if not ref:
+                raise _skip("the traced picture could not be downloaded")
+            threads = self._threads(roots[:THREADS])
+            ref_key = _media_key(self.ref_url) if self.ref_url else None
+            seen: set[str] = {ref_key} if ref_key else set()
+            cands: list[tuple[Any, str, str]] = []  # (reply XItem, image url, thread root id)
+            for sid, call, conv in threads:
+                n_photos = 0
+                for r in conv.replies:
+                    for url in r.media_urls:
+                        key = _media_key(url)
+                        if key in seen or httpx.URL(url).host != _IMAGE_HOST:
+                            continue
+                        seen.add(key)
+                        n_photos += 1
+                        if len(cands) < CANDIDATES:
+                            cands.append((r, url, sid))
+                job.receipt(
+                    "fxtwitter",
+                    "/2/conversation",
+                    f"Replies to @{conv.main.handle}'s post read through FxTwitter: "
+                    f"{len(conv.replies)} replies, {n_photos} new reply pictures",
+                    source_url=x_post_url(conv.main.handle, sid),
+                    call=call,
+                )
+            if not cands:
+                st.state = "done"
+                st.detail = f"{len(threads)} reply pages read · no reply pictures to compare"
+                return
+            images = self._download_all([url for _, url, _ in cands])
+            usable = [(c, b) for c, b in zip(cands, images, strict=True) if b]
+            matches = self._compare(ref, usable)
+            st.found = [m.id for m in matches]
+            st.state = "done"
+            st.detail = (
+                f"{len(threads)} reply pages read · {self.compared} reply pictures compared · "
+                f"{len(matches)} show the same template with other content"
+            )
+
+    # ------------------------------------------------------------ images
+    def _download(self, url: str | None) -> bytes | None:
+        if not url or httpx.URL(url).host != _IMAGE_HOST:
+            return None
+        job = self.job
+        from lookup.service import _download_image
+
+        deadline = min(time.monotonic() + DOWNLOAD_S, job._provider_deadline())
+        try:
+            with httpx.Client(transport=job.deps.image_transport, follow_redirects=False) as http:
+                data, _mime = _download_image(http, _small(url), deadline)
+            return data
+        except Exception as exc:
+            log.info("lookup %s: reply image download failed: %s", job.result.id, exc)
+            return None
+
+    def _download_all(self, urls: list[str]) -> list[bytes | None]:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return list(pool.map(self._download, urls))
+
+    # ------------------------------------------------------------ compare
+    def _compare(self, ref: bytes, usable: list) -> list[ImageMatch]:
+        """Each reply picture beside the traced one, one call each, all at once (~0.5 s for a
+        thread's worth on Verda); one receipt for the whole comparison."""
+        job = self.job
+        client = job.deps.nemotron
+        if client is None:
+            raise _skip("no vision model on this server to compare the pictures")
+
+        def one(data: bytes):
+            left = job._provider_deadline() - time.monotonic()
+            if left < 2.0:
+                return None
+            return self.matcher(client, ref, data, timeout_s=min(COMPARE_S, left))
+
+        with ThreadPoolExecutor(max_workers=COMPARE_WORKERS) as pool:
+            results = list(pool.map(one, [data for _, data in usable]))
+        answered = [(c, r) for c, r in zip(usable, results, strict=True) if r is not None]
+        same = [(c, r[0]) for c, r in answered if r[0].same_template]
+        failed = len(usable) - len(answered)
+        rid = job.receipt(
+            "nemotron",
+            "chat.completions",
+            f"Nemotron compared {len(answered)} reply pictures with the traced one, one by one: "
+            f"{len(same)} show the same template with other content"
+            + (f"; {failed} comparisons failed" if failed else ""),
+            ok=bool(answered),
+            latency_ms=max((r[1] for _, r in answered), default=None),
+        )
+        found = [
+            self._match(reply, url, root, data, v.differs, rid)
+            for ((reply, url, root), data), v in same
+        ]
+        found.sort(key=lambda m: (m.first_seen is None, m.first_seen, m.id))
+        job._publish_templates(found)
+        self.compared = len(answered)
+        return found
+
+    def _match(self, reply, url: str, root: str, data: bytes, differs: str, rid: int):
+        when = snowflake_time(reply.status_id)
+        note = f"Reply by @{reply.handle}: same template, other content"
+        return ImageMatch(
+            id=f"xr:{reply.status_id}:{hashlib.sha256(data).hexdigest()[:8]}",
+            image_url=url,
+            thumb_url=_small(url),
+            page_url=x_post_url(reply.handle, reply.status_id),
+            domain=f"x.com/{reply.handle}",
+            engine=ENGINE,
+            first_seen=when,
+            time_source="snowflake" if when else None,
+            relation="template",
+            relation_note=(f"{note}: {differs}" if differs else note)[:300],
+            changes=[differs] if differs else [],
+            changes_from="upload" if differs else None,
+            receipt_id=rid,
+        )

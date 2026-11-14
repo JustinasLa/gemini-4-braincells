@@ -76,6 +76,7 @@ STEPS = [
     ("family", "nemotron", "Family tree built"),
     ("media", "nemotron", "Images read"),
     ("screenshot", "nemotron", "Screenshot's post traced"),
+    ("thread_variants", "fxtwitter", "Reply threads searched for the template"),
     ("verify", "oxylabs", "Source pages read"),
     ("monitor", "detector", "Clusters watched"),
     ("assess", "nemotron", "Evidence weighed"),
@@ -113,6 +114,8 @@ IMAGE_LABELS = {
 # that hangs ends here instead of holding the reading until the whole budget is gone.
 SEARCH_CAP_S = 10.0
 PAGE_CAP_S = 15.0  # X post/profile pages (markdown)
+THREAD_WAIT_S = 5.0  # the reply scan waits at most this for the candidates' reply counts
+THREAD_SCAN_NEED_S = 8.0  # ...and never into the time its own reads and comparisons need
 FX_CAP_S = 6.0  # FxTwitter API (p50 well under 1 s); slower means it is struggling: fall back
 FACTS_CAP_S = 20.0  # /scrape with AI extraction
 IMAGE_DOWNLOAD_S = 10.0  # an image from the platform CDN
@@ -240,6 +243,7 @@ class Deps:
     image_diffs_max: int = 4
     relate: Callable | None = None
     describe_changes: Callable | None = None
+    match_templates: Callable | None = None  # media.templatematch.same_template (tests: a fake)
     search_tineye: Callable | None = None
     search_yandex: Callable | None = None
     image_transport: httpx.BaseTransport | None = None
@@ -602,6 +606,7 @@ class Lookup:
             for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
                 self.skip(sid, "profile lookup")
             self.skip("screenshot", "profile lookup")
+            self.skip("thread_variants", "profile lookup")
             wait(side, timeout=self._left())
             self.skip("verify", "profile lookup")
             self._monitor()
@@ -667,6 +672,9 @@ class Lookup:
             self._screenshot()  # media was skipped: the step says why
         wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
+        # the threads to read are known now: the post's own, or the posts the searches found
+        # (their reply counts as soon as those reads are back)
+        rest.append(pool.submit(self._thread_variants))
         self._queue_older_pages(n=min(1, self.deps.source_pages_max - 1), older_only=True)
         rest.append(trace.future)
         rest.append(family.start(self, trace, pool))
@@ -696,7 +704,12 @@ class Lookup:
 
     # ---------------------------------------------------------------- X
     def _fx_read(
-        self, status_id: str, cap_s: float = FX_CAP_S, *, replies: bool = True
+        self,
+        status_id: str,
+        cap_s: float = FX_CAP_S,
+        *,
+        replies: bool = True,
+        cursor: str | None = None,
     ) -> tuple[Conversation | None, dict, bool]:
         """The post (and one page of its replies) through FxTwitter. Returns (conversation, call,
         not_found); (None, ..) when FxTwitter isn't configured or failed: read the X page then.
@@ -708,7 +721,7 @@ class Lookup:
         deadline = self._provider_deadline(cap_s)
         try:
             conv = (
-                fx.conversation(status_id, deadline=deadline)
+                fx.conversation(status_id, cursor=cursor, deadline=deadline)
                 if replies
                 else fx.status(status_id, deadline=deadline)
             )
@@ -1351,6 +1364,71 @@ class Lookup:
             out += [r for r in textsim.caption_runs(text, self._caption) if r not in out]
             out += [d for d in textsim.domain_hits(text, self._domains) if d not in out]
         return out
+
+    def _publish_templates(self, found: list) -> None:
+        """Thread pictures of the same template (lookup/threadvariants.py) join image_matches
+        beside the reverse-image matches, which imagetrace re-syncs without touching them."""
+        with self.lock:
+            if self._final is not None:
+                return
+            keep = [m for m in self.result.image_matches if m.relation != "template"]
+            self.result.image_matches = keep + list(found)
+            subj = self.result.subject_id
+            for m in found:
+                if subj:
+                    self.add_edge(
+                        subj,
+                        m.id,
+                        "variant",
+                        tool="nemotron",
+                        note="same template, other content (a reply's own picture)",
+                    )
+
+    def _thread_roots(self) -> list[str]:
+        """X threads whose replies may hold pictures of the same template: the submitted post's
+        own; for an upload, the X posts its searches found, the most replied-to first (their
+        reply counts are known once read; unread ones keep search order)."""
+        with self.lock:
+            if self.result.kind == "x_post":
+                subj = self.result.subject_id
+                return [subj.split(":", 1)[1]] if subj and subj.startswith("x:") else []
+            posts = [
+                p
+                for p in self.result.posts
+                if p.platform == "x"
+                and p.id.startswith("x:")
+                and p.role != "author_recent"
+                and not (p.metrics and p.metrics.replies == 0)  # read: nobody replied
+            ]
+            # read ones by their reply count, then the unread ones in search order
+            posts.sort(key=lambda p: -(p.metrics.replies or 0) if p.metrics else 1)
+            return [p.id.split(":", 1)[1] for p in posts]
+
+    def _thread_reference(self) -> tuple[bytes | None, str | None]:
+        """The picture whose template is looked for: the upload, or the post's first photo."""
+        if self._upload:
+            return self._upload, None
+        url = next((u for u in self._media_urls if "/media/" in u and "pbs.twimg.com" in u), None)
+        return None, url
+
+    def _thread_variants(self) -> None:
+        from lookup import threadvariants
+
+        if self.result.kind not in ("x_post", "image"):
+            self.skip("thread_variants", "only for an X post or an uploaded image")
+            return
+        ref = self._thread_reference()
+        if ref == (None, None):
+            self.skip("thread_variants", "the post has no picture to look for")
+            return
+        if self.result.kind == "image":
+            # the candidates' own reads (FxTwitter, ~0.5 s) give their reply counts: worth a
+            # short wait to read the busiest threads, not the first ones found
+            left = self._provider_deadline() - time.monotonic() - THREAD_SCAN_NEED_S
+            with self.lock:
+                reads = list(self._v_futures)
+            wait(reads, timeout=max(0.0, min(THREAD_WAIT_S, left)))
+        threadvariants.ThreadScan(self, ref).run(self._thread_roots())
 
     def _carries_caption(self, text: str | None) -> bool:
         """An uploaded image's copy repeats a real part of its text: runs of it covering 6+

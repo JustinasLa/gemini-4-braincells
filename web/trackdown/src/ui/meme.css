@@ -31,7 +31,7 @@
 
 /* canvas card */
 .card:has(.meme-card) { padding: 0; }
-.card:has(.meme-edited), .card:has(.meme-cropped) { border-color: rgba(217, 120, 61, 0.6); }
+.card:has(.meme-edited), .card:has(.meme-cropped), .card:has(.meme-template) { border-color: rgba(217, 120, 61, 0.6); }
 .meme-card { padding: 12px; }
 .meme-card .meme-eyebrow { margin-bottom: 6px; font-size: 9.5px; }
 .meme-card-open { display: block; width: 100%; padding: 4px 0 10px; text-align: left; }

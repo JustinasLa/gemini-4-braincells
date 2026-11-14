@@ -12,7 +12,7 @@ export function imageCardHtml(node: TraceNode): string {
   const url = pageUrl(match.page_url);
   return `<div class="meme-card meme-${relation}" data-ui>
     <button class="meme-card-open" data-ui data-meme-compare="${esc(node.id)}" aria-label="Compare ${esc(relation)} copy on ${esc(domainOf(match))}">
-      <span class="meme-eyebrow">${node.eyebrow ? esc(node.eyebrow) : node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
+      <span class="meme-eyebrow">${node.eyebrow ? esc(node.eyebrow) : node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : relation === "template" ? "SAME TEMPLATE · OTHER CONTENT" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
       <strong>${esc(domainOf(match))}</strong>
       <span class="meme-card-preview">Compare with submission ↗</span>
     </button>

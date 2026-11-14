@@ -17,12 +17,17 @@ class ImageMatch(BaseModel):
     thumb_url: str | None = None
     page_url: str | None = None
     domain: str | None = None
-    engine: Literal["tineye", "yandex"]
+    # x_replies: a picture in an X reply thread (lookup/threadvariants.py), not a search engine
+    engine: Literal["tineye", "yandex", "x_replies"]
     first_seen: datetime | None = None
     time_source: Literal["crawl_date", "page", "snowflake"] | None = None
     width: int | None = None
     height: int | None = None
-    relation: Literal["same", "resized", "cropped", "edited", "different", "unknown"] = "unknown"
+    # template: the same page, app screen or meme template with other content (another name,
+    # caption or numbers): a picture of the same kind, never a copy of this one
+    relation: Literal[
+        "same", "resized", "cropped", "edited", "template", "different", "unknown"
+    ] = "unknown"
     distance: float | None = None
     # (left, top, right, bottom) fractions 0..1 of the uploaded image (relate()'s base);
     # crop_box is None when the match is larger than the upload
