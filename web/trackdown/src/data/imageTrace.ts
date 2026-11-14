@@ -1,5 +1,6 @@
 import type { LookupResult } from "./lookup";
-import type { TraceCase, TraceEdge, TraceNode } from "../types";
+import type { TraceCase, TraceEdge, TraceNode, Tool } from "../types";
+import { httpUrl } from "../ui/format";
 
 export interface ImageMatch {
   id?: string;
@@ -28,9 +29,8 @@ export const relationOf = (match: ImageMatch): ImageRelation =>
   [...IMAGE_RELATIONS, "different"].includes(match.relation ?? "") ? match.relation as ImageRelation : "unknown";
 export const humanLabel = (value: string) => value.replace(/[_-]+/g, " ").replace(/^./, (letter) => letter.toUpperCase());
 export const engineLabel = (match: ImageMatch) => match.engine === "tineye" ? "TinEye" : match.engine === "yandex" ? "Yandex" : "Search engine unknown";
-export const pageUrl = (value?: string | null) => {
-  try { const url = new URL(value ?? ""); return ["http:", "https:"].includes(url.protocol) ? url.href : undefined; } catch { return undefined; }
-};
+/** an http(s) link or undefined: the app-wide URL check */
+export const pageUrl = (value?: string | null) => httpUrl(value ?? undefined);
 export const imageUrl = (value?: string | null) => typeof value === "string" && (/^data:image\/(png|jpeg|gif|webp|svg\+xml)[;,]/i.test(value) || /^\/(?!\/)/.test(value)) ? value : pageUrl(value);
 export const domainOf = (match: ImageMatch) => match.domain || (pageUrl(match.page_url) ? new URL(match.page_url!).hostname : "unknown source");
 export const imageAlt = (match: ImageMatch) => match.relation_note || `${relationOf(match)} copy on ${domainOf(match)}`;
@@ -115,23 +115,37 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
     flags: [firstSeenLabel(match)],
     realData: [{ label: "Image search match", url: pageUrl(match.page_url), receiptId: match.receipt_id, facts: [{ label: "Image date", value: firstSeenLabel(match) }, { label: "Relation", value: relationOf(match) }, { label: "Engine", value: engineLabel(match) }] }],
   }));
-  const origin = nodes.find((node) => node.id === state.origin?.id);
-  const parent = origin?.id ?? submitted?.id;
+  const all = [...trace.nodes, ...nodes];
+  const byId = new Map(all.map((node) => [node.id, node]));
+  const origin = state.origin ? byId.get(state.origin.id) : undefined;
+  // the image original is the trace origin only when it and the submission both have real times (page /
+  // post id) in that order; a post origin found by the lookup stays the origin. The origin feeds
+  // "Earliest → submitted", "copies back", the earliest-copy line and the dock mark, which would otherwise
+  // turn a TinEye crawl date (an upper bound) or a lookup start time into an asserted age or order
+  const ordered = !!origin && !!submitted && submitted.id !== origin.id && !origin.undated && !origin.timeUnknown && !submitted.undated && !submitted.timeUnknown && origin.t <= submitted.t;
+  const originId = trace.originId || (ordered ? origin!.id : "");
   const note = "Image variation; not evidence of who copied whom";
-  const edges: TraceEdge[] = parent ? nodes.filter((node) => node.id !== parent).map((node) => ({ from: parent, to: node.id, rel: "variant", note })) : [];
-  // the submission is itself a copy of the original image: link it, after any post lineage it already has
-  // (the graph walks parents[0] to the origin, so an existing copy chain keeps priority)
-  if (origin && submitted && submitted.id !== origin.id) edges.push({ from: origin.id, to: submitted.id, rel: "variant", note });
-  const ids = new Set(state.matches.map((match) => match.id));
-  const validIds = new Set([...trace.nodes, ...nodes].map((node) => node.id));
+  const engineTool = (tool?: string): Tool | undefined => tool === "tineye" || tool === "yandex" ? "oxylabs" : tool === "nemotron" ? "nemotron" : undefined;
+  // variant links are visual relationships, not copy lineage (graph: aside links). The server's own
+  // variant edges (image origin, else the earliest same/resized match, else the subject -> each edited
+  // or cropped match) win; without any, the same rule is applied here. Unknown matches get no link.
+  const served = (trace.lookup.edges ?? []).filter((edge) => edge.rel === "variant" && byId.has(edge.from) && byId.has(edge.to) && edge.from !== edge.to);
+  const parent = origin?.id ?? submitted?.id;
+  const edges: TraceEdge[] = served.length
+    ? served.map((edge) => ({ from: edge.from, to: edge.to, rel: "variant", tool: engineTool(edge.tool), note: edge.note || note }))
+    : parent ? nodes.filter((node) => node.id !== parent && ["edited", "cropped"].includes(relationOf(node.imageMatch!))).map((node) => ({ from: parent, to: node.id, rel: "variant", note })) : [];
+  // the submission and its Original: a same-image copy link (lineage) when dates establish the order and
+  // the Original is the trace origin, else a visual variant link that claims no order
+  if (origin && submitted && submitted.id !== origin.id && !edges.some((edge) => edge.to === submitted.id && edge.from === origin.id)) {
+    edges.push(originId === origin.id
+      ? { from: origin.id, to: submitted.id, rel: "media", note: "Same picture, first seen before the submitted post" }
+      : { from: origin.id, to: submitted.id, rel: "variant", note });
+  }
+  const validIds = new Set(all.map((node) => node.id));
   return {
     ...trace, nodes: [...trace.nodes, ...nodes],
-    // a post origin, when the lookup found one, stays the origin. The image original becomes the trace
-    // origin only when both it and the submission have real times (page / post id): the origin feeds
-    // "Earliest → submitted", the earliest-copy line and the dock mark, which would otherwise turn a
-    // TinEye crawl date (an upper bound) or a lookup start time into an asserted age
-    originId: trace.originId || (origin && !origin.undated && submitted && !submitted.undated && !submitted.timeUnknown && origin.t <= submitted.t ? origin.id : ""),
-    edges: [...trace.edges.filter((edge) => edge.rel !== "variant" || (!ids.has(edge.to) && !ids.has(edge.from))), ...edges],
+    originId,
+    edges: [...trace.edges, ...edges],
     steps: trace.steps.map((step) => ({ ...step, found: [...new Set([...(step.found ?? []), ...(trace.lookup!.steps.find((raw) => raw.id === step.id)?.found ?? []).filter((id) => validIds.has(id))])] })),
   };
 }

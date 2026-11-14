@@ -980,7 +980,7 @@ export class Graph {
       const match = isMatchRel(e.e.rel);
       const shot = e.e.rel === "screenshot_of";
       const role = this.colors[e.b.d.role] ?? C.ink2;
-      const col = e.e.rel === "variant" ? "#a2ffb5" : on ? role : match ? "rgba(245,245,245,0.9)" : shot ? ROLE.screenshotted.color : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
+      const col = on ? role : e.e.rel === "variant" ? "#a2ffb5" : match ? "rgba(245,245,245,0.9)" : shot ? ROLE.screenshotted.color : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
       c.save();
       c.globalAlpha = dim ? 0.1 : on ? 1 : match ? 0.75 : 0.7;
       c.strokeStyle = col;

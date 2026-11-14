@@ -27,9 +27,10 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
   panel.closest(".app")?.classList.toggle("meme-active", !!state?.enabled);
   const peek = document.querySelector<HTMLElement>("#peek");
   if (peek) peek.setAttribute("aria-label", state?.enabled ? "Show meme trace and evidence" : "Show verdict and evidence");
-  if (!state || !["verdict", "receipts"].includes(tab)) return;
-  if (!state.enabled) return;
+  if (!state?.enabled) return;
+  // the phone verdict bar shows the image search's progress whichever panel tab is open
   if (peek && (state.searching || state.comparing)) peek.innerHTML = `<span class="pk-t"><b>${state.searching ? "Searching for earlier copies…" : "Comparing variations…"}</b><span>${trace.mock ? "MOCK · " : ""}Meme trace · view progress</span></span><span class="pk-go">Open ↑</span>`;
+  if (!["verdict", "receipts"].includes(tab)) return;
   const count = state.groups.reduce((total, group) => total + group.matches.length, 0);
   const original = state.origin;
   const button = (id: string, title: string, subtitle: string) => `<button class="meme-list-item" data-meme-compare="${esc(id)}"><span>${esc(title)}</span><small>${esc(subtitle)}</small><span class="meme-list-arrow" aria-hidden="true">↗</span></button>`;
