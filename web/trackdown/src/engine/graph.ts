@@ -694,6 +694,7 @@ export class Graph {
     const far = this.cardOpacity < 0.5;
     let best: VNode | null = null;
     let bestD = Infinity;
+    let bestZ = -Infinity;
     for (let i = this.nodes.length - 1; i >= 0; i--) {
       const n = this.nodes[i];
       if (!n.vis) continue;
@@ -703,7 +704,15 @@ export class Graph {
           best = n;
           bestD = d;
         }
-      } else if (Math.abs(p.x - n.x) <= n.w / 2 && Math.abs(p.y - n.y) <= n.h / 2) return n;
+      } else if (Math.abs(p.x - n.x) <= n.w / 2 && Math.abs(p.y - n.y) <= n.h / 2) {
+        // Match .card's z-index in styles.css: stacks front selected/dragged cards,
+        // then newer members. Reverse iteration breaks equal-layer ties by DOM order.
+        const z = n.stack ? (n.drag || this.selId === n.d.id ? 60 : n.si + 1) : n.drag ? 5 : 0;
+        if (z > bestZ) {
+          best = n;
+          bestZ = z;
+        }
+      }
     }
     return best;
   }
