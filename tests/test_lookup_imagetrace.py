@@ -1855,8 +1855,14 @@ def test_a_match_compared_as_a_different_picture_is_not_read():
     [
         ("http://www.zooomr.com/photos/labels/fire", "https://www.bowerystreet.com/", False),
         ("https://news.example/2009/story", "https://news.example/", False),
-        ("http://community.livejournal.com/a/1.html", "https://a.livejournal.com/1.html", True),
-        ("https://www.bbc.co.uk/news/1", "https://www.bbc.co.uk/news/articles/1", True),
+        ("https://news.example/2009/story", "https://www.news.example/index.html", False),
+        ("https://news.example/story", "https://news.example/default.aspx", False),
+        # another blog on the same service is another site, and so (conservatively) is a move
+        # to another subdomain
+        ("https://alice.blogspot.com/p/1", "https://bob.blogspot.com/p/1", False),
+        ("http://community.livejournal.com/a/1.html", "https://a.livejournal.com/1.html", False),
+        ("http://news.example/a/1", "https://www.news.example/a/articles/1", True),
+        ("https://www.bbc.co.uk/news/1", "https://m.bbc.co.uk/news/articles/1", True),
         ("https://shop.example.co.uk/a", "https://other.co.uk/a", False),
     ],
 )
@@ -1875,3 +1881,24 @@ def test_a_redirect_to_another_site_or_its_front_page_gives_no_date(asked, final
     assert (match.time_source == "page") is counts
     receipt = next(r for r in job.result.receipts if r.tool == "oxylabs" and r.source_url == final)
     assert ("redirects" in receipt.summary) is not counts
+
+
+def test_an_earlier_page_date_beats_a_post_id_time_in_either_order():
+    blog = "https://blog.example/post"
+    tweet = f"https://x.com/a/status/{status_id(datetime(2015, 1, 1, tzinfo=UTC))}"
+    image = "https://images.example/same.png"
+    for order in ((blog, tweet), (tweet, blog)):
+        hits = [dated_hit("same", page=page, image=image, rank=i) for i, page in enumerate(order)]
+        job = job_for(Searches(hits), oxylabs=PageSources({blog: "2007-03-04"}))
+        run_trace(job)
+        match = next(m for m in job.result.image_matches if m.image_url == image)
+        assert match.time_source == "page", order
+        assert match.first_seen == datetime(2007, 3, 4, tzinfo=UTC), order
+
+
+@pytest.mark.parametrize("sid", ["20000000000", "29700859247", str(imagetrace.MIN_DATED_ID - 1)])
+def test_pre_snowflake_status_ids_give_no_time(sid):
+    job = job_for(Searches([dated_hit("old", page=f"https://twitter.com/a/status/{sid}")]))
+    run_trace(job)
+    assert job.result.image_matches[0].first_seen is None
+    assert not any(r.tool == "x-id" for r in job.result.receipts)

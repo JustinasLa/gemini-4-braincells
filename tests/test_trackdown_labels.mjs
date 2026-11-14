@@ -163,3 +163,15 @@ test("date receipts have their own group and preserve the search receipt group",
     assert.deepEqual(matchNode(lookupCase(result)).realData, [originalGroup]);
   }
 });
+
+test("findings order older copies by their latest possible time, like the server's origin", () => {
+  const result = memeFixture(); // submitted at 2026-11-14 12:00 UTC
+  const [first] = result.image_matches;
+  result.image_matches = [
+    { ...first, id: "img:page", relation: "edited", time_source: "page", first_seen: "2026-11-13T00:00:00Z", time_uncertainty_s: 86400, changes: ["Caption changed."], changes_from: "match" },
+    { ...first, id: "img:post", relation: "same", time_source: "snowflake", first_seen: "2026-11-13T10:00:00Z", time_uncertainty_s: null, page_url: "https://x.com/a/status/1990000000000000000" },
+  ];
+  const finding = memeFinding(result);
+  assert.equal(finding.kind, "copy");
+  assert.equal(finding.match.id, "img:post");
+});

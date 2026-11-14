@@ -232,7 +232,9 @@ export function memeFinding(result: LookupResult): MemeFinding | "pending" | nul
   const older = related
     .filter((match) => upload || (latestImageTime(match) ?? Infinity) < posted)
     // earliest first; undated (uploads only) last, a same-picture match before an edited one
-    .sort((a, b) => (imageTime(a) ?? Infinity) - (imageTime(b) ?? Infinity) || Number(relationOf(a) === "edited") - Number(relationOf(b) === "edited"));
+    // by the latest possible time, as the server picks the origin: an exact post-id time at 10:00
+    // is earlier than a date-only page date of the same day
+    .sort((a, b) => (latestImageTime(a) ?? Infinity) - (latestImageTime(b) ?? Infinity) || Number(relationOf(a) === "edited") - Number(relationOf(b) === "edited"));
   const edits = related.filter((match) => relationOf(match) === "edited").length;
   if (!older.length) {
     const undated = related.filter((match) => imageTime(match) == null).length;
