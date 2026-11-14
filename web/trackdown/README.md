@@ -11,6 +11,7 @@ npm run dev                         # http://127.0.0.1:3001 (proxies /api to API
 API_ORIGIN=http://127.0.0.1:8020 npm run dev
 npm run build                       # static files in dist/ (relative paths, works under any prefix)
 npm run ship                        # build and copy to ../public/trackdown/ for Caddy
+npm run check                       # lookup rendering regression (fixture -> lookupCase -> cards)
 ```
 
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
@@ -97,6 +98,15 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   snowflake timestamps are labelled "time from post id". Missing facts stay unknown; cards with
   missing times use the submitted time (or lookup start) for layout only and say "time unknown".
   Nemotron descriptions/OCR and the cited Gemini reading are model inferences, not verified facts.
+- **Screenshots of posts**: a post the lookup found because a screenshot in the submitted post shows
+  it has role `screenshotted` ("Real post in the screenshot", lilac, dashed card). Its `screenshot_of`
+  link is drawn as a dotted lilac line and kept out of the copy chain, the path to the earliest copy,
+  copy samples, spread counts and the histogram. Each `screenshots[]` receipt becomes a
+  "Screenshot check" data group (matches / differs / no matching post found / not checked, time
+  note, differences, counts as context only) on the real post and on the post carrying the
+  screenshot, plus a flag on that post, so a receipt with no real post found is still visible. The
+  wording describes the screenshot, never a person. Unknown roles or link types from a newer API
+  render as neutral cards and lines instead of failing.
 - **Samples, not a census**: copy-search results and recent profile posts are sampled. Spread
   counts, first-hour accounts, times and gaps describe only that sample; notes stay visible.
   A group of three or more accounts copying text is labelled as a copy sample with `insufficient`

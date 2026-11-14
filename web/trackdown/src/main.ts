@@ -11,7 +11,7 @@ import type { TraceCase } from "./types";
 import { flipInto, preloadCoin, wait } from "./ui/coin";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDate, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDate, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
@@ -89,9 +89,9 @@ initTooltips();
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
   `<div class="legend-title"><span class="label">Key</span></div>` +
-  (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
+  (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source", "screenshotted"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
   `<div class="li"><span class="sw member" style="--c:${ROLE.amplifier.color}"></span>Cluster member · zoom in to read</div>` +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="legend-hint">Select a marker to read the post.</div>`;
+  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="ln" style="--s:dotted;--c:${ROLE.screenshotted.color}"></span>Screenshot of a real post (checked, not a copy)</div><div class="legend-hint">Select a marker to read the post.</div>`;
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done
@@ -180,7 +180,7 @@ g.onSelect = (id) => {
     if (fromKeyboard) $("#panel").querySelector<HTMLElement>('[data-tab="folio"]')?.focus();
   }
   const n = id ? current?.nodes.find((x) => x.id === id) : null;
-  $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
+  $("#announce").textContent = n ? `${n.author.name}, ${roleOf(n.role).label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
 };
 g.onHover = (id) => {
   if (tracing && app.dataset.phase !== "done") return; // a settled lookup may still be adding a second reading
@@ -350,7 +350,7 @@ async function runTrace(c: TraceCase) {
       }
       if (!alive()) break;
       for (const f of found) {
-        g.ring(f, ROLE[c.nodes.find((n) => n.id === f)!.role].color, 300, 1500);
+        g.ring(f, roleOf(c.nodes.find((n) => n.id === f)?.role).color, 300, 1500);
         const el = g.byId.get(f)?.el;
         if (el?.querySelector(".cvbox")) {
           el.classList.add("scanning");

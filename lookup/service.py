@@ -63,6 +63,7 @@ STEPS = [
     ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
     ("coverage", "oxylabs", "Find coverage of the story"),
     ("media", "nemotron", "Read the images with Nemotron VL"),
+    ("screenshot", "nemotron", "Find the real post a screenshot shows"),
     ("verify", "oxylabs", "Read candidate copies on their own pages"),
     ("monitor", "detector", "Check the clusters we monitor"),
     ("assess", "nemotron", "Nemotron reads the receipts"),
@@ -238,6 +239,7 @@ class Lookup:
         # an uploaded image with too little text for an exact search: what to look for instead
         self._image_query: str | None = None
         self._upload_meme = False  # Nemotron typed the uploaded image a meme
+        self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
         self._unreadable = False  # the submitted post or page is an X tombstone
@@ -550,22 +552,29 @@ class Lookup:
         if kind in ("x_profile", "bsky_profile"):
             for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
                 self.skip(sid, "profile lookup")
+            self.skip("screenshot", "profile lookup")
             wait(side, timeout=self._left())
             self.skip("verify", "profile lookup")
             self._monitor()
             return
-        if not textsim.phrase(self._subject_text) and self._media_urls:
+        media_first = not textsim.phrase(self._subject_text) and self._media_urls
+        if media_first:
             # image-only post (or an uploaded image): read the image first, then search its text
             self._media(ocr_as_text=True)
         x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
         rest = [pool.submit(self._copies_bsky), pool.submit(self._coverage)]
+        if media_first:
+            rest.append(pool.submit(self._screenshot))  # alongside the searches
         if kind != "web":
             if self._card_url:
                 rest.append(pool.submit(self._linked, self._card_url, False))
             else:
                 self.skip("linked", "the post links no page")
         if self._step("media").state == "pending":
-            rest.append(pool.submit(self._media))
+            # same worker: the screenshot step needs the images media has read
+            rest.append(pool.submit(lambda: (self._media(), self._screenshot())))
+        elif not media_first:
+            self._screenshot()  # media was skipped: the step says why
         wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
         self._queue_older_pages()  # web hits dated before the post: read their own date
@@ -1778,6 +1787,7 @@ class Lookup:
         the exception. A known image (same URL or bytes, same post text as context) is not
         read again: its receipt says cached and keeps the time of the original reading."""
         from media.nemotron import MediaInput, is_vl_model
+        from media.screenshot import judges_date
 
         try:
             cache, by_url = self.deps.media_cache, self.deps.media_urls
@@ -1822,6 +1832,9 @@ class Lookup:
                 "not a vision-language model."
             )
             return None
+        if a.media_type == "screenshot" and "/card_img/" not in url:
+            with self.lock:  # the "screenshot" step reads it as a post (bytes None: cached)
+                self._shots.append((url, h, mime, data))
         with self.lock:  # one critical section with `closed`: a late reading is never shown
             if closed.is_set():
                 return BudgetExceeded("the image reading came after the time budget")
@@ -1840,7 +1853,9 @@ class Lookup:
                     description=a.description,
                     extracted_text=a.extracted_text,
                     reuse_cues=a.reuse_cues,
-                    manipulation_cues=a.manipulation_cues,
+                    # "a future date suggests a mock-up" judges the date against the model's
+                    # training cutoff, not the image: dropped (media/screenshot.py)
+                    manipulation_cues=[c for c in a.manipulation_cues if not judges_date(c)],
                     confidence=a.confidence,
                     model=a.model,
                     latency_ms=a.latency_ms,
@@ -1848,6 +1863,11 @@ class Lookup:
                 )
             )
         return a
+
+    def _screenshot(self) -> None:
+        from lookup import receipts_step  # lookup/receipts_step.py
+
+        receipts_step.run(self)
 
     # ---------------------------------------------------------------- monitor
     def _monitor(self) -> None:

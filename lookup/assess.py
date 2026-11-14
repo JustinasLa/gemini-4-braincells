@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 SYSTEM = """You read the receipts of a link lookup for "Shill or Chill", a tool that checks
 whether a message is being amplified by coordinated accounts. You get facts that live tools
 collected (X and Bluesky posts with exact times and counts, author profiles, web pages, image
-readings by Nemotron), each with a receipt id.
+readings by Nemotron, checks of screenshots against the real post), each with a receipt id.
 
 Write a short, plain reading for a general audience:
 - summary: 2-4 sentences: what the post is, where it comes from, how it spread.
@@ -37,6 +37,13 @@ Write a short, plain reading for a general audience:
 - monitored_clusters: only clusters with verdict_applies=true are about this link or text;
   report their detector_status as the monitor's verdict. Clusters with verdict_applies=false
   only contain an account seen here: mention them as context, never as a verdict on this link.
+- screenshots: each says whether the real post the screenshot shows was found and whether it
+  matches (label matches | differs | not_found | unchecked, with the reason and differences).
+  not_found means the post may be deleted, private or never posted; never say it was faked.
+  Counts in a screenshot are context only (they change). The label describes the screenshot,
+  not a person. Cite the screenshot's receipt_ids when you mention it. A screenshot that
+  matches was checked against the real post itself: that outweighs any visual cue from the
+  image reading, and its shown date is the real post's date (never call it a "future" date).
 - llm_reading: "organic_looking", "copy_campaign_looking" or "unclear". This is your reading,
   shown as such; it is NOT the verdict. Many accounts posting the same words in minutes, new or
   templated accounts, and no organic explanation lean to copy_campaign_looking; a well-known
@@ -81,7 +88,29 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
             "receipt": p.receipt_id,
         }
 
-    order = {"submitted": 0, "origin": 1, "copy": 2, "quote": 3, "bluesky": 4, "reply": 5}
+    def shot(s):
+        return {
+            "label": s.label,
+            "reason": s.reason,
+            "platform": s.platform,
+            "handle": s.handle,
+            "shown_time": s.shown_time,
+            "time_check": s.time_check,
+            "similarity": s.similarity,
+            "differences": s.differences[:4],
+            "original_url": s.original_url,
+            "receipt_ids": s.receipt_ids,
+        }
+
+    order = {
+        "submitted": 0,
+        "origin": 1,
+        "screenshotted": 1,
+        "copy": 2,
+        "quote": 3,
+        "bluesky": 4,
+        "reply": 5,
+    }
     posts = sorted(r.posts, key=lambda p: (order.get(p.role, 9), p.created_at or r.started_at))
     data = {
         "input": r.input.model_dump(exclude_none=True),
@@ -94,6 +123,7 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
             pg.model_dump(exclude_none=True, exclude={"final_url"}) for pg in r.pages[:max_pages]
         ],
         "media": [m.model_dump(exclude_none=True, exclude={"latency_ms"}) for m in r.media],
+        "screenshots": [shot(s) for s in r.screenshots],
         "spread": r.spread.model_dump(mode="json") if r.spread else None,
         "monitored_clusters": [
             {

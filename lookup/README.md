@@ -16,6 +16,10 @@ real, live data about it and returns it with a receipt for every fact:
   headline / claim): publisher, date, headline, main claims; other outlets on the same story.
 - **Media** (Nemotron 3.5 Super VL): description and OCR of the post's images; the OCR text is
   searched like the post text, so a screenshot that is passed around is found too.
+- **Screenshots of posts** (Nemotron reads the screenshot; Bluesky API and Oxylabs find the
+  real post): when one of the post's own images is a screenshot of a social post, the lookup
+  looks for the real post it shows and says whether it was found and matches
+  (`lookup/receipts.py`, run by `lookup/receipts_step.py`).
 - **Our monitor**: whether the link, text or accounts are in a cluster the detector watches
   (`api/store.py`), and that cluster's detector status.
 - **The reading.** Nemotron 3.5 Super VL (text-only chat on the Verda vLLM endpoint, reasoning
@@ -99,6 +103,7 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "accounts": [Account],
   "pages": [Page],
   "media": [MediaFinding],
+  "screenshots": [ScreenshotReceipt], // one per screenshot of a post in the submitted post's images
   "edges": [Edge],
   "clusters": [ClusterSummary],       // api/schemas.py ClusterSummary + "match": ["link"|"text"|"account"]
                                       // + "verdict_applies" (true only for link/text matches)
@@ -122,9 +127,11 @@ Post {
   "text": "...",
   "created_at": "2026-11-13T23:14:58.508Z",
   "time_source": "snowflake",         // snowflake | api | page | search_hint
-  "role": "submitted",                // submitted | origin | copy | quote | reply | mention | author_recent | bluesky
+  "role": "submitted",                // submitted | origin | copy | quote | reply | mention | author_recent | bluesky | screenshotted
                                       // copy/quote/reply only after the post's own page was read
-                                      // ("verified": true); a search hit is "mention" until then
+                                      // ("verified": true); a search hit is "mention" until then.
+                                      // screenshotted: the real post a screenshot in the submitted
+                                      // post shows; never a copy, never in the spread or the origin
   "similarity": 1.0,                  // token similarity to the submitted text, 0..1, null if n/a
   "metrics": {"views": 22300, "replies": 14, "reposts": 108, "likes": 205, "bookmarks": 21, "quotes": null},
   "metrics_as_of": "...",             // when the page was read
@@ -157,8 +164,50 @@ MediaFinding {
   "reuse_cues": ["..."], "manipulation_cues": ["..."], "confidence": 0.7,
   "model": "nemotron-3.5-super-vl", "latency_ms": 5400, "receipt_id": 9
 }
+ScreenshotReceipt {
+  "media_url": "https://pbs.twimg.com/media/HXBBBB?format=jpg&name=large",  // the screenshot image
+  "media_hash": "lookup:9f2c...",     // sha256 of the downloaded image bytes
+  "post_id": "x:2121360054330986967", // the submitted post whose image is the screenshot
+  // what Nemotron read in the screenshot (verbatim, nothing inferred)
+  "platform": "x",                    // x | bluesky | threads | facebook | instagram | tiktok | other | unknown
+  "handle": "ada_example",            // without @, or null if not legible
+  "display_name": "Ada Example",
+  "shown_time": "3:14 PM · Nov 13, 2026",   // as shown; relative ones ("2h") too
+  "shown_text": "The comets have landed. That's the REAL reason for the ground stop.",
+  "shown_counts": {"replies": 1800, "reposts": 5800, "likes": 35000, "views": null},
+  "ui_oddities": ["the like count uses a font unlike the rest"],  // visible oddities, cautious
+  "read_confidence": 0.82,
+  "read_model": "nemotron-3.5-super-vl",
+  // the check
+  "label": "differs",                 // matches | differs | not_found | unchecked
+  "reason": "the real post says \"a reason\", the screenshot \"the REAL reason\"",
+  "original_id": "x:2121359000000000000",  // key into posts (role "screenshotted"), or null
+  "original_url": "https://x.com/ada_example/status/2121359000000000000",
+  "original_text": "The comets have landed. That's a reason for the ground stop.",
+  "original_created_at": "2026-11-13T15:14:09.120Z",
+  "original_time_source": "snowflake",     // snowflake | api | null
+  "original_receipt_id": 14,               // the fetch that read the real post (its page/API)
+  "similarity": 0.83,                 // screenshot text vs the real post's text, 0..1
+  "diff": [                           // word runs; shot_only: only in the screenshot
+    {"op": "same", "text": "The comets have landed. That's"},
+    {"op": "shot_only", "text": "the REAL"}, {"op": "post_only", "text": "a"},
+    {"op": "same", "text": "reason for the ground stop."}
+  ],
+  "differences": ["\"the REAL reason\" in the screenshot, \"a reason\" in the post"],
+  "time_check": "consistent",         // consistent | inconsistent | unknown
+  "shown_time_earliest": "2026-11-13T01:14:00Z",  // the real times the shown time allows
+  "shown_time_latest": "2026-11-14T05:14:59Z",    // (time zone unknown: ±14 h); null = open
+  "time_note": "shown time is in the viewer's unknown time zone (within 14 h of UTC)",
+  "counts_now": {"views": 2900000, "replies": 1800, "reposts": 5800, "likes": 35000, "bookmarks": 2800, "quotes": null},
+  "counts_note": "Counts change as people like and repost; shown as context, never as a verdict.",
+  "candidates_checked": 3,            // real posts read and compared
+  "receipt_ids": [9, 10, 11],         // the screenshot read, the searches, the posts read
+  "latency_ms": 6100
+}
 Edge { "from": "x:120", "to": "x:123", "rel": "copy", "sim": 0.94, "tool": "oxylabs", "note": "same text" }
-  // rel: repost | quote | copy | media | link | reply | cites ; tool: oxylabs | nemotron | gemini | detector | bluesky
+  // rel: repost | quote | copy | media | link | reply | cites | screenshot_of ; tool: oxylabs | nemotron | gemini | detector | bluesky
+  // screenshot_of: from the post carrying the screenshot to the real post it shows; sim is the
+  // screenshot-vs-post similarity, note the label (matches | differs)
 Spread {
   "n_posts": 12, "n_accounts": 11, "n_verbatim": 9,       // verbatim = similarity >= 0.8
   "first_at": "...", "last_at": "...", "span_s": 4200,
@@ -196,14 +245,16 @@ Step {
 ```
 
 Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies_bsky`,
-`coverage`, `media`, `verify`, `monitor`, `assess`, `second_reading`. Steps that don't apply are
+`coverage`, `media`, `screenshot`, `verify`, `monitor`, `assess`, `second_reading`. Steps that don't apply are
 `skipped`. Each step starts as soon as what it needs is known (`Lookup._phases`), not in phases:
 
 1. `post` and `author` start together. The searches wait only for the post's text, not for the
    profile. A submitted web page gets a quick markdown read (its first heading, ~3 s) that starts
    the searches while `linked` (the AI fact extraction: publisher, date, claims, ~8-12 s) runs.
 2. With the text: `copies_web`, `copies_x`, `copies_bsky`, `coverage`, the post's `linked` page
-   and `media` (the images in parallel) all start at once.
+   and `media` (the images in parallel) all start at once. `screenshot` follows `media` on the
+   same worker: each image Nemotron typed a screenshot is read as a post and checked against
+   the real post (`lookup/receipts.py`); for an image-only post it runs alongside the searches.
 3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
    (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
    verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read
@@ -244,6 +295,14 @@ two) still fits before the reading's reserve.
 - **Images.** Nemotron reads the post's own images; their text (8+ words) is searched like the
   post text. Link-card thumbnails are described but not searched (their text is a photo label).
   A post that is only an image is searched by the text inside it.
+- **Screenshots.** A screenshot of a post is a claim, checked against the real post: the label
+  is `matches` (found, same words), `differs` (found, words or time differ; a word diff shows
+  how), `not_found` ("no matching post found: it may be deleted, private or never posted", never
+  "fake") or `unchecked` (with the reason: no legible handle, a platform we can't read, time
+  budget used up). Counts in the screenshot are context only, never the label. A relative time
+  ("2h") counts back from the post that carries the screenshot; an absolute time is in the
+  viewer's unknown time zone, so it allows ±14 h. The label describes the screenshot, never a
+  person. The real post is shown as `screenshotted`: never a copy, in the spread or the origin.
 - **Short links** (t.co etc.) are resolved before the page is scraped.
 - **Origin needs a clear lead.** A page is the origin only if the latest time its date allows
   (a day for a date-only hint, the unit for "3 hours ago") is before every post. Only posts read
@@ -268,7 +327,7 @@ curl -s localhost:8005/api/lookup/<id> | jq '.state, .steps[] | {id, state, deta
 ```
 
 A typical X post lookup makes 8-20 Oxylabs calls (1 post page, 1-5 profiles, 4 searches, up
-to 8 copy pages, 1 linked page), 1-3 Nemotron calls (images and the reading) and 1 Gemini call.
+to 8 copy pages, 1 linked page), 1-3 Nemotron calls (images and the reading; one more per screenshot of a post) and 1 Gemini call.
 
 ## Timings (2026-11-14, live endpoints, seconds from the request)
 

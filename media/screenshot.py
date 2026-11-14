@@ -68,6 +68,13 @@ _PEOPLE_CLAIMS = re.compile(
 # newer than the model is not a sign of editing.
 _DATE_JUDGEMENT = re.compile(r"\b(future|not yet happened|hasn'?t happened)\b", re.I)
 
+
+def judges_date(note: str) -> bool:
+    """A model note that judges a shown date against the model's own training cutoff ("a future
+    date suggests a mock-up"): not evidence about the image, so callers drop it."""
+    return bool(_DATE_JUDGEMENT.search(note or ""))
+
+
 _MAX_SHORT = 120
 
 SCREENSHOT_SYSTEM_PROMPT = f"""You read one image that was already classified as a screenshot.

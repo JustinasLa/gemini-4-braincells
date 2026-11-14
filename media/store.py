@@ -133,10 +133,39 @@ def save_media_evidence(
     return row["id"], True
 
 
+def refresh_media_detail(
+    conn: psycopg.Connection, evidence_id: int, detail: dict[str, Any]
+) -> None:
+    """Store a detail whose comparable part is unchanged (new timings, counts, checked_at)
+    without bumping created_at, so it doesn't count as new evidence for the analyst."""
+    conn.execute("UPDATE evidence SET detail = %s WHERE id = %s", (Jsonb(detail), evidence_id))
+
+
+def post_created_at(conn: psycopg.Connection, uris: list[str]) -> dict[str, Any]:
+    """{uri: created_at} of snapshot posts (client clock; None when unknown)."""
+    rows = conn.execute(
+        "SELECT uri, created_at FROM cluster_posts_snapshot WHERE uri = ANY(%s)",
+        (list(dict.fromkeys(uris)),),
+    ).fetchall()
+    return {r["uri"]: r["created_at"] for r in rows}
+
+
+# screenshot_receipt rows (media/screenshot_receipts.py): what a re-check may change without
+# the answer changing. Counts drift as people like and repost; timings and receipt ids vary.
+_RECEIPT_VOLATILE = {"checked_at", "fetches"}
+_RECEIPT_INNER_VOLATILE = {"counts_now", "latency_ms", "receipt_ids", "candidates_checked"}
+
+
 def _comparable(detail: dict[str, Any]) -> dict[str, Any]:
     """Detail minus fields that differ between a fresh call and a cache hit."""
     skip = {"latency_ms", "usage", "cached", "analyzed_at", "finish_reason", "source_uri"}
     out = {k: v for k, v in detail.items() if k not in skip}
     if isinstance(out.get("screenshot"), dict):
         out["screenshot"] = {k: v for k, v in out["screenshot"].items() if k != "latency_ms"}
+    if detail.get("type") == "screenshot_receipt":
+        out = {k: v for k, v in out.items() if k not in _RECEIPT_VOLATILE}
+        if isinstance(out.get("receipt"), dict):
+            out["receipt"] = {
+                k: v for k, v in out["receipt"].items() if k not in _RECEIPT_INNER_VOLATILE
+            }
     return out

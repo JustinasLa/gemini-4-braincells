@@ -36,7 +36,15 @@ class Post(BaseModel):
     created_at: datetime | None = None
     time_source: Literal["snowflake", "api", "page", "search_hint"] | None = None
     role: Literal[
-        "submitted", "origin", "copy", "quote", "reply", "mention", "author_recent", "bluesky"
+        "submitted",
+        "origin",
+        "copy",
+        "quote",
+        "reply",
+        "mention",
+        "author_recent",
+        "bluesky",
+        "screenshotted",  # the real post a screenshot in the submitted post shows
     ] = "mention"
     similarity: float | None = None
     metrics: Metrics | None = None
@@ -99,7 +107,7 @@ class MediaFinding(BaseModel):
 class Edge(BaseModel):
     from_: str = Field(alias="from", serialization_alias="from")
     to: str
-    rel: Literal["repost", "quote", "copy", "media", "link", "reply", "cites"]
+    rel: Literal["repost", "quote", "copy", "media", "link", "reply", "cites", "screenshot_of"]
     sim: float | None = None
     tool: Literal["oxylabs", "nemotron", "gemini", "detector", "bluesky"] = "oxylabs"
     note: str | None = None
@@ -131,6 +139,56 @@ class Receipt(BaseModel):
     cached: bool = False
     ok: bool = True
     at: datetime
+
+
+class DiffPart(BaseModel):
+    """One run of words in a screenshot-vs-real-post diff."""
+
+    op: Literal["same", "shot_only", "post_only"]  # shot_only: only in the screenshot
+    text: str
+
+
+class ScreenshotReceipt(BaseModel):
+    """What a screenshot of a post claims, and the real post it was checked against.
+
+    The label describes the screenshot, never a person. Counts are context only: posts gain
+    and lose likes, so they never decide the label."""
+
+    media_url: str | None = None
+    media_hash: str
+    post_id: str | None = None  # the submitted post whose image is the screenshot
+    # what Nemotron read in the screenshot (media/screenshot.py ScreenshotPost)
+    platform: str = "unknown"
+    handle: str | None = None
+    display_name: str | None = None
+    shown_time: str | None = None
+    shown_text: str | None = None
+    shown_counts: dict[str, int | None] = Field(default_factory=dict)
+    ui_oddities: list[str] = Field(default_factory=list)
+    read_confidence: float | None = None
+    read_model: str | None = None
+    # the check
+    label: Literal["matches", "differs", "not_found", "unchecked"] = "unchecked"
+    reason: str = ""
+    original_id: str | None = None  # key into posts ("x:<id>" or the at:// uri)
+    original_url: str | None = None
+    original_text: str | None = None
+    original_created_at: datetime | None = None
+    original_time_source: Literal["snowflake", "api"] | None = None
+    original_receipt_id: int | None = None  # the receipt of the fetch that read the real post
+    similarity: float | None = None
+    diff: list[DiffPart] = Field(default_factory=list)
+    differences: list[str] = Field(default_factory=list)
+    time_check: Literal["consistent", "inconsistent", "unknown"] = "unknown"
+    # the shown time allows any real time in [earliest, latest]; None = open on that side
+    shown_time_earliest: datetime | None = None
+    shown_time_latest: datetime | None = None
+    time_note: str | None = None
+    counts_now: Metrics | None = None
+    counts_note: str | None = None
+    candidates_checked: int = 0
+    receipt_ids: list[int] = Field(default_factory=list)
+    latency_ms: int | None = None
 
 
 class Assessment(BaseModel):
@@ -195,6 +253,7 @@ class LookupResult(BaseModel):
     accounts: list[Account] = Field(default_factory=list)
     pages: list[Page] = Field(default_factory=list)
     media: list[MediaFinding] = Field(default_factory=list)
+    screenshots: list[ScreenshotReceipt] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
     clusters: list[dict[str, Any]] = Field(default_factory=list)
     spread: Spread | None = None
