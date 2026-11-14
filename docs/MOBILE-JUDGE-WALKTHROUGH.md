@@ -8,12 +8,12 @@ This guide covers the mobile judge flow in Trackdown. The Explore menu provides 
 2. Tap the verdict strip to open the verdict and evidence sheet. Use the available tabs to inspect the verdict, evidence, chain when available, and selected post.
 3. Close the sheet to return to the spread map.
 4. Use the replay controls below the verdict card. The phone layout gives the verdict, timeline scrubber, and map controls separate screen areas; long titles and timestamps wrap within the viewport.
-5. Use the QR button beside **New trace** to hand the current page to a phone.
+5. Use the QR button beside **Search** to hand the current page to a phone.
 
 ## Judge input
 
 1. Return to the home screen and enter a public post, URL, or @handle.
-2. Tap **Trace it** and review the collected receipts.
+2. Tap **Search** and review the collected receipts.
 3. If the lookup matches a monitored cluster, inspect its detector status and evidence. A web-only result does not establish coordination.
 
 ## Responsive check

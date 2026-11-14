@@ -59,7 +59,7 @@ def get_swarm(swarm_id: str, store: Annotated[SwarmStore, Depends(get_swarm_stor
     if detail is None:
         raise HTTPException(404, "swarm not found")
     # Bluesky's image CDN sends no CORS header, so a page cannot read its pictures as bytes;
-    # served from here, the picture can be handed to an image lookup ("Trace it")
+    # served from here, the picture can be handed to an image lookup ("Search")
     return detail.model_copy(update={"picture": f"/api/swarms/{detail.id}/picture"})
 
 
