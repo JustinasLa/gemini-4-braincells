@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7CCR73MCB76FQNK0CA7AVQK",
+  "strategy": "manual-commit",
+  "branch": "dev/analyze-input-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "api/routes/analyze.py",
+    "api/schemas.py",
+    "api/store.py",
+    "tests/test_api_routes.py",
+    "tests/test_backend_db.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 12513,
+    "cache_read_tokens": 761423,
+    "output_tokens": 10263,
+    "api_call_count": 9
+  },
+  "redaction": {
+    "replacements": 5,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 1,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
