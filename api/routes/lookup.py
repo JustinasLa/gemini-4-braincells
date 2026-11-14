@@ -128,8 +128,14 @@ def make_deps() -> Deps:
     oxylabs = OxylabsClient(s.oxylabs_web_api_key, timeout_s=75, max_retries=1)
     if s.lookup_provider_cache_ttl_s > 0:
         oxylabs = cache.CachedOxylabs(oxylabs, cache.oxylabs_cache(s.lookup_provider_cache_ttl_s))
+    fxtwitter = None
+    if s.lookup_fxtwitter:
+        from lookup.fxtwitter import FxTwitterClient
+
+        fxtwitter = FxTwitterClient(base_url=s.lookup_fxtwitter_url)
     return Deps(
         oxylabs=oxylabs,
+        fxtwitter=fxtwitter,
         bsky=BlueskyClient(),
         store=_db_store(),
         nemotron=nemotron,

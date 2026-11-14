@@ -3,9 +3,16 @@
 A user pastes a link (an X post, a Bluesky post, a profile or any web page). The lookup collects
 real, live data about it and returns it with a receipt for every fact:
 
-- **The post itself** (Oxylabs `/scrape` of the X page; Bluesky public AppView): author, text,
-  exact creation time, the counts X shows (views, replies, reposts, likes, bookmarks), the
-  linked card and the media.
+- **The post itself** (FxTwitter's public API for X, falling back to Oxylabs `/scrape` of the X
+  page; Bluesky public AppView): author, text, exact creation time, the counts (views, replies,
+  reposts, likes, bookmarks), the linked card and the media. FxTwitter (`lookup/fxtwitter.py`,
+  `api.fxtwitter.com/2/conversation/<id>`) serves X's own post data: it sees posts X's
+  logged-out page hides (marked sensitive: "only available in the X app"), gives exact counts
+  (zeros included) and the full text of long posts, in under a second. It is an unofficial
+  community service, so the Oxylabs page read stays the fallback when it fails or is slow
+  (`LOOKUP_FXTWITTER=false` turns it off), and receipts name which one read the post. A post
+  FxTwitter says is gone is still read on its X page, which says why (suspended, protected,
+  deleted, sensitive). Candidate copies are read the same way.
 - **The author's history** (Oxylabs `/scrape` of the profile): join date, followers, following,
   post count, bio, and the recent posts the profile page shows, with their exact times.
 - **Where the text appears** (Oxylabs `/search`, exact phrase, the open web plus `site:x.com`

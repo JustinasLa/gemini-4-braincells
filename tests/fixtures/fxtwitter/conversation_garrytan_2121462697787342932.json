@@ -1,0 +1,762 @@
+{
+ "status": {
+  "type": "status",
+  "url": "https://x.com/garrytan/status/2121462697787342932",
+  "id": "2121462697787342932",
+  "text": "Jensen deserves due process, not whatever is happening right now. I signed. \n\n#standwithjensen",
+  "raw_text": {
+   "text": "Jensen deserves due process, not whatever is happening right now. I signed. \n\n#standwithjensen",
+   "display_text_range": [
+    0,
+    94
+   ],
+   "facets": [
+    {
+     "type": "hashtag",
+     "indices": [
+      78,
+      94
+     ],
+     "original": "standwithjensen"
+    }
+   ]
+  },
+  "author": {
+   "screen_name": "garrytan",
+   "url": "https://x.com/garrytan",
+   "id": "11768582",
+   "followers": 1144915,
+   "following": 6043,
+   "likes": 254078,
+   "media_count": 4955,
+   "statuses": 76424,
+   "name": "Garry Tan",
+   "description": "President & CEO @ycombinator —Founder @garryslist—Creator of GStack & GBrain—designer/engineer who helps founders—SF Dem accelerating the boom loop",
+   "raw_description": {
+    "text": "President & CEO @ycombinator —Founder @garryslist—Creator of GStack & GBrain—designer/engineer who helps founders—SF Dem accelerating the boom loop",
+    "facets": [
+     {
+      "type": "mention",
+      "indices": [
+       16,
+       28
+      ],
+      "original": "ycombinator",
+      "id": ""
+     },
+     {
+      "type": "mention",
+      "indices": [
+       38,
+       49
+      ],
+      "original": "garryslist",
+      "id": ""
+     }
+    ]
+   },
+   "location": "San Francisco, CA",
+   "banner_url": "https://pbs.twimg.com/profile_banners/11768582/1789657007",
+   "avatar_url": "https://pbs.twimg.com/profile_images/2102142455281811456/-kNX65wI_200x200.jpg",
+   "joined": "Wed Jan 02 19:47:19 +0000 2008",
+   "protected": false,
+   "website": {
+    "url": "https://youtube.com/garrytan?sub_confirmation=1",
+    "display_url": "youtube.com/garrytan?sub_c…"
+   },
+   "verification": {
+    "verified": true,
+    "verified_at": null,
+    "type": "individual"
+   },
+   "type": "profile"
+  },
+  "replies": 250,
+  "reposts": 631,
+  "likes": 8452,
+  "bookmarks": 346,
+  "quotes": 53,
+  "embed_card": "tweet",
+  "created_at": "Sat Nov 14 04:38:16 +0000 2026",
+  "created_timestamp": 1794631096,
+  "views": 465684,
+  "is_note_tweet": false,
+  "community_note": null,
+  "lang": "en",
+  "replying_to": null,
+  "media": {},
+  "quote": {
+   "type": "status",
+   "url": "https://x.com/TheJensenLetter/status/2121339322385440842",
+   "id": "2121339322385440842",
+   "text": "Still hard to believe everything that's happened with Jensen.\n\nAfter 33 years of building NVIDIA. I think he deserves a fair process, and we deserve the truth.\n\nI signed this open letter to stand with Jensen. Hope you will too. 💚\n\nhttps://standwithjensen.com\n\n#StandWithJensen",
+   "raw_text": {
+    "text": "Still hard to believe everything that's happened with Jensen.\n\nAfter 33 years of building NVIDIA. I think he deserves a fair process, and we deserve the truth.\n\nI signed this open letter to stand with Jensen. Hope you will too. 💚\n\nhttps://t.co/L1MhebzOVO\n\n#StandWithJensen",
+    "display_text_range": [
+     0,
+     272
+    ],
+    "facets": [
+     {
+      "type": "url",
+      "indices": [
+       231,
+       254
+      ],
+      "original": "https://t.co/L1MhebzOVO",
+      "replacement": "https://standwithjensen.com",
+      "display": "standwithjensen.com"
+     },
+     {
+      "type": "hashtag",
+      "indices": [
+       256,
+       272
+      ],
+      "original": "StandWithJensen"
+     }
+    ]
+   },
+   "author": {
+    "screen_name": "TheJensenLetter",
+    "url": "https://x.com/TheJensenLetter",
+    "id": "2121285661831626752",
+    "followers": 3025,
+    "following": 7,
+    "likes": 18,
+    "media_count": 0,
+    "statuses": 23,
+    "name": "Stand With Jensen",
+    "description": "Employees and shareholders stand with Jensen. 💚",
+    "raw_description": {
+     "text": "Employees and shareholders stand with Jensen. 💚",
+     "facets": []
+    },
+    "location": "",
+    "banner_url": "https://pbs.twimg.com/profile_banners/2121285661831626752/1794600088",
+    "avatar_url": "https://pbs.twimg.com/profile_images/2121332488580837376/PNHummNC_200x200.jpg",
+    "joined": "Fri Nov 13 16:56:59 +0000 2026",
+    "protected": false,
+    "website": {
+     "url": "https://standwithjensen.com",
+     "display_url": "standwithjensen.com"
+    },
+    "verification": {
+     "verified": true,
+     "verified_at": null,
+     "type": "individual"
+    },
+    "type": "profile"
+   },
+   "replies": 112,
+   "reposts": 285,
+   "likes": 2122,
+   "bookmarks": 182,
+   "quotes": 79,
+   "embed_card": "tweet",
+   "created_at": "Fri Nov 13 20:28:01 +0000 2026",
+   "created_timestamp": 1794601681,
+   "possibly_sensitive": false,
+   "views": 504175,
+   "is_note_tweet": false,
+   "community_note": null,
+   "lang": "en",
+   "replying_to": null,
+   "media": {},
+   "card": {
+    "url": "https://standwithjensen.com",
+    "title": "Stand with Jensen | An open letter to the NVIDIA Board",
+    "description": "An independent campaign of current and former NVIDIA employees and shareholders expressing gratitude to Jensen Huang and asking the Board for a transparent account of the CEO transition. Not affili...",
+    "domain": "standwithjensen.com",
+    "image": {
+     "width": 800,
+     "height": 419,
+     "url": "https://pbs.twimg.com/card_img/2121424280651276289/ifuFbVPv?format=jpg&name=800x419",
+     "alt": "Bring Jensen Back! Stand with Jensen, with photos of Jensen Huang at three stages of his life."
+    }
+   },
+   "provider": "twitter",
+   "reposted_by": null
+  },
+  "provider": "twitter",
+  "reposted_by": null
+ },
+ "thread": [
+  {
+   "type": "status",
+   "url": "https://x.com/garrytan/status/2121462697787342932",
+   "id": "2121462697787342932",
+   "text": "Jensen deserves due process, not whatever is happening right now. I signed. \n\n#standwithjensen",
+   "raw_text": {
+    "text": "Jensen deserves due process, not whatever is happening right now. I signed. \n\n#standwithjensen",
+    "display_text_range": [
+     0,
+     94
+    ],
+    "facets": [
+     {
+      "type": "hashtag",
+      "indices": [
+       78,
+       94
+      ],
+      "original": "standwithjensen"
+     }
+    ]
+   },
+   "author": {
+    "screen_name": "garrytan",
+    "url": "https://x.com/garrytan",
+    "id": "11768582",
+    "followers": 1144915,
+    "following": 6043,
+    "likes": 254078,
+    "media_count": 4955,
+    "statuses": 76424,
+    "name": "Garry Tan",
+    "description": "President & CEO @ycombinator —Founder @garryslist—Creator of GStack & GBrain—designer/engineer who helps founders—SF Dem accelerating the boom loop",
+    "raw_description": {
+     "text": "President & CEO @ycombinator —Founder @garryslist—Creator of GStack & GBrain—designer/engineer who helps founders—SF Dem accelerating the boom loop",
+     "facets": [
+      {
+       "type": "mention",
+       "indices": [
+        16,
+        28
+       ],
+       "original": "ycombinator",
+       "id": ""
+      },
+      {
+       "type": "mention",
+       "indices": [
+        38,
+        49
+       ],
+       "original": "garryslist",
+       "id": ""
+      }
+     ]
+    },
+    "location": "San Francisco, CA",
+    "banner_url": "https://pbs.twimg.com/profile_banners/11768582/1789657007",
+    "avatar_url": "https://pbs.twimg.com/profile_images/2102142455281811456/-kNX65wI_200x200.jpg",
+    "joined": "Wed Jan 02 19:47:19 +0000 2008",
+    "protected": false,
+    "website": {
+     "url": "https://youtube.com/garrytan?sub_confirmation=1",
+     "display_url": "youtube.com/garrytan?sub_c…"
+    },
+    "verification": {
+     "verified": true,
+     "verified_at": null,
+     "type": "individual"
+    },
+    "type": "profile"
+   },
+   "replies": 250,
+   "reposts": 631,
+   "likes": 8452,
+   "bookmarks": 346,
+   "quotes": 53,
+   "embed_card": "tweet",
+   "created_at": "Sat Nov 14 04:38:16 +0000 2026",
+   "created_timestamp": 1794631096,
+   "views": 465684,
+   "is_note_tweet": false,
+   "community_note": null,
+   "lang": "en",
+   "replying_to": null,
+   "media": {},
+   "quote": {
+    "type": "status",
+    "url": "https://x.com/TheJensenLetter/status/2121339322385440842",
+    "id": "2121339322385440842",
+    "text": "Still hard to believe everything that's happened with Jensen.\n\nAfter 33 years of building NVIDIA. I think he deserves a fair process, and we deserve the truth.\n\nI signed this open letter to stand with Jensen. Hope you will too. 💚\n\nhttps://standwithjensen.com\n\n#StandWithJensen",
+    "raw_text": {
+     "text": "Still hard to believe everything that's happened with Jensen.\n\nAfter 33 years of building NVIDIA. I think he deserves a fair process, and we deserve the truth.\n\nI signed this open letter to stand with Jensen. Hope you will too. 💚\n\nhttps://t.co/L1MhebzOVO\n\n#StandWithJensen",
+     "display_text_range": [
+      0,
+      272
+     ],
+     "facets": [
+      {
+       "type": "url",
+       "indices": [
+        231,
+        254
+       ],
+       "original": "https://t.co/L1MhebzOVO",
+       "replacement": "https://standwithjensen.com",
+       "display": "standwithjensen.com"
+      },
+      {
+       "type": "hashtag",
+       "indices": [
+        256,
+        272
+       ],
+       "original": "StandWithJensen"
+      }
+     ]
+    },
+    "author": {
+     "screen_name": "TheJensenLetter",
+     "url": "https://x.com/TheJensenLetter",
+     "id": "2121285661831626752",
+     "followers": 3025,
+     "following": 7,
+     "likes": 18,
+     "media_count": 0,
+     "statuses": 23,
+     "name": "Stand With Jensen",
+     "description": "Employees and shareholders stand with Jensen. 💚",
+     "raw_description": {
+      "text": "Employees and shareholders stand with Jensen. 💚",
+      "facets": []
+     },
+     "location": "",
+     "banner_url": "https://pbs.twimg.com/profile_banners/2121285661831626752/1794600088",
+     "avatar_url": "https://pbs.twimg.com/profile_images/2121332488580837376/PNHummNC_200x200.jpg",
+     "joined": "Fri Nov 13 16:56:59 +0000 2026",
+     "protected": false,
+     "website": {
+      "url": "https://standwithjensen.com",
+      "display_url": "standwithjensen.com"
+     },
+     "verification": {
+      "verified": true,
+      "verified_at": null,
+      "type": "individual"
+     },
+     "type": "profile"
+    },
+    "replies": 112,
+    "reposts": 285,
+    "likes": 2122,
+    "bookmarks": 182,
+    "quotes": 79,
+    "embed_card": "tweet",
+    "created_at": "Fri Nov 13 20:28:01 +0000 2026",
+    "created_timestamp": 1794601681,
+    "possibly_sensitive": false,
+    "views": 504175,
+    "is_note_tweet": false,
+    "community_note": null,
+    "lang": "en",
+    "replying_to": null,
+    "media": {},
+    "card": {
+     "url": "https://standwithjensen.com",
+     "title": "Stand with Jensen | An open letter to the NVIDIA Board",
+     "description": "An independent campaign of current and former NVIDIA employees and shareholders expressing gratitude to Jensen Huang and asking the Board for a transparent account of the CEO transition. Not affili...",
+     "domain": "standwithjensen.com",
+     "image": {
+      "width": 800,
+      "height": 419,
+      "url": "https://pbs.twimg.com/card_img/2121424280651276289/ifuFbVPv?format=jpg&name=800x419",
+      "alt": "Bring Jensen Back! Stand with Jensen, with photos of Jensen Huang at three stages of his life."
+     }
+    },
+    "provider": "twitter",
+    "reposted_by": null
+   },
+   "provider": "twitter",
+   "reposted_by": null
+  }
+ ],
+ "replies": [
+  {
+   "type": "status",
+   "url": "https://x.com/Christo_t_D/status/2121478793571471382",
+   "id": "2121478793571471382",
+   "text": "@garrytan He resigned.\n\nHis choice.\n\nCope harder snowflake.",
+   "raw_text": {
+    "text": "@garrytan He resigned.\n\nHis choice.\n\nCope harder snowflake.",
+    "display_text_range": [
+     10,
+     59
+    ],
+    "facets": [
+     {
+      "type": "mention",
+      "indices": [
+       0,
+       9
+      ],
+      "original": "garrytan",
+      "id": "11768582"
+     }
+    ]
+   },
+   "author": {
+    "screen_name": "Christo_t_D",
+    "url": "https://x.com/Christo_t_D",
+    "id": "28970061",
+    "followers": 1861,
+    "following": 323,
+    "likes": 5164,
+    "media_count": 1096,
+    "statuses": 56747,
+    "name": "Chris_H",
+    "description": "The world’s getting weirder, right?",
+    "raw_description": {
+     "text": "The world’s getting weirder, right?",
+     "facets": []
+    },
+    "location": "Sydney",
+    "banner_url": "https://pbs.twimg.com/profile_banners/28970061/1619734633",
+    "avatar_url": "https://pbs.twimg.com/profile_images/918449187305357312/SITkTV7q_200x200.jpg",
+    "joined": "Sun Apr 05 10:41:11 +0000 2009",
+    "protected": false,
+    "website": null,
+    "verification": {
+     "verified": true,
+     "verified_at": null,
+     "type": "individual"
+    },
+    "type": "profile"
+   },
+   "replies": 7,
+   "reposts": 0,
+   "likes": 37,
+   "bookmarks": 0,
+   "quotes": 0,
+   "embed_card": "tweet",
+   "created_at": "Sat Nov 14 05:42:14 +0000 2026",
+   "created_timestamp": 1794634934,
+   "views": 3054,
+   "is_note_tweet": false,
+   "community_note": null,
+   "lang": "en",
+   "replying_to": {
+    "screen_name": "garrytan",
+    "status": "2121462697787342932",
+    "url": "https://x.com/garrytan/status/2121462697787342932",
+    "profile_url": "https://x.com/garrytan"
+   },
+   "media": {},
+   "provider": "twitter",
+   "reposted_by": null
+  },
+  {
+   "type": "status",
+   "url": "https://x.com/cicgods/status/2121478944985948262",
+   "id": "2121478944985948262",
+   "text": "@garrytan I mean he resigned from a public company. He hasn't been convicted of anything. \n\nI am not sure due process applies at all but it certainly doesn't if you capitulate.",
+   "raw_text": {
+    "text": "@garrytan I mean he resigned from a public company. He hasn't been convicted of anything. \n\nI am not sure due process applies at all but it certainly doesn't if you capitulate.",
+    "display_text_range": [
+     10,
+     176
+    ],
+    "facets": [
+     {
+      "type": "mention",
+      "indices": [
+       0,
+       9
+      ],
+      "original": "garrytan",
+      "id": "11768582"
+     }
+    ]
+   },
+   "author": {
+    "screen_name": "cicgods",
+    "url": "https://x.com/cicgods",
+    "id": "988174397943963648",
+    "followers": 52,
+    "following": 588,
+    "likes": 656,
+    "media_count": 14,
+    "statuses": 501,
+    "name": "sicgods",
+    "description": "Now, here, you see, it takes all the running you can do, to keep in the same place.",
+    "raw_description": {
+     "text": "Now, here, you see, it takes all the running you can do, to keep in the same place.",
+     "facets": []
+    },
+    "location": "",
+    "banner_url": "",
+    "avatar_url": "https://pbs.twimg.com/profile_images/1956508592447672320/KB26vPKX_200x200.jpg",
+    "joined": "Sun Apr 22 21:55:10 +0000 2018",
+    "protected": false,
+    "website": null,
+    "verification": {
+     "verified": true,
+     "verified_at": null,
+     "type": "individual"
+    },
+    "type": "profile"
+   },
+   "replies": 2,
+   "reposts": 1,
+   "likes": 33,
+   "bookmarks": 0,
+   "quotes": 1,
+   "embed_card": "tweet",
+   "created_at": "Sat Nov 14 05:42:50 +0000 2026",
+   "created_timestamp": 1794634970,
+   "views": 4057,
+   "is_note_tweet": false,
+   "community_note": null,
+   "lang": "en",
+   "replying_to": {
+    "screen_name": "garrytan",
+    "status": "2121462697787342932",
+    "url": "https://x.com/garrytan/status/2121462697787342932",
+    "profile_url": "https://x.com/garrytan"
+   },
+   "media": {},
+   "provider": "twitter",
+   "reposted_by": null
+  },
+  {
+   "type": "status",
+   "url": "https://x.com/modo1979/status/2121493959822458924",
+   "id": "2121493959822458924",
+   "text": "@garrytan @elonmusk We stand with Jensen.",
+   "raw_text": {
+    "text": "@garrytan @elonmusk We stand with Jensen. https://t.co/KS5QscB5r3",
+    "display_text_range": [
+     20,
+     41
+    ],
+    "facets": [
+     {
+      "type": "mention",
+      "indices": [
+       0,
+       9
+      ],
+      "original": "garrytan",
+      "id": "11768582"
+     },
+     {
+      "type": "mention",
+      "indices": [
+       10,
+       19
+      ],
+      "original": "elonmusk",
+      "id": "44196397"
+     },
+     {
+      "type": "media",
+      "indices": [
+       42,
+       65
+      ],
+      "id": "2121493955032522752",
+      "display": "pic.x.com/KS5QscB5r3",
+      "original": "https://t.co/KS5QscB5r3",
+      "replacement": "https://x.com/modo1979/status/2121493959822458924/photo/1"
+     }
+    ]
+   },
+   "author": {
+    "screen_name": "modo1979",
+    "url": "https://x.com/modo1979",
+    "id": "267080875",
+    "followers": 7304,
+    "following": 5094,
+    "likes": 70425,
+    "media_count": 1390,
+    "statuses": 18225,
+    "name": "TW_X先生",
+    "description": "🇹🇼TSMC | Tesla⚡SpaceX | xAI • Grok🔥\nWeb3 | Doge | Meme｜I love puppies. 🐶\nBuilding the future, one chip at a time🚀",
+    "raw_description": {
+     "text": "🇹🇼TSMC | Tesla⚡SpaceX | xAI • Grok🔥\nWeb3 | Doge | Meme｜I love puppies. 🐶\nBuilding the future, one chip at a time🚀",
+     "facets": []
+    },
+    "location": "Taiwan",
+    "banner_url": "https://pbs.twimg.com/profile_banners/267080875/1784814637",
+    "avatar_url": "https://pbs.twimg.com/profile_images/2023965835870789632/MUq2aRZ9_200x200.jpg",
+    "joined": "Wed Mar 16 09:04:40 +0000 2011",
+    "protected": false,
+    "website": {
+     "url": "https://ilovepuppies.cc",
+     "display_url": "ilovepuppies.cc"
+    },
+    "verification": {
+     "verified": true,
+     "verified_at": null,
+     "type": "individual"
+    },
+    "type": "profile"
+   },
+   "replies": 0,
+   "reposts": 4,
+   "likes": 28,
+   "bookmarks": 3,
+   "quotes": 0,
+   "embed_card": "summary_large_image",
+   "created_at": "Sat Nov 14 06:42:30 +0000 2026",
+   "created_timestamp": 1794638550,
+   "possibly_sensitive": false,
+   "views": 3221,
+   "is_note_tweet": false,
+   "community_note": null,
+   "lang": "en",
+   "replying_to": {
+    "screen_name": "garrytan",
+    "status": "2121462697787342932",
+    "url": "https://x.com/garrytan/status/2121462697787342932",
+    "profile_url": "https://x.com/garrytan"
+   },
+   "media": {
+    "all": [
+     {
+      "type": "photo",
+      "id": "2121493955032522752",
+      "url": "https://pbs.twimg.com/media/HXEPgw7aIAA-2q5.jpg?name=orig",
+      "width": 896,
+      "height": 1196
+     }
+    ],
+    "photos": [
+     {
+      "type": "photo",
+      "id": "2121493955032522752",
+      "url": "https://pbs.twimg.com/media/HXEPgw7aIAA-2q5.jpg?name=orig",
+      "width": 896,
+      "height": 1196
+     }
+    ]
+   },
+   "provider": "twitter",
+   "reposted_by": null
+  },
+  {
+   "type": "status",
+   "url": "https://x.com/rinsana/status/2121579006302536136",
+   "id": "2121579006302536136",
+   "text": "@garrytan He admitted to an affair with a customer, if not a spy. That would get any CEO fired, not to mention a direct report and another employee. Those are the rules of modern corporate governance. End of story.",
+   "raw_text": {
+    "text": "@garrytan He admitted to an affair with a customer, if not a spy. That would get any CEO fired, not to mention a direct report and another employee. Those are the rules of modern corporate governance. End of story.",
+    "display_text_range": [
+     10,
+     214
+    ],
+    "facets": [
+     {
+      "type": "mention",
+      "indices": [
+       0,
+       9
+      ],
+      "original": "garrytan",
+      "id": "11768582"
+     }
+    ]
+   },
+   "author": {
+    "screen_name": "rinsana",
+    "url": "https://x.com/rinsana",
+    "id": "30919868",
+    "followers": 29754,
+    "following": 2390,
+    "likes": 16937,
+    "media_count": 66,
+    "statuses": 30171,
+    "name": "ron insana",
+    "description": "I'm MS Now's Senior Business Analyst, author of \"The Message of the Markets\" on Substack, a public speaker & observer of all things economy and market-related.",
+    "raw_description": {
+     "text": "I'm MS Now's Senior Business Analyst, author of \"The Message of the Markets\" on Substack, a public speaker & observer of all things economy and market-related.",
+     "facets": []
+    },
+    "location": "",
+    "banner_url": "",
+    "avatar_url": "https://pbs.twimg.com/profile_images/3742232037/0004879aef686d7b0a066bbdaf55e8d9_200x200.jpeg",
+    "joined": "Mon Apr 13 18:15:53 +0000 2009",
+    "protected": false,
+    "website": {
+     "url": "http://www.roninsana.com/",
+     "display_url": "roninsana.com"
+    },
+    "verification": {
+     "verified": true,
+     "verified_at": null,
+     "type": "individual"
+    },
+    "type": "profile"
+   },
+   "replies": 5,
+   "reposts": 2,
+   "likes": 24,
+   "bookmarks": 0,
+   "quotes": 1,
+   "embed_card": "tweet",
+   "created_at": "Sat Nov 14 12:20:26 +0000 2026",
+   "created_timestamp": 1794658826,
+   "views": 502,
+   "is_note_tweet": false,
+   "community_note": null,
+   "lang": "en",
+   "replying_to": {
+    "screen_name": "garrytan",
+    "status": "2121462697787342932",
+    "url": "https://x.com/garrytan/status/2121462697787342932",
+    "profile_url": "https://x.com/garrytan"
+   },
+   "media": {},
+   "provider": "twitter",
+   "reposted_by": null
+  }
+ ],
+ "author": {
+  "screen_name": "garrytan",
+  "url": "https://x.com/garrytan",
+  "id": "11768582",
+  "followers": 1144915,
+  "following": 6043,
+  "likes": 254078,
+  "media_count": 4955,
+  "statuses": 76424,
+  "name": "Garry Tan",
+  "description": "President & CEO @ycombinator —Founder @garryslist—Creator of GStack & GBrain—designer/engineer who helps founders—SF Dem accelerating the boom loop",
+  "raw_description": {
+   "text": "President & CEO @ycombinator —Founder @garryslist—Creator of GStack & GBrain—designer/engineer who helps founders—SF Dem accelerating the boom loop",
+   "facets": [
+    {
+     "type": "mention",
+     "indices": [
+      16,
+      28
+     ],
+     "original": "ycombinator",
+     "id": ""
+    },
+    {
+     "type": "mention",
+     "indices": [
+      38,
+      49
+     ],
+     "original": "garryslist",
+     "id": ""
+    }
+   ]
+  },
+  "location": "San Francisco, CA",
+  "banner_url": "https://pbs.twimg.com/profile_banners/11768582/1789657007",
+  "avatar_url": "https://pbs.twimg.com/profile_images/2102142455281811456/-kNX65wI_200x200.jpg",
+  "joined": "Wed Jan 02 19:47:19 +0000 2008",
+  "protected": false,
+  "website": {
+   "url": "https://youtube.com/garrytan?sub_confirmation=1",
+   "display_url": "youtube.com/garrytan?sub_c…"
+  },
+  "verification": {
+   "verified": true,
+   "verified_at": null,
+   "type": "individual"
+  },
+  "type": "profile"
+ },
+ "cursor": {
+  "bottom": "DAAKCgABHXFwrql__p8LAAIAAAF8RW1QQzZ3QUFBZlEvZ0dKTjB2R3AvQUFBQUNFZGNSd0gyUnF4YkIxeExCam0ydEZQSFhGYzNabVd3Y2dkY1FxTk9GdXhSQjF3L0dCalc2Q0tIWEZqc1VrYlViNGRjUE5MR2RlaFRoMXhBOWVBbG9GQ0hYRUIzRUpib0dZZGNQY0diQm9SeUIxdytLVDJteUNISFhGaVM1K2JrUDBkY1BYdE81ckJwUjF4QzR0RUdnREJIWEVEVmhMYU1kWWRjUVp2RUp2UkZCMXcrS3FLbDZDSUhYRHovVlBiVVpvZGNQdlB5VnF4N2gxdy9QaDFXaURoSFhFTUtWTFc4QmdkY1BNVmFkdEFWQjF4QWJrQldoQVdIWER6ZFRmWFlERWRjUHp0NlZ2QXVCMXhENFFzV3NBc0hYRVFvQTJYWUJrZGNQaUJIOXN3b0IxeENJd0Uyc0ZtSFhEOGRxNmFzYVFkY1BVM0h4cFF2UjF4QUNTYjE4Q0ZIWEVRbmpHWGdUMD0IAAMAAAACCwAEAAAABkJvdHRvbQAA"
+ },
+ "code": 200
+}

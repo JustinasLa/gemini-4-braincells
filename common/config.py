@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     lookup_reverse_image: bool = True
     # the family tree (lookup/family.py) reads Wikipedia and the Wayback Machine directly
     lookup_family_web: bool = True
+    # X posts are read through FxTwitter first (lookup/fxtwitter.py); Oxylabs is the fallback
+    lookup_fxtwitter: bool = True
+    lookup_fxtwitter_url: str = "https://api.fxtwitter.com"
 
     # Link lookup (lookup/README.md): every lookup spends live Oxylabs, Nemotron and Gemini calls.
     lookup_max_per_hour: int = 60  # all clients together; 0 = no cap
