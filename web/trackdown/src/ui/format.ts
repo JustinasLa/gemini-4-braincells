@@ -62,7 +62,7 @@ export const httpUrl = (value?: string | null): string | undefined => {
 export const STATUS: Record<Status, { word: string; css: string; short: string; tag: string; color: string }> = {
   coordinated: { word: "Shill", css: "var(--shill)", color: "#e2533c", short: "Shill", tag: "Coordinated spread" },
   likely_organic: { word: "Chill", css: "var(--chill)", color: "#5fc9a8", short: "Chill", tag: "Organic spread" },
-  insufficient: { word: "Can't tell (yet)", css: "var(--unsure)", color: "#9aa6bf", short: "Can't tell", tag: "Not enough evidence" },
+  insufficient: { word: "Can't tell", css: "var(--unsure)", color: "#9aa6bf", short: "Can't tell", tag: "Not enough evidence" },
 };
 
 export const ROLE: Record<Role, { label: string; color: string; mark?: string }> = {

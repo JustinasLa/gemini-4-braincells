@@ -260,7 +260,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     ],
     wouldChange: result.assessment?.would_change ?? [],
     steps: result.steps.map((step) => ({ id: step.id, tool: toolFor(step.tool), text: step.label, state: step.state, detail: step.detail, found: step.found.map(resolve).filter((id) => nodeIds.has(id)) })),
-    summary: result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Can't tell (yet): this link's footprint does not establish coordination."}`,
+    summary: result.assessment?.summary || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Can't tell: this link's footprint does not establish coordination."}`,
     lookup: result,
   };
 }

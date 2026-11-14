@@ -12,9 +12,9 @@ import { flipInto, preloadCoin, wait } from "./ui/coin";
 import { thumbStyle } from "./ui/crop";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDate, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
-import { Panel } from "./ui/panel";
+import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
@@ -23,31 +23,61 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <button class="wordmark" data-act="home" title="Start over">SHILL OR CHILL</button>
-    <div class="case-head"><button class="btn ghost" data-act="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
+    <button class="wordmark" data-act="home" title="Start over" aria-label="Shill or Chill: start over">SHILL OR CHILL</button>
+    <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <div class="seg" id="mode"><button data-mode="timeline" class="on">Timeline</button><button data-mode="web">Web</button></div>
-      <button class="btn icon mobile-only" data-act="sheet" aria-label="Verdict">${icon.receipt}</button>
-      <button class="btn solid" data-act="trace">${icon.search}<span class="lbl">New trace</span></button>
+      <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
+      <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
     </div>
   </header>
   <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
-  <main class="stage" id="stage">
+  <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
+    <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
     <div class="term hidden" id="console" data-ui></div>
-    <div class="status" id="status" data-ui><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
+    <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Map and key" title="Map and key (M)">${icon.web2}</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="time" class="mode-btn on" aria-pressed="true" aria-label="Timeline layout">TIME</button><button data-z="web" class="mode-btn" aria-pressed="false" aria-label="Web layout">WEB</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
+    <div class="empty-stage" id="empty" data-ui hidden><h2>No chain of posts to draw</h2><p>The detector grouped this live cluster by how its accounts behaved, not by copied posts we can lay out. The verdict and the evidence are in the panel.</p></div>
+    <button class="peek" id="peek" data-ui data-act="sheet" aria-label="Show verdict and evidence"></button>
     <div class="vignette"></div>
   </main>
   <aside class="panel" id="panel"></aside>
 </div>`;
 
 const app = $(".app");
+// Closed drawers must not take keyboard focus; keep inert + aria-expanded in sync with the classes.
+const phoneMq = matchMedia("(max-width: 860px)"); // the CSS breakpoint
+const syncDrawers = () => {
+  const phone = phoneMq.matches;
+  const rail = $(".rail");
+  const pnl = $("#panel");
+  rail.inert = !app.classList.contains("rail-open");
+  const sheet = phone && app.classList.contains("sheet-open");
+  pnl.inert = phone ? !sheet : !(app.classList.contains("panel-open") || app.classList.contains("lookup-active"));
+  if (sheet) {
+    pnl.setAttribute("role", "dialog");
+    pnl.setAttribute("aria-modal", "true");
+    pnl.setAttribute("aria-label", "Verdict and evidence");
+  } else ["role", "aria-modal", "aria-label"].forEach((a) => pnl.removeAttribute(a));
+  // an open sheet covers the page: nothing behind it may take focus
+  $(".topbar").inert = sheet;
+  stage.inert = sheet;
+  if (sheet) rail.inert = true;
+  document.querySelector('[data-act="rail"]')?.setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
+  document.querySelector("#peek")?.setAttribute("aria-expanded", String(app.classList.contains("sheet-open")));
+};
+new MutationObserver(syncDrawers).observe(app, { attributes: true, attributeFilter: ["class"] });
+phoneMq.addEventListener("change", () => {
+  if (!phoneMq.matches) app.classList.remove("sheet-open");
+  syncDrawers();
+  setInsets();
+  if (current) setTimeout(() => (g.selId ? g.focus(g.selId, Math.max(g.k, 0.9), 600) : g.fit(undefined, 600)), 500);
+});
 const stage = $("#stage");
 const g = new Graph(stage);
 (window as unknown as { __g: Graph }).__g = g;
@@ -67,9 +97,10 @@ initTooltips();
 
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
-  `<div class="legend-title"><span class="label">key</span></div>` +
+  `<div class="legend-title"><span class="label">Key</span></div>` +
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="sw box" style="--c:#3fe07a"></span>Machine detection</div>`;
+  `<div class="li"><span class="sw member" style="--c:${ROLE.amplifier.color}"></span>Cluster member · zoom in to read</div>` +
+  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="legend-hint">Select a marker to read the post.</div>`;
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done
@@ -80,8 +111,22 @@ function setPhase(p: Phase) {
   app.dataset.phase = p;
   app.classList.toggle("panel-open", p === "done");
   if (p !== "done") app.classList.remove("rail-open");
-  g.insets.bottom = p === "done" ? 112 : 64;
-  if (p === "done") setTimeout(() => g.fit(undefined, 900), 650);
+  setInsets();
+  if (p === "done") setTimeout(() => {
+    setInsets(); // the dock has finished moving in by now
+    g.fit(undefined, 900);
+  }, 650);
+}
+
+/** camera insets follow the layout: phones stack the verdict bar and a two-row dock at the bottom */
+function setInsets() {
+  const phone = phoneMq.matches;
+  // frame above whatever sits at the bottom of the stage (dock, phone verdict bar), measured
+  const dock = $("#dock").getBoundingClientRect();
+  const st = stage.getBoundingClientRect();
+  g.insets.bottom = app.dataset.phase === "done" && dock.height ? Math.max(64, st.bottom - dock.top + 12) : 64;
+  g.insets.right = phone ? 64 : 72; // the control column sits on the right
+  g.insets.left = phone ? 12 : 24;
 }
 
 // ---------------------------------------------------------------- header
@@ -90,6 +135,17 @@ function renderResources(c: TraceCase) {
   $("#title").textContent = c.title;
   const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
   $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
+  const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
+  const peek = $("#peek");
+  peek.style.setProperty("--vc", v.css);
+  peek.innerHTML = `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span><span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
+  const empty = !hasChain(c) && !c.findingsOnly && !c.lookup; // a link lookup draws what it collected
+  if (empty) app.dataset.empty = "";
+  else delete app.dataset.empty;
+  // search-only results have no known dates: no time axis, no playback
+  if (c.findingsOnly) app.dataset.notime = "";
+  else delete app.dataset.notime;
+  $("#empty").hidden = !empty;
   document.title = `${c.title} · Shill or Chill`;
 }
 
@@ -100,11 +156,24 @@ function railItem(c: TraceCase) {
   const th = c.historical ? { style: `background-image:url(${rhinoUrl});background-position:72% 40%;background-size:260%`, score: "1515" } : thumbStyle(c.id, 64);
   return `<button class="cat-item${current?.id === c.id ? " on" : ""}" data-case="${c.id}" style="--vc:${STATUS[c.status].css}">
     <span class="thumb" style="${th.style}" data-score="${th.score}"></span>
-    <span class="vd">${STATUS[c.status].short} · ${esc(c.kicker)}</span>
+    <span class="vd">${STATUS[c.status].short} · ${esc(SHORT_KICKER[c.kicker] ?? c.kicker)}</span>
     <span class="ttl">${esc(c.title)}</span>
-    <span class="meta">${ori ? fmtShort(ori.t) : ""} → ${sub ? fmtShort(sub.t) : ""}${sub && ori ? ` · ${fmtDur(sub.t - ori.t)}` : ""}</span>
+    <span class="meta">${railSpan(ori?.t, sub?.t)}</span>
   </button>`;
 }
+
+/** one short line: years for long spans, dates for days, one date for a single day */
+function railSpan(a?: number, b?: number) {
+  if (a == null || b == null) return "";
+  const span = b - a;
+  const yr = (t: number) => String(new Date(t).getUTCFullYear());
+  if (span > 365 * 86400000) return `${yr(a)} → ${yr(b)} · ${fmtDur(span)}`;
+  if (span > 86400000) return `${fmtShort(a)} → ${fmtShort(b)}`;
+  return `${fmtShort(a)} · ${fmtDur(span)}`;
+}
+
+// rail captions are one line in a 300px rail: short forms of the case kickers
+const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Old photo", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live" };
 
 const USER_KEY = "soc-trackdown-traces";
 const userCases: TraceCase[] = (() => {
@@ -125,16 +194,16 @@ function renderRail() {
   const sims = simulatedCases();
   const live = liveRows
     .map(
-      (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(4)}"></span>
-      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster ${r.id}</span>
-      <span class="meta">${r.size ?? "?"} accounts · score ${r.score.toFixed(2)}</span></button>`,
+      (r) => `<button class="cat-item live${current?.id === `live-${r.id}` ? " on" : ""}" data-live="${r.id}" style="--vc:${STATUS[r.status].css}">
+      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">#${r.id}</span>
+      <span class="meta">${r.size ?? "?"} accounts</span></button>`,
     )
     .join("");
   $("#rail").innerHTML = `
     ${userCases.length ? `<div class="label"><span>your traces</span><span>${userCases.length}</span></div>${userCases.map(railItem).join("")}` : ""}
-    ${live ? `<div class="label"><span>live from the monitor</span><span>${liveRows.length}</span></div>${live}` : ""}
     <div class="label"><span>case files</span><span>${sims.length}</span></div>
     ${sims.map(railItem).join("")}
+    ${live ? `<div class="label"><span>live from the monitor</span><span>${liveRows.length}</span></div>${live}` : ""}
     <p class="rail-note"><b>Case files are simulated</b> (fictional accounts, <span class="mono" style="font-size:11px">.example</span> sites) except Dürer's Rhinoceros, which is real history. ${live ? "Live clusters come straight from the detector." : "Live clusters appear here when the monitor API is reachable."}</p>`;
 }
 $("#rail").addEventListener("click", async (e) => {
@@ -160,7 +229,15 @@ seg.addEventListener("click", (e) => {
   if (b) setMode(b.dataset.mode as Mode);
 });
 function setMode(m: Mode) {
-  seg.querySelectorAll("[data-mode]").forEach((x) => x.classList.toggle("on", (x as HTMLElement).dataset.mode === m));
+  stage.querySelectorAll<HTMLElement>(".mode-btn").forEach((b) => {
+    const on = (b.dataset.z === "time") === (m === "timeline");
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+  seg.querySelectorAll<HTMLElement>("[data-mode]").forEach((x) => {
+    x.classList.toggle("on", x.dataset.mode === m);
+    x.setAttribute("aria-pressed", String(x.dataset.mode === m));
+  });
   g.setMode(m);
   $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
   setTimeout(() => g.fit(undefined, 1100), 380);
@@ -172,9 +249,14 @@ document.addEventListener("click", (e) => {
   if (act === "trace" || act === "home") showHome();
   if (act === "rail") {
     app.classList.toggle("rail-open");
+    if (app.classList.contains("rail-open")) setTimeout(() => $("#rail").querySelector<HTMLElement>("button")?.focus(), 50);
     setTimeout(() => g.fit(undefined, 800), 650);
   }
-  if (act === "sheet") app.classList.toggle("sheet-open");
+  if (act === "sheet") {
+    app.classList.remove("rail-open");
+    app.classList.toggle("sheet-open");
+    if (app.classList.contains("sheet-open")) setTimeout(() => $("#panel").querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(), 50);
+  }
 });
 stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   const z = (e.target as HTMLElement).closest<HTMLElement>("[data-z]")?.dataset.z;
@@ -182,13 +264,24 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
   if (z === "tools") app.classList.toggle("tools");
+  if (z === "time") setMode("timeline");
+  if (z === "web") setMode("web");
+  stage.querySelector('[data-z="tools"]')!.setAttribute("aria-expanded", String(app.classList.contains("tools")));
 });
 
 // ---------------------------------------------------------------- graph events
 g.onSelect = (id) => {
   panel.showFolio(!!id);
   g.setHighlight(id ? g.lineage(id) : null);
-  if (id && innerWidth < 860) app.classList.add("sheet-open");
+  if (id && phoneMq.matches) {
+    const fromKeyboard = document.activeElement === stage;
+    app.classList.add("sheet-open");
+    syncDrawers();
+    // the sheet is modal: focus follows into it
+    if (fromKeyboard) $("#panel").querySelector<HTMLElement>('[data-tab="folio"]')?.focus();
+  }
+  const n = id ? current?.nodes.find((x) => x.id === id) : null;
+  $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
 };
 g.onHover = (id) => {
   if (tracing) return;
@@ -203,6 +296,11 @@ dock.onScrub = () => {
   if (tracing) cancelTrace();
 };
 panel.onReplay = () => current && (current.lookup ? openCase(current, "static") : runTrace(current));
+panel.onCloseSheet = () => {
+  app.classList.remove("sheet-open");
+  syncDrawers(); // un-inert the page now, so focus can land on Details
+  $("#peek").focus();
+};
 
 // ---------------------------------------------------------------- opening a case
 function openCase(c: TraceCase, how: "spread" | "static") {
@@ -262,6 +360,7 @@ consoleEl.addEventListener("click", (event) => {
 });
 function setStatus(tool: keyof typeof TOOL | null, text: string) {
   statusEl.classList.toggle("on", !!text);
+  statusEl.inert = !text; // a hidden status line must not hold a focus stop
   const tl = $(".st-tool", statusEl);
   tl.className = `st-tool t-${tool ?? "detector"}`;
   tl.textContent = tool ? TOOL[tool].label : "";
@@ -410,6 +509,7 @@ async function runTrace(c: TraceCase) {
   panel.set(c, false);
   setStatus(null, "");
   if (!wasSkipped) {
+    closeEvent();
     afterReveal = () => setPhase("done");
     showEvent(c, run);
   } else setPhase("done");
@@ -430,7 +530,6 @@ function closeEvent() {
   setTimeout(() => e.remove(), 480);
 }
 async function showEvent(c: TraceCase, run: number) {
-  closeEvent();
   const v = STATUS[c.status];
   const el = document.createElement("div");
   el.className = "reveal";
@@ -443,7 +542,7 @@ async function showEvent(c: TraceCase, run: number) {
     src = new Image();
     src.src = rhinoUrl;
   }
-  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5 });
+  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5, avoid: () => [...el.querySelectorAll(".coin-slot, .vw, .vt, .tap")] });
   el.addEventListener("click", closeEvent);
   await bannerReady;
   await wait(300);
@@ -461,20 +560,24 @@ function showHome() {
   closeEvent();
   if (homeEl) return;
   const cases = simulatedCases();
+  const sims = cases.filter((c) => !c.historical);
+  const hist = cases.filter((c) => c.historical);
+  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical record</em>' : ""}</button>`;
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
-      <p class="home-tag">Paste a post. We trace it back to the first copy and check whether its spread was coordinated.</p>
-      <form class="home-form"><input name="q" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
-      <div class="home-ex"><span class="label">or open a case</span>${cases.map((c) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}</button>`).join("")}</div>
+      <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
+      <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
+      <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
   document.body.appendChild(homeEl);
   const img = new Image();
   img.src = venusFullUrl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25 });
+  const home = homeEl;
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
   $("form", homeEl).addEventListener("submit", (e) => {
@@ -615,12 +718,39 @@ function toast(msg: string) {
 
 // ---------------------------------------------------------------- keyboard
 document.addEventListener("keydown", (e) => {
+  // focus stays inside the open phone sheet (a modal dialog)
+  if (e.key === "Tab" && phoneMq.matches && app.classList.contains("sheet-open")) {
+    const items = [...$("#panel").querySelectorAll<HTMLElement>('button:not([tabindex="-1"]), a[href], [tabindex="0"]')].filter((x) => x.offsetParent !== null);
+    if (items.length) {
+      const first = items[0];
+      const last = items[items.length - 1];
+      const inside = $("#panel").contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    return;
+  }
   if ((e.target as HTMLElement).closest("textarea,input")) return;
+  // Space and Enter belong to the focused control; arrows belong to the tab list
+  if ((e.key === " " || e.key === "Enter") && (e.target as HTMLElement).closest("button,a,[role=tab]")) return;
+  if ((e.target as HTMLElement).closest("[role=tablist]") && e.key !== "Escape") return;
   if (e.key === "Escape") {
     if (eventEl) closeEvent();
     else if (tracing) skipFlag = true;
-    else if (g.selId) g.select(null);
-    else app.classList.remove("rail-open", "tools");
+    else if (phoneMq.matches && app.classList.contains("sheet-open")) {
+      app.classList.remove("sheet-open");
+      syncDrawers();
+      $("#peek").focus();
+    } else if (g.selId) g.select(null);
+    else if (app.classList.contains("rail-open")) {
+      app.classList.remove("rail-open");
+      $<HTMLElement>('[data-act="rail"]').focus();
+    } else app.classList.remove("tools");
   }
   if (e.key === " ") {
     e.preventDefault();
@@ -659,6 +789,7 @@ document.addEventListener("keydown", (e) => {
 
 // ---------------------------------------------------------------- boot
 renderRail();
+syncDrawers();
 const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
 if (params.has("mockLookup") && import.meta.env.DEV) void startTrace("https://social.example/newsroom/status/100", true);

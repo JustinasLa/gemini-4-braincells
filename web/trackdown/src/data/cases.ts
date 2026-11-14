@@ -110,7 +110,7 @@ function rhinoceros(): TraceCase {
       { tool: "archive", text: "Dürer never saw the rhinoceros. He worked from a written description and a sketch sent from Lisbon." },
       { tool: "archive", text: "His woodcut adds things the animal didn't have: plates like armour, and a small twisted horn on its back." },
       { tool: "archive", text: "Hans Burgkmair's woodcut from the same year is closer to life, but Dürer's became the standard picture for centuries, down to school textbooks in the 20th century." },
-      { tool: "archive", against: true, text: "Wrong is not the same as coordinated. The copies came from different printers over four centuries, with no sign of a common push." },
+      { tool: "archive", text: "Wrong is not the same as coordinated. The copies came from different printers over four centuries, with no sign of a common push." },
     ],
     wouldChange: ["Many printers releasing the same image at once, paid by one patron to make a point"],
     steps: [
@@ -248,7 +248,7 @@ function tapWater(): TraceCase {
     nodes: b.nodes,
     edges: b.edges,
     clusters,
-    summary: "A 2021 satire headline lost its label on a forum, got its masthead cropped in 2024, then 31 days-old accounts posted it in 94 seconds.",
+    summary: "A 2021 satire headline lost its label on a forum, got its masthead cropped in 2024, then 31 accounts, all only days old, posted it within 94 seconds.",
     receipts: [
       { tool: "detector", text: "31 accounts posted the same image and text within 94 s. Timing permutation test: 0 of 500 shuffled worlds were this synchronized (p < 0.002)." },
       { tool: "detector", text: "Median account age 5 days, median 6 followers. 29 of 31 accounts never posted before tonight." },

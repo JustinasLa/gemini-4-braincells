@@ -42,25 +42,28 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
   repulsion, rectangle collisions, parent/child springs, and in *Timeline* mode every card is
   anchored to its time. *Web* mode drops the time anchor for a free force layout.
   - Time axis: gaps grow with `log(gap)`, so seconds-apart bursts and years-apart hops fit on one
-    axis. Gaps over 3 days are marked as compressed ("2.7 yr later"). Posts less than 2 min apart
+    axis. Gaps over 3 days are marked on the ruler and dock ("2.7 yr gap"). Posts less than 2 min apart
     become a time-ordered grid, so a 31-account burst reads as one block.
   - Drag a card: it follows the cursor elastically, tilts with its velocity, keeps its fling, and
     snaps back to its moment in time. Pan with inertia, wheel/pinch zoom around the cursor, double
     click to focus, double click the background to fit.
-  - Semantic zoom: below ~0.2× cards fade into small detection boxes with labels.
+  - Semantic zoom: until a card's text is readable (~0.9×) each post is a labelled marker in its
+    role colour; cluster members are small squares inside the cluster box, whose tab (verdict +
+    account count) stays 11px on screen. Labels avoid each other, markers and tabs.
   - Hover or select a card: its lineage (ancestors and descendants) lights up and particles flow
     along its edges. Clusters get a breathing hull labelled with the detector's numbers.
 - **Trackdown run** (`runTrace` in `src/main.ts`): the submitted card is scanned, then each step
   of `case.steps` reveals what it found (rejected candidates flash up as ghost cards), the camera
   follows, the origin gets a shockwave, the rest of the spread pours in, and the verdict coin lands.
 - **Timeline dock** (`src/ui/dock.ts`): histogram on the same compressed axis, scrub or play the
-  spread, ruler across the top, minimap.
-- **Receipts panel** (`src/ui/panel.ts`): verdict, trail to the source, evidence by tool
-  (Detector / Nemotron VL / Oxylabs / Gemini), counter-evidence, "what would change our mind",
-  and the selected card's details.
+  spread (also a native range input for keyboards), ruler across the top, minimap.
+- **Panel** (`src/ui/panel.ts`): tabs Verdict / Chain / Evidence / Post. Evidence is grouped as
+  "Supports the verdict" and "Signs of organic spread" (or "Evidence considered" for Can't tell),
+  plus "what would change our mind". On phones it is a modal sheet opened from the verdict bar.
 
-Keys: `N` trace a post · `Space` play/pause · `F` fit · `T` timeline/web · `←/→` parent/child ·
-`↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
+Keys: `N` trace a post · `Space` play/pause · `F` fit · `T` timeline/web · `M` key and map · with the
+map focused `←/→` earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
+Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
 
 ## Data and honesty
 

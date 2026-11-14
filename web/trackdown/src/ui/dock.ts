@@ -31,13 +31,14 @@ export class Dock {
   playing = false;
   speed = 1;
   private dragging = false;
+  private slider!: HTMLInputElement;
   private last = 0;
   onScrub: () => void = () => {};
   constructor(el: HTMLElement, g: Graph) {
     this.g = g;
     this.el = el;
     el.innerHTML = `<div class="dock-left"><button class="play" aria-label="Play">${icon.play}</button><div class="clock"><div class="d">–</div><div class="rel">–</div></div></div>
-      <div class="scrub"><canvas></canvas></div>
+      <div class="scrub"><canvas></canvas><input class="scrub-range" type="range" min="0" max="1000" step="1" value="1000" aria-label="Timeline position" /></div>
       <div class="dock-right"><button class="speed" data-speed>1×</button><button class="speed" data-end title="Show everything">All</button></div>`;
     this.canvas = el.querySelector("canvas")!;
     this.playBtn = el.querySelector(".play")!;
@@ -49,6 +50,12 @@ export class Dock {
     };
     el.querySelector<HTMLButtonElement>("[data-end]")!.onclick = () => this.showAll();
     const scrub = el.querySelector<HTMLElement>(".scrub")!;
+    // keyboard access to the same scrubbing (the canvas handles the pointer)
+    this.slider = el.querySelector<HTMLInputElement>(".scrub-range")!;
+    this.slider.addEventListener("input", () => {
+      this.pause();
+      this.seek(Number(this.slider.value) / 1000);
+    });
     const at = (e: PointerEvent) => {
       const r = scrub.getBoundingClientRect();
       this.seek(clamp((e.clientX - r.left - 8) / (r.width - 16), 0, 1));
@@ -172,25 +179,40 @@ export class Dock {
     c.lineTo(R, base + 0.5);
     c.stroke();
     // break + endpoint labels
-    c.font = '600 9.5px "JetBrains Mono", monospace';
-    c.fillStyle = "#7a7770";
+    c.font = '500 10.5px "JetBrains Mono", monospace';
+    c.fillStyle = "#908c84";
     c.textBaseline = "top";
     const first = g.timeMap[0]?.[0];
     const last = g.timeMap[g.timeMap.length - 1]?.[0];
+    let lw = 0; // left end label width actually drawn
+    let rw = 0;
     if (first != null) {
-      c.textAlign = "left";
-      c.fillText(fmtShort(first), L, base + 4);
+      // under a day the dates would be identical: show clock times instead
+      const short = last - first < 86400000;
+      const end = (t: number) => (short ? fmtClock(t).slice(0, 5) : fmtShort(t));
+      const a = end(first);
+      const b = end(last);
+      // narrow dock: keep the end labels apart, or show only the latest
+      const fits = c.measureText(a).width + c.measureText(b).width + 16 < R - L;
       c.textAlign = "right";
-      c.fillText(fmtShort(last), R, base + 4);
+      c.fillText(b, R, base + 4);
+      rw = c.measureText(b).width;
+      if (fits) {
+        c.textAlign = "left";
+        c.fillText(a, L, base + 4);
+        lw = c.measureText(a).width;
+      }
     }
     c.textAlign = "center";
     let lastB = -1e9;
     for (const b of g.timeBreaks) {
       const x = ux(b.x);
-      if (x < L + 80 || x > R - 95 || x - lastB < 80) continue;
+      const hw = c.measureText(`${fmtDur(b.gap)} gap`).width / 2;
+      // keep clear of the end labels and of each other
+      if (x - hw < L + lw + 10 || x + hw > R - rw - 10 || x - lastB < hw * 2 + 16) continue;
       lastB = x;
       c.fillStyle = "#e4b36a";
-      c.fillText(`// ${fmtDur(b.gap)} //`, x, base + 4);
+      c.fillText(`${fmtDur(b.gap)} gap`, x, base + 4);
     }
     // origin + submitted markers
     const mark = (id: string, col: string) => {
@@ -224,8 +246,13 @@ export class Dock {
       const d = this.clock.querySelector(".d")!;
       const rel = this.clock.querySelector(".rel")!;
       const txt = `${fmtDate(t, false)} ${fmtClock(t)}`;
-      if (d.textContent !== txt) d.textContent = txt;
-      const r2 = `T+${fmtDur(t - first)} // since origin`;
+      if (d.textContent !== txt) {
+        d.textContent = txt;
+        this.slider.setAttribute("aria-valuetext", txt);
+      }
+      const v = String(Math.round(this.u * 1000));
+      if (this.slider.value !== v && document.activeElement !== this.slider) this.slider.value = v;
+      const r2 = t - first < 1000 ? "At the earliest copy" : `Playhead: ${fmtDur(t - first)} after the earliest copy`;
       if (rel.textContent !== r2) rel.textContent = r2;
     }
   }
@@ -236,40 +263,56 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   const { ctx: c, w, h } = fitCanvas(canvas);
   c.clearRect(0, 0, w, h);
   if (g.mode !== "timeline" || !g.case) return;
-  const ns = g.nodes.filter((n) => n.vis).sort((a, b) => a.tx - b.tx);
+  const ns = g.nodes.filter((n) => n.vis && !n.d.undated).sort((a, b) => a.tx - b.tx);
   c.font = '600 11px "JetBrains Mono", monospace';
   c.textBaseline = "middle";
   c.textAlign = "left";
   let lastX = -1e9;
   let lastT = -1e15;
   let lastLabel = "";
+  let firstDone = false;
+  const drawn: [number, number][] = []; // x-extents of date labels; "later" pills keep off them
   for (const n of ns) {
     const s = g.toScreen(n.tx, 0);
     if (s.x < -20 || s.x > w + 20) continue;
     c.fillStyle = "rgba(255,255,255,0.3)";
     c.fillRect(s.x, h - 5, 1, 5);
     if (s.x - lastX < 120) continue;
-    if (g.timeBreaks.some((b) => Math.abs(g.toScreen(b.x, 0).x - s.x - 40) < 95)) continue;
-    const label = n.d.t - lastT > 86400000 ? fmtDate(n.d.t, false) : fmtClock(n.d.t);
+    // the first visible label always carries the date; later ones say only what changed
+    if (firstDone && g.timeBreaks.some((b) => Math.abs(g.toScreen(b.x, 0).x - s.x - 40) < 95)) continue;
+    const newDay = !firstDone || new Date(n.d.t).toDateString() !== new Date(lastT).toDateString();
+    const label = newDay ? fmtDate(n.d.t, false) : fmtClock(n.d.t).slice(0, 5);
     if (label === lastLabel) continue;
+    if (s.x + 5 + c.measureText(label.toUpperCase()).width > w - 6) continue; // never clip at the edge
     lastLabel = label;
     c.fillStyle = "rgba(255,255,255,0.6)";
     c.fillRect(s.x, h - 12, 1, 12);
     c.fillStyle = "#f2efe9";
     c.fillText(label.toUpperCase(), s.x + 5, h / 2 - 1);
+    drawn.push([s.x, s.x + 5 + c.measureText(label.toUpperCase()).width]);
     lastX = s.x;
     lastT = n.d.t;
+    firstDone = true;
   }
   c.textAlign = "center";
   let lastPill = -1e9;
-  for (const b of g.timeBreaks) {
+  let prevBreak = -1e9;
+  for (let bi = 0; bi < g.timeBreaks.length; bi++) {
+    const b = g.timeBreaks[bi];
     const s = g.toScreen(b.x, 0);
+    const from = prevBreak;
+    prevBreak = s.x;
+    const next = bi + 1 < g.timeBreaks.length ? g.toScreen(g.timeBreaks[bi + 1].x, 0).x : 1e9;
+    // a gap pill only reads right between two visible dates
+    if (!drawn.some(([a]) => a > from && a < s.x) || !drawn.some(([a]) => a > s.x && a < next)) continue;
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
-    lastPill = s.x;
-    const label = `${fmtDur(b.gap)} later`;
+    const label = `${fmtDur(b.gap)} gap`;
     c.font = '600 10px "JetBrains Mono", monospace';
     const up = label.toUpperCase();
     const tw = c.measureText(up).width + 16;
+    if (s.x - tw / 2 < 2 || s.x + tw / 2 > w - 2) continue;
+    if (drawn.some(([a, b]) => s.x + tw / 2 + 6 > a && s.x - tw / 2 - 6 < b)) continue;
+    lastPill = s.x;
     c.fillStyle = "#050506";
     c.fillRect(s.x - tw / 2, h / 2 - 10, tw, 18);
     c.setLineDash([3, 3]);

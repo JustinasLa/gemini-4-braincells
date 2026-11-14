@@ -5,7 +5,7 @@ export type Status = "coordinated" | "likely_organic" | "insufficient";
 
 import type { LookupResult } from "./data/lookup";
 
-export type Platform = "x" | "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter";
+export type Platform = "x" | "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter" | "text";
 
 /** What a node is in the story. */
 export type Role =
@@ -54,6 +54,7 @@ export interface TraceNode {
   likes?: number;
   cluster?: string;
   flags?: string[]; // short behaviour chips ("acct 3 d old", "same text")
+  undated?: boolean; // `t` only places the card; the real publication date is unknown (web results)
   timeUnknown?: boolean;
   realData?: { label: string; facts: { label: string; value: string }[]; url?: string; receiptId?: number | null }[];
 }
@@ -116,6 +117,7 @@ export interface TraceCase {
   wouldChange: string[];
   steps: TraceStep[];
   summary: string;
+  findingsOnly?: boolean; // no detector verdict: receipts are search findings, not signs either way
   lookup?: LookupResult;
   mock?: boolean;
 }

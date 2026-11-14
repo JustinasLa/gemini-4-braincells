@@ -1,7 +1,7 @@
 // Trackdown graph engine: DOM cards over canvas layers, custom force physics, inertial camera.
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
-import backdropUrl from "../assets/venus-backdrop.webp";
+import backdropUrl from "../assets/venus-full.webp";
 import { fmtDur, REL, ROLE, STATUS } from "../ui/format";
 
 
@@ -79,7 +79,7 @@ export class Graph {
   W = 0;
   H = 0;
   dpr = 1;
-  insets = { top: 44, bottom: 112, left: 24, right: 24 };
+  insets = { top: 52, bottom: 112, left: 24, right: 72 }; // ruler above, zoom controls on the right
 
   case: TraceCase | null = null;
   nodes: VNode[] = [];
@@ -245,10 +245,11 @@ export class Graph {
     const breakAt = Math.max(3 * 86400000, span / 40);
     this.grid = new Map();
     const xs: number[] = [];
-    const COLW = 236;
+    const COLW = 268; // chip width 232 + a clear gutter
     for (const g of groups) {
       const gap = g[0].d.t - prevT;
-      const dx = gap <= 0 ? 0 : Math.min(40 * Math.log2(1 + gap / 60000), 280 + 18 * Math.log2(1 + gap / 86400000));
+      // at least ~170 px between moments, so a few posts minutes apart read left to right, not as a column
+      const dx = gap <= 0 ? 0 : Math.max(170, Math.min(40 * Math.log2(1 + gap / 60000), 280 + 18 * Math.log2(1 + gap / 86400000)));
       if (gap > breakAt) this.timeBreaks.push({ x: x + dx / 2, gap });
       x += dx;
       const chips = g.filter((n) => n.compact).length;
@@ -264,12 +265,12 @@ export class Graph {
         });
         x += (cols - 1) * COLW;
       } else {
-        // small groups: spread a little so they don't sit on one x
+        // small groups: still ordered by real time (seconds apart read as distance), never one column
         g.forEach((n, i) => {
-          n.tx = x + i * 14;
+          if (i) x += Math.max(170, 90 * Math.log2(1 + (n.d.t - g[i - 1].d.t) / 10000));
+          n.tx = x;
           xs.push(n.tx);
         });
-        x += (g.length - 1) * 14;
       }
       prevT = g[g.length - 1].d.t;
     }
@@ -312,7 +313,7 @@ export class Graph {
       if (!kids.length) {
         const gr = this.grid.get(n);
         if (gr) {
-          const RH = 64;
+          const RH = 90;
           let top = gridTop.get(gr.id);
           if (top == null) {
             top = slot;
@@ -322,7 +323,7 @@ export class Graph {
           n.py = top + gr.row * RH + RH / 2;
           return n.py;
         }
-        const gap = n.compact ? 62 : n.h + 34;
+        const gap = n.compact ? 90 : n.h + 40;
         n.py = slot + gap / 2;
         slot += gap;
         return n.py;
@@ -497,6 +498,33 @@ export class Graph {
         }
       }
     }
+    // a cluster box means "these are members": keep everyone else outside it
+    for (const cl of this.case?.clusters ?? []) {
+      const ms = cl.members.map((id) => this.byId.get(id)).filter((n): n is VNode => !!n && n.vis);
+      if (ms.length < 3) continue;
+      const inCl = new Set(ms);
+      const gap = 26 + 24;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const m of ms) {
+        x0 = Math.min(x0, m.x - m.w / 2);
+        x1 = Math.max(x1, m.x + m.w / 2);
+        y0 = Math.min(y0, m.y - m.h / 2);
+        y1 = Math.max(y1, m.y + m.h / 2);
+      }
+      for (const n of ns) {
+        if (inCl.has(n) || n.drag) continue;
+        const l = n.x + n.w / 2 - (x0 - gap);
+        const r = x1 + gap - (n.x - n.w / 2);
+        const t = n.y + n.h / 2 - (y0 - gap - 24 / Math.max(this.k, 0.05)); // the tab sits above the box
+        const b = y1 + gap - (n.y - n.h / 2);
+        if (l <= 0 || r <= 0 || t <= 0 || b <= 0) continue;
+        // in the timeline x is time, so prefer moving up or down
+        const vert = Math.min(t, b);
+        const horiz = Math.min(l, r) * (tl ? 3 : 1);
+        if (vert <= horiz) n.y += t < b ? -t * 0.5 : b * 0.5;
+        else n.x += l < r ? -l * 0.5 : r * 0.5;
+      }
+    }
     this.alpha += (this.alphaTarget - this.alpha) * (silent ? 0.03 : 0.012);
   }
 
@@ -528,12 +556,14 @@ export class Graph {
       y1 = Math.max(y1, n.y + n.h / 2);
     }
     const { top, bottom, left, right } = this.insets;
-    const aw = this.W - left - right - 40;
-    const ah = this.H - top - bottom - 40;
-    const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.08, maxK);
+    // labels (~70px each side) and cluster tabs (~26px on top) are drawn in screen space around the boxes
+    const aw = this.W - left - right - (this.W < 600 ? 12 + 40 : 40 + Math.min(160, this.W * 0.16 + 32));
+    const ah = this.H - top - bottom - 40 - 40;
+    // markers and labels are screen-size, so a wide timeline may zoom out further than cards could
+    const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.03, maxK);
     // shift centre so the box sits in the inset area
     const offX = (left - right) / 2 / k;
-    const offY = (top - bottom) / 2 / k;
+    const offY = (top + 26 - bottom) / 2 / k; // room for cluster tabs above the content
     this.flyTo((x0 + x1) / 2 - offX, (y0 + y1) / 2 - offY, k, dur);
   }
 
@@ -841,8 +871,9 @@ export class Graph {
     const k = this.k;
     const ox = this.W / 2 - this.cx * k;
     const oy = this.H / 2 - this.cy * k;
-    // semantic zoom: cards fade out under ~0.42, dots fade in
-    const op = clamp((k - 0.15) / 0.08, 0, 1);
+    // semantic zoom: until a card's smallest text renders at ~11px (~0.9x) it is a labelled marker
+    // cards only once their smallest evidence text renders at >= 11px (12px at layout scale)
+    const op = clamp((k - 0.84) / 0.08, 0, 1); // short crossfade: half-faded cards let lines show through
     if (Math.abs(op - this.cardOpacity) > 0.001) {
       this.cardOpacity = op;
       this.world.style.setProperty("--card-op", op.toFixed(3));
@@ -864,6 +895,8 @@ export class Graph {
   }
 
   private lastBackdrop = "";
+  /** world-space boxes of the cluster tab labels drawn this frame (map labels avoid them) */
+  private clusterTabs: { x0: number; y0: number; x1: number; y1: number }[] = [];
 
   private drawUnder(now: number, ox: number, oy: number, op: number) {
     const c = this.uctx;
@@ -899,47 +932,18 @@ export class Graph {
       }
     c.stroke();
     c.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
-    // compressed time: hatched no-man's-land
-    if (this.mode === "timeline") {
-      const top = -oy / k;
-      const bot = (this.H - oy) / k;
-      for (const b of this.timeBreaks) {
-        const w = 56;
-        c.save();
-        c.beginPath();
-        c.rect(b.x - w / 2, top, w, bot - top);
-        c.clip();
-        c.fillStyle = "rgba(0,0,0,0.35)";
-        c.fillRect(b.x - w / 2, top, w, bot - top);
-        c.strokeStyle = "rgba(255,255,255,0.07)";
-        c.lineWidth = 1 / k;
-        for (let y = top - w; y < bot; y += 10) {
-          c.beginPath();
-          c.moveTo(b.x - w / 2, y + w);
-          c.lineTo(b.x + w / 2, y);
-          c.stroke();
-        }
-        c.restore();
-        c.strokeStyle = "rgba(255,255,255,0.22)";
-        c.lineWidth = 1 / k;
-        c.setLineDash([6 / k, 6 / k]);
-        c.beginPath();
-        c.moveTo(b.x - w / 2, top);
-        c.lineTo(b.x - w / 2, bot);
-        c.moveTo(b.x + w / 2, top);
-        c.lineTo(b.x + w / 2, bot);
-        c.stroke();
-        c.setLineDash([]);
-      }
-    }
     // territories
-    if (this.case) this.case.clusters.forEach((cl) => this.drawHull(c, cl, now));
+    this.clusterTabs = [];
+    if (this.case) this.case.clusters.forEach((cl) => this.drawHull(c, cl, now, op));
     // links
     const hl = this.hl;
     c.lineCap = "round";
     for (const e of this.edges) {
       if (!e.a.vis || !e.b.vis) continue;
-      const pts = this.edgePts(e);
+      // in map mode the cluster hull stands for its members: no spokes to every dot
+      // (they come back on hover/selection and once cards are readable)
+      if (op < 1 && e.b.compact && e.b.d.cluster && !(hl && hl.has(e.a.d.id) && hl.has(e.b.d.id))) continue;
+      const pts = this.edgePts(e, op);
       const prog = clamp((now - e.born) / 650, 0, 1);
       const on = hl ? hl.has(e.a.d.id) && hl.has(e.b.d.id) : false;
       const dim = hl && !on;
@@ -972,14 +976,14 @@ export class Graph {
         continue;
       }
       if (dim) continue;
-      if (match) {
+      if (match && op >= 1) {
         // detection boxes at both ends, like matched keypoints
         c.strokeStyle = C.cv;
         c.lineWidth = 1.5 / k;
         const s = (on ? 12 : 9) / k;
         c.strokeRect(pts[0] - s / 2, pts[1] - s / 2, s, s);
         c.strokeRect(pts[6] - s / 2, pts[7] - s / 2, s, s);
-      } else {
+      } else if (!match) {
         // arrowhead
         const tx = pts[6] - bez(pts[0], pts[2], pts[4], pts[6], 0.97);
         const ty = pts[7] - bez(pts[1], pts[3], pts[5], pts[7], 0.97);
@@ -1012,35 +1016,104 @@ export class Graph {
       if (k > 0.45 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on)) {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
-        this.pill(c, mx, my, e.e.sim != null ? e.e.sim.toFixed(4) : "CITES", e.e.sim != null ? C.cv : "#5b8fe6", REL[e.e.rel].label.toUpperCase());
+        // a score tag half under a card reads as a glitch: skip it
+        const text = e.e.sim != null ? e.e.sim.toFixed(2) : "CITES";
+        const cap = e.e.sim != null ? REL[e.e.rel].label.toUpperCase() : "";
+        const fs = 10.5 / Math.max(k, 0.65);
+        c.font = `600 ${fs}px "JetBrains Mono", monospace`;
+        const pw = c.measureText(text + cap).width + fs * 2;
+        const ph = fs * 1.7;
+        const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + pw / 2 && Math.abs(n.y - my) < n.h / 2 + ph / 2);
+        if (!covered) this.pill(c, mx, my, text, e.e.sim != null ? C.cv : "#5b8fe6", cap);
       }
     }
     // far zoom: cities on the map
     if (op < 1) {
+      const labels: { n: VNode; r: number; text: string }[] = [];
       for (const n of this.nodes) {
         if (!n.vis) continue;
         const col = this.colors[n.d.role] ?? C.ink2;
         const big = n.d.role === "origin" || n.d.role === "submitted";
-        const r = (big ? 9 : n.compact ? 4.5 : 6.5) / k;
+        const r = this.markerR(n);
         const dim = hl && !hl.has(n.d.id);
+        const lit = n.d.id === this.hoverId || n.d.id === this.selId;
         c.globalAlpha = clamp(1 - op * 1.7, 0, 1) * (dim ? 0.25 : 1);
         c.fillStyle = col;
-        c.strokeStyle = "#0b1117";
-        c.lineWidth = 1.5 / k;
-        c.fillRect(n.x - r * 0.6, n.y - r * 0.6, r * 1.2, r * 1.2);
-        c.strokeStyle = big ? col : "#3fe07a";
-        c.lineWidth = 1.4 / k;
-        c.strokeRect(n.x - r * 1.3, n.y - r * 1.3, r * 2.6, r * 2.6);
-        if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId) {
-          c.font = `600 ${11.5 / k}px "JetBrains Mono", monospace`;
-          c.fillStyle = "#f2efe9";
-          c.textAlign = "center";
-          const label = (n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Submitted" : n.d.author.name).toUpperCase();
-          c.fillText(label, n.x, n.y - r - 9 / k);
+        if (n.compact && !lit) {
+          // a cluster member: a small square marker; the hull around them carries the label and count
+          c.fillRect(n.x - r * 0.6, n.y - r * 0.6, r * 1.2, r * 1.2);
+          c.globalAlpha *= 0.55;
+          c.strokeStyle = col;
+          c.lineWidth = 1 / k;
+          c.strokeRect(n.x - r, n.y - r, r * 2, r * 2);
+          continue;
         }
+        c.fillRect(n.x - r * 0.6, n.y - r * 0.6, r * 1.2, r * 1.2);
+        c.strokeStyle = lit ? C.cv : col;
+        c.lineWidth = (lit ? 2 : 1.4) / k;
+        c.globalAlpha *= lit || big ? 1 : 0.7;
+        c.strokeRect(n.x - r * 1.3, n.y - r * 1.3, r * 2.6, r * 2.6);
+        if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId)
+          labels.push({ n, r, text: n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Submitted" : n.d.author.name });
+      }
+      // labels: most important first; one that would overlap a placed label (or a cluster tab) is dropped
+      const rank = (n: VNode) => (n.d.id === this.selId ? 0 : n.d.id === this.hoverId ? 1 : n.d.role === "submitted" ? 2 : n.d.role === "origin" ? 3 : 4);
+      labels.sort((a, b) => rank(a.n) - rank(b.n));
+      const placed = this.clusterTabs.slice();
+      const placedText = new Set<string>();
+      // markers count as occupied too, so a label never sits on another post
+      const markers = labels.length ? this.nodes.filter((n) => n.vis).map((n) => {
+        const r = this.markerR(n) * 1.3;
+        return { id: n.d.id, x0: n.x - r, x1: n.x + r, y0: n.y - r, y1: n.y + r };
+      }) : [];
+      c.font = `600 ${(this.W < 600 ? 11 : 12.5) / k}px "Inter Tight", sans-serif`;
+      c.textAlign = "center";
+      c.textBaseline = "alphabetic";
+      c.lineJoin = "round";
+      for (const l of labels) {
+        const w = c.measureText(l.text).width;
+        const h = 15 / k;
+        // above the marker, else below it, else not at all
+        const over = (b: { x0: number; x1: number; y0: number; y1: number }, p: { x0: number; x1: number; y0: number; y1: number }) => b.x0 < p.x1 && b.x1 > p.x0 && b.y0 < p.y1 && b.y1 > p.y0;
+        const must = rank(l.n) <= 3; // selected, hovered, submitted and earliest always get a label
+        const hitsLabel = (b: { x0: number; x1: number; y0: number; y1: number }) => placed.some((p) => over(b, p));
+        const hits = (b: { x0: number; x1: number; y0: number; y1: number }) => hitsLabel(b) || markers.some((m) => m.id !== l.n.d.id && over(b, m));
+        const edgeL = (0 - this.W / 2) / k + this.cx;
+        const edgeR = (this.W - this.W / 2) / k + this.cx;
+        if (l.n.x < edgeL || l.n.x > edgeR) continue; // marker off screen: no orphan label
+        if (placedText.has(l.text)) continue; // two identical labels side by side read as a glitch
+        const vl = edgeL + w / 2 + 12 / k;
+        const vr = edgeR - w / 2 - 12 / k;
+        let lx = vl < vr ? clamp(l.n.x, vl, vr) : l.n.x; // slide back inside the view, never clip
+        const at = (y: number, cx = lx) => ({ y, cx, x0: cx - w / 2 - 3 / k, x1: cx + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
+        // above, below, left, right of the marker; only a must-show label may finally cover a marker
+        const mid = l.n.y + h / 2 - 2 / k;
+        const side = l.r * 1.3 + 8 / k + w / 2;
+        const spots = [at(l.n.y - l.r * 1.3 - 6 / k), at(l.n.y + l.r * 1.3 + h + 2 / k), at(mid, l.n.x - side), at(mid, l.n.x + side)].filter(
+          (b) => b.x0 >= edgeL + 10 / k && b.x1 <= edgeR - 10 / k,
+        );
+        let box = spots.find((b) => !hits(b));
+        if (!box) {
+          if (!must) continue;
+          // may cover a marker, never another label: pick the spot that covers the least
+          const cover = (b: { x0: number; x1: number; y0: number; y1: number }) =>
+            markers.reduce((s, m) => (m.id === l.n.d.id ? s : s + Math.max(0, Math.min(b.x1, m.x1) - Math.max(b.x0, m.x0)) * Math.max(0, Math.min(b.y1, m.y1) - Math.max(b.y0, m.y0))), 0);
+          box = spots.filter((b) => !hitsLabel(b)).sort((a, b) => cover(a) - cover(b))[0] ?? at(l.n.y - l.r * 1.3 - 6 / k);
+        }
+        lx = box.cx;
+        placedText.add(l.text);
+        const y = box.y;
+        placed.push(box);
+        c.globalAlpha = hl && !hl.has(l.n.d.id) ? 0.35 : clamp(1 - op * 1.7, 0, 1);
+        c.strokeStyle = "rgba(5,5,6,0.9)";
+        c.lineWidth = 4 / k;
+        c.strokeText(l.text, lx, y);
+        c.fillStyle = "#f2efe9";
+        c.fillText(l.text, lx, y);
       }
       c.globalAlpha = 1;
     }
+    this.drawTabs(c);
     // rejected candidates: red detection boxes
     for (const g of this.ghosts) {
       const t = (now - g.start) / g.dur;
@@ -1120,7 +1193,7 @@ export class Graph {
       // label
       c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
       c.font = '600 11px "JetBrains Mono", monospace';
-      const label = `MATCH · ${ROLE[n.d.role].label.toUpperCase()}`;
+      const label = ROLE[n.d.role].label.toUpperCase();
       const tw = c.measureText(label).width + 12;
       c.fillStyle = r.color;
       c.fillRect(sx - hw, sy - hh - 20, tw, 16);
@@ -1166,10 +1239,22 @@ export class Graph {
     c.restore();
   }
 
-  /** bezier control points for an edge: [x0,y0,c1x,c1y,c2x,c2y,x1,y1] */
-  private edgePts(e: VEdge): number[] {
-    const a = e.a;
-    const b = e.b;
+  /** half-size of a node's map marker, in world units */
+  private markerR(n: VNode): number {
+    const big = n.d.role === "origin" || n.d.role === "submitted";
+    // phones fit a long timeline into a narrow view: smaller markers keep posts apart
+    return ((big ? 9 : n.compact ? 4.5 : 6.5) * (this.W < 600 ? 0.7 : 1)) / this.k;
+  }
+
+  /** bezier control points for an edge: [x0,y0,c1x,c1y,c2x,c2y,x1,y1]. `op` blends the anchors
+   *  from the card's edge (cards shown) to the marker's edge (map mode). */
+  private edgePts(e: VEdge, op = 1): number[] {
+    const box = (n: VNode) => {
+      const m = this.markerR(n) * (n.compact ? 0.5 : 1.3);
+      return { x: n.x, y: n.y, w: lerp(m * 2, n.w, op), h: lerp(m * 2, n.h, op) };
+    };
+    const a = box(e.a);
+    const b = box(e.b);
     const ax = a.x + a.w / 2;
     const bx = b.x - b.w / 2;
     if (bx - ax > 30) {
@@ -1194,16 +1279,20 @@ export class Graph {
 
   /** A cluster is drawn as one big detection box around its members, labelled like the
    *  machine-vision boxes in the Junction banner: name + numbers on a solid tab. */
-  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number) {
+  private drawHull(c: CanvasRenderingContext2D, cl: Cluster, now: number, op = 1) {
     const ms = cl.members.map((id) => this.byId.get(id)!).filter((n) => n && n.vis);
     if (ms.length < 3) return;
-    const pad = 26;
+    // wrap what is drawn: card bounds when cards show, marker bounds on the map (blended by op)
+    const pad = lerp(14 / this.k, 26, op);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of ms) {
-      x0 = Math.min(x0, n.x - n.w / 2 - pad);
-      x1 = Math.max(x1, n.x + n.w / 2 + pad);
-      y0 = Math.min(y0, n.y - n.h / 2 - pad);
-      y1 = Math.max(y1, n.y + n.h / 2 + pad);
+      const m = this.markerR(n) * 1.3;
+      const hw = lerp(m, n.w / 2, op);
+      const hh = lerp(m, n.h / 2, op);
+      x0 = Math.min(x0, n.x - hw - pad);
+      x1 = Math.max(x1, n.x + hw + pad);
+      y0 = Math.min(y0, n.y - hh - pad);
+      y1 = Math.max(y1, n.y + hh + pad);
     }
     const col = cl.status === "coordinated" ? this.colors.shill : cl.status === "likely_organic" ? this.colors.chill : this.colors.unsure;
     const k = this.k;
@@ -1226,19 +1315,54 @@ export class Graph {
     }
     c.stroke();
     // tab label on the top edge, like a detector's class + score
-    const fs = 11 / Math.max(k, 0.14);
+    const fs = 11 / k; // constant on screen: the verdict label must never become microtype
     c.font = `600 ${fs}px "JetBrains Mono", monospace`;
-    const label = `${STATUS[cl.status].short.toUpperCase()} · ${cl.stat.toUpperCase()}`;
+    // the tab never runs past its box: drop detail from the right until it fits
+    const parts = [STATUS[cl.status].short.toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
+    let label = parts.join(" · ");
+    while (parts.length > 2 && c.measureText(label).width + fs * 1.2 > x1 - x0) { // always keep verdict + count
+      parts.pop();
+      label = parts.join(" · ");
+    }
     const w = c.measureText(label).width + fs * 1.2;
     const h = fs * 1.9;
-    c.globalAlpha = 1;
-    c.fillStyle = col;
-    c.fillRect(x0 - 1 / k, y0 - h, w, h);
-    c.fillStyle = "#050506";
-    c.textAlign = "left";
-    c.textBaseline = "middle";
-    c.fillText(label, x0 + fs * 0.6, y0 - h / 2 + fs * 0.05);
     c.restore();
+    // slide the tab right so it stays readable while any of the box is on screen
+    const viewL = (0 - this.W / 2) / k + this.cx + 8 / k;
+    const tx = clamp(viewL, x0, Math.max(x0, x1 - w));
+    // a marker under the tab would hide the verdict: then hang the tab under the box instead
+    const inCl = new Set(ms);
+    const drawnBox = (n: VNode) => {
+      const m = this.markerR(n) * 1.3;
+      return { hw: lerp(m, n.w / 2, op), hh: lerp(m, n.h / 2, op) };
+    };
+    const blocked = (ty: number) =>
+      this.nodes.some((n) => {
+        if (!n.vis || inCl.has(n)) return false;
+        const { hw, hh } = drawnBox(n);
+        return n.x + hw > tx && n.x - hw < tx + w && n.y + hh > ty && n.y - hh < ty + h;
+      });
+    const ty = blocked(y0 - h) && !blocked(y1) ? y1 : y0 - h;
+    this.clusterTabs.push({ x0: tx, y0: ty, x1: tx + w, y1: ty + h });
+    this.pendingTabs.push({ label, col, x: tx, y: ty, w, h, fs });
+  }
+
+  /** cluster tabs go on top of everything else on the canvas */
+  private pendingTabs: { label: string; col: string; x: number; y: number; w: number; h: number; fs: number }[] = [];
+  private drawTabs(c: CanvasRenderingContext2D) {
+    c.save();
+    for (const t of this.pendingTabs) {
+      c.globalAlpha = 1;
+      c.fillStyle = t.col;
+      c.fillRect(t.x - 1 / this.k, t.y, t.w, t.h);
+      c.font = `600 ${t.fs}px "JetBrains Mono", monospace`;
+      c.fillStyle = "#050506";
+      c.textAlign = "left";
+      c.textBaseline = "middle";
+      c.fillText(t.label, t.x + t.fs * 0.6, t.y + t.h / 2 + t.fs * 0.05);
+    }
+    c.restore();
+    this.pendingTabs = [];
   }
 
   /** time-span label helper for UI */
