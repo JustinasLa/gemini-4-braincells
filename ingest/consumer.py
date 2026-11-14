@@ -17,7 +17,7 @@ import psycopg
 from websockets.exceptions import WebSocketException
 from websockets.sync.client import connect as ws_connect
 
-from ingest.normalize import COLLECTIONS, normalize
+from ingest.normalize import COLLECTIONS, normalize, valid_time_us
 from ingest.recorder import Recorder, prune_recordings, read_events
 from ingest.writer import Batch, Writer
 
@@ -70,6 +70,7 @@ class Reader(threading.Thread):
         self.recorder = recorder
         self.host: str | None = None
         self.reconnects = 0
+        self.bad_frames = 0
         self.stop_event = threading.Event()
         self.failover_event = threading.Event()
 
@@ -112,6 +113,12 @@ class Reader(threading.Thread):
                             raw = raw.decode()
                         # time_us is all we need here; full parse happens on the writer side.
                         ev = json.loads(raw)
+                        if not isinstance(
+                            ev, dict
+                        ):  # Jetstream frames are objects; skip, don't die
+                            self.bad_frames += 1
+                            log.warning("skipped a non-object frame: %r", raw[:200])
+                            continue
                         t = ev.get("time_us")
                         if isinstance(t, int):
                             self.cursor_us = t
@@ -179,12 +186,16 @@ def write_loop(
             _raw, ev = item
             total += 1
             window_n += 1
-            row = normalize(ev)
+            try:
+                row = normalize(ev)
+            except Exception:  # one malformed event must never stop ingest (or crash-loop it)
+                log.exception("skipped an event the normaliser can't read: %r", _raw[:300])
+                row = None
             if row is not None and not writer.dedupe(row):
                 batch.add(row, ev["time_us"])
                 k = type(row).__name__
                 window_counts[k] = window_counts.get(k, 0) + 1
-            elif isinstance(ev.get("time_us"), int):
+            elif valid_time_us(ev.get("time_us")):  # never resume from a malformed cursor
                 batch.last_time_us = ev["time_us"]
         now = time.monotonic()
         if batch.n >= batch_size or (now - last_flush >= flush_s and batch.n):
