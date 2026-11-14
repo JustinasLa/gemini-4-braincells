@@ -297,7 +297,7 @@ a { color: inherit; }
 /* verdict: a little Junction banner */
 .vbanner { position: relative; height: 150px; margin: -20px -20px 18px; overflow: hidden; border-bottom: 1px solid var(--line); background: #000; }
 .vbanner canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.vbanner .vword { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font: 400 34px/1 var(--wide); letter-spacing: 0.3em; text-indent: 0.3em; color: #fff; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.9); }
+.vbanner .vword { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); padding: 14px 0; text-align: center; font: 400 34px/1 var(--wide); letter-spacing: 0.3em; text-indent: 0.3em; color: #fff; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.9); background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.78) 22%, rgba(0, 0, 0, 0.78) 78%, transparent); z-index: 2; }
 .vbanner .vword.long { font-size: 19px; }
 .vbanner .vbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--vc); }
 .verdict { position: relative; }
@@ -306,7 +306,7 @@ a { color: inherit; }
 .verdict .vcoin { float: right; width: 88px; height: 88px; margin: -6px -6px 6px 10px; background-size: cover; filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.7)); }
 .conf { margin-top: 16px; clear: both; }
 .conf .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.conf .row b { font: 400 18px/1 var(--wide); color: var(--text); letter-spacing: 0.06em; }
+.conf .row b { font: 600 20px/1 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
 .conf .bar { position: relative; height: 4px; background: var(--line); }
 .conf .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--vc); transition: width 1.4s var(--ease-out); }
 .conf .bar i::after { content: ""; position: absolute; right: -5px; top: -5px; width: 10px; height: 14px; border: 1.5px solid var(--cv); }
@@ -397,7 +397,7 @@ a { color: inherit; }
 .reveal .coin-slot { position: relative; left: 50%; width: 190px; height: 190px; margin: 95px 0 -80px; background-repeat: no-repeat; filter: drop-shadow(0 22px 22px rgba(0, 0, 0, 0.85)); }
 .reveal .vw { font: 400 clamp(36px, 6vw, 82px)/1 var(--wide); letter-spacing: 0.3em; text-indent: 0.3em; color: #fff; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.95); opacity: 0; }
 .reveal .vw.long { font-size: clamp(24px, 3.4vw, 46px); }
-.reveal .vt { margin-top: 18px; font: 500 12px/1 var(--mono); letter-spacing: 0.24em; text-transform: uppercase; color: var(--vc); opacity: 0; }
+.reveal .vt { display: inline-block; margin-top: 18px; padding: 8px 12px; font: 500 12px/1 var(--mono); letter-spacing: 0.24em; text-transform: uppercase; color: #fff; background: rgba(0, 0, 0, 0.72); border-left: 3px solid var(--vc); opacity: 0; }
 .reveal .tap { position: absolute; left: 0; right: 0; bottom: 22px; text-align: center; }
 
 /* splash */
@@ -427,7 +427,8 @@ a { color: inherit; }
   .app .panel { border-left-color: transparent; }
   .status { bottom: 12px; font-size: 12px; }
   .topbar { gap: 8px; padding: 0 10px; }
-  .wordmark { font-size: 12px; letter-spacing: 0.22em; flex: 1; }
+  .wordmark { font-size: 11px; letter-spacing: 0.18em; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: clip; }
+  .case-head { flex: 0 0 auto; }
   .case-head h1, #badges, .seg, .btn .lbl, .btn .kbd, .legend, .minimap { display: none !important; }
   .app .panel { position: fixed; left: 0; right: 0; bottom: 0; height: 74vh; z-index: 45; border-left: 0; border-top: 1px solid var(--line-3); transform: translateY(100%); transition: transform 0.45s var(--ease-out); box-shadow: 0 -30px 80px rgba(0, 0, 0, 0.8); }
   .app.sheet-open .panel { transform: none; }
