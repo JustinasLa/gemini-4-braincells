@@ -528,3 +528,12 @@ def test_fractional_numeric_count_is_not_rounded_into_a_count(value):
 
 def test_huge_suffixed_count_is_none_not_overflow():
     assert parse_count("9" * 309 + "K") is None
+
+
+def test_literal_think_tags_inside_the_post_text_are_kept():
+    reply = (
+        '<think>reading {it}</think>\n{"is_post": true, "handle": "a", '
+        '"text": "Example <think>working</think> answer"}'
+    )
+    post = screenshot_from_payload(parse_content(reply), media_hash="h", model="m", latency_ms=1)
+    assert post.text == "Example <think>working</think> answer"

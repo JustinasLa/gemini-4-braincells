@@ -76,12 +76,15 @@ def stored_media(conn: psycopg.Connection, cluster_id: int) -> dict[str, dict[st
 
 
 def cached_analysis(conn: psycopg.Connection, media_hash: str) -> dict[str, Any] | None:
-    """The newest stored analysis of this exact blob (any cluster) from the current prompt."""
+    """The newest stored analysis of this exact blob (any cluster) from the current prompt.
+
+    A row whose screenshot read failed comes last: rows are updated in place (ids don't move), so
+    a newer-id failure must not hide an older row that has since been read."""
     row = conn.execute(
         """
         SELECT detail FROM evidence
         WHERE kind = 'media' AND detail->>'media_hash' = %s AND detail->>'prompt_version' = %s
-        ORDER BY id DESC LIMIT 1
+        ORDER BY coalesce(detail->>'screenshot_status', '') = 'failed', id DESC LIMIT 1
         """,
         (media_hash, PROMPT_VERSION),
     ).fetchone()

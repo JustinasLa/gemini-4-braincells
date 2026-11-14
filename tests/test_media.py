@@ -80,6 +80,7 @@ def _status_error(code):
         GOOD,
         f"```json\n{GOOD}\n```",
         f"<think>let me look {{not json}}</think>\n{GOOD}",
+        f"<think>a {{brace</think>\nSee {{ this:\n{GOOD}",
         f"Here is the analysis:\n{GOOD}\nHope this helps.",
         [{"type": "text", "text": GOOD}],
     ],
