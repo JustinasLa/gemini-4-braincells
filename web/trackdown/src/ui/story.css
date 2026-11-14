@@ -81,7 +81,6 @@ details.home-ex > summary { width: auto; margin: 0 auto; padding: 8px 10px; curs
 details.home-ex > summary::-webkit-details-marker { display: none; }
 details.home-ex > summary::after { content: "+"; }
 details.home-ex[open] > summary::after { content: "−"; }
-details.home-ex[open] > summary { width: 100%; }
 details.home-ex > summary:hover { color: #fff; }
 
 /* The map's panel for a picture trace: the answer in a few words, then the versions. */
