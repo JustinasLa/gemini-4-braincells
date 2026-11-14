@@ -13,16 +13,16 @@ This walkthrough covers the deployed Trackdown interface and the mobile judge de
 
 ## Viewport walkthrough
 
-The mobile layout activates at 860 CSS pixels and below. The requested device sizes are listed here; this integration run could load the app but could not activate responsive device emulation, so none of these is a passing device test.
+The mobile layout was exercised on 2026-11-14 at each device preset. At each size, the local simulated "The weekend tap-water ban" case opened the verdict sheet; Chain and Evidence tabs switched; and the sheet close control returned to the map. The Explore menu and Methodology route were also checked. The QR control measured 44x44 CSS pixels at all four widths; its dialog opened and closed at Galaxy S8+ size.
 
 | Device preset | CSS viewport | Result |
 |---|---:|---|
-| iPhone SE | 375x667 | Not tested; responsive emulation unavailable. |
-| iPhone 12 Pro | 390x844 | Not tested; responsive emulation unavailable. |
-| Pixel 7 | 412x915 | Not tested; responsive emulation unavailable. |
-| Galaxy S8+ | 360x740 | Not tested; responsive emulation unavailable. |
+| iPhone SE | 375x667 | Passed local sample, verdict sheet, Chain/Evidence tabs, and close. QR target 44x44. |
+| iPhone 12 Pro | 390x844 | Passed local sample, verdict sheet, Chain/Evidence tabs, and close. QR target 44x44. |
+| Pixel 7 | 412x915 | Passed local sample, verdict sheet, Chain/Evidence tabs, and close. QR target 44x44. |
+| Galaxy S8+ | 360x740 | Passed local sample, verdict sheet, Chain/Evidence tabs, close, and QR dialog open/close. QR target 44x44. |
 
-For a full pass, check that Explore opens and its three destinations load; a cluster page opens; the verdict strip opens the sheet; available tabs and close control respond; the trace input and submit button are reachable; and QR opens and dismisses. Chain and Post tabs depend on the selected cluster and map selection. Record the actual CSS viewport dimensions reported by the browser.
+Feed and Metrics routes rendered their unavailable-data state in this local run because no API backend was running on the Vite proxy target. Their live data and cluster-opening links therefore were not exercised. Use a backend with current cluster data to complete that part of the live judge flow. Chain appears only when a chain can be built; Post appears after selecting a map card. Record the actual CSS viewport dimensions reported by the browser.
 
 ## Known limits
 
