@@ -17,8 +17,8 @@ npm run check                       # lookup rendering regression (fixture -> lo
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
 `?lookup=<URL-encoded link>` starts a live lookup. An image (a meme, a screenshot) starts an image
 lookup from the home screen's Upload image button, by dropping it on the home screen or by pasting
-it into the input (`POST /api/lookup/image`, lookup/README.md); photos over 2 MB or 2048 px are sent
-as a 2048 px JPEG. In the Vite development server only,
+it into the input (`POST /api/lookup/image`, lookup/README.md); images over 2 MB (PNGs also over
+2048 px) are sent as a JPEG of at most 2048 px. In the Vite development server only,
 `?mockLookup` runs a progressive fictional fixture; the header, panel and console label it MOCK.
 The fixture is excluded from production builds and never runs by default.
 
@@ -46,8 +46,7 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 ## What's on screen
 
 - **Canvas** (`src/engine/graph.ts`): DOM cards over two canvas layers. Custom physics: pairwise
-  repulsion, rectangle collisions, parent/child springs, and in *Timeline* mode every card is
-  anchored to its time. *Web* mode drops the time anchor for a free force layout.
+  repulsion, rectangle collisions, parent/child springs, and every card is anchored to its time.
   - Time axis: gaps grow with `log(gap)`, so seconds-apart bursts and years-apart hops fit on one
     axis. Gaps over 3 days are marked on the ruler and dock ("2.7 yr gap"). Posts less than 2 min apart
     become a time-ordered grid, so a 31-account burst reads as one block.
@@ -69,9 +68,9 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
   "Supports the verdict" and "Signs of organic spread" (or "Evidence considered" for Can't tell),
   plus "what would change our mind". On phones it is a modal sheet opened from the verdict bar.
 
-Keys: `N` trace a post · `Space` play/pause · `F` fit · `T` timeline/web · `M` key and map · with the
-map focused `←/→` earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
-Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
+Keys: `N` trace a post · `Space` play/pause · `,`/`.` step · `F` fit · `M` key and map · `←/→`
+earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
+Phones: Fit and KEY sit in the map toolbar.
 
 ## Data and honesty
 
@@ -82,13 +81,14 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   *Historical record*. It is not scored and was not run through the detector. Its one present-day
   repost is marked as illustrative. It shows the honesty point: a picture can be wrong without its
   spread being coordinated.
-- **Live clusters**: when `GET /api/clusters` answers, they're listed under "From the monitor" and
-  converted by `liveCase()` (`src/data/api.ts`) from the `ClusterDetail` shape in
-  `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
+- **Live clusters**: `/?cluster=<id>` (and a legacy analysis that matched a cluster) loads
+  `GET /api/clusters/{id}`, converted by `liveCase()` (`src/data/api.ts`) from the `ClusterDetail`
+  shape in `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
   them. Parent links are inferred: a post's parent is the earliest earlier post sharing its link,
   image hash or normalised text.
 - **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise (the API looks up an `@handle` as that Bluesky profile),
-  then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
+  then follows the job's event stream `GET /api/lookup/{id}/events`; if the stream fails or stalls
+  it polls `GET /api/lookup/{id}` every 0.6 seconds. Either way it gives up after 150 seconds. Each snapshot updates
   the step console, cards and receipts. The finale is revealed once the primary reading is in (an
   image search still running delays it until that search finishes); failures and timeouts leave
   partial receipts available without a finale. See "Finale: verdict coin or meme finding". Starting another
@@ -122,7 +122,7 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   image, and the earliest observed copy is not necessarily the original source. Older API
   responses without `claim_checks` show an explicit unavailable-assessment message.
   Run `npm test` for rendering, citation safety, legacy fallback, and verdict-separation tests.
-- **Fallbacks**: an unavailable lookup (404/503/network) tries `POST /api/analyze`; only if that
+- **Fallbacks**: an unavailable text or link lookup (404/503/network) tries `POST /api/analyze`; only if that
   path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
   rate limits (429), job failure and timeout show an error instead of silently inventing a trace.
 - **Hosting**: `npm run ship` refreshes `web/public/trackdown/`. Caddy serves it as the site's home
