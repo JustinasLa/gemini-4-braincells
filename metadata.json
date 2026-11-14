@@ -5,7 +5,6 @@
   "branch": "feat/nemotron-fast-lookup",
   "checkpoints_count": 1,
   "files_touched": [
-    "api/routes/feed.py",
     "api/routes/lookup.py",
     "lookup/README.md",
     "lookup/assess.py",
@@ -19,15 +18,15 @@
       "transcript": "/0/full.jsonl",
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
-      "prompt": "/0/prompt.txt"
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 60,
-    "cache_creation_tokens": 39899,
-    "cache_read_tokens": 8277585,
-    "output_tokens": 22591,
-    "api_call_count": 28
+    "input_tokens": 2,
+    "cache_creation_tokens": 958,
+    "cache_read_tokens": 320015,
+    "output_tokens": 354,
+    "api_call_count": 1
   },
   "redaction": {
     "replacements": 26,
