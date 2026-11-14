@@ -70,11 +70,28 @@ _MARKER = re.compile(
 # exempt from the wording guard, so a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported.
 _QUOTED = re.compile(r"(?<!\w)'.*?'(?!\w)|\"[^\"]*\"|\u2018.*?\u2019(?!\w)|\u201c[^\u201d]*\u201d")
 _WORD = re.compile(r"[^\W_]+")
-# ...and only in a sentence about image text, not in our own narration of another edit.
-_TEXT_CONTEXT = re.compile(
-    r"\b(captions?|text|words?|lines?|watermarks?|handles?|labels?|titles?|headlines?"
-    r"|slogans?|signs?|banners?|logos?|urls?|hashtags?)\b",
-    re.I,
+# ...and only when the whole sentence is one of the two forms the prompt asks for to report
+# image text, so a quote in our own narration of another edit is never exempt:
+#   "The [top] caption changed from 'X' to 'Y'."
+#   "The/A [top] text/watermark/... 'X' [at the top] was added/removed[ at the bottom]."
+_Q = r"(?:(?<!\w)'.*?'(?!\w)|\"[^\"]*\"|\u2018.*?\u2019(?!\w)|\u201c[^\u201d]*\u201d)"
+_ADJ = r"(?:top|bottom|upper|lower|main|first|second|new|old|original|small|large|bold)"
+_NOUN = (
+    r"(?:captions?|text|words?|lines?|watermarks?|handles?|labels?|titles?|headlines?"
+    r"|slogans?|signs?|banners?|logos?|urls?|hashtags?)"
+)
+_TEXT_FORMS = (
+    re.compile(
+        rf"(?:the\s+)?(?:{_ADJ}\s+)*{_NOUN}(?:\s+text)?\s+(?:(?:was|were|has\s+been)\s+)?"
+        rf"(?:changed|edited|replaced|swapped|updated|switched|altered|rewritten|modified)"
+        rf"\s+from\s+{_Q}\s+to\s+{_Q}\.?",
+        re.I,
+    ),
+    re.compile(
+        rf"(?:the|an?)\s+(?:{_ADJ}\s+)*{_NOUN}\s+{_Q}(?:\s+[^'\"\u2018\u201c.]*?)?\s+"
+        rf"(?:was|were)\s+(?:added|removed)(?:\s+[^'\"\u2018\u201c.]*)?\.?",
+        re.I,
+    ),
 )
 # Formats that read only the header on open, so the size check runs before any decoding
 # (ICO, for one, decodes its largest image inside Image.open). Memes and screenshots use these.
@@ -174,10 +191,10 @@ def _gif_size(data: bytes) -> tuple[int, int]:
         while data[pos]:
             pos += data[pos] + 1
         pos += 1
-    if data[pos] == 0x2C:  # first image descriptor
-        left, top, w, h = struct.unpack_from("<HHHH", data, pos + 1)
-        width, height = max(width, left + w), max(height, top + h)
-    return width, height
+    if data[pos] != 0x2C:  # fail closed: Pillow skips stray bytes and reads a later descriptor
+        raise ValueError("GIF: no image descriptor where expected")
+    left, top, w, h = struct.unpack_from("<HHHH", data, pos + 1)
+    return max(width, left + w), max(height, top + h)
 
 
 def _webp_size(data: bytes) -> tuple[int, int]:
@@ -312,7 +329,7 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
     ocr = _OcrText(before + after)
     for index, sentence in enumerate(sentences):
         unquoted = sentence
-        if _TEXT_CONTEXT.search(_QUOTED.sub("''", sentence)):  # a sentence about image text
+        if any(form.fullmatch(sentence) for form in _TEXT_FORMS):  # reports image text
             unquoted = _QUOTED.sub(lambda m: _image_text(m.group(), ocr), sentence)
         if not sentence or _FORBIDDEN.search(unquoted) or (marked and _MARKER.search(unquoted)):
             continue

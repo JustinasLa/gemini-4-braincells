@@ -738,6 +738,9 @@ def test_forbidden_words_inside_quoted_image_text_are_kept(images, sentence):
         '"The face was replaced with a fake one."',  # quoted narration
         "The caption changed to 'FAKE'.",  # 'FAKE' is not in the transcription
         "The caption 'GOOD BOY' became a 'fake' label.",  # one word of a line is not a line
+        'The face above the caption was replaced with a "fake" one.',  # incidental "caption"
+        "The caption changed from 'GOOD BOY' to 'GOOD BOY'. The face is fake.",  # two sentences
+        "The caption 'GOOD BOY' was added. A 'fake' face too.",
     ],
 )
 def test_forbidden_words_outside_quotes_still_drop(images, sentence):
@@ -888,6 +891,8 @@ def oversized_webp(width=5000, height=5000):
     [
         oversized_gif(),
         oversized_gif(screen=(10, 10), frame=(0, 0, 5000, 5000)),  # frame beyond the screen
+        # a stray byte before the extension: Pillow skips it and reads the oversized frame
+        (lambda g: g[:13] + b"\x00" + g[13:])(oversized_gif((10, 10), (0, 0, 5000, 5000))),
         oversized_webp(),
         b"GIF89a\x01",  # truncated header
         b"RIFF\x00\x00\x00\x00WEBPXXXX",  # unknown WebP chunk
@@ -934,3 +939,20 @@ def test_declared_size_reads_real_headers():
         Image.new("RGB", (70, 50), "white").save(buffer, format=fmt, **kwargs)
         assert _declared_size(buffer.getvalue()) == (70, 50), (fmt, kwargs)
     assert _declared_size(image_bytes()) is None  # PNG: header-only open, no preflight
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The top caption changed from 'WHEN THE WIFI GOES DOWN' to 'WHEN THE POLLS CLOSE EARLY'.",
+        "The text 'GOOD MORNING' was added at the bottom of the later image.",
+        "The text 'GOOD BOY' at the top was removed.",
+        "A watermark '@memefactory_daily' was added at the bottom right.",
+        "The watermark 't.me/truth_channel' at the bottom left was removed.",
+    ],
+)
+def test_live_text_sentences_match_a_text_form(sentence):
+    """Sentences the live model wrote (media/README.md eval) are recognised as text reports."""
+    from media.imagediff import _TEXT_FORMS
+
+    assert any(form.fullmatch(sentence) for form in _TEXT_FORMS)

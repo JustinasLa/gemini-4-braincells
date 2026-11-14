@@ -214,8 +214,9 @@ stops the worker, is logged at ERROR here but still returns None: the lookup mus
   box/outline/border/frame" sentence is dropped as our own marker.
 - **Wording:** describes the media, never names a person. A sentence with deepfake, fake, real,
   authentic, genuine, bot, shill, troll or propaganda in our own words is dropped with its kind.
-  A quoted span is exempt only in a sentence about image text (caption, text, label, watermark,
-  ...) and only when the reply's own transcription confirms it (a whole transcribed line, or 2+
+  A quoted span is exempt only when the whole sentence is one of the two forms the prompt uses
+  to report image text ("The caption changed from 'X' to 'Y'." / "The text 'X' was added/removed
+  ...") and the reply's own transcription confirms the quote (a whole transcribed line, or 2+
   consecutive transcribed words). So a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported,
   while scare quotes, quoted narration or a quoted 'red box' are not exempt. Adult or graphic
   media (model flag or the shared `safe_description` word list) gives exactly "Adult content." or
