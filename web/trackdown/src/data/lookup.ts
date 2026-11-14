@@ -5,6 +5,7 @@ import type { ClusterSummary } from "./api";
 import { hashStr } from "./build";
 import { appendImageTrace, type ImageMatch } from "./imageTrace";
 import { appendFamily } from "./family";
+import type { SwarmLiveRef, SwarmReport } from "./swarm";
 
 // lookup/models.py Edge.tool and Receipt.tool
 type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id" | "tineye" | "yandex" | "fetch" | "fxtwitter";
@@ -170,6 +171,10 @@ export interface LookupResult {
   unreadable?: string | null;
   steps: { id: string; tool: string; label: string; state: NonNullable<TraceStep["state"]>; detail: string | null; found: string[]; started_at: string | null; ended_at: string | null }[];
   notes: string[];
+  /** meme swarms (swarm/model.py): the report to show, the matching live Bluesky picture group, the search sample's own report */
+  swarm?: SwarmReport | null;
+  swarm_live?: SwarmLiveRef | null;
+  swarm_sample?: SwarmReport | null;
 }
 
 export class LookupError extends Error {

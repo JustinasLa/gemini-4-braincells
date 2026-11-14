@@ -119,6 +119,12 @@ class BlueskyClient:
     def profile(self, actor: str, deadline: float | None = None) -> dict:
         return self._get("app.bsky.actor.getProfile", {"actor": actor}, deadline)
 
+    def profiles(self, actors: list[str], deadline: float | None = None) -> list[dict]:
+        """Up to 25 profiles (handles or DIDs) in one call; unknown actors are left out."""
+        return self._get("app.bsky.actor.getProfiles", {"actors": actors[:25]}, deadline).get(
+            "profiles", []
+        )
+
     def author_feed(self, actor: str, limit: int = 20, deadline: float | None = None) -> list[dict]:
         return [f["post"] for f in self.author_feed_items(actor, limit, deadline) if "post" in f]
 

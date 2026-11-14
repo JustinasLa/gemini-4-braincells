@@ -8,6 +8,7 @@ import { hasVerdict, type LookupResult } from "../data/lookup";
 import type { TraceCase } from "../types";
 import { comparisonSource } from "./compare";
 import { esc, STATUS } from "./format";
+import { swarmStrip } from "./swarm";
 import "./story.css";
 
 const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
@@ -101,7 +102,9 @@ function origin(family: Family, members: Map<string, FamilyMember>): string {
 
 function spread(trace: TraceCase & { lookup: LookupResult }): string {
   if (trace.lookup.state === "running") return "";
-  if (!hasVerdict(trace)) return `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
+  // with a swarm report the strip below answers who is pushing the picture: no "No campaign found" over it.
+  // A group we watch is the lookup's own answer and always shows.
+  if (!hasVerdict(trace)) return trace.lookup.swarm ? "" : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
   // the watched group whose posts carry this text: the same one the verdict was taken from
   const applying = trace.lookup.clusters.filter((cluster) => cluster.verdict_applies);
   const hit = applying.find((cluster) => cluster.status === trace.status) ?? applying[0];
@@ -165,6 +168,7 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
         <div class="st-actions"><button class="btn solid" type="button" data-act="trace">Search</button><button class="btn" type="button" data-story-view="map">Map</button></div>
       </div>
     </section>
+    ${lookup.swarm && !running ? swarmStrip(lookup.swarm, { live: lookup.swarm_live?.id }) : ""}
     ${family ? origin(family, members) : ""}
     ${grid ? `<section class="st-sec" aria-labelledby="st-versions"><h2 id="st-versions">${group}</h2><div class="st-grid">${grid}</div></section>` : ""}
     ${running ? "" : `<p class="st-fine">Search sample. Dates are upper bounds.</p>`}

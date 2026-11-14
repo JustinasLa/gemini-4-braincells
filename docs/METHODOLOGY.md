@@ -294,6 +294,66 @@ Anyone can submit a handle, link or text. The answer keeps two questions apart:
 
 Very short texts aren't searched (they match too much of the web).
 
+## Meme swarms
+
+A second, separate question about one picture: is it being pushed by a swarm (bot network,
+astroturfing, brigading), or did people find it and post it themselves? The input is the posts
+that carry the picture, the boosts of those posts, and whatever is known about the accounts
+(`swarm/model.py`). The scorer is `swarm/score.py`; its settings are in `swarm/config.py`, and
+their version (`swarm-v2`) is stored on every report. `swarm/README.md` lists every signal.
+
+- **Four families**, each scored as the max of its signals, like the clusters above: `timing`
+  (bursts, posts seconds apart, clockwork gaps), `accounts` (many new accounts, alike handles,
+  empty profiles, same bio), `copy` (same or near-same words, the exact same file) and `boost`
+  (reposts from the posters themselves, fast boosts by the same accounts, repeat posting).
+- **Shares are shrunk for small groups.** A share-based score is the Wilson 95% lower bound of
+  the share, so "5 of 5" scores about 0.57 and "43 of 43" about 0.92. Every signal counts
+  accounts, not actions, so one busy account cannot make a family fire.
+- **The selection rule is not evidence.** The live wall picks pictures whose exact file was
+  posted by 5+ accounts; for those groups the same-file signal (and the different-files guard) is
+  not computed, and a verdict needs two other families.
+- **Timing bursts and seconds-apart posting are tested**; clockwork gaps are a threshold with no
+  p-value. Null worlds keep how many accounts posted in each coarser time bin and place them at
+  random inside it, so a natural rise of interest survives and only a sharper spike counts. Bins
+  never reach outside what was observed (the live window, or the first to last post of a
+  sample), so a stretch of posts that is the whole sample is not a burst. Several widths are
+  tested and combined with Bonferroni.
+- **Account signals are tested against a baseline.** Many new accounts or many empty profiles
+  count only against the rate in a random sample of active accounts (binomial p <= 0.01, 8+
+  accounts); without a baseline they stay below the firing level. Accounts that joined in the
+  same week long ago (Bluesky had large signup waves) are ordinary.
+- **Reused words weigh by length.** Thirty accounts writing "lol" is not evidence; thirty
+  accounts writing the same sentence is. Empty text is never reuse.
+- **Organic guards**: most accounts wrote their own words, many different files of the picture
+  (capped: bots re-upload too; not used on X, where every upload has its own key), old accounts
+  with followers, a slow spread with no burst (capped, never decides alone), and posters talking
+  to each other.
+- **Verdict**: Shill (`swarm`) needs at least two families, a combined score of 0.6, no strong
+  guard, and a tested timing signal with p <= 0.01 when timing is one of only two families.
+  Chill (`organic`) needs a strong guard and no family at all, and a sample spanning 20+ minutes.
+  Anything else, and anything with fewer than 5 posting accounts, is Can't tell (`unclear`),
+  with a few words on why.
+- **Privacy**: no signal names an account. Only timing and copy signals link example posts.
+
+What it can't do:
+
+- **Popularity is not a signal.** A picture posted by thousands of people gets no score for that
+  alone, and a swarm hiding inside a big organic spread is diluted and may come out unclear.
+- **A search sample is not the whole spread.** Lookups see what a search returned, often the
+  latest posts. A burst that is the whole sample cannot be told from that, so it does not count,
+  and a swarm that fits inside a sample's few minutes is missed by timing.
+- **Natural spikes** (one big account posts the picture) can make a significant burst; they need
+  a second family to become a swarm.
+- **Copied captions can be organic**: people copy a meme's caption. It never counts as a swarm
+  without a second family.
+- **Small groups** (5 to 7 accounts) need every account to agree before a share signal fires.
+- **Slow, varied campaigns** with aged accounts and paraphrased text, spread over days, come out
+  unclear or organic.
+- **Missing account data** or a missing baseline leaves the accounts family below firing, which
+  means unknown, not clean.
+- The thresholds are set by hand on synthetic cases (`tests/test_swarm_score.py`). There is no
+  measured error rate for swarms yet.
+
 ## How the metrics are made
 
 Every accuracy number the app shows is a row in the `eval_runs` table written by `eval/`, served

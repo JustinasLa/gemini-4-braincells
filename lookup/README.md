@@ -203,9 +203,46 @@ Results fill while `state` is `running`; the client re-renders on each poll. Tim
   "steps": [Step],
   "notes": ["..."],
   "image_matches": [ImageMatch],
-  "image_origin_id": "img:3" | null  // separate from origin_id; see the image-origin rule below
+  "image_origin_id": "img:3" | null,  // separate from origin_id; see the image-origin rule below
+  "swarm": SwarmReport | null,        // the swarm check (below); evidence only, never the status
+  "swarm_live": {"id", "verdict", "n_accounts"} | null,  // the live Bluesky group of the same picture
+  "swarm_sample": SwarmReport | null  // the search sample's report when `swarm` is the live one
 }
 ```
+
+### Swarm check
+
+`lookup/swarm_step.py`, step `swarm` ("Swarm check"), after the posts are final and before the
+reading; models in `swarm/model.py`. It runs for an upload and for an X or Bluesky post with a
+picture (skipped otherwise: "no picture"). The posts that count are the submitted post (never the
+upload's placeholder) and the copies, quotes, replies, Bluesky posts and origin the lookup kept
+(an upload's only with a `caption_match`); never `mention`, `author_recent` or `screenshotted`.
+For an X or Bluesky post lookup, a copy, origin or Bluesky post counts only with a picture of its
+own (a text match without one did not post the picture); the submitted post always counts.
+Each becomes a `Sighting` (quote/reply: `target` is the post it boosts; `time_exact` false for a
+search-hint time; `media_key` the X media key or Bluesky blob CID). An X post read with a quoted
+post lists the quoted post's pictures with its own, so none of its files count as its upload.
+Account data comes from what the lookup read: profile reads (`accounts`), the author profile
+FxTwitter sends with every post (exact join time, followers, following, posts, bio, avatar), and
+one batched Bluesky `getProfiles` (at most 2 x 25, with a receipt, only when the provider time
+allows). A month-only join date ("2009-06") is left out. The report has `basis: "sample"` (a
+search sample: copies are missing).
+
+The live Bluesky index is asked by the submitted Bluesky post's own blob CIDs, else by the
+picture's perceptual hash (the upload, or the submitted post's own picture when the image reading
+downloaded it; an image-reading cache hit downloads nothing, so then there is no picture match).
+Never by a reply's or a text match's file: that may be another picture. The bytes are kept only
+until the step ends. `swarm_live` is a small reference to the matched group (`{id, verdict,
+n_accounts}`, its page `/?swarm=<id>`); `swarm` is the live group's report when it has more
+posting accounts than the sample (the sample is then `swarm_sample`), else the sample's.
+
+Time: the step ends by `min(now + 2 s, deadline - 10 s)`, so the primary reading's reserve stays
+free, and is skipped ("no time left") with less than 0.3 s left. The sample and the live query run
+side by side; the sample's report is published as soon as it is scored, and the live query (its
+own 1 s limit) can only add to it. A late answer is dropped. After a live query that fails or
+comes too late, the shared index (`swarm_step.LiveBackoff`) is left alone for 300 s, so a down
+database costs one lookup's attempt. A failure leaves `swarm` null and changes nothing else. A
+verdict describes the group of posts, never one account.
 
 ### Image matches
 

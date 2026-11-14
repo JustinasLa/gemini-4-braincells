@@ -69,6 +69,7 @@ export async function runMemeMock(flag: string, onUpdate: (result: LookupResult)
       result.steps[1].state = "failed";
       result.steps[1].detail = "MOCK: no image pairs to compare.";
     }
+    if (phase === 2) Object.assign(result, (await import("./mockSwarm")).mockLookupSwarm(new URLSearchParams(location.search).get("mockSwarm")));
     onUpdate(result);
     if (phase === 2) return result;
     await pause();

@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from swarm.model import SwarmLiveRef, SwarmReport
+
 Kind = Literal["x_post", "x_profile", "bsky_post", "bsky_profile", "web", "text", "image"]
 StepState = Literal["pending", "running", "done", "failed", "skipped"]
 
@@ -448,3 +450,11 @@ class LookupResult(BaseModel):
     image_origin_id: str | None = None
     # the picture's family tree (lookup/family.py): None when no family step ran
     family: Family | None = None
+    # the swarm check (lookup/swarm_step.py): do the posts carrying the picture act like a swarm?
+    # Evidence only, it never sets `status`. The report shown: the live Bluesky group's when it
+    # has more posting accounts than the search sample, else the sample's; None when not run
+    swarm: SwarmReport | None = None
+    # the live Bluesky group of the picture, if one matched: a reference to its page, small on
+    # purpose (the result is polled); its report is `swarm` when that is the one shown
+    swarm_live: SwarmLiveRef | None = None
+    swarm_sample: SwarmReport | None = None  # the sample's report when `swarm` is the live one

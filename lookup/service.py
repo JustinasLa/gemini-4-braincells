@@ -79,6 +79,7 @@ STEPS = [
     ("thread_variants", "fxtwitter", "Reply threads searched for the template"),
     ("verify", "oxylabs", "Source pages read"),
     ("monitor", "detector", "Clusters watched"),
+    ("swarm", "detector", "Swarm check"),
     ("assess", "nemotron", "Evidence weighed"),
     ("second_reading", "gemini", "Second reading"),
 ]
@@ -250,6 +251,10 @@ class Deps:
     # family tree sources read directly (not through Oxylabs): off in tests
     wikipedia: bool = False
     wayback: bool = False
+    # the swarm check (lookup/swarm_step.py): swarm.score.score_swarm (None: the step is skipped)
+    # and the live Bluesky index (swarm_step.LiveSwarms, swarm.live.LiveSwarmIndex) or None
+    swarm_scorer: Callable | None = None
+    live_swarms: Any = None
 
 
 class Lookup:
@@ -295,6 +300,14 @@ class Lookup:
         # the family tree's copies as small JPEGs, served while the job lives (lookup/family.py)
         self.family_images: dict[str, bytes] = {}
         self._bsky_handles: set[str] = set()
+        # media url -> the bytes downloaded to read it: the submitted post's own picture only,
+        # until the swarm check (which matches it against the live Bluesky index) ends
+        self._pictures: dict[str, bytes] = {}
+        self._swarm_over = False
+        # X posts read with a quoted post: their pictures may be the quoted post's (swarm check)
+        self._x_quoting: set[str] = set()
+        # X handle (lowercased) -> the author's profile FxTwitter sent with a post (swarm check)
+        self._fx_authors: dict[str, dict] = {}
         self._final: dict | None = None
         self._unreadable = False  # the submitted post or page is an X tombstone
         self._tomb_detail = ""
@@ -559,6 +572,7 @@ class Lookup:
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
         self._finish_graph()
+        self._swarm()  # the kept posts are final here; evidence only, never the status
         self._assess()
 
     def _phases(self, pool: ThreadPoolExecutor, t: Target | None, kind: str) -> None:
@@ -730,6 +744,8 @@ class Lookup:
                 if replies
                 else fx.status(status_id, deadline=deadline)
             )
+            with self.lock:
+                self._fx_authors.update(getattr(conv, "authors", None) or {})
             return conv, dict(fx.last_call), False
         except FxNotFound:
             return None, dict(fx.last_call), True
@@ -752,6 +768,9 @@ class Lookup:
         verified: bool,
         as_of: datetime | None,
     ) -> Post:
+        if it.quoted_id:  # the swarm check: its pictures may be the quoted post's
+            with self.lock:
+                self._x_quoting.add(f"x:{it.status_id}")
         return Post(
             id=f"x:{it.status_id}",
             platform="x",
@@ -2300,6 +2319,14 @@ class Lookup:
         with self.lock:  # one critical section with `closed`: a late reading is never shown
             if closed.is_set():
                 return BudgetExceeded("the image reading came after the time budget")
+            if (
+                data
+                and not self._pictures
+                and not self._swarm_over
+                and url in self._media_urls
+                and "/card_img/" not in url
+            ):  # the submitted post's own picture, for the swarm check; dropped when it ends
+                self._pictures[url] = data
             if a.media_type == "screenshot" and "/card_img/" not in url:
                 # the "screenshot" step reads it as a post (bytes None: cached)
                 self._shots.append((url, h, mime, data))
@@ -2333,6 +2360,22 @@ class Lookup:
         from lookup import receipts_step  # lookup/receipts_step.py
 
         receipts_step.run(self)
+
+    def _swarm(self) -> None:
+        try:
+            from lookup import swarm_step  # lookup/swarm_step.py
+
+            swarm_step.run(self)
+        except Exception:  # never fatal for the lookup: no swarm report, the step says failed
+            log.warning("lookup %s swarm check failed", self.result.id, exc_info=True)
+            with self.lock:
+                self.result.swarm = self.result.swarm_live = self.result.swarm_sample = None
+                st = self._step("swarm")
+                st.state, st.detail, st.ended_at = "failed", "check failed", _now()
+        finally:
+            with self.lock:  # the picture's bytes are kept only for the swarm check
+                self._pictures.clear()
+                self._swarm_over = True
 
     # ---------------------------------------------------------------- monitor
     def _monitor(self) -> None:
