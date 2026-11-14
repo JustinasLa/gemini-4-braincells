@@ -152,3 +152,30 @@ def test_falls_back_to_request_host(make_client):
     assert entry.find("a:link", NS).get("href") == "http://testserver/#/cluster/1"
     # no updated_at: the window end stands in
     assert entry.find("a:updated", NS).text == "2026-11-13T20:10:00Z"
+
+
+def test_later_verdict_moves_entry_time(make_client):
+    T2 = datetime(2026, 11, 13, 20, 30, tzinfo=UTC)
+    v = VerdictBrief(status="coordinated", confidence=0.8, summary="s", created_at=T2)
+    c, _ = make_client([cluster(4, verdict=v)])
+    feed = parse(c.get("/api/feed.atom"))
+    assert feed.find("a:entry/a:updated", NS).text == "2026-11-13T20:30:00Z"
+    assert feed.find("a:updated", NS).text == "2026-11-13T20:30:00Z"
+
+
+def test_verdict_for_an_earlier_call_is_not_shown_as_current(make_client):
+    # Gemini reviewed while the detector said insufficient and disagreed (said coordinated);
+    # the detector has since moved to coordinated.
+    v = VerdictBrief(
+        status="insufficient",
+        confidence=0.5,
+        summary="Not enough to call it.",
+        created_at=T1,
+        llm_assessment="coordinated",
+        agrees_with_detector=False,
+    )
+    c, _ = make_client([cluster(5, verdict=v)])
+    text = parse(c.get("/api/feed.atom")).find("a:entry/a:summary", NS).text
+    assert "Not enough to call it." not in text
+    assert "reads it differently" not in text
+    assert "Gemini reviewed this cluster before the detector's call changed." in text

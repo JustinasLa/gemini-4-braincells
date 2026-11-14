@@ -66,8 +66,11 @@ def entry_title(c: ClusterSummary) -> str:
 
 def entry_text(c: ClusterSummary) -> str:
     lines: list[str] = []
-    if c.verdict and c.verdict.summary:
-        lines.append(c.verdict.summary.strip())
+    v = c.verdict
+    # Like the dashboard: a verdict written for an earlier detector call is not current.
+    stale = v is not None and v.status != c.status
+    if v and v.summary and not stale:
+        lines.append(v.summary.strip())
     sigs = [s for s in c.top_signals if s.summary]
     if sigs:
         lines.append("Signals:")
@@ -79,9 +82,11 @@ def entry_text(c: ClusterSummary) -> str:
         f"{c.window_start:%Y-%m-%d %H:%M}–{c.window_end:%H:%M} UTC",
     ]
     lines.append("; ".join(f for f in facts if f) + ".")
-    if c.verdict and c.verdict.agrees_with_detector is False and c.verdict.llm_assessment:
+    if stale:
+        lines.append("Gemini reviewed this cluster before the detector's call changed.")
+    elif v and v.agrees_with_detector is False and v.llm_assessment:
         lines.append(
-            f"Gemini reads it differently ({LABEL.get(c.verdict.llm_assessment)}); "
+            f"Gemini reads it differently ({LABEL.get(v.llm_assessment)}); "
             "the detector's call stands."
         )
     lines.append(DISCLAIMER)
@@ -89,8 +94,9 @@ def entry_text(c: ClusterSummary) -> str:
 
 
 def _updated(c: ClusterSummary) -> datetime:
-    t = c.updated_at or c.window_end
-    return t if t.tzinfo else t.replace(tzinfo=UTC)
+    # Analyst verdicts land later without touching clusters.updated_at.
+    times = [c.updated_at or c.window_end] + ([c.verdict.created_at] if c.verdict else [])
+    return max(t if t.tzinfo else t.replace(tzinfo=UTC) for t in times)
 
 
 def _iso(t: datetime) -> str:
