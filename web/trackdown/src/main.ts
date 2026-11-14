@@ -1,4 +1,5 @@
 import "./styles.css";
+import { showJudgingView } from "./judging";
 import rhinoUrl from "./assets/rhino-1515.webp";
 import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
@@ -28,9 +29,15 @@ document.querySelector("#app")!.innerHTML = `
     <a class="wordmark" href="/" aria-label="Shill or Chill: home">SHILL OR CHILL</a>
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
+<<<<<<< HEAD
       <span class="trace-wrap"><button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button><button class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span>
+=======
+      <button class="btn" id="judge-menu" aria-expanded="false">Explore</button>
+      <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
+>>>>>>> d6a17cb (Mobile navigation: add judging destinations)
     </div>
   </header>
+  <nav id="judge-links" hidden style="position:fixed;z-index:1000;top:58px;right:12px;background:#171717;padding:16px;gap:16px;flex-direction:column"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=methodology">Methodology &amp; limits</a></nav>
   <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
     <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
@@ -50,6 +57,10 @@ document.querySelector("#app")!.innerHTML = `
 </div>`;
 
 const app = $(".app");
+const nav = $("#judge-links");
+$("#judge-menu").addEventListener("click", () => { nav.hidden = !nav.hidden; nav.style.display = nav.hidden ? "none" : "flex"; $("#judge-menu").setAttribute("aria-expanded", String(!nav.hidden)); });
+const view = new URLSearchParams(location.search).get("view");
+if (["feed","metrics","methodology"].includes(view ?? "")) { app.hidden = true; app.style.display = String.fromCharCode(110,111,110,101); void showJudgingView(view!); }
 // Closed drawers must not take keyboard focus; keep inert + aria-expanded in sync with the classes.
 const phoneMq = matchMedia("(max-width: 860px)"); // the CSS breakpoint
 const syncDrawers = () => {
