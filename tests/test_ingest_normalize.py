@@ -271,6 +271,24 @@ def test_garbage_is_ignored():
     assert row.text == "ab" and row.created_at is None
 
 
+def test_wrong_field_types_do_not_raise():
+    # Records can skip lexicon validation; one malformed post must not crash the writer loop
+    # (it would crash-loop: the restart resumes from a cursor before the same event).
+    for record in (
+        {"text": "x", "embed": {"$type": 5}},
+        {"embed": {"$type": "app.bsky.embed.recordWithMedia", "media": {"$type": 7}}},
+        {"embed": {"$type": "app.bsky.embed.images", "images": 5}},
+        {"facets": 5},
+        {"facets": [{"features": 3}]},
+        {"facets": [{"features": [{"$type": 1}]}]},
+        {"langs": 3},
+        {"langs": "en"},
+    ):
+        row = normalize(commit("app.bsky.feed.post", record))
+        assert isinstance(row, Post)
+        assert row.embed_urls == [] and row.media_hashes == [] and row.langs is None
+
+
 def test_helpers():
     assert parse_ts("2026-11-13T19:32:02.908768+00:00").tzinfo is not None
     assert parse_ts("1970-01-01T00:00:00Z") is None
@@ -316,3 +334,58 @@ def test_huge_urls_and_lists_are_bounded():
     )
     assert len(row.embed_urls) <= 20
     assert all(len(u) <= 1000 for u in row.embed_urls)
+
+
+class _FakeWs:
+    def __init__(self, frames, stop_event):
+        self.frames, self.stop_event = list(frames), stop_event
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def recv(self, timeout=None):
+        if not self.frames:
+            self.stop_event.set()
+            raise TimeoutError
+        return self.frames.pop(0)
+
+
+def _reader(monkeypatch, frames_per_host):
+    import queue
+
+    from ingest import consumer
+
+    q = queue.Queue()
+    reader = consumer.Reader(["h1", "h2"], None, q, None)
+    hosts = []
+
+    def fake_connect(url, **kw):
+        hosts.append(url.split("/")[2])
+        return _FakeWs(frames_per_host.pop(0), reader.stop_event)
+
+    monkeypatch.setattr(consumer, "ws_connect", fake_connect)
+    monkeypatch.setattr(consumer.time, "sleep", lambda s: None)
+    return consumer, q, reader, hosts
+
+
+def test_reader_always_ends_the_queue_with_stop(monkeypatch):
+    # A frame the reader can't handle kills its thread; the writer must still get STOP
+    # instead of waiting on an empty queue forever.
+    consumer, q, reader, _ = _reader(monkeypatch, [["[]"]])
+    monkeypatch.setattr("threading.excepthook", lambda args: None)
+    reader.start()
+    reader.join(5)
+    assert not reader.is_alive()
+    assert q.get(timeout=1) is consumer.STOP
+
+
+def test_failover_requested_while_disconnected_does_not_drop_the_next_host(monkeypatch):
+    frame = '{"did": "did:plc:x", "time_us": 1794598323302197, "kind": "account"}'
+    consumer, q, reader, hosts = _reader(monkeypatch, [[frame], [frame]])
+    reader.request_failover()  # the watchdog fired during a reconnect
+    reader.run()
+    assert hosts == ["h1"]
+    assert q.get_nowait()[1]["did"] == "did:plc:x"
