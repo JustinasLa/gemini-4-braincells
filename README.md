@@ -209,6 +209,7 @@ git fetch && HOSTINGER_HOST=srv2159172.hstgr.cloud HOSTINGER_SSH_KEY=~/.ssh/host
   CHECK_URL=https://noise-radar.srv2159172.hstgr.cloud \
   deploy/deploy.sh                      # default ref: origin/main; pass a sha to roll back
 deploy/check.sh                         # outside check: health + ingest lag, clusters, metrics, web
+deploy/smoke.sh [base-url]                # final API checklist; defaults to production
 curl https://noise-radar.srv2159172.hstgr.cloud/version.txt   # deployed commit
 ```
 

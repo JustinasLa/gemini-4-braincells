@@ -66,7 +66,7 @@ def test_defaults_are_real_coordinated_clusters(make_client):
     ]
     # Atom requires id, title, updated on the feed even when it has no entries.
     assert feed.find("a:id", NS).text.endswith("feed/coordinated")
-    assert feed.find("a:title", NS).text == "Noise Radar: new coordinated clusters"
+    assert feed.find("a:title", NS).text == "Shill or Chill: Shill verdicts"
     assert feed.find("a:updated", NS).text.endswith("Z")
     assert feed.findall("a:entry", NS) == []
 

@@ -21,9 +21,9 @@ router = APIRouter(prefix="/api", tags=["feed"])
 ATOM_NS = "http://www.w3.org/2005/Atom"
 # Same words as the web UI verdicts.
 LABEL = {
-    "coordinated": "Coordinated",
-    "insufficient": "Can’t tell",
-    "likely_organic": "Likely organic",
+    "coordinated": "Shill",
+    "insufficient": "Can’t tell (yet)",
+    "likely_organic": "Chill",
 }
 ID_PREFIX = "tag:noise-radar,2026-11-13:"
 DISCLAIMER = (
@@ -124,11 +124,11 @@ def build_feed(
     ET.register_namespace("", ATOM_NS)
     feed = ET.Element(f"{{{ATOM_NS}}}feed")
     _sub(feed, "id", f"{ID_PREFIX}feed/{status}")
-    _sub(feed, "title", f"Noise Radar: new {LABEL[status].lower()} clusters")
+    _sub(feed, "title", f"Shill or Chill: {LABEL[status]} verdicts")
     _sub(
         feed,
         "subtitle",
-        "Groups of Bluesky accounts acting together, as called by the Noise Radar detector. "
+        "Groups of Bluesky accounts acting together, as called by the Shill or Chill detector. "
         "Each entry shows the cluster's current call; calls near the threshold can change. "
         + DISCLAIMER,
     )
@@ -136,8 +136,8 @@ def build_feed(
     _sub(feed, "link", rel="self", type="application/atom+xml", href=self_url)
     _sub(feed, "link", rel="alternate", type="text/html", href=f"{base}/")
     author = _sub(feed, "author")
-    _sub(author, "name", "Noise Radar")
-    _sub(feed, "generator", "Noise Radar API")
+    _sub(author, "name", "Shill or Chill")
+    _sub(feed, "generator", "Shill or Chill API")
 
     for c in clusters:
         entry = _sub(feed, "entry")
