@@ -525,7 +525,8 @@ class Trace:
                 rid,
                 self._comparison_summary(updated)
                 + "; observed changes: "
-                + ("; ".join(updated.changes) or "none described"),
+                # media.imagediff: [] means Nemotron saw no visible change
+                + ("; ".join(updated.changes) or "Nemotron saw no visible change"),
                 latency_ms=diff.latency_ms,
             )
             self._publish_match(updated)

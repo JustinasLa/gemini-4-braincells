@@ -1280,3 +1280,17 @@ def test_media_id_collapses_rendition_variants_only():
     assert imagetrace._media_id("https://pbs.twimg.com/media/A.jpg") != imagetrace._media_id(
         "https://pbs.twimg.com/media/B.jpg"
     )
+
+
+def test_empty_change_list_is_reported_as_no_visible_change():
+    """media.imagediff: changes == [] means Nemotron saw no visible change (not a failure)."""
+
+    def nothing(client, original, variant, *, timeout_s):
+        return SimpleNamespace(changes=[], kinds=[], latency_ms=5, model="nemotron-3.5-super-vl")
+
+    job = job_for(Searches([hit("edited.png", when=None)]), describe_changes=nothing)
+    run_trace(job)
+    [match] = [m for m in job.result.image_matches if m.relation == "edited"]
+    receipt = next(r for r in job.result.receipts if r.id == match.receipt_id)
+    assert receipt.ok and receipt.summary.endswith("Nemotron saw no visible change")
+    assert match.changes == []
