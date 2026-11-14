@@ -17,6 +17,7 @@ from media.nemotron import MediaAnalysis, MediaInput, NemotronError, NotVisionMo
 from media.screenshot import SCREENSHOT_PROMPT_VERSION, ScreenshotPost
 
 log = logging.getLogger(__name__)
+MAX_BLOB_CARRIERS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,7 +405,9 @@ def _media_input(fetcher: Fetcher, group: MediaGroup) -> _Fetched:
     # carrier can lose its copy while another account still serves the same file.
     sources = dict.fromkeys((p.did, p.pds_host, p.embed_kind) for p in group.posts)
     last_error = None
-    for did, pds_host, embed_kind in sources:
+    for index, (did, pds_host, embed_kind) in enumerate(sources):
+        if index >= MAX_BLOB_CARRIERS:
+            break  # a dead blob shared by a large cluster must not monopolize the worker
         try:
             blob = fetcher.fetch(
                 did=did, cid=group.media_hash, pds_host=pds_host, embed_kind=embed_kind

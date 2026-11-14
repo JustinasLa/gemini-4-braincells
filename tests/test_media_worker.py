@@ -231,6 +231,14 @@ def test_shared_blob_tries_each_source_once_before_recording_failure():
     assert run.failures[0].dids == ("did:a", "did:b")
 
 
+def test_dead_blob_in_a_large_cluster_has_bounded_carrier_attempts():
+    posts = [_post(i, f"did:{i}", "same") for i in range(50)]
+    fetcher = CarrierFetcher(missing_dids={p.did for p in posts})
+    run = process_cluster_media(posts, FakeClient(), fetcher)
+    assert len(fetcher.calls) == 4
+    assert len(run.failures) == 1 and run.failures[0].stage == "fetch"
+
+
 def test_non_vl_error_is_not_swallowed():
     client = FakeClient(error=NotVisionModelError("text model"))
     with pytest.raises(NotVisionModelError):
