@@ -127,6 +127,7 @@ export interface LookupAssessment {
   counter_evidence: string[]; would_change: string[]; cites: number[];
   claim_checks?: ClaimCheck[];
   media_provenance?: string | null;
+  media_provenance_cites?: number[];
   llm_reading: "organic_looking" | "copy_campaign_looking" | "unclear";
   latency_ms: number | null; cost_usd: number | null;
 }

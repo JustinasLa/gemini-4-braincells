@@ -34,6 +34,19 @@ function result() {
   };
 }
 
+test("source leads distinguish text copies and linked pages from coverage", () => {
+  const lookup = result();
+  lookup.pages = [
+    { url: "https://reddit.com/r/copy", role: "reference" },
+    { url: "https://example.com/linked", role: "linked" },
+    { url: "https://example.org/report", role: "coverage" },
+  ];
+  const html = factualFindings(lookup);
+  assert.match(html, /Text-copy candidate · Search lead/);
+  assert.match(html, /Linked page · Search lead/);
+  assert.match(html, /Coverage candidate · Search lead/);
+});
+
 test("supported facts remain visible when coordination is insufficient", () => {
   const lookup = result();
   const html = factualFindings(lookup);
@@ -83,8 +96,8 @@ test("image-only inputs and legacy media readings retain a provenance warning", 
   const lookup = result();
   lookup.posts = [{ id: "post:1", media_urls: ["https://image.example/photo.jpg"] }];
   const html = factualFindings(lookup);
-  assert.match(html, /Exact media provenance is unverified/);
-  assert.match(html, /OCR do not authenticate/);
+  assert.match(html, /Source discovery and exact-image verification are separate/);
+  assert.match(html, /OCR alone do not authenticate/);
   assert.match(html, /not necessarily the original source/);
 });
 
@@ -118,4 +131,46 @@ test("both models retain their attributed claim-level findings", () => {
   assert.match(html, /Supported by cited sources/);
   assert.match(html, /Partly supported \/ needs context/);
   assert.match(html, /The source reports an estimate/);
+});
+
+test("source articles remain visible when the model times out", () => {
+  const lookup = result();
+  lookup.assessment = null;
+  lookup.pages = [{
+    url: "https://www.businessinsider.com/example-photo-source",
+    headline: "Contemporary photo coverage",
+    published_hint: "2022-08-08",
+    receipt_id: 1,
+  }];
+  let html = factualFindings(lookup);
+  assert.match(html, /Contemporary photo coverage/);
+  assert.match(html, /Search lead · page not read/);
+  assert.match(html, /Search date hint: 2022-08-08/);
+  assert.match(html, /No claim-level factual assessment/);
+  lookup.receipts[0].endpoint = "/scrape";
+  lookup.pages[0].published_at = "2022-08-08";
+  html = factualFindings(lookup);
+  assert.match(html, /Source page read · not automatic verification/);
+  assert.match(html, /Published: 2022-08-08/);
+});
+
+test("source attribution is shown with its receipt rather than a blanket denial", () => {
+  const lookup = result();
+  lookup.assessment.media_provenance = "The cited article credits the photographer.";
+  lookup.assessment.media_provenance_cites = [1];
+  const html = factualFindings(lookup);
+  assert.match(html, /The cited article credits the photographer/);
+  assert.match(html, /Receipt #1/);
+  assert.doesNotMatch(html, /Exact media provenance is unverified/);
+});
+
+test("collected source page metadata is escaped and unsafe URLs are omitted", () => {
+  const lookup = result();
+  lookup.pages = [
+    {url: "javascript:alert(1)", headline: "Bad"},
+    {url: "https://source.example", headline: "<script>bad()</script>", published_hint: "<img>"},
+  ];
+  const html = factualFindings(lookup);
+  assert.doesNotMatch(html, /javascript:|<script>|<img>/);
+  assert.match(html, /&lt;script&gt;/);
 });

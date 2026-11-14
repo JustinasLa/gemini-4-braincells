@@ -34,7 +34,12 @@ FACTS_SCHEMA: dict[str, Any] = {
         "claims": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Up to 3 main factual claims the page makes, one sentence each",
+            "description": (
+                "Up to 5 main factual claims the page makes, one sentence each. "
+                "For photos or videos discussed by the page, include explicit creator credits, "
+                "the original publisher or agency, and the depicted event date when stated. "
+                "Attribute these to the page; do not infer provenance from an image alone."
+            ),
         },
     },
 }
