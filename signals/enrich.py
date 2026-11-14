@@ -48,21 +48,34 @@ def _get(client: httpx.Client, url: str, params=None, tries: int = 3):
     return None
 
 
-def fetch_profiles(client: httpx.Client, dids: list[str], workers: int = 4) -> dict[str, dict]:
-    """getProfiles in chunks of 25 (the AppView limit), a few chunks in parallel."""
+def fetch_profiles(
+    client: httpx.Client, dids: list[str], workers: int = 4
+) -> dict[str, dict | None]:
+    """Fetch chunks of 25. None marks an account absent from a successful response;
+    failed chunks omit their keys so callers can distinguish failure from absence."""
     chunks = [dids[i : i + 25] for i in range(0, len(dids), 25)]
 
-    def one(chunk: list[str]) -> list[dict]:
+    def one(chunk: list[str]) -> dict[str, dict | None]:
         r = _get(client, APPVIEW, params=[("actors", d) for d in chunk])
         if r is None or r.status_code != 200:
-            return []
-        return r.json().get("profiles", [])
+            return {}
+        try:
+            body = r.json()
+        except ValueError:
+            return {}
+        profiles = body.get("profiles") if isinstance(body, dict) else None
+        if not isinstance(profiles, list):
+            return {}
+        out = dict.fromkeys(chunk)
+        for profile in profiles:
+            if isinstance(profile, dict) and profile.get("did") in out:
+                out[profile["did"]] = profile
+        return out
 
     out = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for profiles in pool.map(one, chunks):
-            for p in profiles:
-                out[p["did"]] = p
+            out.update(profiles)
     return out
 
 
@@ -131,7 +144,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                     description_len = coalesce(%(desc)s, description_len),
                     description = coalesce(%(descr)s, description),
                     has_avatar = coalesce(%(avatar)s, has_avatar),
-                    profile_fetched_at = %(now)s,
+                    profile_fetched_at = coalesce(%(profile_fetched)s, profile_fetched_at),
                     did_created_at = coalesce(%(plc_created)s, did_created_at),
                     handle_changes = coalesce(%(hc)s, handle_changes),
                     pds_host = coalesce(%(pds)s, pds_host),
@@ -141,6 +154,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
                 {
                     "did": d,
                     "now": now,
+                    "profile_fetched": now if d in profiles else None,
                     "plc_ok": q is not None,
                     "handle": p.get("handle") if p else None,
                     "dn": (p.get("displayName") or "")[:200] if p else None,
@@ -159,7 +173,7 @@ def enrich(conn: psycopg.Connection, dids: list[str], budget: int = 400) -> int:
     log.info(
         "enriched %d accounts (%d profiles, %d plc)",
         len(todo),
-        len(profiles),
+        sum(p is not None for p in profiles.values()),
         sum(1 for v in plc.values() if v),
     )
     return len(todo)
