@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import psycopg
@@ -85,6 +86,25 @@ def run_once(
     return stats
 
 
+def live_connection(
+    conn: psycopg.Connection, connect: Callable[[], psycopg.Connection] | None = None
+) -> psycopg.Connection:
+    """`conn` if it is still open, else a new connection.
+
+    The worker keeps one connection for its whole life. When Postgres restarts (every deploy
+    recreates the db container) psycopg marks that connection closed and never reopens it, so
+    every later pass failed with "the connection is closed" until someone restarted the worker
+    (prod, 14 Nov: 12:11-13:10 and 15:12-15:45 UTC). A failed connect raises; the loop logs it
+    and tries again on the next pass.
+    """
+    if not conn.closed:
+        return conn
+    log.warning("database connection lost; reconnecting")
+    if connect is None:
+        return psycopg.connect(get_settings().database_url, autocommit=True)
+    return connect()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="python -m signals")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -137,6 +157,7 @@ def main() -> None:
                 if time.monotonic() - last[kind] >= every.get(kind, 300):
                     last[kind] = time.monotonic()
                     try:
+                        conn = live_connection(conn)
                         log.info(
                             "pass %s", json.dumps(run_once(conn, kind, cfg, mh[kind], embed=embed))
                         )
