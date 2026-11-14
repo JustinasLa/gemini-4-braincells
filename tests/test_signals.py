@@ -409,3 +409,31 @@ def test_declared_automation_guard_needs_old_accounts_that_say_so():
     assert guard(old_bots).score == 1.0
     assert guard(fresh_bots) is None  # new accounts calling themselves bots don't get a pass
     assert guard(humans) is None  # "robotics" doesn't match the word "bot"
+
+
+def test_wider_crowd_guard_text_matches_its_score():
+    """#18: the guard row is shown even at score 0; its text must not claim a wider crowd."""
+    from signals.keys import Key
+    from signals.score import organic_guards
+
+    members = [f"did:plc:c{i}" for i in range(5)]
+
+    def crowd(total: int):
+        k = Key("link", "https://example.com/a", accounts=set(members))
+        k.total_accounts = total  # accounts sharing it in the whole window
+        g = next(
+            x
+            for x in organic_guards(members, [k], {}, WindowData(start=0, end=600), DEFAULT)
+            if x.name == "part_of_wider_crowd"
+        )
+        return g.score, g.summary
+
+    score, text = crowd(5)  # nobody outside the cluster
+    assert score == 0.0
+    assert "no wider crowd" in text and "only" not in text and "100%" not in text
+    score, text = crowd(6)  # 83% exclusive
+    assert score < 0.5 and "a wider crowd is doing the same thing" not in text
+    assert "83%" in text
+    score, text = crowd(50)  # 10% exclusive: a real crowd
+    assert score == 0.9
+    assert "on average only 10%" in text and "a wider crowd is doing the same thing" in text

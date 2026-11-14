@@ -665,13 +665,30 @@ def organic_guards(
     if sk:
         excl = [len(k.accounts) / max(k.total_accounts, 1) for k in sk]  # type: ignore[attr-defined]
         mean_excl = float(np.mean(excl))
+        # Word it by what the number shows: the guard row is also stored (and shown) when it
+        # scores ~0, and then it must say there is no wider crowd, not that there is one (#18).
+        if round(mean_excl, 2) >= 1:
+            crowd = (
+                "all of the accounts sharing these items in the window are in this cluster "
+                "(no wider crowd is doing the same thing)"
+            )
+        elif mean_excl > 0.5:
+            crowd = (
+                f"on average {mean_excl:.0%} of the accounts sharing these items in the window "
+                "are in this cluster (mostly this group; only a few accounts outside it do the "
+                "same)"
+            )
+        else:
+            crowd = (
+                f"on average only {mean_excl:.0%} of the accounts sharing these items "
+                "in the window are in this cluster (a wider crowd is doing the same thing)"
+            )
         out.append(
             Signal(
                 "guard",
                 "part_of_wider_crowd",
                 _r(1 - mean_excl),
-                f"on average only {mean_excl:.0%} of the accounts sharing these items "
-                "in the window are in this cluster (a wider crowd is doing the same thing)",
+                crowd,
                 {"mean_exclusivity": _r(mean_excl), "shared_keys": len(sk)},
                 polarity="against",
             )
