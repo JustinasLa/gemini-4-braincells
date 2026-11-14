@@ -17,8 +17,8 @@ npm run check                       # lookup rendering regression (fixture -> lo
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
 `?lookup=<URL-encoded link>` starts a live lookup. An image (a meme, a screenshot) starts an image
 lookup from the home screen's Upload image button, by dropping it on the home screen or by pasting
-it into the input (`POST /api/lookup/image`, lookup/README.md); photos over 2 MB or 2048 px are sent
-as a 2048 px JPEG. In the Vite development server only,
+it into the input (`POST /api/lookup/image`, lookup/README.md); images over 2 MB (PNGs also over
+2048 px) are sent as a JPEG of at most 2048 px. In the Vite development server only,
 `?mockLookup` runs a progressive fictional fixture; the header, panel and console label it MOCK.
 The fixture is excluded from production builds and never runs by default.
 
@@ -38,16 +38,15 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 - Avatars are detected patches of the painting. Days-old accounts get an empty hatched box; templated
   handles (glow_fan_0412…) share one patch, so a wave of look-alikes looks alike.
 - A cluster is one large detection box with a class/score tab (`SHILL · 31 ACCOUNTS · 94 S`).
-- The verdict arrives as the banner itself: painting, detection boxes, the bronze coin, and the verdict
+- The verdict arrives as the banner itself: painting, detection boxes, and the verdict
   as a wide wordmark.
-- Type: Michroma (wide wordmark, like JUNCTION), Inter Tight (text), JetBrains Mono (`//` labels, data,
-  terminal). Black, white, CV green, and the painting's own colours for the verdicts.
+- Type: Michroma (wide wordmark, like JUNCTION), and T3 Code's default stacks: the system UI font
+  with Inter as the fallback (text), SF Mono / Menlo / Consolas (`//` labels, data, terminal). Black, white, CV green, and the painting's own colours for the verdicts.
 
 ## What's on screen
 
 - **Canvas** (`src/engine/graph.ts`): DOM cards over two canvas layers. Custom physics: pairwise
-  repulsion, rectangle collisions, parent/child springs, and in *Timeline* mode every card is
-  anchored to its time. *Web* mode drops the time anchor for a free force layout.
+  repulsion, rectangle collisions, parent/child springs, and every card is anchored to its time.
   - Time axis: gaps grow with `log(gap)`, so seconds-apart bursts and years-apart hops fit on one
     axis. Gaps over 3 days are marked on the ruler and dock ("2.7 yr gap"). Posts less than 2 min apart
     become a time-ordered grid, so a 31-account burst reads as one block.
@@ -62,16 +61,15 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
     along its edges. Clusters get a breathing hull labelled with the detector's numbers.
 - **Trackdown run** (`runTrace` in `src/main.ts`): the submitted card is scanned, then each step
   of `case.steps` reveals what it found (rejected candidates flash up as ghost cards), the camera
-  follows, the origin gets a shockwave, the rest of the spread pours in, and the verdict coin lands.
+  follows, the origin gets a shockwave, the rest of the spread pours in, and the verdict appears.
 - **Timeline dock** (`src/ui/dock.ts`): histogram on the same compressed axis, scrub or play the
   spread (also a native range input for keyboards), ruler across the top, minimap.
-- **Panel** (`src/ui/panel.ts`): tabs Verdict / Chain / Evidence / Post. Evidence is grouped as
-  "Supports the verdict" and "Signs of organic spread" (or "Evidence considered" for Can't tell),
-  plus "what would change our mind". On phones it is a modal sheet opened from the verdict bar.
+- **Panel** (`src/ui/panel.ts`): tabs Verdict (Findings for a lookup) / Post. On phones it is a
+  modal sheet opened from the verdict bar.
 
-Keys: `N` trace a post · `Space` play/pause · `F` fit · `T` timeline/web · `M` key and map · with the
-map focused `←/→` earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
-Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
+Keys: `N` trace a post · `Space` play/pause · `,`/`.` step · `F` fit · `M` key and map · `←/→`
+earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
+Phones: Fit and KEY sit in the map toolbar.
 
 ## Data and honesty
 
@@ -82,15 +80,17 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   *Historical record*. It is not scored and was not run through the detector. Its one present-day
   repost is marked as illustrative. It shows the honesty point: a picture can be wrong without its
   spread being coordinated.
-- **Live clusters**: when `GET /api/clusters` answers, they're listed under "From the monitor" and
-  converted by `liveCase()` (`src/data/api.ts`) from the `ClusterDetail` shape in
-  `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
+- **Live clusters**: `/?cluster=<id>` (and a legacy analysis that matched a cluster) loads
+  `GET /api/clusters/{id}`, converted by `liveCase()` (`src/data/api.ts`) from the `ClusterDetail`
+  shape in `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
   them. Parent links are inferred: a post's parent is the earliest earlier post sharing its link,
   image hash or normalised text.
 - **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise (the API looks up an `@handle` as that Bluesky profile),
-  then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
-  the step console, cards and receipts. The verdict coin is revealed only for a completed job;
-  failures and timeouts leave partial receipts available without a final verdict. Starting another
+  then follows the job's event stream `GET /api/lookup/{id}/events`; if the stream fails or stalls
+  it polls `GET /api/lookup/{id}` every 0.6 seconds. Either way it gives up after 150 seconds. Each snapshot updates
+  the step console, cards and receipts. The finale is revealed once the primary reading is in (an
+  image search still running delays it until that search finishes); failures and timeouts leave
+  partial receipts available without a finale. See "Finale: verdict or meme finding". Starting another
   trace cancels the previous client polling. All API paths are absolute so the app works at `/` and `/trackdown/`.
 - **Real lookup data**: posts, platform engagement snapshots, profile facts, linked pages and
   their exact timestamps come from the backend contract in `lookup/README.md`. Selected cards
@@ -113,14 +113,15 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   status, never a coordination verdict. Only a matched monitored cluster supplies the detector
   status. Cluster summaries do not identify memberships, so no lookup account is silently assigned
   to a monitored cluster. If several match, the first returned cluster supplies the headline status;
-  all matched statuses remain visible in Provenance. Otherwise coordination says "Can't tell (yet)".
+  all matched statuses remain visible in Provenance. Otherwise coordination is "No call": no coin,
+  no "Can't tell", and copy-sample clusters are tagged "No call" on the map and in Provenance.
 - **Factual findings**: the lookup's Findings tab shows claim-level model assessments and
   clickable source receipts separately from the coordination coin and its confidence. A missing
   assessment is not treated as false content. Media descriptions do not authenticate the exact
   image, and the earliest observed copy is not necessarily the original source. Older API
   responses without `claim_checks` show an explicit unavailable-assessment message.
   Run `npm test` for rendering, citation safety, legacy fallback, and verdict-separation tests.
-- **Fallbacks**: an unavailable lookup (404/503/network) tries `POST /api/analyze`; only if that
+- **Fallbacks**: an unavailable text or link lookup (404/503/network) tries `POST /api/analyze`; only if that
   path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
   rate limits (429), job failure and timeout show an error instead of silently inventing a trace.
 - **Hosting**: `npm run ship` refreshes `web/public/trackdown/`. Caddy serves it as the site's home
@@ -140,7 +141,47 @@ Botticelli, *The Birth of Venus* (c. 1485; top band cropped, darkened, with ORB 
 
 Rendered in Blender 4.2 (Cycles, CPU) from `blender/coin.py`: struck bronze, a cinnabar SHILL
 field with a flag, a verdigris CHILL field with sunglasses, and the legend
-"SHILL OR CHILL · FACTA NON VERBA · MMXXVI" in Cinzel round the rim, 48-frame flip packed into `public/coin/coin-sheet.webp` by
-`blender/pack.py`. Shill lands on frame 0, Chill on frame 24, and "Can't tell (yet)" lands on
-its edge and wobbles. The rail and panel use stills; the abstain still is a motion-blurred,
-still-spinning coin. The font is Cinzel (OFL).
+"SHILL OR CHILL · FACTA NON VERBA · MMXXVI" in Cinzel round the rim, rendered as
+stills in `public/coin/`. The coin is not animated anywhere: the verdict panel shows the still as a
+badge, and the finale shows no coin. The abstain still is a motion-blurred, still-spinning coin. The font is Cinzel (OFL).
+
+## Finale: verdict or meme finding
+
+The verdict word (no coin) is the finale only for a real coordination verdict (`hasVerdict` in `src/data/lookup.ts`): every
+simulated, historical and monitored case, and a lookup only when it matched a monitored cluster. A
+lookup's `insufficient` is the absence of a call, so it never gets a verdict finale. Instead, a lookup with
+an image search ends on what that search found (`memeFinding` in `src/data/imageTrace.ts`), with the
+submitted picture above the word and the same sentence at the top of the Meme trace panel:
+
+- **Copy**: the earliest match older than the submission is the same picture (same, resized, cropped).
+- **Edited**: the earliest older match is an edited version; the model's change list is quoted as a reading.
+- **Original**: matches exist, but none is dated before the post (undated ones are named as possibly older).
+- **First sighting**: the search found no related copy at all.
+- **Seen before**: older matches exist but their relation was not checked, or the post has no time.
+
+A match is older when the submission is an upload (it has no time of its own, and every match was
+online before it) or when its date is before the post's, with the server's one-day slack for a
+TinEye crawl date. A lookup with no image search and no verdict has no finale and no header chip.
+`npm run check:meme` covers each finding.
+
+## Meme trace (image matches)
+
+Optional `image_matches` add an earliest-match Original card and grouped variations to the map,
+timeline and panel. Select a variation to compare the submission and match side by side; on phones,
+the two images stack vertically. The comparison contains the pictures and their labels without
+metadata, model descriptions or overlay controls. Image dates elsewhere say “first seen by TinEye”
+(an upper bound, not publication), “page dated”, “time from post id”, or “date unknown”; an upload
+never becomes its own origin. Descriptions elsewhere are Nemotron’s reading, not verified facts.
+Boxes from the pixel comparison are 0..1 fractions of
+the submission (`media.variants.relate(upload, match)`): the edited region is drawn on both images,
+a crop box marks the part of the submission a cropped match shows. Variant links are visual relationships drawn beside the copy chain, never lineage: the server's
+variant edges (image origin → edited/cropped matches) are used as sent. The submission joins the copy
+chain, as a same-image link from the Original, only when real dates put the Original first. The section appears only when
+there is an image search to report (the server always sends `image_matches`, `[]` by default, and
+skips both steps for inputs without an image). Say “edited”, “changed”, “variation”, never
+“fake”, “deepfake”, or claims about intent. Different-looking matches are not counted as variations.
+Dev-only `?mockLookup=meme`, `?mockLookup=meme-empty`, `?mockLookup=meme-failed`, and
+`?mockLookup=meme-blocked` (and `meme-upload`, an image upload with only crawl-dated matches) show fictional `.example` results and self-contained images, including
+progressive searching/comparing states. The mock submission is a link with a local image; it needs
+no backend. `?mockLookup=meme-loading` holds each loading phase for 15 seconds for inspection.
+All mocks remain dev-only and labelled MOCK. Run `npm run check:meme` for pure checks.

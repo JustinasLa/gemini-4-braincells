@@ -471,3 +471,18 @@ def test_date_judgement_cues_are_dropped_from_the_image_reading(monkeypatch):
     job = _run(monkeypatch, CueNemotron())
     [m] = job.result.media
     assert m.manipulation_cues == ["Cropped edges"]
+
+
+def test_a_failed_second_download_is_unchecked_with_its_reason():
+    """A cached reading has no bytes: the screenshot is downloaded again, and a 404 there says
+    so instead of escaping the check as 'the check failed'."""
+    http = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(404)))
+    nem = FakeNemotron()
+    deps = Deps(oxylabs=FakeOxylabs(), nemotron=nem, http=http)
+    job = Lookup("lk_404", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    job.result.subject_id = f"x:{SUBJ}"
+    job._shots = [("https://pbs.twimg.com/media/gone.jpg", "h404", "", None)]
+    receipts_step.run(job)
+    [rec] = job.result.screenshots
+    assert (rec.label, rec.reason) == ("unchecked", "the screenshot could not be downloaded again")
+    assert not nem.reads

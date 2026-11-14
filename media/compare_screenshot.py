@@ -1,6 +1,6 @@
 """Compare the screenshot read (media/screenshot.py) with reasoning on and off, on real screenshots.
 
-    python -m media.compare_screenshot sample OUT.json [--n 40]
+    python -m media.compare_screenshot sample OUT.json [--n 40] [--likely-posts]
     python -m media.compare_screenshot run SAMPLE.json [--variants on,off] [--out RESULTS.json]
         [--save-media DIR]
 

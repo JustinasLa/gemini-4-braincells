@@ -12,8 +12,8 @@ const FINDING: Record<ClaimCheck["finding"], string> = {
 export function coordinationNote(result: LookupResult): string {
   const matched = result.status === "matched" && result.clusters.some((cluster) => cluster.verdict_applies);
   return matched
-    ? "Coordination status comes from the matched monitored cluster. It does not establish whether the content is true or false."
-    : "Coordination: insufficient evidence. Repeated wording and engagement alone do not establish organized amplification, or prove organic sharing. This does not mean the content is false or unreadable.";
+    ? "From the matched cluster. It does not establish whether the content is true or false."
+    : "Coordination: insufficient evidence. Not a call on whether the content is true.";
 }
 
 export function factualFindings(result: LookupResult): string {
@@ -33,25 +33,27 @@ export function factualFindings(result: LookupResult): string {
     if (!url) return [];
     const receipt = page.receipt_id == null ? null : receipts.get(page.receipt_id);
     const read = receipt?.endpoint === "/scrape";
-    const role = page.role === "reference" ? "Text-copy candidate" : page.role === "linked" ? "Linked page" : "Coverage candidate";
+    const role = page.role === "reference" ? "Text copy" : page.role === "linked" ? "Linked page" : "Coverage";
+    // a date read on the page is stated; a search engine's date is marked as approximate
     const date = read && page.published_at
-      ? ` · Published: ${page.published_at}`
-      : page.published_hint ? ` · Search date hint: ${page.published_hint}` : "";
-    return [`<section class="data-group"><a class="src" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(page.headline || new URL(url).hostname)} ↗</a><div class="receipt-meta">${role} · ${read ? "Source page read · not automatic verification" : "Search lead · page not read"}${esc(date)}</div></section>`];
-  }).join("");
+      ? ` · ${page.published_at.slice(0, 10)}`
+      : page.published_hint ? ` · ~${page.published_hint}` : "";
+    return [`<section class="data-group"><a class="src" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(page.headline || new URL(url).hostname)} ↗</a><div class="receipt-meta">${role} · ${read ? "page read" : "search lead"}${esc(date)}</div></section>`];
+  });
+  // the first few sources are enough at a glance; the rest fold away
+  const SHOWN = 4;
+  const sourceList = sourcePages.slice(0, SHOWN).join("") + (sourcePages.length > SHOWN ? `<details class="more-sources"><summary>${sourcePages.length - SHOWN} more</summary>${sourcePages.slice(SHOWN).join("")}</details>` : "");
   const mediaNote = media && !readings.some((reading) => reading.media_provenance)
-    ? '<div class="notice"><b>Media attribution.</b> Source discovery and exact-image verification are separate. Collected articles may document attribution; image descriptions and OCR alone do not authenticate the image or its caption.</div>'
+    ? '<div class="notice"><b>Media.</b> Finding a source is not verifying the image.</div>'
     : "";
-  const unavailable = "";
   const findings = readings.map((reading) => {
     const checks = reading.claim_checks ?? [];
-    return `<div class="receipt-meta">Model assessment · ${esc(reading.model)} · based on the collected sources, not a guarantee of truth</div>
-      ${checks.length ? checks.map((check) => `<section class="data-group"><h4>${esc(check.claim)}</h4><div class="label">${esc(FINDING[check.finding] ?? FINDING.unverified)}</div><p class="lookup-message">${esc(check.explanation)}</p>${sources(check.cites)}</section>`).join("") : unavailable}
-      ${reading.media_provenance ? `<div class="notice"><b>Media attribution.</b> ${esc(reading.media_provenance)}${sources(reading.media_provenance_cites ?? [])}</div>` : ""}`;
+    return `${checks.length ? checks.map((check) => `<section class="data-group"><h4>${esc(check.claim)}</h4><div class="label">${esc(FINDING[check.finding] ?? FINDING.unverified)}</div><p class="lookup-message">${esc(check.explanation)}</p>${sources(check.cites)}</section>`).join("") : ""}
+      ${reading.media_provenance ? `<div class="notice"><b>Media.</b> ${esc(reading.media_provenance)}${sources(reading.media_provenance_cites ?? [])}</div>` : ""}`;
   }).join("");
   return `<section aria-label="Factual findings">
-    ${findings || unavailable}
+    ${findings}
     ${mediaNote}
-    ${sourcePages ? `${sourcePages}` : ""}
-    <p class="lookup-message">The earliest observed copy is only the earliest found in this search sample, not necessarily the original source.</p></section>`;
+    ${sourceList}
+    <p class="lookup-message">Earliest found, not proof of the original.</p></section>`;
 }

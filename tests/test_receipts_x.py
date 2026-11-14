@@ -559,3 +559,25 @@ def test_profile_variants_do_not_crowd_out_the_exact_search_hit():
     r = find_original(shot(), deps, Budget.seconds(20))
     assert post_url in [arg for k, arg, _ in ox.calls if k == "scrape"]
     assert (r.label, r.original_id) == ("matches", f"x:{MATCH}"), (r.label, r.differences)
+
+
+def test_call_finishing_just_after_the_wait_counts_as_started(monkeypatch):
+    # a call that ends between wait() timing out and the state check started: it is
+    # "no answer within the time budget", never "not read" (and never a ShotTimeUp)
+    import lookup.receipts_x as rx
+
+    real_wait = rx.wait
+
+    def late_wait(fs, timeout=None):
+        real_wait(fs)  # every call finishes, but the wait reports none in time
+        return set(), set(fs)
+
+    monkeypatch.setattr(rx, "wait", late_wait)
+    ox = FakeOxylabs(exact=hits("x_search_exact.json"), pages={PROFILE_URL: md("x_profile_old.md")})
+    cands, sink = run(ox)
+    assert cands == []
+    oxy = [r for r in sink.rows if r["tool"] == "oxylabs"]
+    assert len(oxy) == 3
+    assert all(
+        r["ok"] is False and r["summary"].endswith("no answer within the time budget") for r in oxy
+    )

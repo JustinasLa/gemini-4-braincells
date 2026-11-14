@@ -3,9 +3,16 @@
 A user pastes a link (an X post, a Bluesky post, a profile or any web page). The lookup collects
 real, live data about it and returns it with a receipt for every fact:
 
-- **The post itself** (Oxylabs `/scrape` of the X page; Bluesky public AppView): author, text,
-  exact creation time, the counts X shows (views, replies, reposts, likes, bookmarks), the
-  linked card and the media.
+- **The post itself** (FxTwitter's public API for X, falling back to Oxylabs `/scrape` of the X
+  page; Bluesky public AppView): author, text, exact creation time, the counts (views, replies,
+  reposts, likes, bookmarks), the linked card and the media. FxTwitter (`lookup/fxtwitter.py`,
+  `api.fxtwitter.com/2/conversation/<id>`) serves X's own post data: it sees posts X's
+  logged-out page hides (marked sensitive: "only available in the X app"), gives exact counts
+  (zeros included) and the full text of long posts, in under a second. It is an unofficial
+  community service, so the Oxylabs page read stays the fallback when it fails or is slow
+  (`LOOKUP_FXTWITTER=false` turns it off), and receipts name which one read the post. A post
+  FxTwitter says is gone is still read on its X page, which says why (suspended, protected,
+  deleted, sensitive). Candidate copies are read the same way.
 - **The author's history** (Oxylabs `/scrape` of the profile): join date, followers, following,
   post count, bio, and the recent posts the profile page shows, with their exact times.
 - **Where the text appears** (Oxylabs `/search`, exact phrase, the open web plus `site:x.com`
@@ -95,18 +102,63 @@ GET  /api/lookup/{id}/image  -> the uploaded image, while the job lives (404 aft
 not the declared content type. The bytes stay in the job, in memory, for `LOOKUP_JOB_TTL_S`
 and are never written to disk or the database; the JSON carries only their sha256, type and
 size. The upload is the submitted post (`upload:<sha256[:16]>`, no author, no time). Nemotron
-reads it, and:
+reads it (its text goes on the card and into the monitor check and the reading), and:
 
-- with 5+ words of text in the image, that text drives the same searches as a post's text
-  (web, X, Bluesky; candidates read on their own pages). The earliest copy read on its own page
-  is `origin_id`; copies below 0.8 similarity are reworded variants, counted in a note. A meme
-  also gets " meme" added to the coverage query, which brings up meme pages.
-- with less text (a short caption), or none, there's no exact-phrase search. The coverage step
-  looks for pages about the image by its caption, or by Nemotron's description (never for adult
-  content). Those pages are role "coverage": about the image, never copies or the origin.
-- the upload is never its own origin: with no verified copy, `origin_id` is null.
+- the results are matches of the picture, or posts and pages that carry at least 3 words in a
+  row of its text (`textsim.caption_runs`; case and punctuation don't matter, a run of only
+  stop words like "is in the" doesn't count).
+- reverse-image search finds the picture: TinEye and Yandex find candidate pictures and optional
+  local visual matching compares them.
+- with 3+ words of text, the web, X and Bluesky searches look for it as an exact phrase, in
+  reading order. A hit, and later the post read on its own page, joins the trace only with a
+  3-word run, however few of its words it otherwise shares; the others are dropped. Each kept
+  post or page lists its runs in `caption_match`, which Trackdown highlights in its text. The
+  earliest copy read on its own page is `origin_id`.
+- a site address written in the image (`textsim.domains`: `standwithjensen.com`, not big
+  platforms' own like x.com, not file names) is searched for too, at most two: the web by the
+  address, X and Bluesky by its name part when that is 8+ letters (`"standwithjensen"` also
+  finds `#standwithjensen`), else by the address. A screenshot of a web page is found by its
+  address far more often than by its first words, which are mostly the page's menus. A hit
+  that names the site (the address, or its 8+ letter name part as a hashtag or under another
+  ending: `#standwithjensen`, `standwithjensen.online`, never as a plain word or a file
+  name like `analytics.js`) joins the trace
+  like a 3-word run and is highlighted the same way.
+- a copy of the image (a candidate for its origin), post or page, must repeat a real part of
+  its text: runs covering 6+ words, or half of a shorter text; for a page, in what its own
+  read returned, never the search snippet it was found by. A short post that only names the site or a few
+  of its words is about the image, not a copy of it.
+- Nemotron's description is never searched for, and nor is the looser coverage query (skipped).
+  With fewer than 3 words of text and no site address, only the picture is searched for.
+- an upload Nemotron types a screenshot of a post still goes through the screenshot step, which
+  looks for the real post it shows.
+- **same template, other content** (`lookup/threadvariants.py`, `media/templatematch.py`):
+  people answer a screenshot with their own screenshot of the same page (a petition's signer
+  search showing another name) or the same meme template with another caption. Those are other
+  pictures, so reverse image search misses them, and X replies aren't indexed by search engines.
+  The step reads up to 6 X threads through FxTwitter (an upload: the X posts its text and site
+  searches found, the most replied-to first once their own reads are back, at most 5 s; an X
+  post: its own thread, two reply pages), takes up to 24 reply pictures
+  (not the traced picture itself), and Nemotron Super VL looks at each beside the traced
+  picture, one call per picture, all at once (~0.5 s live): same site or app, and the same kind
+  of screen content (a cropped result list counts; the site's confirmation page does not).
+  Only the second decides. One picture per call, not a grid: in a grid the model judged each
+  panel against the others and rejected real matches. A match is an `image_matches` entry with
+  `relation: "template"` and `engine: "x_replies"`, with the reply's URL, its exact time
+  (snowflake) and what differs; never the image origin, never a copy of the text. A picture
+  the model finds unchanged is a copy, not another version: not counted. Matches are published
+  as each comparison returns; the wait ends at the provider deadline (late ones are counted in
+  the receipt). The lookup settles the scan before its reading, so the reading and the
+  frozen result agree: a late answer or failure changes nothing, and a scan that hadn't
+  started by then never starts. Reply pages that could not be read (a
+  second page too) get a failed receipt; with none read, the step fails rather than reporting
+  an empty scan.
+- the upload is never its own origin: with no dated match, `origin_id` is null.
 
-Search is by text, not pixels: an image with no text and no well-known look finds little.
+Uploads need a public URL: `LOOKUP_PUBLIC_BASE_URL`, or `https://{PUBLIC_HOST}`. The production
+host is `noise-radar.srv2159172.hstgr.cloud`. Without one, the reverse-image step explains why
+it is skipped. `LOOKUP_REVERSE_IMAGE=false` disables it (the API default is true). An uploaded
+image's temporary public URL is sent to those search engines through Oxylabs; it still expires
+with the lookup. For X/Bluesky, the first post image is used, not a link-card thumbnail.
 
 Trackdown (web/trackdown) opens the stream and falls back to polling when it errors or no
 snapshot arrives within 4 s (a buffering proxy). `deploy/Caddyfile` leaves the stream
@@ -120,7 +172,7 @@ Jobs live in the API process (single uvicorn worker) for `LOOKUP_JOB_TTL_S`.
 
 ## LookupResult (JSON)
 
-All arrays grow while `state` is `running`; the client re-renders on each poll. Times are ISO
+Results fill while `state` is `running`; the client re-renders on each poll. Times are ISO
 8601 UTC. Unknown values are `null`, never guessed.
 
 ```jsonc
@@ -149,9 +201,99 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "readings": [Assessment],           // every reading, primary first; the second one can arrive while running
   "readings_disagree": false,         // the readings' llm_reading differ: both shown, neither is the status
   "steps": [Step],
-  "notes": ["..."]
+  "notes": ["..."],
+  "image_matches": [ImageMatch],
+  "image_origin_id": "img:3" | null  // separate from origin_id; see the image-origin rule below
 }
 ```
+
+### Image matches
+
+```jsonc
+ImageMatch {
+  "id": "img:3", "image_url": "https://example.org/picture.jpg",
+  "thumb_url": "https://img.tineye.com/example.jpg" | null,
+  "page_url": "https://example.org/story" | null, "domain": "example.org" | null,
+  "engine": "tineye",               // tineye | yandex
+  "first_seen": "2012-03-01T00:00:00Z" | null,
+  "time_source": "crawl_date" | null, // crawl_date | page | snowflake | null
+  "width": 388, "height": 257,       // either can be null
+  "relation": "cropped",            // same | resized | cropped | edited | different | unknown
+  "distance": 6,                     // null when not compared
+  "crop_box": [0.05, 0.1, 0.95, 1.0] | null,   // fractions 0..1 of the upload, see below
+  "edited_region": [0.0, 0.0, 1.0, 0.16] | null,
+  "relation_note": "Visible image comparison",
+  "changes": ["Caption changed from one line to another"],
+  "change_kinds": ["caption_changed"],  // deduplicated, in Nemotron's order
+  "changes_from": "match" | "upload" | null,  // which side the changes start from, see below
+  "changes_withdrawn": false,  // true: a description was taken back (see below)
+  "receipt_id": 12
+}
+```
+
+`changes_from` says which way to read `changes` (media.imagediff reads one picture as the
+starting point). `"match"`: the changes turn this copy into the submitted picture.
+`"upload"`: they turn the submitted picture (the upload or the post's image) into this copy.
+For an upload it is always `"match"`: a comparison convention, not a chronology (when someone
+uploads a picture says nothing about when it was made or edited). For a post it is `"match"`
+only when the copy's first-seen upper bound proves it existed before the post, judged on the
+copy's latest dates; a description whose direction a late-arriving date flips is not shown,
+or is withdrawn if already published (`changes`, `change_kinds` and `changes_from` cleared,
+`changes_withdrawn: true`, `receipt_id` back on the comparison receipt; the description's own
+receipt says why). With `changes_withdrawn` the empty `changes` say nothing about the content;
+show "description withdrawn", not "no change".
+Neither value says who copied whom or which picture was made first; show the direction with
+the sentences (e.g. "This copy → your picture").
+
+`change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
+`element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.
+Only `edited`/`cropped` matches get Nemotron change descriptions; code decides the relation.
+`edited` comes from pixels alone (`media.variants`): a strong global brightness, contrast or
+gamma filter on an unchanged repost can come back `edited`, so `edited` without `changes` is a
+visual difference, not proof that the content changed.
+`crop_box` and `edited_region` are `(left, top, right, bottom)` fractions 0..1 of the uploaded
+image, the base of `media.variants.relate(upload, match)`, not pixels and not the match's own
+frame: `crop_box` is where the match sits inside the upload (null when the match is larger),
+`edited_region` is where it differs (draw it on the upload, or on the aligned match).
+`different` matches are removed after comparison. Candidate IDs remain stable, so arrays can
+shrink and IDs can have gaps. An unavailable comparison stays `unknown`, not an image origin.
+`receipt_id` identifies the engine result until comparison, then the downloaded/comparison
+receipt, or the Nemotron diff receipt; all earlier receipts remain in `receipts`.
+
+Edges additionally accept `rel: "variant"` and tools `tineye`/`yandex`. A variant edge runs from
+the image origin (else the earliest same/resized candidate, else the subject) to an edited or
+cropped match; its tool is the engine or `nemotron` when it described changes. These edges show
+visual relationships, not proof that one uploader copied another. Receipts additionally accept
+tools `tineye`, `yandex`, and `fetch`: every engine request, download/redirect attempt and diff
+call has a receipt, including failures and calls whose completion was not confirmed in time.
+
+Two steps are inserted between `coverage` and `media`:
+- `reverse_image`: **Web searched for the picture** (TinEye, Yandex).
+- `variations`: **Copies compared**.
+
+The trace starts before synchronous upload OCR, or just after the post read supplies its image
+URL, alongside the existing searches. TinEye, Yandex imageview and Yandex sites run in parallel
+(three Oxylabs `/scrape` calls; caps 20/15/15 s). Matches dedupe by image or thumbnail URL,
+preferring TinEye and its earliest dates over promoted ranks; a duplicate fills in what the kept
+match lacks (a page URL brings its own domain). At most `Deps.image_matches_max` (default 20)
+matches are ever queued for download, counted cumulatively: a queued match is never evicted, so
+a later hit never buys a second batch. Until TinEye answers, Yandex hits may take only the cap
+minus TinEye's reserve (10, at most half the cap), since only TinEye's dated matches can be the
+image origin; held-back Yandex hits get the free slots once TinEye is back. Downloads use eight
+workers: 5 s and 8 MiB per attempt, full image then thumbnail (a thumbnail that arrives after
+the full image failed is still tried, each URL once). Only HTTP(S) on ports 80/443, global
+resolved IPs and `image/*` responses are accepted;
+connections pin the checked IP, redirects are checked again, and no credentials/cookies are
+sent. Up to `Deps.image_diffs_max` (default 4) edited/cropped comparisons run in parallel with
+20 s Nemotron timeouts, starting only with 23 s remaining before the 10 s assessment reserve.
+Every stage shares the lookup deadline; closed workers cannot publish late results.
+
+`Deps.relate` / `Deps.describe_changes` can be injected. Otherwise they import
+`media.variants.relate` / `media.imagediff.describe_changes` lazily. Without `media.variants`,
+`variations` is skipped with `variation matching is not installed on this server` and reverse
+results remain visible with relation `unknown`; without `media.imagediff` the comparisons still
+run and only the change descriptions are missing (the step detail says so). Direct `Deps` callers default reverse search
+off for backward compatibility; the API passes the enabled setting explicitly.
 
 ```jsonc
 Post {
@@ -173,7 +315,9 @@ Post {
   "metrics_as_of": "...",             // when the page was read
   "card": {"title": "...", "domain": "wsj.com", "url": "https://t.co/..."},   // or null
   "media_urls": ["https://pbs.twimg.com/media/...jpg"],
-  "receipt_id": 3
+  "receipt_id": 3,
+  "caption_match": ["when the comets land"] // uploaded image only: parts of `text` that repeat
+                                      // 3+ words in a row of the image's text; else []
 }
 Account {
   "platform": "x", "handle": "lookner", "name": "Steve Lookner",
@@ -193,7 +337,8 @@ Page {
   "time": "2026-11-13T21:05:00Z",     // best known time (published_at, else search hint), or null
   "time_source": "page",              // page | search_hint | null
   "time_uncertainty_s": 86400,        // true time is in [time, time + this]; null if unknown
-  "receipt_id": 7
+  "receipt_id": 7,
+  "caption_match": []                 // as on Post, in `headline` or `snippet`
 }
 MediaFinding {
   "media_url": "...", "post_id": "x:...", "description": "...", "extracted_text": ["..."],
@@ -291,6 +436,8 @@ Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies
    and `media` (the images in parallel) all start at once. `screenshot` follows `media` on the
    same worker: each image Nemotron typed a screenshot is read as a post and checked against
    the real post (`lookup/receipts.py`); for an image-only post it runs alongside the searches.
+   An uploaded image skips `coverage`; with fewer than 3 words of text in it, the other three
+   searches too.
 3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
    (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
    verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read
@@ -314,6 +461,20 @@ only while a bounded call (one attempt, 20 s, no rate-limiter wait: a lookup mak
 two) still fits before the reading's reserve.
 
 ## Rules that keep it honest (and why)
+
+- **Image origin is separate from text origin.** `image_origin_id` is the earliest dated
+  `same`/`resized`/`cropped` match whose latest possible first-seen time precedes **every**
+  dated verified post that may carry the picture (including posts discovered during
+  verification): a post with an image that is the subject or a copy of it (role `submitted`,
+  `origin`, `copy`, `quote` or `bluesky`), or any post whose image URL is one of the picture's
+  own same/resized/cropped copies. Text-only copies, the author's other posts and replies say
+  nothing about when this picture appeared, so they don't bound it. A crawl date is an
+  upper bound on first appearance, not a publication date: the picture is at least that old
+  and may be older. For day-only crawls, the conservative upper bound is the next midnight;
+  a crawl on the same day as a post is not provably older. Without such posts, the
+  earliest qualifying visual match can be the image origin. Without one, the field is null
+  and a note explains why. It never changes `origin_id` or claims who created the picture.
+  Describe differences as **edited** with the observed changes, never as a claim about intent.
 
 - **Times.** X post times come from the post id (snowflake), so every X post found, even one
   only seen in a search result, has its exact creation time. Bluesky times are the record's

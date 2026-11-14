@@ -1005,3 +1005,42 @@ def test_verify_detail_counts_only_reads_that_came_back():
     detail = _steps(job)["verify"].detail
     assert detail.startswith("0 of 1 read: 0 copies")  # the timed-out copy is not "read"
     assert next(p for p in job.result.posts if p.id == f"x:{COPY}").role == "mention"
+
+
+def test_a_late_screenshot_reading_is_not_handed_to_the_screenshot_step():
+    import dataclasses
+
+    from lookup.service import BudgetExceeded
+
+    class ShotReader(FakeImageReader):
+        def analyze(self, media, *, context=None):
+            a = super().analyze(media, context=context)
+            return dataclasses.replace(a, media_type="screenshot")
+
+    job = Lookup("lk_ls", LookupInput(url=X_URL), _deps(nemotron=ShotReader()))
+    closed = threading.Event()
+    closed.set()  # _media stopped waiting before this reading came back
+    assert isinstance(job._read_image(_image_http(), IMG_URL, closed), BudgetExceeded)
+    assert job._shots == [] and job.result.media == []
+
+
+def test_media_closes_the_download_client_it_made(monkeypatch):
+    from lookup import service
+
+    made: list[httpx.Client] = []
+    real_client = httpx.Client
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"\xff\xd8x")
+
+    def client(**_kw):
+        made.append(real_client(transport=httpx.MockTransport(handler)))
+        return made[-1]
+
+    monkeypatch.setattr(service.httpx, "Client", client)
+    reader = FakeImageReader()
+    job = Lookup("lk_c", LookupInput(url=X_URL), _deps(nemotron=reader))
+    job._media_urls = [IMG_URL]
+    job._subject_text = TEXT
+    job._media()
+    assert len(reader.calls) == 1 and len(made) == 1 and made[0].is_closed
