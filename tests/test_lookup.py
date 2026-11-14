@@ -316,6 +316,9 @@ class FakeOxylabs:
 
 
 class FakeStore:
+    def clusters_for_post(self, author, rkey):
+        return []
+
     def clusters_for_url(self, urls):
         return []
 
@@ -1003,6 +1006,30 @@ def test_lookup_short_read_text_keeps_short_skip_message():
     assert job._step("copies_bsky").detail == "text too short"
 
 
+def test_lookup_monitor_matches_submitted_bluesky_post_cluster():
+    class PostStore(FakeStore):
+        def clusters_for_post(self, author, rkey):
+            assert author == "did:plc:re2otjutgbn6yr7u4poaocl6"
+            assert rkey == "3n2btil3gjk2u"
+            return super().clusters_for_text("")
+
+    @contextmanager
+    def store():
+        yield PostStore()
+
+    job = Lookup(
+        "lk_154",
+        LookupInput(
+            url="https://bsky.app/profile/did:plc:re2otjutgbn6yr7u4poaocl6/post/3n2btil3gjk2u"
+        ),
+        make_deps(store=store),
+    )
+    job._monitor()
+    assert job.result.status == "matched"
+    assert job.result.clusters[0]["match"] == ["post"]
+    assert job.result.clusters[0]["verdict_applies"] is True
+
+
 def test_lookup_monitor_matches_twitter_link_from_x_input():
     class AliasStore(FakeStore):
         def clusters_for_url(self, urls):
@@ -1384,3 +1411,187 @@ def test_bluesky_search_receipt_link_is_url_encoded():
     job._copies_bsky()
     (rc,) = [r for r in job.result.receipts if r.endpoint == "searchPosts"]
     assert parse_qs(urlsplit(rc.source_url).query)["q"] == ['"Salt & pepper fries are back at the"']
+
+
+# X's logged-out page splits the author header of affiliated or verified accounts over several
+# lines with a badge image between name and handle; the shape of real pages (2026-11-14).
+SPLIT_SID = "2121345211959804234"
+SPLIT_MD = f"""## Post
+
+# Ada Example on X: "@bob\\_example A petition is underway and I am signing it too"
+
+## Conversation
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)
+
+  [![X](https://pbs.twimg.com/profile_images/9/x_normal.jpg)](/X)
+
+  [@ada\\_example](/ada_example)
+
+  A petition is underway and I am signing it too
+
+  [8:51 PM · Nov 13, 2026](/ada_example/status/{SPLIT_SID})·[9.1M
+
+  Views](/ada_example/status/{SPLIT_SID})
+
+  [8.2K](/compose/post?in_reply_to={SPLIT_SID})
+
+  18K
+
+  1.2M
+
+  3K
+* [![@cy_example](https://pbs.twimg.com/profile_images/3/c_normal.jpg)](/cy_example)
+
+  [Cy](/cy_example)
+
+  [![Verified](https://pbs.twimg.com/profile_images/8/v_normal.jpg)](/cy_example)
+
+  [@cy\\_example](/cy_example)
+
+  [1h](/cy_example/status/{QUOTE})
+
+  Sure.
+"""
+TRANSLATE_MD = f"""## Conversation
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)[@ada\\_example](/ada_example)
+
+  Show translation
+
+  Der Kapitän spricht sich für die Teilnahme aus [ex.de/AB12](https://t.co/abc "https://ex.de/AB12")
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})·[47.2K
+
+  Views](/ada_example/status/{SUBJ})
+"""
+
+
+def test_parse_split_author_header_keeps_name_and_handle_out_of_the_text():
+    page = parse_post_page(SPLIT_MD, SPLIT_SID)
+    m = page.main
+    assert (m.handle, m.name) == ("ada_example", "Ada Example")
+    # the title's leading reply @mention is not part of the words the post body shows
+    assert m.text == "A petition is underway and I am signing it too"
+    assert (m.views, m.replies, m.reposts, m.likes, m.bookmarks) == (
+        9_100_000,
+        8_200,
+        18_000,
+        1_200_000,
+        3_000,
+    )
+    [r] = page.replies
+    assert (r.handle, r.name, r.text, r.status_id) == ("cy_example", "Cy", "Sure.", QUOTE)
+
+
+def test_parse_split_header_of_a_quoted_post():
+    md = QUOTE_MD.replace(
+        "[Ada Example](/ada_example)[@ada\\_example](/ada_example)",
+        "[Ada Example](/ada_example)\n\n  [![X](https://pbs.twimg.com/x.jpg)](/X)\n\n"
+        "  [@ada\\_example](/ada_example)",
+    )
+    assert md != QUOTE_MD
+    m = parse_post_page(md, COPY).main
+    assert m.text == "🤷" and m.quoted_handle == "ada_example" and m.quoted_id == SUBJ
+    assert m.quoted_text == TEXT
+
+
+def test_parse_drops_show_translation_button():
+    m = parse_post_page(TRANSLATE_MD, SUBJ).main
+    assert m.text == "Der Kapitän spricht sich für die Teilnahme aus ex.de/AB12"
+
+
+def test_title_keeps_a_text_that_really_starts_with_a_mention():
+    # not a reply: the body itself starts with the @mention, and the title is longer (the body
+    # was cut with "Show more"), so the title's text is used whole
+    md = f"""# Ada Example on X: "@bob_example is right about the ferry times"
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)[@ada\\_example](/ada_example)
+
+  @bob\\_example is right Show more
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})
+"""
+    m = parse_post_page(md, SUBJ).main
+    assert m.text == "@bob_example is right about the ferry times"
+
+
+def test_title_of_a_reply_that_starts_with_its_own_mention():
+    # a reply to @bob whose own text starts with "@carol": only the reply prefix goes
+    md = f"""# Ada Example on X: "@bob @carol is right about the ferry times"
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)
+
+  [![X](https://pbs.twimg.com/profile_images/9/x_normal.jpg)](/X)
+
+  [@ada\\_example](/ada_example)
+
+  [@carol](/carol) is right Show more
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})
+"""
+    m = parse_post_page(md, SUBJ).main
+    assert m.text == "@carol is right about the ferry times"
+
+
+@pytest.mark.parametrize(
+    ("title", "body", "want"),
+    [
+        # Sol review r2: a reply handle that extends the body's own first mention
+        (
+            "@caroline @carol is right about the ferry times",
+            "[@carol](/carol) is right Show more",
+            "@carol is right about the ferry times",
+        ),
+        (
+            "@carol @carol is right about the ferry times",
+            "[@carol](/carol) is right Show more",
+            "@carol is right about the ferry times",
+        ),
+        # truncated text with no space in it: the cut first word still lines up
+        (
+            "@bob @carol你好世界今天真好",
+            "[@carol](/carol)你好... Show more",
+            "@carol你好世界今天真好",
+        ),
+        ("@bob 你好世界今天真好啊", "你好…", "你好世界今天真好啊"),
+        # Sol review r3: a repeated handle longer than the old 12-character comparison
+        (
+            "@carol_example @carol_example is right about the ferry times",
+            "[@carol_example](/carol_example) is right Show more",
+            "@carol_example is right about the ferry times",
+        ),
+        # a link right after the body's own mention (t.co in the title, display text in the body)
+        (
+            "@bob @carol https://t.co/abc123 is the full ferry timetable for tomorrow",
+            "[@carol](/carol) [ferry.example/t](https://t.co/abc123) is the full Show more",
+            "@carol https://t.co/abc123 is the full ferry timetable for tomorrow",
+        ),
+        # not a reply: the body's own mentions are the whole run, nothing is cut
+        (
+            "@bob @carol both right about the ferry times",
+            "[@bob](/bob) [@carol](/carol) both right Show more",
+            "@bob @carol both right about the ferry times",
+        ),
+    ],
+)
+def test_title_reply_prefix_cut_lines_up_with_the_body(title, body, want):
+    md = f"""# Ada Example on X: "{title}"
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)[@ada\\_example](/ada_example)
+
+  {body}
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})
+"""
+    assert parse_post_page(md, SUBJ).main.text == want
