@@ -48,11 +48,23 @@ export function firstSeenLabel(match: ImageMatch): string {
   return `time from post id · ${new Date(time).toISOString().replace("T", " ").replace(".000Z", " UTC")}`;
 }
 
+/** Where a box is drawn: part 1's relate(upload, match) gives 0..1 fractions of the UPLOAD; a box
+ *  with a value above 1 is read as pixels of the matched image (the first draft of the contract). */
+export type BoxFrame = "upload" | "match";
+export function boxFrame(box: unknown): BoxFrame | null {
+  if (!Array.isArray(box) || box.length !== 4 || !box.every((value) => typeof value === "number" && Number.isFinite(value))) return null;
+  return box.every((value) => value >= 0 && value <= 1) ? "upload" : "match";
+}
+/** A box as [left, top, width, height] percentages of the frame it belongs to, or null when malformed. */
 export function normalizedBox(box: unknown, width?: number | null, height?: number | null): [number, number, number, number] | null {
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width! <= 0 || height! <= 0 || !Array.isArray(box) || box.length !== 4 || !box.every((value) => typeof value === "number" && Number.isFinite(value))) return null;
-  const [left, top, right, bottom] = box.map((value, index) => Math.max(0, Math.min(index % 2 ? height! : width!, value)));
+  const frame = boxFrame(box);
+  if (!frame) return null;
+  const sized = Number.isFinite(width) && Number.isFinite(height) && width! > 0 && height! > 0;
+  if (frame === "match" && !sized) return null;
+  const [w, h] = frame === "upload" ? [1, 1] : [width!, height!];
+  const [left, top, right, bottom] = (box as number[]).map((value, index) => Math.max(0, Math.min(index % 2 ? h : w, value)));
   if (right <= left || bottom <= top) return null;
-  return [left / width! * 100, top / height! * 100, (right - left) / width! * 100, (bottom - top) / height! * 100];
+  return [left / w * 100, top / h * 100, (right - left) / w * 100, (bottom - top) / h * 100];
 }
 
 export function imageTraceState(result: LookupResult) {
@@ -72,12 +84,15 @@ export function imageTraceState(result: LookupResult) {
   const groups = IMAGE_RELATIONS.map((relation) => ({ relation, matches: matches.filter((match) => match !== origin && relationOf(match) === relation) }));
   const busy = (step: typeof reverse) => step?.state === "pending" || step?.state === "running";
   return {
-    enabled: result.image_matches != null || !!reverse || !!variations,
+    // the server always sends image_matches ([] by default) and skips both steps for inputs with no
+    // image: show the meme trace only when there is an image search to report on
+    enabled: matches.length > 0 || [reverse, variations].some((step) => step && step.state !== "skipped") || (result.kind === "image" && !!reverse),
+    skipped: [reverse, variations].filter((step) => step?.state === "skipped").map((step) => `${step!.label}: skipped${step!.detail ? ` · ${step!.detail}` : ""}`),
     matches, origin, groups,
     different: matches.filter((match) => relationOf(match) === "different"),
     searching: busy(reverse), comparing: busy(variations),
     failures: [reverse, variations].filter((step) => step?.state === "failed").map((step) => `${step!.label}: ${step!.detail || "This step failed; other trace results remain available."}`),
-    noEarlier: !origin && (result.image_matches != null || reverse?.state === "done") && !busy(reverse) && reverse?.state !== "failed",
+    noEarlier: !origin && reverse?.state !== "skipped" && (matches.length > 0 || reverse?.state === "done") && !busy(reverse) && reverse?.state !== "failed",
   };
 }
 

@@ -126,6 +126,7 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   you: { label: "input", long: "Your submission" },
   archive: { label: "archive", long: "Archive / post-ID timestamp" },
   bluesky: { label: "bluesky", long: "Bluesky public AppView" },
+  fetch: { label: "fetch", long: "Direct image download" },
 };
 
 export const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];

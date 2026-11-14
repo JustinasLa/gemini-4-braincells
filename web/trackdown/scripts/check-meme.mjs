@@ -41,6 +41,30 @@ check("an original published after the submitted post is not its origin; a later
   origin.time_source = "crawl_date";
   assert.equal(api.imageTraceState(later).origin?.id, "img:origin");
 });
+check("real server: image_matches [] and skipped steps on a text lookup show no meme trace", () => {
+  const text = structuredClone(fixture);
+  Object.assign(text, { kind: "text", image_matches: [], image_origin_id: null });
+  text.steps = text.steps.map((step) => ({ ...step, state: "skipped", detail: "this input has no image to trace", found: [] }));
+  assert.equal(api.imageTraceState(text).enabled, false);
+  const image = { ...structuredClone(text), kind: "image" };
+  image.steps = image.steps.map((step) => ({ ...step, detail: "reverse image search needs a public image URL; configure PUBLIC_HOST" }));
+  const state = api.imageTraceState(image);
+  assert.ok(state.enabled && !state.noEarlier, "a skipped search on an image is explained, not reported as no earlier copy");
+  assert.match(state.skipped[0], /skipped · reverse image search needs a public image URL/);
+});
+check("fraction boxes belong to the upload; pixel boxes to the match", () => {
+  assert.equal(api.boxFrame([0.1, 0.2, 0.9, 0.8]), "upload");
+  assert.deepEqual(api.normalizedBox([0.1, 0.2, 0.9, 0.8], null, null).map((v) => Math.round(v)), [10, 20, 80, 60]);
+  assert.equal(api.boxFrame([0, 0, 388, 40]), "match");
+  assert.equal(api.normalizedBox([0, 0, 388, 40], null, null), null, "pixel boxes need the match size");
+  assert.equal(api.normalizedBox([0.5, 0.5, 0.2, 0.9]), null, "reversed fractions");
+});
+check("engine receipts are attributed to the Oxylabs scrape, downloads to fetch", () => {
+  const withReceipts = structuredClone(fixture);
+  withReceipts.receipts.push({ ...withReceipts.receipts[0], id: 13, tool: "tineye" }, { ...withReceipts.receipts[0], id: 14, tool: "fetch" });
+  const tools = api.lookupCase(withReceipts).receipts.map((receipt) => receipt.tool);
+  assert.ok(tools.includes("oxylabs") && tools.includes("fetch") && !tools.includes("archive"));
+});
 check("relation groups count matches, exclude original and different", () => {
   const state = api.imageTraceState(fixture);
   assert.deepEqual(state.groups.map((group) => [group.relation, group.matches.length]), [["same", 1], ["resized", 1], ["cropped", 1], ["edited", 1], ["unknown", 1]]);

@@ -118,6 +118,17 @@ try {
     renderAll(lookupCase(r));
     renderAll(lookupCase({ ...fixture(), state: "running", posts: [], edges: [], screenshots: [], pages: [], media: [] }));
   });
+
+  const { memeFixture } = await server.ssrLoadModule("/src/data/mockMeme.ts");
+  check("meme trace: image matches render as cards; an image with no text-search hits stays readable", () => {
+    const trace = lookupCase(memeFixture());
+    const html = renderAll(trace);
+    assert.match(html, /ORIGINAL · EARLIEST MATCH FOUND/);
+    assert.match(html, /first seen by TinEye on 2026-11-12 · upper bound, not a publish date/);
+    assert.doesNotMatch(html, /\b(fake|deepfake)\b/i);
+    assert.ok(trace.edges.some((e) => e.rel === "variant" && isLineageEdge(e, trace.nodes.find((n) => n.id === e.from), trace.nodes.find((n) => n.id === e.to))));
+    renderAll(lookupCase({ ...memeFixture("meme-blocked"), image_matches: [{ id: "img:bare" }], image_origin_id: "img:bare" }));
+  });
 } finally {
   await server.close();
 }
