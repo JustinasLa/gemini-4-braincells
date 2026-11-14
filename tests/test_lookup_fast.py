@@ -516,7 +516,7 @@ def test_web_page_facts_without_a_headline_keep_the_quick_read_search_text():
     assert _steps(job)["copies_x"].state == "done"
     assert any(kind == "search" and "The comets have landed" in q for kind, q in ox.calls)
     (page,) = [pg for pg in job.result.pages if pg.url == WEB_URL]
-    assert page.headline is None and page.claims == ["An extracted claim"]
+    assert page.headline == TEXT and page.claims == ["An extracted claim"]
     assert page.publisher == "Example News" and job.result.subject_id == page.id
     facts_rc = next(rc for rc in job.result.receipts if rc.summary.startswith("Linked page read"))
     quick_rc = next(rc for rc in job.result.receipts if rc.summary.startswith("Page text read"))

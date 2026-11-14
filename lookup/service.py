@@ -1352,6 +1352,7 @@ class Lookup:
                         receipt_id=rid,
                     )
                 )
+            pg.headline = pg.headline or head
             self._subject_text = self._subject_text or head
             self._card_title = self._card_title or head
             self.result.subject_id = self.result.subject_id or pg.id
