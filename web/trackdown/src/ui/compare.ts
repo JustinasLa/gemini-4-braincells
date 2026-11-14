@@ -89,12 +89,23 @@ function renderPictures(dialog: HTMLElement, trace: TraceCase, match: ImageMatch
   }
 }
 
+/** The server drops candidates that turn out to look different: say so instead of a stale comparison. */
+function showRemoved(dialog: HTMLElement) {
+  if (dialog.dataset.removed) return;
+  dialog.dataset.removed = "true";
+  const body = dialog.querySelector<HTMLElement>(".meme-compare-body")!;
+  const focused = body.contains(document.activeElement);
+  dialog.querySelector("#meme-compare-title")!.textContent = "No longer a match";
+  body.innerHTML = '<p class="meme-note" role="status">The image comparison removed this candidate from the results: it looks different from the submission, so it is not counted as a variation.</p>';
+  if (focused) dialog.querySelector<HTMLElement>(".meme-close")?.focus();
+}
+
 /** Live update of an open comparison: every field that depends on the match, without touching the
  * layout mode, the slider position or (where the control survives) focus. */
 export function refreshComparison(trace: TraceCase) {
   if (!active || active.dataset.trace !== trace.id) return;
   const match = trace.lookup?.image_matches?.find((candidate) => candidate.id === active!.dataset.match);
-  if (!match) return;
+  if (!match) return showRemoved(active);
   active.querySelector("#meme-compare-title")!.textContent = titleText(match);
   renderPictures(active, trace, match);
   swap(active.querySelector<HTMLElement>(".meme-comparison-facts")!, factsHtml(match));

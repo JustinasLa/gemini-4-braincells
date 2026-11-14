@@ -71,6 +71,13 @@ check("engine receipts are attributed to the Oxylabs scrape, downloads to fetch"
   const tools = api.lookupCase(withReceipts).receipts.map((receipt) => receipt.tool);
   assert.ok(tools.includes("oxylabs") && tools.includes("fetch") && !tools.includes("archive"));
 });
+check("an upload with only crawl-dated matches states no origin and no ages", () => {
+  const trace = api.lookupCase(api.memeFixture("meme-upload"));
+  assert.equal(trace.originId, "");
+  assert.ok(trace.nodes.find((node) => node.id === "x:submitted").timeUnknown);
+  assert.ok(trace.nodes.filter((node) => node.imageMatch).every((node) => node.undated));
+  assert.equal(api.imageTraceState(api.memeFixture("meme-upload")).origin?.id, "img:origin", "the Original card still shows");
+});
 check("relation groups count matches, exclude original and different", () => {
   const state = api.imageTraceState(fixture);
   assert.deepEqual(state.groups.map((group) => [group.relation, group.matches.length]), [["same", 1], ["resized", 1], ["cropped", 1], ["edited", 1], ["unknown", 1]]);
