@@ -77,6 +77,17 @@ def test_claim_phrase_picks_longest_sentence_of_most_common_text():
     assert claim_phrase([None, ""]) is None
 
 
+def test_claim_phrase_for_unspaced_scripts():
+    ja = "今日は東京で大雨が降っていて電車が止まっています。みんな気をつけてください。"
+    assert claim_phrase([ja]) == "今日は東京で大雨が降っていて電車が止まっています。"
+    assert claim_phrase(["おはようございます！"]) is None
+    th = "วันนี้ฝนตกหนักมากที่กรุงเทพ รถติดทุกถนน ทุกคนระวังด้วยนะ"
+    assert claim_phrase([th]) == "วันนี้ฝนตกหนักมากที่กรุงเทพ"
+    assert claim_phrase(["สวัสดีครับ"]) is None
+    long_ja = "あ" * 50
+    assert claim_phrase([long_ja]) == "あ" * 30
+
+
 def test_check_builds_page_and_search_evidence_with_urls():
     client = FakeClient()
     items = SourceChecker(client).check(posts())

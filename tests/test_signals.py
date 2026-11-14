@@ -12,7 +12,7 @@ from signals.graph import rarity
 from signals.keys import build_keys
 from signals.score import _max_in_window, content_signals, handle_shape, shared_keys
 from signals.synth import SYNTH_PREFIX, campaign, empty_window, hard_negative, inject
-from signals.textnorm import text_hash
+from signals.textnorm import normalize_text, text_hash, tokens
 from signals.window import WAction, WindowData, WPost
 
 
@@ -86,6 +86,56 @@ def test_short_texts_are_not_keys():
             )
         )
     assert not [k for k in build_keys(wd, DEFAULT) if k[0] == "text"]
+
+
+JA_TEXT = "今日は東京で大雨が降っていて電車が止まっています。みんな気をつけてください。"
+TH_TEXT = "วันนี้ฝนตกหนักมากที่กรุงเทพ รถติดทุกถนน ทุกคนระวังด้วยนะ"
+
+
+def _same_text_window(text: str, n: int = 5) -> WindowData:
+    wd = WindowData(start=0, end=600)
+    for i in range(n):
+        wd.posts.append(
+            WPost(
+                uri=f"at://did:plc:j{i}/app.bsky.feed.post/1",
+                did=f"did:plc:j{i}",
+                t=float(i),
+                text=text,
+                text_hash=text_hash(text),
+            )
+        )
+    return wd
+
+
+def test_spaced_tokens_and_text_hash_are_unchanged():
+    # Values computed before unspaced scripts got per-character tokens (issue #17).
+    en = "Breaking: the dam at Riverside has FAILED, evacuate now! https://x.co/a #flood"
+    assert tokens(normalize_text(en)) == [
+        "breaking", "the", "dam", "at", "riverside", "has", "failed", "evacuate", "now", "#flood"
+    ]  # fmt: skip
+    assert text_hash(en) == "c62ab4bbfd0bae75"
+    ru = "Привет всем, это тест сообщения"
+    assert tokens(normalize_text(ru)) == ["привет", "всем", "это", "тест", "сообщения"]
+    assert text_hash(ru) == "374ae0c7ee04f5b5"
+    assert text_hash(JA_TEXT) == "c9f39b1bf7cd3af9"
+    assert text_hash(TH_TEXT) == "88a1ee3121cf24f3"
+    assert text_hash("おはようございます") == "b2826360fed0b46d"
+
+
+def test_unspaced_scripts_count_per_character():
+    assert len(tokens(normalize_text(JA_TEXT))) >= DEFAULT.min_text_tokens
+    assert tokens(normalize_text("iphone15を買った")) == ["iphone15", "を", "買", "っ", "た"]
+
+
+@pytest.mark.parametrize("text", [JA_TEXT, TH_TEXT])
+def test_japanese_and_thai_copy_paste_are_text_keys(text):
+    keys = build_keys(_same_text_window(text), DEFAULT)
+    assert keys[("text", text_hash(text))].n == 5
+    assert [k for k in keys if k[0] == "neardup"]
+
+
+def test_short_japanese_greeting_is_not_a_key():
+    assert not [k for k in build_keys(_same_text_window("おはようございます"), DEFAULT)]
 
 
 def test_viral_keys_are_dropped():

@@ -14,6 +14,14 @@ _MENTION_RE = re.compile(r"@[\w.-]+")
 _NON_WORD_RE = re.compile(r"[^\w#]+", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
 _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:(?!\d)", re.IGNORECASE)
+# Scripts written without spaces between words (Thai, Lao, Myanmar, Khmer, kana, CJK
+# ideographs). tokens() counts these per character, so word thresholds and shingles work.
+UNSPACED_CHARS = (
+    "\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff\u3040-\u30ff\u31f0-\u31ff"
+    "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f"
+)
+UNSPACED_RE = re.compile(f"[{UNSPACED_CHARS}]")
+_UNSPACED_PIECE_RE = re.compile(f"[{UNSPACED_CHARS}]|[^{UNSPACED_CHARS}]+")
 
 # Query parameters that only track clicks; dropping them makes the same link compare equal.
 _TRACKING_PARAMS = {
@@ -59,7 +67,17 @@ def normalize_text(text: str | None) -> str:
 
 
 def tokens(norm_text: str) -> list[str]:
-    return norm_text.split() if norm_text else []
+    """Words of a normalised text. Characters of unspaced scripts (Japanese, Chinese, Thai...)
+    are one token each; words of space-separated scripts are unchanged."""
+    if not norm_text:
+        return []
+    out: list[str] = []
+    for w in norm_text.split():
+        if UNSPACED_RE.search(w):
+            out.extend(_UNSPACED_PIECE_RE.findall(w))
+        else:
+            out.append(w)
+    return out
 
 
 def text_hash(text: str | None) -> str | None:

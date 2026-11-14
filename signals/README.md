@@ -18,7 +18,8 @@ uv run pytest tests/test_signals.py
    chars), MinHash near-duplicate text, same media blob CID, same normalised link. Engagement: same
    liked / reposted / quoted post, same followed account. Keys used by more than
    `max_key_accounts` accounts (viral posts, big news links) are dropped: they can't tell
-   coordination from popularity.
+   coordination from popularity. Tokens are words; in scripts written without spaces (Japanese,
+   Chinese, Thai) each character is a token (`textnorm.tokens`), so the 25-char minimum decides.
 3. **Graph** (`graph.py`): account-account edges weighted by rarity, `1/ln(1+n)` per shared key.
    An edge needs one shared content key or >= 3 shared engagement keys. Connected components;
    components over 50 accounts are split with seeded Leiden.

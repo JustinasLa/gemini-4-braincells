@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datasketch import MinHash, MinHashLSH
 
 from signals.config import DetectorConfig
-from signals.textnorm import normalize_text
+from signals.textnorm import normalize_text, tokens
 from signals.window import WindowData
 
 CONTENT_KINDS = ("text", "neardup", "media", "url")
@@ -124,7 +124,7 @@ class MinHashCache:
 
 
 def _text_ok(norm: str, cfg: DetectorConfig) -> bool:
-    return len(norm) >= cfg.min_text_chars and len(norm.split()) >= cfg.min_text_tokens
+    return len(norm) >= cfg.min_text_chars and len(tokens(norm)) >= cfg.min_text_tokens
 
 
 def build_keys(
@@ -147,7 +147,7 @@ def build_keys(
         norm = cache.norm(p.uri, p.text)
         if p.text_hash and _text_ok(norm, cfg):
             add("text", p.text_hash, p.did, p.t, p.uri)
-            toks = norm.split()
+            toks = tokens(norm)
             if len(toks) >= cfg.minhash_min_tokens:
                 long_posts.append((p.uri, toks, p.did, p.t))
         for m in p.media_hashes:
