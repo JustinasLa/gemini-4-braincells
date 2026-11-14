@@ -1,0 +1,559 @@
+import base64
+import io
+import json
+import logging
+from dataclasses import FrozenInstanceError
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import httpx
+import openai
+import pytest
+from PIL import Image
+
+from media.imagediff import CHANGE_KINDS, DEFAULT_LAYOUT, PROMPT_VERSION, describe_changes
+
+MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+RETURNED_MODEL = "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
+FULL = {
+    "changes": ["The caption changed from 'X' to 'Y'."],
+    "kinds": ["caption_changed"],
+    "text_before": ["X"],
+    "text_after": ["Y"],
+    "content_flags": [],
+    "confidence": 0.87654,
+}
+
+
+def image_bytes(size=(320, 180), mode="RGB", color="white", format="PNG"):
+    buffer = io.BytesIO()
+    Image.new(mode, size, color).save(buffer, format=format)
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def images():
+    return image_bytes(), image_bytes(color="gray")
+
+
+def response(content, model=RETURNED_MODEL, finish="stop"):
+    return SimpleNamespace(
+        model=model,
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason=finish)],
+        usage=None,
+    )
+
+
+class FakeClient:
+    def __init__(self, result):
+        self.model = MODEL
+        self.calls = 0
+        self.requests = []
+        self._limiter = SimpleNamespace(wait=Mock())
+        self._client = SimpleNamespace(chat=SimpleNamespace(completions=self))
+        self.result = result
+
+    def create(self, **kwargs):
+        self._limiter.wait.assert_called_once_with()
+        assert self.calls == 1
+        self.requests.append(kwargs)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def compare(images, payload=None, **kwargs):
+    client = FakeClient(response(json.dumps(FULL if payload is None else payload)))
+    kwargs.setdefault("layout", "pair")
+    result = describe_changes(client, *images, timeout_s=2.5, **kwargs)
+    assert result is not None
+    return result, client
+
+
+def sent_images(client):
+    parts = client.requests[0]["messages"][1]["content"]
+    decoded = []
+    for part in parts:
+        if part["type"] == "image_url":
+            url = part["image_url"]["url"]
+            assert url.startswith("data:image/jpeg;base64,")
+            image = Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1])))
+            image.load()
+            assert image.format == "JPEG"
+            decoded.append(image)
+    return decoded
+
+
+def red_pixels(image):
+    pixels = image.convert("RGB").tobytes()
+    return sum(
+        red > 160 and green < 100 and blue < 100
+        for red, green, blue in zip(pixels[::3], pixels[1::3], pixels[2::3], strict=True)
+    )
+
+
+def test_happy_path(images):
+    result, client = compare(images)
+    assert result.changes == FULL["changes"]
+    assert result.kinds == FULL["kinds"]
+    assert result.text_before == ["X"]
+    assert result.text_after == ["Y"]
+    assert result.confidence == 0.8765
+    assert result.model == RETURNED_MODEL
+    assert isinstance(result.latency_ms, int) and result.latency_ms >= 0
+    assert client.calls == len(client.requests) == 1
+    assert PROMPT_VERSION == "imagediff-v1"
+    assert DEFAULT_LAYOUT == "composite"
+    assert len(CHANGE_KINDS) == 10
+    with pytest.raises(FrozenInstanceError):
+        result.model = "changed"
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        "```json\n%s\n```",
+        '<think>{"ignore": 1}</think>\n%s',
+        "Here is the comparison:\n%s\nThat is all.",
+    ],
+)
+def test_parse_wrappers(images, wrapper):
+    client = FakeClient(response(wrapper % json.dumps(FULL)))
+    result = describe_changes(client, *images, timeout_s=2)
+    assert result is not None and result.changes == FULL["changes"]
+
+
+@pytest.mark.parametrize(
+    ("alias", "expected"),
+    [
+        (" Caption ", "caption_changed"),
+        ("crop", "cropped"),
+        ("COLOR", "recolored"),
+        ("colour", "recolored"),
+        ("recolor", "recolored"),
+        ("face", "face_changed"),
+        ("face_swap", "face_changed"),
+        ("added_text", "text_added"),
+        ("logo", "watermark"),
+        ("handle", "watermark"),
+        ("unrecognised", "other"),
+    ],
+)
+def test_kind_aliases(images, alias, expected):
+    result, _ = compare(images, {**FULL, "kinds": [alias]})
+    assert result.kinds == [expected]
+
+
+@pytest.mark.parametrize(
+    ("kinds", "expected"),
+    [
+        ([], ["other", "other"]),
+        (["crop"], ["cropped", "other"]),
+        (["crop", "face", "logo"], ["cropped", "face_changed"]),
+        (["", "face"], ["other", "face_changed"]),
+    ],
+)
+def test_kind_lengths(images, kinds, expected):
+    result, _ = compare(
+        images, {**FULL, "changes": ["One change", "Another change"], "kinds": kinds}
+    )
+    assert result.kinds == expected
+
+
+def test_changes_cleaning_and_alignment(images):
+    result, _ = compare(
+        images,
+        {
+            **FULL,
+            "changes": [
+                " ",
+                " A   hat\nwas added ",
+                "A hat was added.",
+                None,
+                "The image was cropped",
+            ],
+            "kinds": ["face", "element_added", "logo", "face", "crop"],
+        },
+    )
+    assert result.changes == ["A hat was added.", "The image was cropped."]
+    assert result.kinds == ["element_added", "cropped"]
+
+
+def test_five_changes_cap(images):
+    result, _ = compare(
+        images,
+        {**FULL, "changes": [f"Change {index}" for index in range(9)], "kinds": ["crop"] * 9},
+    )
+    assert result.changes == [f"Change {index}." for index in range(5)]
+    assert result.kinds == ["cropped"] * 5
+
+
+@pytest.mark.parametrize(
+    "word",
+    [
+        "deepfake",
+        "deep fakes",
+        "fake",
+        "fakes",
+        "faked",
+        "real",
+        "authentic",
+        "genuine",
+        "bots",
+        "shills",
+        "trolls",
+        "propaganda",
+    ],
+)
+def test_forbidden_words_drop_aligned_kind(images, word):
+    result, _ = compare(
+        images,
+        {
+            **FULL,
+            "changes": [f"It is {word.upper()}", "A hat was added"],
+            "kinds": ["face", "element_added"],
+        },
+    )
+    assert result.changes == ["A hat was added."]
+    assert result.kinds == ["element_added"]
+
+
+def test_forbidden_guard_uses_word_boundaries(images):
+    result, _ = compare(images, {**FULL, "changes": ["A surreal robot drawing was added"]})
+    assert result.changes == ["A surreal robot drawing was added."]
+
+
+@pytest.mark.parametrize(
+    ("updates", "expected"),
+    [
+        ({"content_flags": ["adult"]}, "Adult content."),
+        ({"changes": ["A nude figure was added"]}, "Adult content."),
+        ({"text_before": ["naked"]}, "Adult content."),
+        ({"text_after": ["porn"]}, "Adult content."),
+        ({"changes": ["A fake nude figure was added"]}, "Adult content."),
+        ({"content_flags": ["graphic"]}, "Graphic content."),
+        ({"content_flags": ["graphic", "adult"]}, "Adult content."),
+    ],
+)
+def test_content_guards(images, updates, expected):
+    result, _ = compare(images, {**FULL, **updates})
+    assert result.changes == [expected]
+    assert result.kinds == ["other"]
+    assert result.text_before == result.text_after == []
+
+
+def test_identical(images):
+    result, _ = compare((images[0], images[0]), {**FULL, "changes": [], "kinds": ["crop"]})
+    assert result.changes == result.kinds == []
+
+
+def test_text_bounds_and_scalar_strings(images):
+    result, _ = compare(
+        images,
+        {
+            **FULL,
+            "changes": "A hat was added",
+            "kinds": "element_added",
+            "text_before": ["z" * 400] * 30,
+            "text_after": "  Hello  ",
+        },
+    )
+    assert result.changes == ["A hat was added."]
+    assert result.kinds == ["element_added"]
+    assert result.text_before == ["z" * 300] * 20
+    assert result.text_after == ["Hello"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("junk", 0.5),
+        (None, 0.5),
+        (True, 0.5),
+        (False, 0.5),
+        ({}, 0.5),
+        (float("nan"), 0.5),
+        (float("inf"), 0.5),
+        (-3, 0),
+        (8, 1),
+        ("0.23456", 0.2346),
+    ],
+)
+def test_confidence(images, value, expected):
+    result, _ = compare(images, {**FULL, "confidence": value})
+    assert result.confidence == expected
+
+
+@pytest.mark.parametrize("model", ["nemotron-3.5-super", "other-vl", None])
+def test_wrong_model(images, model, caplog):
+    client = FakeClient(response(json.dumps(FULL), model=model))
+    assert describe_changes(client, *images, timeout_s=2) is None
+    assert client.calls == 1
+    assert "outcome=NotVisionModelError" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        openai.APITimeoutError(request=httpx.Request("POST", "https://example.test")),
+        openai.OpenAIError("unavailable"),
+        RuntimeError("broken"),
+    ],
+)
+def test_call_failure_is_not_retried(images, error, caplog):
+    client = FakeClient(error)
+    assert describe_changes(client, *images, timeout_s=2) is None
+    assert len(client.requests) == client.calls == 1
+    records = [
+        record.nemotron_call for record in caplog.records if hasattr(record, "nemotron_call")
+    ]
+    assert len(records) == 1
+    assert records[0]["task"] == "imagediff"
+    assert records[0]["outcome"] == records[0]["error_type"] == type(error).__name__
+
+
+@pytest.mark.parametrize("bad_index", [0, 1])
+def test_garbage_images_make_no_call(images, bad_index, caplog):
+    inputs = list(images)
+    inputs[bad_index] = b"not an image"
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, *inputs, timeout_s=2) is None
+    assert client.calls == 0 and client.requests == []
+    client._limiter.wait.assert_not_called()
+    assert "image comparison unavailable" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", None, "not JSON", "{}", '{"changes": {}}', '{"changes": null}', '{"changes": ["broken"'],
+)
+def test_unusable_content(images, content):
+    client = FakeClient(response(content))
+    assert describe_changes(client, *images, timeout_s=2) is None
+
+
+def test_no_choices(images):
+    client = FakeClient(SimpleNamespace(model=MODEL, choices=[], usage=None))
+    assert describe_changes(client, *images, timeout_s=2) is None
+
+
+@pytest.mark.parametrize(
+    ("content", "usable"),
+    [
+        ('{"changes": ["A hat was added"], "confidence":', True),
+        ('{"changes": [], "confidence":', True),
+        ('{"confidence":', False),
+        ('{"changes": [', False),
+        ('{"changes": ["unfinished', False),
+    ],
+)
+def test_truncated_content(images, content, usable):
+    client = FakeClient(response(content, finish="length"))
+    assert (describe_changes(client, *images, timeout_s=2) is not None) is usable
+
+
+@pytest.mark.parametrize("layout", ["pair", "composite"])
+def test_request_contract(images, layout):
+    _, client = compare(images, layout=layout, max_tokens=1234)
+    request = client.requests[0]
+    assert request["model"] == MODEL
+    assert request["timeout"] == pytest.approx(2.5, abs=0.05)
+    assert request["max_tokens"] == 1234
+    assert request["temperature"] == 0.1
+    assert request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    schema = request["response_format"]
+    assert schema["type"] == "json_schema" and schema["json_schema"]["name"] == "image_diff"
+    assert set(schema["json_schema"]["schema"]["required"]) == set(FULL)
+    assert len(sent_images(client)) == (2 if layout == "pair" else 1)
+    text = request["messages"][1]["content"][0]["text"]
+    assert "pixel comparison" in text and "not part of the image" in text
+    assert "earlier/original" in text and "later/variant" in text
+
+
+def test_default_layout(images):
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, *images, timeout_s=2) is not None
+    assert len(sent_images(client)) == 1  # composite: one side-by-side image
+
+
+@pytest.mark.parametrize("size", [(1024, 1), (1024, 1024), (1, 1024)])
+def test_composite_width_bound(size):
+    data = image_bytes(size)
+    _, client = compare((data, data), layout="composite")
+    assert sent_images(client)[0].width <= 2048
+
+
+def test_composite_panels_share_height():
+    _, client = compare(
+        (image_bytes((640, 320), color="black"), image_bytes((240, 240), color="blue")),
+        layout="composite",
+    )
+    composite = sent_images(client)[0]
+    assert composite.size == (480 + 16 + 240, 240 + 40)
+    for vertical in (45, composite.height - 1):
+        assert composite.getpixel((200, vertical)) == (0, 0, 0)
+        assert composite.getpixel((600, vertical))[2] > 240
+
+
+def test_composite_dimensions_and_labels():
+    _, client = compare((image_bytes((2000, 400)), image_bytes((1000, 100))), layout="composite")
+    composite = sent_images(client)[0]
+    assert composite.width <= 2048 and composite.mode == "RGB"
+    left_width = 5 * (composite.height - 40)
+    left_label = composite.crop((0, 0, left_width, 40))
+    right_label = composite.crop((left_width + 16, 0, composite.width, 40))
+    assert left_label.convert("L").getextrema()[0] < 100
+    assert right_label.convert("L").getextrema()[0] < 100
+    assert (
+        composite.crop((0, 45, composite.width, composite.height)).getextrema() == ((255, 255),) * 3
+    )
+
+
+@pytest.mark.parametrize("layout", ["pair", "composite"])
+@pytest.mark.parametrize(
+    "region",
+    [
+        None,
+        (0.2, 0.2, 0.8, 0.8),
+        (-1, -1, 2, 2),
+        (0.5, 0.5, 0.5, 0.7),
+        (0.8, 0.2, 0.1, 0.7),
+        (float("nan"), 0, 1, 1),
+        ("bad", 0, 1, 1),
+    ],
+)
+def test_red_box_only_on_variant(images, layout, region):
+    _, client = compare(images, layout=layout, edited_region=region)
+    sent = sent_images(client)
+    expected = region in [(0.2, 0.2, 0.8, 0.8), (-1, -1, 2, 2)]
+    assert (red_pixels(sent[-1]) > 0) is expected
+    original = sent[0] if layout == "pair" else sent[0].crop((0, 0, 320, sent[0].height))
+    assert red_pixels(original) == 0
+
+
+@pytest.mark.parametrize(
+    ("mode", "color", "format"),
+    [
+        ("RGBA", (255, 0, 0, 0), "PNG"),
+        ("LA", (0, 0), "PNG"),
+        ("P", 0, "GIF"),
+        ("RGB", "white", "WEBP"),
+    ],
+)
+def test_input_formats(images, mode, color, format):
+    data = image_bytes(mode=mode, color=color, format=format)
+    _, client = compare((data, images[1]))
+    image = sent_images(client)[0]
+    assert image.mode == "RGB"
+    if mode in ("RGBA", "LA"):
+        assert image.getpixel((100, 100)) == (255, 255, 255)
+
+
+@pytest.mark.parametrize("format", ["GIF", "WEBP"])
+def test_animated_input_uses_first_frame(images, format):
+    buffer = io.BytesIO()
+    Image.new("RGB", (80, 80), "white").save(
+        buffer,
+        format=format,
+        save_all=True,
+        append_images=[Image.new("RGB", (80, 80), "black")],
+        duration=100,
+        loop=0,
+    )
+    _, client = compare((buffer.getvalue(), images[1]))
+    assert sent_images(client)[0].getpixel((40, 40)) == (255, 255, 255)
+
+
+def test_pair_downscales():
+    _, client = compare((image_bytes((3000, 2000)), image_bytes((1600, 3200))))
+    assert [image.size for image in sent_images(client)] == [(1024, 683), (512, 1024)]
+
+
+def test_success_log_matches_result(images, caplog):
+    caplog.set_level(logging.INFO)
+    result, _ = compare(images)
+    records = [
+        record.nemotron_call for record in caplog.records if hasattr(record, "nemotron_call")
+    ]
+    assert len(records) == 1
+    record = records[0]
+    assert record["task"] == "imagediff" and record["outcome"] == "ok"
+    assert record["latency_ms"] == result.latency_ms
+    assert record["model"] == MODEL and record["returned_model"] == RETURNED_MODEL
+    assert len(record["hash"]) == 16
+
+
+def test_limiter_exception_is_contained(images):
+    client = FakeClient(response(json.dumps(FULL)))
+    client._limiter.wait.side_effect = RuntimeError("limiter failed")
+    assert describe_changes(client, *images, timeout_s=2) is None
+    assert client.calls == 0
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf")])
+def test_invalid_timeout_makes_no_call(images, timeout):
+    client = FakeClient(response(json.dumps(FULL)))
+    assert describe_changes(client, *images, timeout_s=timeout) is None
+    assert client.calls == 0
+
+
+class SequenceClient(FakeClient):
+    """Returns (or raises) one queued result per request."""
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        result = self.result.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def server_error():
+    request = httpx.Request("POST", "https://example.test")
+    return openai.InternalServerError(
+        "Internal server error", response=httpx.Response(500, request=request), body=None
+    )
+
+
+def call_records(caplog):
+    return [r.nemotron_call for r in caplog.records if hasattr(r, "nemotron_call")]
+
+
+def test_server_error_retried_once_within_budget(images, caplog):
+    caplog.set_level(logging.INFO)
+    client = SequenceClient([server_error(), response(json.dumps(FULL))])
+    result = describe_changes(client, *images, timeout_s=20)
+    assert result is not None and result.changes == FULL["changes"]
+    assert client.calls == len(client.requests) == 2
+    assert client.requests[1]["timeout"] < 20
+    client._limiter.wait.assert_called_once_with()
+    records = call_records(caplog)
+    assert [(r["attempt"], r["outcome"]) for r in records] == [(1, "retry"), (2, "ok")]
+
+
+def test_second_server_error_returns_none(images, caplog):
+    client = SequenceClient([server_error(), server_error()])
+    assert describe_changes(client, *images, timeout_s=20) is None
+    assert client.calls == 2
+    outcomes = [r["outcome"] for r in call_records(caplog)]
+    assert outcomes == ["retry", "InternalServerError"]
+
+
+def test_server_error_not_retried_without_budget(images):
+    client = SequenceClient([server_error(), response(json.dumps(FULL))])
+    assert describe_changes(client, *images, timeout_s=2) is None
+    assert client.calls == 1
+
+
+@pytest.mark.parametrize("region", [None, (0.1, 0.1, 0.5, 0.5)])
+def test_marker_box_change_dropped_only_when_marked(images, region):
+    payload = {
+        **FULL,
+        "changes": ["A red rectangular outline was added around the caption.", *FULL["changes"]],
+        "kinds": ["element_added", "caption_changed"],
+    }
+    result, _ = compare(images, payload, edited_region=region)
+    if region is None:
+        assert result.kinds == ["element_added", "caption_changed"]
+    else:
+        assert result.changes == FULL["changes"] and result.kinds == ["caption_changed"]

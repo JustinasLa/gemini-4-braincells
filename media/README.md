@@ -182,3 +182,64 @@ What we learned:
   `other`, after the "not in the list is other, never x" rule). On a cut-off Bluesky post the
   model read the next, fully legible post of the thread (both settings).
 - No count was ever written as 0 when not shown; no UI-oddity note described a person.
+
+## Image diff (`imagediff-v1`)
+
+`describe_changes(client, original, variant, *, timeout_s, edited_region=None) -> ImageDiff | None`
+(`media/imagediff.py`) says in plain sentences what changed between an earlier meme and a later
+variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, from
+`caption_changed`, `text_added`, `text_removed`, `element_added`, `element_removed`,
+`face_changed`, `cropped`, `recolored`, `watermark`, `other`), `text_before` / `text_after`
+(legible text in each), `confidence`, `model` (as the response returned it), `latency_ms`. No
+visible change gives `changes == []`. It returns None, never raises, on bad image bytes, timeout,
+an API error, a non-Super-VL response or an unusable reply.
+
+- **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`), one
+  attempt bounded by `timeout_s`; a bare 5xx gets one retry if at least 3 s of the budget is
+  left. Each attempt is logged by `log_call_attempt` with `task=imagediff`, and the Super VL check
+  applies. It calls the OpenAI client directly, not `NemotronClient._complete`, whose 4-try
+  backoff cannot keep to a lookup's budget.
+- **Layout:** Verda accepts two images per request, so both were measured. The default is one
+  composite image: both scaled to one height, labelled "A: earlier" / "B: later", at most 2048 px
+  wide. `edited_region` (fractions of the variant) draws a red box on B. A sentence about a red
+  box is dropped when we drew one.
+- **Wording:** describes the media, never names a person. A sentence with deepfake, fake, real,
+  authentic, genuine, bot, shill, troll or propaganda is dropped with its kind. Adult or graphic
+  media (model flag or the shared `safe_description` word list) gives exactly "Adult content." or
+  "Graphic content." with no text lists.
+
+Evaluated on 20 pairs made from 7 public-domain Wikimedia Commons photos (the images and pairs
+stay outside git). Pairs: 3 caption swaps, 1 caption swap plus watermark, text added, text removed,
+an element added, 2 elements removed, 2 face patches, 2 crops, a hue shift, a grayscale, a
+watermark added, a watermark removed, and 3 identical pairs (re-encoded at JPEG q55-70 and/or
+resized to 80-90%). Endpoint: Verda, `nemotron-3.5-super-vl`, sequential calls, 2026-11-14,
+final prompt, 3 runs. "Kind" = the expected kind is among `kinds`; "clean" = additionally no
+unrelated kind (a crop may also report what it cut off), and an identical pair returns no change.
+
+| Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
+|---|---|---|---|---|---|---|
+| **composite (default)** | 60/60 | 57/60 | 57/60 | 12/12 | 0.24-0.30 s | 0.37-0.40 s |
+| pair (two images) | 60/60 | 53/60 | 55/60 | 12/12 | 0.27-0.38 s | 0.37-0.51 s |
+| composite + `edited_region` box (2 runs) | 40/40 | 37/40 | 34/40 | 8/8 | 0.29-0.36 s | 0.38-0.43 s |
+
+Per kind, composite, each of 3 runs: caption changed 4/4, text added 1/1, text removed 1/1,
+element added 1/1, element removed 1/2, face changed 2/2, cropped 2/2, recolored 2/2, watermark
+2/2, identical 3/3. No reply had a forbidden word, a person's name, panel words or our red box.
+
+What we learned:
+- vLLM's guided decoding rejects `uniqueItems` (HTTP 400 "Unimplemented keys" on every call), so
+  the schema leaves it out.
+- Verda answers some calls with a bare HTTP 500, whatever the request shape (schema,
+  `json_object`, none): about 70% in one busy period, 0-10% otherwise. Hence the one retry.
+- Pair layout reported a crop that is not there in an identical pair (a re-encoded portrait) in 3
+  of 3 runs (an earlier prompt also gave "warmer tone"). Composite returned no change for all 3
+  identical pairs in every run.
+- With a red `edited_region` box, the first prompt reported the box as an added element (7 of the
+  12 valid pair-layout replies). The prompt rule and the code guard brought that to 0, but the box did not
+  improve accuracy on these pairs. Composite without a box was the most accurate.
+- An early composite prompt wrote "in the later image" / "left panel". Banning panel words fixed
+  that, but direction then needs its own rule ("in A but missing from B was removed").
+- Known limit: a colour sunflower inset pasted on a grayscale portrait, then removed, reads as
+  "added" in composite in every run. Removed sunglasses and a removed watermark read correctly.
+  Pair layout gets the inset right, but it is less accurate overall.
+- Latency is far below the 4 s target: the reply is about 100 tokens with reasoning off.
