@@ -283,3 +283,17 @@ def test_helpers():
     )
     assert normalize_url("javascript:alert(1)") is None
     assert normalize_url("") is None
+
+
+def test_lag_watchdog_fails_over_only_on_sustained_upstream_lag():
+    from ingest.consumer import LagWatchdog
+
+    w = LagWatchdog(max_lag_s=60, for_s=120, max_queue=5000)
+    assert not w.update(90, 10, now=0)
+    assert not w.update(90, 10, now=60)
+    assert w.update(90, 10, now=120)  # 2 minutes behind with an empty queue -> fail over
+    assert not w.update(90, 10, now=130)  # timer restarts after a failover
+    assert not w.update(10, 10, now=400)  # caught up -> reset
+    assert not w.update(90, 10, now=410)
+    assert not w.update(90, 50_000, now=600)  # our own backlog: not the host's fault, reset
+    assert not w.update(None, 0, now=700)
