@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from analyst.context import ClusterContext, EvidenceItem
-from analyst.prompt import build_prompt
+from analyst.prompt import MAX_EVIDENCE_CHARS, SYSTEM, build_prompt
 from analyst.service import analyze
 from analyst.verdict import CitedEvidence, VerdictDraft
 
@@ -162,3 +162,96 @@ def test_prompt_lists_citable_ids_polarity_and_claims():
     assert "claims: The supply was poisoned." in p
     assert "<https://news.example/story>" in p
     assert '"detector_status": "coordinated"' in p
+
+
+def test_media_ocr_template_and_provenance_reach_prompt_and_are_citable():
+    context = ctx()
+    context.evidence.extend(
+        [
+            EvidenceItem(
+                51,
+                "media",
+                "A brief media summary",
+                {
+                    "description": "A law firm marketing graphic",
+                    "extracted_text": ["LAW FIRMS USE VIDEO MARKETING", "CHICAGO"],
+                    "reuse_cues": ["city placeholder"],
+                    "manipulation_cues": ["cropped header"],
+                    "n_accounts": 3,
+                    "n_posts": 5,
+                },
+                "https://bsky.app/profile/a/post/media",
+                "nemotron-3.5-super-vl",
+            ),
+            EvidenceItem(
+                52,
+                "media",
+                "Two images share a template",
+                {
+                    "type": "ocr_template",
+                    "shared_tokens": ["law", "firms", "marketing"],
+                    "varying_tokens": ["chicago", "austin"],
+                    "n_images": 2,
+                    "n_accounts": 3,
+                },
+                None,
+                "nemotron-3.5-super-vl",
+            ),
+        ]
+    )
+    model = FakeModel(draft(ids=(51, 52)))
+    verdict = analyze(context, model)
+    assert "LAW FIRMS USE VIDEO MARKETING / CHICAGO" in model.prompt
+    assert '"shared_tokens": "law / firms / marketing"' in model.prompt
+    assert '"varying_tokens": "chicago / austin"' in model.prompt
+    for expected in (
+        "[51] (media)",
+        "[52] (media)",
+        '"model": "nemotron-3.5-super-vl"',
+        "A law firm marketing graphic",
+        "city placeholder",
+        "cropped header",
+        '"n_accounts": 3',
+        '"n_posts": 5',
+        '"n_images": 2',
+        "<https://bsky.app/profile/a/post/media>",
+    ):
+        assert expected in model.prompt
+    assert "Nemotron 3.5 Super VL" in SYSTEM
+    assert "OCR text is not proof of who made it" in SYSTEM
+    assert [citation.evidence_id for citation in verdict.evidence] == [51, 52]
+    assert verdict.llm_assessment == "coordinated" and verdict.adjustments == []
+
+
+def test_media_prompt_bounds_fields_and_total_evidence():
+    context = ctx(evidence=False)
+    for ident in range(100):
+        context.evidence.append(
+            EvidenceItem(
+                ident,
+                "media",
+                "summary " * 1000,
+                {
+                    "extracted_text": ["OCR " * 1000],
+                    "reuse_cues": ["reuse " * 1000],
+                    "manipulation_cues": ["crop " * 1000],
+                },
+                None,
+                "nemotron-3.5-super-vl",
+            )
+        )
+    prompt = build_prompt(context)
+    assert "OCR " * 151 not in prompt
+    assert "reuse " * 41 not in prompt
+    assert "crop " * 49 not in prompt
+    assert "Further evidence omitted" in prompt
+    assert len(prompt) < MAX_EVIDENCE_CHARS + 1000
+    evidence = prompt.split("Evidence items (cite by number):\n", 1)[1].split("\n\nSample posts")[0]
+    assert len(evidence) <= MAX_EVIDENCE_CHARS
+
+
+def test_legacy_media_row_without_optional_details_is_supported():
+    context = ctx(evidence=False)
+    context.evidence.append(EvidenceItem(9, "media", "Legacy summary", {}, None, None))
+    assert "[9] (media)" in build_prompt(context)
+    assert "Legacy summary" in build_prompt(context)
