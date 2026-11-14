@@ -44,6 +44,9 @@ class ImageMatch(BaseModel):
             "other",
         ]
     ] = Field(default_factory=list)
+    # which side `changes` start from: "match" = the changes turn this copy into the upload (the
+    # copy is the earlier one), "upload" = they turn the upload into this copy
+    changes_from: Literal["match", "upload"] | None = None
     receipt_id: int | None = None
 
 

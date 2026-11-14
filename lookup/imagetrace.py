@@ -217,6 +217,7 @@ class Trace:
                     "relation_note",
                     "changes",
                     "change_kinds",
+                    "changes_from",
                     "receipt_id",
                 }
                 self.matches[match.id] = self.matches[match.id].model_copy(
@@ -495,8 +496,28 @@ class Trace:
                 self._complete(rid, "Downloaded image; visual comparison unavailable")
         return match, None
 
+    def _match_is_older(self, match) -> bool:
+        """Which side media.imagediff should read as the earlier one ("original"). An upload is
+        newer than any copy already on the web, so the copy comes first. For a post, a copy
+        comes first only when its first-seen upper bound proves it existed before the post;
+        otherwise the post's picture does. Who derived from whom is never claimed."""
+        if self.job._upload is not None:
+            return True
+        with self.job.lock:
+            subject = next(
+                (p for p in self.job.result.posts if p.id == self.job.result.subject_id), None
+            )
+        posted = subject.created_at if subject else None
+        posted = posted or self.job._subject_time
+        if not (match.first_seen and posted):
+            return False
+        bound = match.first_seen + timedelta(days=match.time_source == "crawl_date")
+        return bound <= posted
+
     def _diff(self, item):
         match, data, base, describe = item
+        older = self._match_is_older(match)
+        original, variant = (data, base) if older else (base, data)
         rid = self._receipt(
             "nemotron",
             "image diff",
@@ -509,8 +530,8 @@ class Trace:
         try:
             diff = describe(
                 self.job.deps.nemotron,
-                base,
-                data,
+                original,
+                variant,
                 timeout_s=max(0.0, self.job._provider_deadline(DIFF_S) - time.monotonic()),
             )
             if diff is None:
@@ -518,13 +539,18 @@ class Trace:
                 return None
             updated = match.model_copy(deep=True)
             updated.changes = [_wording(change) for change in diff.changes]
-            updated.change_kinds = diff.kinds
+            updated.change_kinds = list(dict.fromkeys(diff.kinds))
+            updated.changes_from = "match" if older else "upload"
             updated.receipt_id = rid
             updated = ImageMatch.model_validate(updated.model_dump())
             self._complete(
                 rid,
                 self._comparison_summary(updated)
-                + "; observed changes: "
+                + (
+                    "; observed changes from this copy to the submitted picture: "
+                    if older
+                    else "; observed changes from the submitted picture to this copy: "
+                )
                 # media.imagediff: [] means Nemotron saw no visible change
                 + ("; ".join(updated.changes) or "Nemotron saw no visible change"),
                 latency_ms=diff.latency_ms,

@@ -154,7 +154,8 @@ def relate(base, other):
 
 
 def describe(client, original, variant, *, timeout_s):
-    assert original == BASE and variant in (EDITED, CROPPED) and 0 < timeout_s <= 20
+    assert BASE in (original, variant) and {original, variant} - {BASE} <= {EDITED, CROPPED}
+    assert 0 < timeout_s <= 20
     return SimpleNamespace(
         changes=["Caption changed from one line to another"],
         kinds=["caption_changed"],
@@ -1366,3 +1367,59 @@ def test_real_media_variants_relate_through_the_trace():
 
 def describe_nothing(client, original, variant, *, timeout_s):
     return None
+
+
+def test_diff_reads_an_upload_as_newer_than_every_copy():
+    """Part 4 live: the upload was passed as the earlier image, so a meme that ADDED a caption
+    to an older picture read as "caption removed". A copy found on the web predates the upload."""
+    calls = []
+
+    def record(client, original, variant, *, timeout_s):
+        calls.append((original, variant))
+        return SimpleNamespace(
+            changes=["A caption was added"],
+            kinds=["text_added", "caption_changed", "text_added"],
+            latency_ms=3,
+            model="nemotron-3.5-super-vl",
+        )
+
+    job = job_for(Searches([hit("edited.png", when=None)]), describe_changes=record)
+    run_trace(job)
+    assert calls and all(o == EDITED and v == BASE for o, v in calls)
+    edited = next(m for m in job.result.image_matches if m.relation == "edited")
+    assert edited.changes_from == "match"
+    assert edited.change_kinds == ["text_added", "caption_changed"]  # deduplicated, in order
+    receipt = next(r for r in job.result.receipts if r.id == edited.receipt_id)
+    assert "from this copy to the submitted picture" in receipt.summary
+
+
+@pytest.mark.parametrize(
+    "first_seen,match_first",
+    [
+        (datetime(2008, 4, 22, tzinfo=UTC), True),  # crawled long before the post
+        (datetime(2026, 11, 13, tzinfo=UTC), False),  # crawl day ends after the post
+        (None, False),  # undated (Yandex): the post's picture goes first
+    ],
+)
+def test_diff_direction_for_a_post_follows_provable_order(first_seen, match_first):
+    job = job_for()
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    match = ImageMatch(
+        id="img:1",
+        engine="tineye" if first_seen else "yandex",
+        image_url="https://images.example/edited.png",
+        first_seen=first_seen,
+        time_source="crawl_date" if first_seen else None,
+    )
+    assert trace._match_is_older(match) is match_first

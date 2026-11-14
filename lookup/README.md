@@ -178,10 +178,17 @@ ImageMatch {
   "edited_region": [0.0, 0.0, 1.0, 0.16] | null,
   "relation_note": "Visible image comparison",
   "changes": ["Caption changed from one line to another"],
-  "change_kinds": ["caption_changed"],
+  "change_kinds": ["caption_changed"],  // deduplicated, in Nemotron's order
+  "changes_from": "match" | "upload" | null,  // which side the changes start from, see below
   "receipt_id": 12
 }
 ```
+
+`changes_from` says which way to read `changes` (media.imagediff reads one picture as the
+earlier one). `"match"`: the changes turn this copy into the submitted picture; for an upload
+always, since a copy already on the web predates it. `"upload"`: they turn the submitted
+picture (the upload or the post's image) into this copy; for a post, unless the copy's
+first-seen upper bound proves it existed before the post. Neither claims who copied whom.
 
 `change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
 `element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.
