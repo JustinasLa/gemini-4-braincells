@@ -31,6 +31,7 @@ class ClusterContext:
     signals: dict  # clusters.signals JSONB
     evidence: list[EvidenceItem] = field(default_factory=list)
     sample_posts: list[str] = field(default_factory=list)
+    evidence_omitted: int = 0  # items prompt.fit_evidence left out for size
 
     @property
     def evidence_ids(self) -> set[int]:

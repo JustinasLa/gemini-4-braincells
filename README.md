@@ -87,6 +87,7 @@ that anyone was paid or why.
 | `signals/` | The coordination detector: windows, shared keys, account graph, clusters, four signal families, permutation null model, organic guards, deterministic status, enrichment. See `signals/README.md`. |
 | `sources/` | Oxylabs Web API: `/scrape` with AI extraction on a cluster's most-shared links, `/search` for its headline and repeated text. Every fact keeps its source URL. |
 | `media/` | Nemotron 3.5 Super VL: describes images and video thumbnails in candidate clusters, extracts their text (OCR), notes reuse and manipulated-context cues, links different images that share one text template. `media/README.md`. |
+| `lookup/` | Trace any link (X post, Bluesky post, profile, web page) with live data: Oxylabs `/scrape` reads the post, its counts and the author's profile; `/search` finds the same text on the web, on X and Bluesky and the coverage of the story; candidate copies are verified on their own pages (copy, quote or reply); exact X post times from the post id; Nemotron reads the images; Gemini writes a cited reading. Coordination verdict only when the link is in a monitored cluster. `lookup/README.md`. |
 | `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
 | `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. In review (PRs #9, #10). |
 | `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
@@ -94,6 +95,31 @@ that anyone was paid or why.
 | `common/` | Shared settings (`common.config`) and DB connections (`common.db`), migrations runner. |
 | `db/` | `schema.sql` plus `migrations/`. |
 | `deploy/` | Docker Compose, Caddy, deploy and outside-check scripts for the Hostinger VPS. |
+
+## Tech stack
+
+| Part | Where it is used |
+|---|---|
+| **Bluesky Jetstream** (public firehose) | Data source. `ingest/consumer.py` reads it over WebSocket; `ingest/writer.py` stores it. |
+| **Bluesky AppView + PLC directory** | Account enrichment (profile, creation date, handle history) in `signals/enrich.py`. |
+| **Oxylabs Web API** | `sources/oxylabs.py` (`/scrape` with AI extraction, `/search`), called by the `sources` worker and by `POST /api/analyze` (`api/routes/analyze.py`). Gemini also calls it as a tool (`analyst/tools.py`). |
+| **Google Gemini** (`google-genai`) | `analyst/agent.py` (function-calling loop over Oxylabs and DB tools) and `analyst/gemini.py`; checked by `analyst/guard.py`. |
+| **NVIDIA Nemotron 3.5 Super VL** | Planned image and video-frame reader in `media/` (stub on `main`). `openai` is a dependency for its OpenAI-compatible API. |
+| **Python 3.12 + uv** | Every backend service. `pyproject.toml` / `uv.lock`; one image in `Dockerfile`. |
+| **PostgreSQL 16 + pgvector** | The only datastore: `db/schema.sql`, `db/migrations/`, applied by `common/migrate.py`. Raw tables are hour-partitioned. pgvector is enabled but no vector columns exist yet. |
+| **psycopg 3** | All DB access: `common/db.py`, `ingest/`, `signals/store.py`, `sources/store.py`, `analyst/store.py`, `api/store.py`. |
+| **datasketch** (MinHash LSH) | Near-duplicate text keys in `signals/keys.py`. |
+| **NumPy + SciPy (sparse)** | Account co-action graph in `signals/graph.py`; permutation null model in `signals/score.py`. |
+| **python-igraph + leidenalg** | Splitting large connected components into clusters (Leiden) in `signals/graph.py`. |
+| **httpx** | Outbound HTTP: `sources/oxylabs.py`, `signals/enrich.py`. |
+| **Pydantic + pydantic-settings** | Settings from env (`common/config.py`); API models (`api/schemas.py`), verdicts (`analyst/verdict.py`), source facts (`sources/models.py`). |
+| **FastAPI + Uvicorn** | The JSON API: `api/main.py`, `api/routes/`. |
+| **Plain HTML + JavaScript** | The dashboard, one file with no build step: `web/public/index.html` (calls `/api/*` with `fetch`). |
+| **Caddy 2** | Serves `web/public` and proxies `/api/*` to the API (`deploy/Caddyfile`). |
+| **Docker Compose** | All services (db, migrate, ingest, signals, sources, analyst, api, caddy): `deploy/docker-compose.yml`. |
+| **Hostinger VPS + Traefik** | Production host. Hostinger's Traefik terminates HTTPS in front of our Caddy (`deploy/docker-compose.hostinger.yml`); shipped with `deploy/deploy.sh`, checked with `deploy/check.sh`. |
+| **pytest + ruff** | Tests in `tests/`; lint and format config in `pyproject.toml`. |
+| **Entire** (Graph, Brain) | Agent session checkpoints and code lookup for the team (see below). |
 
 ## How the metrics are made
 
@@ -241,6 +267,7 @@ evidence `kind` is `signal | media | source | analyst`.
 - `GET /api/clusters?status=&min_score=&limit=&include_synthetic=` → cluster summaries, newest first, each with `top_signals` and the latest analyst `verdict` *(implemented)*
 - `GET /api/clusters/{id}` → summary + `signals` + `members` + `posts` (25, with bsky.app links) + `evidence` (signal/media/source) + `analyst` (full latest verdict) *(implemented)*
 - `GET /api/metrics` → latest `eval_runs` per (dataset, split) *(implemented)*
+- `POST /api/lookup` `{url}` or `{text}` → 202 + `LookupResult` (`state: running`); `GET /api/lookup/{id}` polls it until `done`. Live, receipted trace of one link; schema in `lookup/README.md` *(implemented)*
 - `POST /api/analyze` `{text?, url?, handle?}` → `{status: matched|insufficient, clusters, web_findings, notes}`. `matched` = the input is in a monitored cluster (its verdicts apply); otherwise live Oxylabs findings only, never a verdict *(implemented)*
 
 **Analyst verdict** (stored in `evidence.detail` with `kind='analyst'`):

@@ -8,6 +8,7 @@ services:
     ports: !reset []
     environment:
       PUBLIC_DOMAIN: ":80"
+      CADDY_TRUSTED_PROXIES: private_ranges  # only Traefik reaches Caddy here (no host ports)
     labels:
       - traefik.enable=true
       - traefik.http.routers.noise-radar.rule=Host(`${PUBLIC_HOST:?set PUBLIC_HOST in .env}`)

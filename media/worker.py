@@ -198,7 +198,7 @@ class MediaRun:
         return [f.analysis for f in self.findings]
 
     def evidence_rows(self) -> list[dict[str, Any]]:
-        """{summary, detail, source_url, model} per finding, plus the OCR-template row if any."""
+        """Evidence rows for findings, failures, and any cross-image OCR template."""
         rows = [
             {
                 "summary": f.summary(),
@@ -208,6 +208,21 @@ class MediaRun:
             }
             for f in self.findings
         ]
+        rows.extend(
+            {
+                "summary": f"Nemotron media analysis failed for {failure.media_hash}: {failure.error}",
+                "detail": {
+                    "media_hash": failure.media_hash,
+                    "status": "failed",
+                    "error": failure.error,
+                    "did": failure.did,
+                    "profile_url": f"https://bsky.app/profile/{failure.did}",
+                },
+                "source_url": f"https://bsky.app/profile/{failure.did}",
+                "model": None,
+            }
+            for failure in self.failures
+        )
         template = ocr_template(self.findings)
         return rows + ([template] if template else [])
 

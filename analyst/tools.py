@@ -266,6 +266,9 @@ class ToolBox:
         self._conn = conn
         self._requested_by = requested_by
         self.new_evidence: dict[int, EvidenceItem] = {}
+        # every evidence item a tool returned to the model (new or already stored): citable
+        self.returned: dict[int, EvidenceItem] = {}
+        self._last_item: EvidenceItem | None = None
         self.records: list[ToolCallRecord] = []
         self._allowed_urls: set[str] = set()
         for e in ctx.evidence:
@@ -322,6 +325,7 @@ class ToolBox:
                 rec.error = f"unknown tool {name}"  # not counted against the budget
                 return {"error": rec.error}
             self.budget.tool_calls += 1
+            self._last_item = None
             try:
                 out = handler(args, rec)
             except BudgetRefused as exc:
@@ -336,6 +340,8 @@ class ToolBox:
             rec.ok = "error" not in out
             if not rec.ok:
                 rec.error = str(out["error"])
+            elif self._last_item is not None and out.get("evidence_id") == self._last_item.id:
+                self.returned[self._last_item.id] = self._last_item  # the model saw it
             return out
         finally:
             rec.latency_ms = int((time.monotonic() - started) * 1000)
@@ -443,6 +449,7 @@ class ToolBox:
     def _remember(self, item: EvidenceItem, rec: ToolCallRecord) -> None:
         rec.evidence_id = item.id
         rec.source_url = item.source_url
+        self._last_item = item  # citable only once the call succeeds (see call())
         if item.id not in self.ctx.evidence_ids:
             self.new_evidence[item.id] = item
 

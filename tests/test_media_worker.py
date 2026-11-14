@@ -127,6 +127,21 @@ def test_worker_reads_each_cid_once_caps_media_and_keeps_failures():
     assert run.findings[0].source_url() == "https://bsky.app/profile/did:a/post/r1"
 
 
+def test_failed_media_is_exposed_as_retryable_evidence():
+    run = process_cluster_media(
+        [_post(1, "did:a", "missing")], FakeClient(), FakeFetcher(missing={"missing"})
+    )
+    row = run.evidence_rows()[0]
+    assert row["model"] is None
+    assert row["detail"] == {
+        "media_hash": "missing",
+        "status": "failed",
+        "error": "not found",
+        "did": "did:a",
+        "profile_url": "https://bsky.app/profile/did:a",
+    }
+
+
 def test_stored_analysis_is_reused_without_fetch_or_model_call():
     stored = _analysis("same").evidence_detail() | {"media_kind": "image", "media_url": "u"}
     client, fetcher = FakeClient(), FakeFetcher()
@@ -221,11 +236,11 @@ def test_cluster_progress_holds_incomplete_clusters_back_for_a_while():
 
     now = [0.0]
     progress = ClusterProgress(retry_s=300, clock=lambda: now[0])
-    progress.record(1, "t1", MediaRun())  # fully read
+    progress.record(1, "t1", MediaRun())
     progress.record(2, "t2", MediaRun(failures=[MediaFailure("h", "did:a", "404")]))
     progress.record(3, "t3", MediaRun(deferred=1))
     assert progress.done() == {1: "t1", 2: "t2", 3: "t3"}
-    now[0] = 301  # incomplete ones become candidates again; the read one stays done
+    now[0] = 301
     assert progress.done() == {1: "t1"}
     progress.record(2, "t2", MediaRun())
     assert progress.done() == {1: "t1", 2: "t2"}

@@ -39,6 +39,7 @@ class AccountInfo:
     has_avatar: bool | None = None
     pds_host: str | None = None
     handle_changes: int | None = None
+    description: str | None = None
 
 
 @dataclass
@@ -85,11 +86,25 @@ def _seed(cfg: DetectorConfig, members: list[str], wd: WindowData) -> int:
     return int.from_bytes(h.digest(), "big")
 
 
-def shared_keys(members: list[str], keys: dict) -> list[Key]:
+def key_index(keys: dict) -> dict[str, list[tuple[str, str]]]:
+    """did -> the keys it used. Built once per window so shared_keys doesn't scan every key."""
+    idx: dict[str, list[tuple[str, str]]] = {}
+    for kv, k in keys.items():
+        for d in k.accounts:
+            idx.setdefault(d, []).append(kv)
+    return idx
+
+
+def shared_keys(members: list[str], keys: dict, index: dict | None = None) -> list[Key]:
     """Keys used by >= 2 members, with uses restricted to members. Sorted for determinism."""
     mset = set(members)
+    if index is None:
+        candidates = keys.keys()
+    else:
+        candidates = {kv for d in members for kv in index.get(d, ())}
     out = []
-    for (kind, value), k in sorted(keys.items()):
+    for kind, value in sorted(candidates):
+        k = keys[(kind, value)]
         acc = k.accounts & mset
         if len(acc) >= 2:
             sub = Key(kind, value, [u for u in k.uses if u.did in mset], acc)
@@ -152,10 +167,11 @@ def content_signals(m: int, sk: list[Key], cfg: DetectorConfig) -> list[Signal]:
 
 
 def _semantic_posts(members: list[str], wd: WindowData, cfg: DetectorConfig) -> list:
-    mset = set(members)
+    ix = wd.index()
     per: dict[str, list] = {}
-    for p in sorted(wd.posts, key=lambda p: (-p.t, p.uri)):
-        if p.did in mset and len(normalize_text(p.text).split()) >= cfg.semantic_min_tokens:
+    mine = [p for d in set(members) for p in ix.posts_by_did.get(d, ())]
+    for p in sorted(mine, key=lambda p: (-p.t, p.uri)):
+        if len(normalize_text(p.text).split()) >= cfg.semantic_min_tokens:
             lst = per.setdefault(p.did, [])
             if len(lst) < cfg.semantic_posts_per_member:
                 lst.append(p)
@@ -325,13 +341,11 @@ def timing_signals(
         )
 
     # Clockwork posting: low variation of each account's inter-event intervals.
-    times: dict[str, list[float]] = {d: [] for d in members}
-    for p in wd.posts:
-        if p.did in times:
-            times[p.did].append(p.t)
-    for a in wd.actions:
-        if a.did in times:
-            times[a.did].append(a.t)
+    ix = wd.index()
+    times: dict[str, list[float]] = {
+        d: [p.t for p in ix.posts_by_did.get(d, ())] + [a.t for a in ix.actions_by_did.get(d, ())]
+        for d in members
+    }
     cvs = {}
     for d, ts in times.items():
         if len(ts) >= cfg.regularity_min_events:
@@ -409,7 +423,8 @@ def network_signals(
             )
         )
     # Reply flood: the same (near-)duplicate text posted as replies into many different threads.
-    by_uri = {p.uri: p for p in wd.posts if p.did in mset}
+    ix = wd.index()
+    by_uri = {p.uri: p for d in mset for p in ix.posts_by_did.get(d, ())}
     flood_dids, roots, flood_uris = set(), set(), set()
     for k in sk:
         if k.kind not in ("text", "neardup"):
@@ -442,11 +457,9 @@ def network_signals(
     # Mutual amplification: members liking/reposting each other's posts.
     amp = [
         a
-        for a in wd.actions
-        if a.kind in ("like", "repost")
-        and a.did in mset
-        and a.subject_did in mset
-        and a.subject_did != a.did
+        for d in sorted(mset)
+        for a in ix.actions_by_did.get(d, ())
+        if a.kind in ("like", "repost") and a.subject_did in mset and a.subject_did != a.did
     ]
     if amp:
         actors = {a.did for a in amp}
@@ -607,6 +620,17 @@ def identity_signals(
 
 
 # ---------------------------------------------------------------- organic guards --------------
+_DECLARED_BOT = re.compile(
+    r"\b(bot|automated|auto[- ]?post(?:s|ed|ing)?|alerts?|feed|rss|mirror|traffic updates?)\b",
+    re.IGNORECASE,
+)
+
+
+def _uri_did(uri: str) -> str:
+    """at://did:plc:x/app.bsky.feed.post/abc -> did:plc:x"""
+    return uri[5:].split("/", 1)[0] if uri.startswith("at://") else ""
+
+
 def organic_guards(
     members: list[str],
     sk: list[Key],
@@ -700,10 +724,65 @@ def organic_guards(
                     polarity="against",
                 )
             )
+    # Declared automation: most accounts say in their bio or name that they are a bot, a feed or
+    # automated alerts, and they aren't new. Openly automated services (traffic, weather, news
+    # feeds) post in sync by design; that is not a covert campaign.
+    aged_text = [a for a in known if a.age_days is not None and (a.description or a.display_name)]
+    if len(aged_text) >= cfg.min_cluster_size:
+        declared = sorted(
+            a.did
+            for a in aged_text
+            if a.age_days >= 90
+            and _DECLARED_BOT.search(f"{a.display_name or ''} {a.description or ''}")
+        )
+        if len(declared) >= 2:
+            out.append(
+                Signal(
+                    "guard",
+                    "declared_automation",
+                    _r(len(declared) / len(aged_text)),
+                    f"{len(declared)} of {len(aged_text)} accounts say in their name or bio that "
+                    "they are a bot, a feed or automated alerts, and are over 90 days old: an "
+                    "openly automated service posts in sync by design",
+                    {"declared": len(declared), "with_bio_or_name": len(aged_text)},
+                    dids=declared,
+                    polarity="against",
+                )
+            )
+    # Members talking to each other: replies from one member to another member's post. Rings
+    # that broadcast (spam, like farms, reply floods into strangers' threads) almost never do;
+    # friend groups, fandoms and role-play communities do it all the time.
+    mset_c = set(members)
+    ix_c = wd.index()
+    to_members = [
+        (p.did, p.reply_to)
+        for d in sorted(mset_c)
+        for p in ix_c.posts_by_did.get(d, ())
+        if p.reply_to and _uri_did(p.reply_to) in mset_c and _uri_did(p.reply_to) != p.did
+    ]
+    if to_members:
+        replying = {a for a, _ in to_members}
+        m = len(members)
+        score = min(1.0, len(replying) / m) * min(1.0, len(to_members) / (2 * m))
+        out.append(
+            Signal(
+                "guard",
+                "members_converse",
+                _r(score),
+                f"{len(replying)} of {m} accounts reply to each other ({len(to_members)} replies "
+                "between members): a conversation among people who know each other, not a "
+                "broadcast",
+                {"members_replying": len(replying), "replies_between_members": len(to_members)},
+                uris=sorted({u for _, u in to_members})[:50],
+                dids=sorted(replying),
+                polarity="against",
+            )
+        )
     langs: dict[str, int] = {}
     mset = set(members)
-    for p in wd.posts:
-        if p.did in mset and p.langs:
+    ix = wd.index()
+    for p in (p for d in mset for p in ix.posts_by_did.get(d, ())):
+        if p.langs:
             langs[p.langs[0]] = langs.get(p.langs[0], 0) + 1
     if sum(langs.values()) >= cfg.min_cluster_size and len(langs) >= 3:
         total = sum(langs.values())
@@ -839,9 +918,10 @@ def score_cluster(
     cfg: DetectorConfig,
     embed: EmbedFn | None = None,
     rates: BaseRates | None = None,
+    index: dict | None = None,
 ) -> ClusterScore:
     rng = np.random.default_rng(_seed(cfg, members, wd))
-    sk = shared_keys(members, keys)
+    sk = shared_keys(members, keys, index)
     sigs: list[Signal] = []
     sigs += content_signals(len(members), sk, cfg)
     if embed is not None:

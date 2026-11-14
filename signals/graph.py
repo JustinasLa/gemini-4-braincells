@@ -53,17 +53,22 @@ def build_graph(keys: dict[tuple[str, str], Key], cfg: DetectorConfig) -> Graph:
     en_ok = en.multiply(en >= cfg.min_engagement_shared)
     ew_ok = ew.multiply(en >= cfg.min_engagement_shared)
     weight = (cw + ew_ok).tocoo()
-    cn = cn.todok()
-    en_ok = en_ok.todok()
-    edges = []
-    for i, j, w in zip(weight.row, weight.col, weight.data, strict=True):
-        if w <= 0:
-            continue
-        c = int(cn.get((i, j), 0))
-        e = int(en_ok.get((i, j), 0))
-        if c >= 1 or e >= cfg.min_engagement_shared:
-            edges.append((int(i), int(j), float(w), c, e))
-    edges.sort()
+    # Vectorised lookups of the shared-key counts for every weighted pair (was a dict lookup per
+    # pair: ~15 s on an hour of data).
+    r, c_, w = weight.row, weight.col, weight.data
+    pos = w > 0
+    r, c_, w = r[pos], c_[pos], w[pos]
+    if len(r):
+        cnt_c = np.asarray(cn.tocsr()[r, c_]).ravel().astype(int)
+        cnt_e = np.asarray(en_ok.tocsr()[r, c_]).ravel().astype(int)
+    else:
+        cnt_c = cnt_e = np.zeros(0, dtype=int)
+    keep = (cnt_c >= 1) | (cnt_e >= cfg.min_engagement_shared)
+    r, c_, w, cnt_c, cnt_e = r[keep], c_[keep], w[keep], cnt_c[keep], cnt_e[keep]
+    order = np.lexsort((c_, r))  # sorted by (i, j), as before
+    edges = [
+        (int(r[k]), int(c_[k]), float(w[k]), int(cnt_c[k]), int(cnt_e[k])) for k in order.tolist()
+    ]
     return Graph(dids=dids, edges=edges)
 
 

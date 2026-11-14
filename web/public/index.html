@@ -3,21 +3,179 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
   <title>Noise Radar</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
-    pre { background: #f3f3f3; padding: 1rem; overflow-x: auto; }
+    :root { --ink:#e7edf7; --muted:#93a4bd; --line:#21324a; --panel:#101d31; --panel-2:#15253d; --bg:#08111f; --cyan:#67e8f9; --green:#6ee7b7; --amber:#fbbf24; --red:#fb7185; --violet:#c4b5fd; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:radial-gradient(circle at 80% -20%,#19365a 0,#08111f 42rem); font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    button,input,select { font:inherit; }
+    button { cursor:pointer; }
+    .shell { max-width:1280px; margin:auto; padding:24px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:34px; }
+    .brand { display:flex; gap:12px; align-items:center; }
+    .mark { width:38px; height:38px; border:1px solid #33587d; border-radius:12px; display:grid; place-items:center; color:var(--cyan); background:#102a43; box-shadow:0 0 28px #164e6355; font-weight:800; }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { font-size:1.15rem; letter-spacing:.02em; margin-bottom:1px; }
+    .eyebrow { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.15em; }
+    nav { display:flex; gap:6px; flex-wrap:wrap; }
+    .nav-btn,.button { color:var(--muted); background:transparent; border:1px solid transparent; border-radius:9px; padding:9px 13px; }
+    .nav-btn:hover,.nav-btn.active,.button:hover { color:var(--ink); border-color:var(--line); background:#14243a; }
+    .button.primary { color:#06131d; background:var(--cyan); border-color:var(--cyan); font-weight:700; }
+    .button.primary:hover { background:#a5f3fc; }
+    .hero { display:flex; justify-content:space-between; align-items:end; gap:24px; margin-bottom:24px; }
+    .hero h2 { font-size:clamp(1.7rem,4vw,3rem); line-height:1.05; max-width:730px; margin-bottom:10px; }
+    .hero p { color:var(--muted); max-width:680px; margin-bottom:0; }
+    .health { display:flex; align-items:center; gap:8px; color:var(--muted); white-space:nowrap; font-size:.85rem; }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--amber); box-shadow:0 0 12px currentColor; }
+    .dot.good { background:var(--green); color:var(--green); }.dot.bad { background:var(--red); color:var(--red); }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+    .filters { display:flex; gap:8px; flex-wrap:wrap; }
+    select,input { color:var(--ink); background:#0d1a2c; border:1px solid var(--line); border-radius:8px; padding:9px 11px; outline:none; }
+    select:focus,input:focus { border-color:#4c819c; box-shadow:0 0 0 3px #164e6344; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+    .card,.panel { background:linear-gradient(145deg,#122239dd,#0d192bdd); border:1px solid var(--line); border-radius:14px; }
+    .card { padding:17px; transition:transform .15s,border-color .15s; }.card:hover { transform:translateY(-2px); border-color:#3b5f80; }
+    .card-head,.row { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .card h3 { font-size:1rem; margin-bottom:5px; }.meta,.muted { color:var(--muted); font-size:.84rem; }
+    .badge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+    .badge.coordinated { color:#fecdd3; background:#7f1d2d88; }.badge.likely_organic { color:#bbf7d0; background:#14532d88; }.badge.insufficient { color:#fde68a; background:#78350f88; }.badge.matched { color:#bae6fd; background:#164e6388; }
+    .score { font-size:2rem; font-weight:800; letter-spacing:-.06em; color:var(--cyan); }.score small { color:var(--muted); font-size:.75rem; letter-spacing:0; }
+    .meter { height:6px; border-radius:99px; overflow:hidden; background:#20334c; margin:14px 0; }.meter span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--cyan),var(--violet)); }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }.chip { color:#c8d6e8; background:#1b304a; border:1px solid #294666; border-radius:99px; padding:3px 7px; font-size:.72rem; }
+    .empty,.error { padding:32px; text-align:center; color:var(--muted); }.error { color:#fecdd3; }
+    .panel { padding:22px; }.panel + .panel { margin-top:16px; }
+    .detail-grid { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr); gap:16px; }.detail-grid > * { min-width:0; }
+    .back { margin-bottom:15px; }.section-title { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.13em; margin:0 0 10px; }
+    .signal { border-top:1px solid var(--line); padding:12px 0; }.signal:first-child { border-top:0; padding-top:0; }.signal strong { display:block; margin-bottom:3px; }.signal p { margin:0; color:#cbd5e1; font-size:.9rem; }
+    .evidence { border-top:1px solid var(--line); padding:13px 0; }.evidence:first-child { border-top:0; }.evidence p { margin:4px 0 0; color:#cbd5e1; }.evidence a { color:var(--cyan); word-break:break-all; }
+    .post { border-top:1px solid var(--line); padding:13px 0; }.post:first-child { border-top:0; }.post p { margin:5px 0; }.post a { color:var(--cyan); font-size:.83rem; }
+    .table-wrap { overflow:auto; }.metrics { width:100%; border-collapse:collapse; min-width:580px; }.metrics th,.metrics td { border-bottom:1px solid var(--line); text-align:left; padding:12px 10px; }.metrics th { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }
+    .metric-value { color:var(--green); font-weight:700; }.prose { max-width:800px; color:#cbd5e1; }.prose h3 { color:var(--ink); margin-top:24px; }.prose li { margin:7px 0; }
+    .analyze { display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:8px; }.analysis-result { margin-top:16px; }.live-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:16px; }.stat { padding:14px; background:#0d1a2c; border:1px solid var(--line); border-radius:10px; }.stat-value { display:block; font-size:1.45rem; font-weight:800; color:var(--cyan); }.stat-label { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }.evidence-grid { display:grid; gap:10px; }.evidence-kind { color:var(--cyan); text-transform:uppercase; font-size:.7rem; letter-spacing:.1em; }.evidence-detail { color:#cbd5e1; font-size:.86rem; }.media-preview { border:1px solid #294666; border-radius:9px; padding:10px; background:#0b1727; }.source-link { display:block; margin-top:8px; }.verdict-grid { display:grid; gap:8px; margin-top:14px; }.verdict-item { padding:10px; border-left:2px solid #365a78; background:#0d1a2c; }.footer { color:var(--muted); font-size:.78rem; padding:28px 0 8px; }
+    @media (max-width:760px) { .shell{padding:16px}.topbar,.hero{align-items:flex-start; flex-direction:column}.detail-grid{grid-template-columns:1fr}.analyze{grid-template-columns:1fr}.health{white-space:normal} }
   </style>
 </head>
 <body>
-  <h1>Noise Radar</h1>
-  <p>Placeholder page. The dashboard replaces this (see <code>web/</code>).</p>
-  <h2>API health</h2>
-  <pre id="health">loading…</pre>
-  <script>
-    fetch("/api/health").then(r => r.json())
-      .then(j => { document.getElementById("health").textContent = JSON.stringify(j, null, 2); })
-      .catch(e => { document.getElementById("health").textContent = "API unreachable: " + e; });
-  </script>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="mark">NR</div><div><h1>Noise Radar</h1><div class="eyebrow">Coordination intelligence for Bluesky</div></div></div>
+      <nav aria-label="Primary navigation">
+        <button class="nav-btn active" data-page="feed">Live feed</button>
+        <button class="nav-btn" data-page="metrics">Metrics</button>
+        <button class="nav-btn" data-page="methodology">Methodology</button>
+        <a class="button" href="trackdown/" title="Trace any X, Bluesky or news link with live data">Trace a link</a>
+      </nav>
+    </header>
+    <section class="hero"><div><div class="eyebrow">Read the pattern, not the opinion</div><h2>Find coordinated amplification before it becomes noise.</h2><p>Noise Radar detects unusual coordination between accounts, shows the evidence behind every cluster, and abstains when the evidence is not strong enough.</p></div><div class="health"><span class="dot" id="health-dot"></span><span id="health-text">Connecting to monitor…</span></div></section>
+    <section id="app" aria-live="polite"></section>
+    <div class="footer">Evidence is read-only and model-assisted. A cluster is a behavioural signal, not a claim about a person or viewpoint.</div>
+  </main>
+<script>
+(() => {
+  const state = { page: 'feed', clusters: [], metrics: [], selected: null, filter: 'all', minScore: 0, loading: false, error: null, metricsError: null, health: null, loadedAt: null };
+  const app = document.querySelector('#app');
+  const esc = (v) => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const pct = (v) => v == null ? '—' : `${Math.round(Number(v) * 100)}%`;
+  const date = (v) => v ? new Intl.DateTimeFormat(undefined, { dateStyle:'medium', timeStyle:'short' }).format(new Date(v)) : '—';
+  const api = async (path, options) => { const r = await fetch(path, options); const body = await r.json().catch(() => ({})); if (!r.ok) throw new Error(body.detail || `Request failed (${r.status})`); return body; };
+  const badge = (status) => `<span class="badge ${esc(status)}">${esc(String(status || 'unknown').replace('_',' '))}</span>`;
+  const signalChips = (signals = []) => signals.length ? `<div class="chips">${signals.map(s => `<span class="chip">${esc(s.name || s.family || 'signal')} ${s.score == null ? '' : pct(s.score)}</span>`).join('')}</div>` : '';
+
+  function setHealth(ok, text) { document.querySelector('#health-dot').className = `dot ${ok ? 'good' : 'bad'}`; document.querySelector('#health-text').textContent = text; }
+  function filtered() { return state.clusters.filter(c => (state.filter === 'all' || c.status === state.filter) && Number(c.score || 0) >= state.minScore); }
+  function render() {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.page === state.page));
+    if (state.page === 'metrics') return renderMetrics();
+    if (state.page === 'methodology') return renderMethodology();
+    if (state.selected) return renderDetail(state.selected);
+    return renderFeed();
+  }
+  function renderFeed() {
+    const items = filtered();
+    app.innerHTML = `<div class="toolbar"><div><h2>Live cluster feed</h2><div class="muted">Newest detector results appear here. Select a cluster to inspect its evidence.</div></div><div class="filters"><select id="status-filter" aria-label="Filter by detector status"><option value="all">All detector calls</option><option value="coordinated">Coordinated</option><option value="likely_organic">Likely organic</option><option value="insufficient">Insufficient evidence</option></select><select id="score-filter" aria-label="Minimum score"><option value="0">Any score</option><option value="0.5">Score >= 50%</option><option value="0.7">Score >= 70%</option><option value="0.9">Score >= 90%</option></select><button class="button" id="refresh">Refresh</button></div></div>${liveSummary()}<div class="grid" id="cluster-grid">${state.error ? `<div class="error">${esc(state.error)}</div>` : items.length ? items.map(clusterCard).join('') : '<div class="empty">No clusters match the current filters.</div>'}</div><div class="panel" style="margin-top:16px"><div class="section-title">Ask the monitor</div><form class="analyze" id="analyze-form"><input name="text" placeholder="Paste a post or claim" maxlength="5000"><input name="url" type="url" placeholder="https://example.com/story"><input name="handle" placeholder="@handle or DID"><button class="button primary">Check input</button></form><div class="muted" style="margin-top:8px">Got an X, Bluesky or news link? <a id="trace-link" href="trackdown/">Trace it with live data &rarr;</a></div><div id="analysis-result" class="analysis-result"></div></div>`;
+    document.querySelector('#status-filter').value = state.filter; document.querySelector('#score-filter').value = state.minScore;
+    document.querySelector('#status-filter').onchange = e => { state.filter = e.target.value; render(); };
+    document.querySelector('#score-filter').onchange = e => { state.minScore = Number(e.target.value); render(); };
+    document.querySelector('#refresh').onclick = load;
+    document.querySelectorAll('[data-cluster]').forEach(b => b.onclick = () => openCluster(Number(b.dataset.cluster)));
+    document.querySelector('#analyze-form').onsubmit = analyze;
+    const traceLink = document.querySelector('#trace-link');
+    if (traceLink) traceLink.onclick = () => { const u = document.querySelector('#analyze-form [name=url]')?.value?.trim(); traceLink.href = u ? `trackdown/?lookup=${encodeURIComponent(u)}` : 'trackdown/'; };
+  }
+  function liveSummary() {
+    const coordinated = state.clusters.filter(c => c.status === 'coordinated').length;
+    const verdicts = state.clusters.filter(c => c.verdict).length;
+    const updated = state.loadedAt ? date(state.loadedAt) : 'not yet';
+    const health = state.health && state.health.ok ? 'Online' : 'Unavailable';
+    return `<div class="live-stats"><div class="stat"><span class="stat-value">${state.clusters.length}</span><span class="stat-label">Loaded clusters</span></div><div class="stat"><span class="stat-value">${coordinated}</span><span class="stat-label">Coordinated calls</span></div><div class="stat"><span class="stat-value">${verdicts}</span><span class="stat-label">Analyst verdicts</span></div><div class="stat"><span class="stat-value">${esc(health)}</span><span class="stat-label">Monitor status</span></div><div class="stat"><span class="stat-value" style="font-size:1rem">${esc(updated)}</span><span class="stat-label">Feed refreshed</span></div></div>`;
+  }
+
+  function clusterCard(c) { const verdict = c.verdict ? `<div class="muted">Analyst: ${esc(c.verdict.status)} · ${pct(c.verdict.confidence)}</div>` : '<div class="muted">Analyst verdict pending</div>'; return `<button class="card" data-cluster="${Number(c.id)}" style="text-align:left;color:inherit"><div class="card-head"><div><h3>Cluster #${Number(c.id)}</h3><div class="meta">${esc(c.window_kind || 'window')} · ${date(c.window_end)}</div></div>${badge(c.status)}</div><div class="row" style="align-items:end;margin-top:12px"><div><div class="score">${pct(c.score)} <small>score</small></div>${c.confidence == null ? '<div class="muted">Confidence not available</div>' : `<div class="muted">Confidence ${pct(c.confidence)}</div>`}</div><div class="meta">${c.size == null ? '—' : Number(c.size)} accounts</div></div><div class="meter"><span style="width:${Math.max(0,Math.min(100,Number(c.score || 0) * 100))}%"></span></div>${verdict}${signalChips(c.top_signals)}</button>`; }
+  async function openCluster(id) { state.loading = true; render(); try { state.selected = await api(`/api/clusters/${encodeURIComponent(id)}`); } catch (e) { state.error = e.message; } finally { state.loading = false; render(); } }
+  function renderDetail(c) {
+    const signals = (c.evidence || []).filter(e => e.kind === 'signal');
+    const media = (c.evidence || []).filter(e => e.kind === 'media');
+    const sources = (c.evidence || []).filter(e => e.kind === 'source');
+    app.innerHTML = `<button class="button back" id="back">Back to feed</button>${proofFlow(c, c.evidence || [])}<div class="detail-grid"><div><div class="panel"><div class="card-head"><div><div class="eyebrow">Cluster detail</div><h2>Cluster #${Number(c.id)}</h2><div class="meta">${date(c.window_start)} to ${date(c.window_end)} / ${esc(c.window_kind || 'window')}</div></div>${badge(c.status)}</div><div class="row" style="align-items:end;margin-top:18px"><div><div class="score">${pct(c.score)} <small>detector score</small></div><div class="muted">${c.confidence == null ? 'Confidence unavailable' : `Detector confidence ${pct(c.confidence)}`}</div></div><div class="meta">${c.size == null ? 'unknown' : Number(c.size)} accounts / ${c.families_fired == null ? 'unknown' : Number(c.families_fired)} signal families</div></div><div class="meter"><span style="width:${Math.max(0,Math.min(100,Number(c.score || 0) * 100))}%"></span></div></div><div class="panel"><div class="section-title">Signal evidence</div>${signals.length ? signals.map(evidenceBlock).join('') : '<div class="empty">No stored signal evidence.</div>'}</div><div class="panel"><div class="section-title">Observed posts</div>${(c.posts || []).length ? c.posts.map(postBlock).join('') : '<div class="empty">No post snapshot available.</div>'}</div></div><aside><div class="panel"><div class="section-title">Analyst verdict</div>${c.analyst ? verdictBlock(c.analyst) : '<div class="empty">No analyst verdict yet.</div>'}</div><div class="panel"><div class="section-title">Media evidence and reuse</div>${renderMedia(c, media)}</div><div class="panel"><div class="section-title">Source checks</div>${sources.length ? `<div class="evidence-grid">${sources.map(sourceEvidenceBlock).join('')}</div>` : '<div class="empty">No source evidence attached.</div>'}</div><div class="panel"><div class="section-title">Accounts</div>${(c.members || []).length ? `<div class="chips">${c.members.map(m => `<a class="chip" href="${esc(m.profile_url)}" target="_blank" rel="noreferrer">${esc(m.handle || m.did)}${m.role ? ` / ${esc(m.role)}` : ''}</a>`).join('')}</div>` : '<div class="empty">No members available.</div>'}</div></aside></div>`;
+    document.querySelector('#back').onclick = () => { state.selected = null; state.error = null; render(); };
+  }
+
+  function evidenceBlock(e) {
+    const detail = e.detail || {};
+    const text = e.summary || detail.description || detail.headline || detail.claim || 'Evidence recorded by the pipeline.';
+    return `<div class="evidence"><div class="row"><span class="evidence-kind">${esc(e.kind)}</span><span class="muted">${date(e.created_at)}</span></div><p>${esc(text)}</p>${detailRows(detail)}${e.model ? `<div class="muted">Model: ${esc(e.model)}</div>` : ''}${e.source_url ? `<a class="source-link" href="${esc(e.source_url)}" target="_blank" rel="noreferrer">Open source</a>` : ''}</div>`;
+  }
+  function detailRows(detail, excluded = []) {
+    const ignored = new Set(['description','headline','claim',...excluded]);
+    const rows = Object.entries(detail || {}).filter(([key, value]) => !ignored.has(key) && value != null && value !== '' && (!Array.isArray(value) || value.length));
+    return rows.slice(0, 8).map(([key, value]) => `<div class="evidence-detail"><strong>${esc(key.replaceAll('_', ' '))}:</strong> ${esc(formatValue(value))}</div>`).join('');
+  }
+  function formatValue(value) { return Array.isArray(value) ? value.map(v => typeof v === 'object' ? JSON.stringify(v) : v).join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value); }
+  function linkList(title, urls, limit = 8) { const values = [...new Set((urls || []).filter(Boolean))].slice(0, limit); return values.length ? `<div class="media-links"><strong>${esc(title)}</strong>${values.map(url => `<a href="${esc(url)}" target="_blank" rel="noreferrer">Open &rarr;</a>`).join('')}</div>` : ''; }
+  function renderMedia(c, evidence) { const posts = c.posts || []; const byHash = new Map(evidence.map(e => [e.detail && e.detail.media_hash, e])); const expected = [...new Set(posts.flatMap(p => p.media_hashes || []))]; const pending = expected.filter(hash => !byHash.has(hash)); const blocks = evidence.map(mediaEvidenceBlock); const pendingBlocks = pending.map(hash => `<div class="evidence"><div class="row"><strong>Media ${esc(hash.slice(0, 16))}&hellip;</strong>${badge('pending')}</div><p>Waiting for the Nemotron worker to fetch and analyze this media.</p><div class="media-hashes">CID: ${esc(hash)}</div></div>`); return blocks.concat(pendingBlocks).join('') || '<div class="empty">No media attached to the observed posts.</div>'; }
+  function mediaEvidenceBlock(e) { const detail = e.detail || {}; const status = detail.status || 'complete'; const template = detail.type === 'ocr_template'; if (status === 'failed') return `<div class="evidence"><div class="row"><strong>Media ${esc(String(detail.media_hash || '').slice(0, 16))}&hellip;</strong>${badge('failed')}</div><p class="media-description">${esc(detail.error || e.summary || 'Media analysis failed.')}</p>${detail.profile_url ? `<a href="${esc(detail.profile_url)}" target="_blank" rel="noreferrer">Open posting profile &rarr;</a>` : ''}</div>`; const description = template ? (e.summary || 'OCR template match detected.') : (detail.description || e.summary || 'Media analyzed by Nemotron.'); const ocr = Array.isArray(detail.extracted_text) ? detail.extracted_text : []; const varying = Array.isArray(detail.varying_tokens) ? detail.varying_tokens : []; const shared = Array.isArray(detail.shared_tokens) ? detail.shared_tokens : []; const model = e.model || detail.model; const mediaUrl = detail.media_url; return `<div class="evidence"><div class="row"><strong>${template ? 'OCR/template match' : `Media ${esc(String(detail.media_hash || '').slice(0, 16))}&hellip;`}</strong>${badge('matched')}</div><p class="media-description">${esc(description)}</p>${!template && ocr.length ? `<div class="media-detail"><strong>OCR text</strong><p>${esc(ocr.join(' / '))}</p></div>` : ''}${template ? `<div class="media-detail"><strong>Shared OCR tokens</strong><p>${esc(shared.join(', ') || '-')}</p><strong>Words that vary</strong><p>${esc(varying.join(', ') || '-')}</p></div>` : ''}<div class="muted">Model: ${esc(model || '-')}${detail.prompt_version ? ` &middot; Prompt: ${esc(detail.prompt_version)}` : ''}${detail.confidence == null ? '' : ` &middot; Confidence: ${pct(detail.confidence)}`}</div>${mediaUrl ? `<div class="media-links"><a href="${esc(mediaUrl)}" target="_blank" rel="noreferrer">Open media &rarr;</a></div>` : ''}${linkList('Posts', detail.post_urls || (e.source_url ? [e.source_url] : []))}${linkList('Profiles', detail.profile_urls || (detail.profile_url ? [detail.profile_url] : []))}<div class="media-hashes">${template ? `${Number(detail.n_images || 0)} images &middot; ${Number(detail.n_accounts || 0)} accounts` : `${Number(detail.n_accounts || 0)} accounts &middot; ${Number(detail.n_posts || 0)} posts${detail.cached ? ' &middot; cached analysis' : ''}`}</div></div>`; }
+  function sourceEvidenceBlock(e) {
+    const detail = e.detail || {};
+    const title = detail.headline || detail.title || e.summary || 'Source check';
+    return `<div class="evidence"><div class="row"><span class="evidence-kind">${esc(detail.type || 'source check')}</span><span class="muted">${date(e.created_at)}</span></div><p><strong>${esc(title)}</strong></p>${detailRows(detail, ['type','headline','title'])}${e.model ? `<div class="muted">Model: ${esc(e.model)}</div>` : ''}${e.source_url ? `<a class="source-link" href="${esc(e.source_url)}" target="_blank" rel="noreferrer">${esc(e.source_url)}</a>` : '<div class="muted">No source URL was recorded.</div>'}</div>`;
+  }
+
+  function evidenceUrl(e) { const d = e.detail || {}; return e.source_url || d.final_url || d.url || d.source_url || (d.post_urls || [])[0] || (d.profile_urls || [])[0] || null; }
+  function provenance(e) { const d = e.detail || {}; if (e.kind === 'signal') return 'Detector signal engine'; if (e.kind === 'media') return e.model || 'Media inspection'; if (e.kind === 'source') return d.type === 'web_search' ? 'Oxylabs web search' : d.type === 'linked_page' ? 'Oxylabs page check' : 'Source check'; return e.model || 'Pipeline evidence'; }
+  function decisionStatusBlock(c) { if (!c.analyst) return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>Automated coordination signal from the live detector.</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4><div class="muted">Pending</div><p>The analyst has not reviewed this cluster yet.</p></div></div>`; const v = c.analyst; const assessment = v.llm_assessment || v.status; const agrees = v.agrees_with_detector == null ? assessment === c.status : v.agrees_with_detector; return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>${c.confidence == null ? 'Confidence unavailable.' : `Score confidence ${pct(c.confidence)}.`}</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4>${badge(assessment)}<p>${v.model ? `Model: ${esc(v.model)}${v.tool_calls ? ` - ${Number(v.tool_calls)} tool calls` : ''}` : 'Evidence review complete.'}</p></div></div><div class="agreement ${agrees ? '' : 'disagreement'}">${agrees ? 'Analyst agrees with the detector.' : `Analyst disagrees with the detector: ${esc(v.disagreement_reason || 'reason recorded in the verdict')}`}</div>${v.summary ? `<p>${esc(v.summary)}</p>` : ''}${listBlock('Strongest evidence', (v.evidence || []).map(x => x.why || x.summary).filter(Boolean))}${listBlock('Counter-evidence', v.counter_evidence)}${listBlock('Would change the verdict', v.would_change_verdict)}`; }
+  function decisionStatusBlock(c) { if (!c.analyst) return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>Automated coordination signal from the live detector.</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4><div class="muted">Pending</div><p>The analyst has not reviewed this cluster yet.</p></div></div>`; const v = c.analyst; const assessment = v.llm_assessment || v.status; const agrees = v.agrees_with_detector == null ? assessment === c.status : v.agrees_with_detector; return `<div class="decision-grid"><div class="decision-card detector"><h4>Detector call</h4>${badge(c.status)}<p>${c.confidence == null ? 'Confidence unavailable.' : `Score confidence ${pct(c.confidence)}.`}</p></div><div class="decision-card analyst"><h4>Analyst assessment</h4>${badge(assessment)}<p>${v.model ? `Model: ${esc(v.model)}${v.tool_calls ? ` - ${Number(v.tool_calls)} tool calls` : ''}` : 'Evidence review complete.'}</p></div></div><div class="agreement ${agrees ? '' : 'disagreement'}">${agrees ? 'Analyst agrees with the detector.' : `Analyst disagrees with the detector: ${esc(v.disagreement_reason || 'reason recorded in the verdict')}`}</div>${v.summary ? `<p>${esc(v.summary)}</p>` : ''}${listBlock('Strongest evidence', (v.evidence || []).map(x => x.why || x.summary).filter(Boolean))}${listBlock('Counter-evidence', v.counter_evidence)}${listBlock('Would change the verdict', v.would_change_verdict)}`; }
+  function receiptBlock(e) { const detail = e.detail || {}; const text = e.summary || detail.description || detail.headline || detail.claim || 'Evidence recorded by the pipeline.'; const url = evidenceUrl(e); return `<div class="receipt"><div class="receipt-id">Receipt #${Number(e.id)} - ${esc(e.kind)}<span class="provenance">${esc(provenance(e))}</span></div><p>${esc(text)}</p><div class="muted">Recorded ${date(e.created_at)}${e.model ? ` - ${esc(e.model)}` : ''}</div>${url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">Open provenance URL: ${esc(url)} -&gt;</a>` : '<div class="muted">No external URL attached to this receipt.</div>'}</div>`; }
+  function sourceBlock(e) { const url = evidenceUrl(e); return `<div class="receipt"><div class="receipt-id">Receipt #${Number(e.id)} - source<span class="provenance">${esc(provenance(e))}</span></div>${url ? `<a class="source-link" href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)} -&gt;</a>` : '<div class="muted">No URL recorded</div>'}<div class="muted">${esc(e.summary || 'Source checked by the pipeline.')}</div></div>`; }
+  function metricsBlock() { if (state.metricsError) return `<div class="error">Metrics unavailable: ${esc(state.metricsError)}</div>`; if (!state.metrics.length) return '<div class="empty">No evaluation runs are available yet.</div>'; return `<table class="metrics"><thead><tr><th>Dataset</th><th>Split</th><th>Precision</th><th>Recall</th><th>F1</th><th>FPR</th></tr></thead><tbody>${state.metrics.map(m => `<tr><td>${esc(m.dataset)}</td><td>${esc(m.split)}</td><td class="metric-value">${pct(m.precision)}</td><td class="metric-value">${pct(m.recall)}</td><td class="metric-value">${pct(m.f1)}</td><td class="metric-value">${pct(m.fpr)}</td></tr>`).join('')}</tbody></table>`; }
+  function proofFlow(c, evidence) {
+    const receipts = evidence.filter(e => e.kind !== 'source');
+    const sources = evidence.filter(e => e.kind === 'source');
+    return `<div class="proof-flow"><section class="proof-step"><div class="proof-step-head"><span class="proof-number">1</span><h3>Decision status</h3></div>${decisionStatusBlock(c)}</section><section class="proof-step"><div class="proof-step-head"><span class="proof-number">2</span><h3>Evidence receipts</h3><span class="step-count">${receipts.length} stored</span></div>${receipts.length ? receipts.map(receiptBlock).join('') : '<div class="empty">No stored evidence receipts.</div>'}</section><section class="proof-step"><div class="proof-step-head"><span class="proof-number">3</span><h3>External source trail</h3><span class="step-count">${sources.length} checked</span></div>${sources.length ? `<div class="source-list">${sources.map(sourceBlock).join('')}</div>` : '<div class="empty">No source URLs attached.</div>'}</section><section class="proof-step proof-metrics"><div class="proof-step-head"><span class="proof-number">4</span><h3>Measured metrics</h3></div>${metricsBlock()}</section></div>`;
+  }
+  function postBlock(p) { return `<div class="post"><div class="muted">${esc(p.did)} · ${date(p.seen_at || p.created_at)}</div><p>${esc(p.text || '[no text]')}</p>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noreferrer">Open on Bluesky ↗</a>` : ''}${p.media_hashes && p.media_hashes.length ? `<div class="chips">${p.media_hashes.map(h => `<span class="chip">media ${esc(h.slice(0,12))}</span>`).join('')}</div>` : ''}</div>`; }
+  function verdictBlock(v) {
+    const evidence = Array.isArray(v.evidence) ? v.evidence : [];
+    const analystStatus = v.llm_assessment && v.llm_assessment !== v.status ? `<div class="verdict-item"><strong>Analyst model call:</strong> ${badge(v.llm_assessment)}${v.agrees_with_detector === false && v.disagreement_reason ? `<p>${esc(v.disagreement_reason)}</p>` : ''}</div>` : '';
+    return `<div>${badge(v.status)}<div class="score" style="font-size:1.7rem;margin-top:10px">${pct(v.confidence)} <small>confidence</small></div>${v.summary ? `<p>${esc(v.summary)}</p>` : ''}${analystStatus}<div class="verdict-grid">${listBlock('Strongest evidence', evidence.map(x => x.why || x.summary).filter(Boolean))}${listBlock('Counter-evidence', v.counter_evidence)}${listBlock('Would change the verdict', v.would_change_verdict)}</div>${v.tool_calls ? `<div class="muted">${Number(v.tool_calls)} live analyst tool calls</div>` : ''}${v.model ? `<div class="muted">Model: ${esc(v.model)}</div>` : ''}</div>`;
+  }
+
+  function listBlock(title, values) { return values && values.length ? `<div style="margin-top:16px"><div class="section-title">${esc(title)}</div><ul>${values.map(v => `<li>${esc(v)}</li>`).join('')}</ul></div>` : ''; }
+  function renderMetrics() {
+    const values = state.metrics.filter(m => m && (m.precision != null || m.recall != null || m.f1 != null || m.fpr != null));
+    const best = (key) => values.filter(m => m[key] != null).sort((a, b) => Number(b[key]) - Number(a[key]))[0];
+    const card = (label, key) => { const m = best(key); return `<div class="stat"><span class="stat-value">${m ? pct(m[key]) : '?'}</span><span class="stat-label">Best ${label}${m ? ` / ${esc(m.dataset)} / ${esc(m.split)}` : ''}</span></div>`; };
+    app.innerHTML = `<div class="toolbar"><div><h2>Measured performance</h2><div class="muted">Latest evaluation runs returned by the backend. Values below are live records, not demo constants.</div></div><button class="button" id="refresh">Refresh</button></div><div class="live-stats">${card('precision','precision')}${card('recall','recall')}${card('F1','f1')}${card('false-positive rate','fpr')}</div><div class="panel table-wrap">${state.error ? `<div class="error">${esc(state.error)}</div>` : values.length ? `<table class="metrics"><thead><tr><th>Dataset</th><th>Split</th><th>Precision</th><th>Recall</th><th>F1</th><th>False-positive rate</th><th>Samples</th></tr></thead><tbody>${values.map(m => `<tr><td>${esc(m.dataset)}</td><td>${esc(m.split)}</td><td class="metric-value">${pct(m.precision)}</td><td class="metric-value">${pct(m.recall)}</td><td class="metric-value">${pct(m.f1)}</td><td class="metric-value">${pct(m.fpr)}</td><td>${m.n == null ? 'n/a' : Number(m.n)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No evaluation runs are available yet.</div>'}</div>`;
+    document.querySelector('#refresh').onclick = load;
+  }
+
+  function renderMethodology() { app.innerHTML = `<div class="panel prose"><div class="eyebrow">Methodology and limits</div><h2>Behaviour first. Evidence always.</h2><p>Noise Radar looks for coordination between accounts across a time window. It does not decide whether a viewpoint is true, false, popular, or politically acceptable.</p><h3>What can raise a cluster</h3><ul><li>Repeated or near-duplicate text, links, or media across distinct accounts.</li><li>Synchronized bursts and repeated co-engagement.</li><li>Account identity patterns and network amplification.</li><li>Signals that remain unusual after an account-level timing null model.</li></ul><h3>What lowers confidence</h3><ul><li>Large organic events such as breaking news, sports, or fandom activity.</li><li>Weak evidence, too few accounts, or conflicting signals.</li><li>Missing profiles, media, source checks, or analyst evidence.</li></ul><h3>Abstention is a result</h3><p>“Insufficient evidence” means the detector chose not to make a coordination claim. Model-generated explanations are limited to evidence already collected by the pipeline.</p><h3>Data handling</h3><p>Bluesky analysis is read-only. Posts and profile links are shown to explain a cluster; the system does not create accounts or publish content.</p></div>`; }
+  async function analyze(e) { e.preventDefault(); const form = new FormData(e.target); const body = Object.fromEntries([...form.entries()].filter(([,v]) => String(v).trim())); const output = document.querySelector('#analysis-result'); output.innerHTML = '<div class="muted">Checking live evidence…</div>'; try { const result = await api('/api/analyze', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) }); output.innerHTML = `<div class="panel">${badge(result.status)}${result.notes && result.notes.length ? `<ul>${result.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}${result.clusters && result.clusters.length ? `<div class="chips">${result.clusters.map(c => `<button class="chip" data-cluster="${Number(c.id)}">Cluster #${Number(c.id)} · ${pct(c.score)}</button>`).join('')}</div>` : ''}${result.web_findings && result.web_findings.length ? result.web_findings.map(f => `<div class="evidence"><strong>${esc(f.summary)}</strong>${f.source_url ? `<br><a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">${esc(f.source_url)} ↗</a>` : ''}</div>`).join('') : ''}</div>`; output.querySelectorAll('[data-cluster]').forEach(b => b.onclick = () => openCluster(Number(b.dataset.cluster))); } catch (err) { output.innerHTML = `<div class="error">${esc(err.message)}</div>`; } }
+  async function load() { state.error = null; try { const [health, clusters, metrics] = await Promise.all([api('/api/health'), api('/api/clusters?limit=200&include_synthetic=true'), api('/api/metrics')]); state.health = health; state.loadedAt = new Date().toISOString(); state.clusters = Array.isArray(clusters) ? clusters : []; state.metrics = Array.isArray(metrics) ? metrics : []; setHealth(Boolean(health.ok), health.ok ? `Monitor online${health.last_event_at ? `; last event: ${date(health.last_event_at)}` : ''}` : 'Monitor unavailable'); } catch (e) { state.error = e.message; state.health = null; setHealth(false, 'Monitor unavailable'); } render(); }
+
+  document.querySelectorAll('.nav-btn').forEach(b => b.onclick = () => { state.page = b.dataset.page; state.selected = null; state.error = null; render(); });
+  load(); setInterval(load, 30000);
+})();
+</script>
 </body>
 </html>

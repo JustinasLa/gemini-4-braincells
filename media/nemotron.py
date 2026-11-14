@@ -1,7 +1,7 @@
 """Nemotron 3.5 Super VL client for evidence-producing media analysis.
 
 Every call is logged (requested and returned model id, latency, tokens, finish reason). A response
-whose model id is not a VL model raises `NotVisionModelError`: NVIDIA's shared build endpoint has
+whose model id is not Nemotron Super VL raises `NotVisionModelError`: the shared build endpoint has
 answered image calls under a text-model label, and we must not publish findings as "Super VL"
 unless the server says they are.
 """
@@ -77,7 +77,7 @@ class NemotronError(RuntimeError):
 
 
 class NotVisionModelError(NemotronError):
-    """The server answered with a non-VL model. Fatal: stop instead of storing mislabelled rows."""
+    """Not Nemotron Super VL. Fatal: stop instead of storing mislabelled rows."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +135,16 @@ class MediaAnalysis:
 def is_vl_model(model_id: str | None) -> bool:
     """True when the id names a vision-language model ("...-super-vl-..." / "...-VL-...")."""
     return bool(model_id) and "vl" in re.split(r"[^a-z0-9]+", model_id.lower())
+
+
+def is_super_vl_model(model_id: str | None) -> bool:
+    """Nemotron 3.5 Super VL specifically: the nemotron, super and vl tokens and version 3.5
+    (e.g. 'nemotron-3.5-super-vl', 'nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4')."""
+    if not model_id:
+        return False
+    tokens = re.split(r"[^a-z0-9]+", model_id.lower())
+    version = any(a == "3" and b == "5" for a, b in zip(tokens, tokens[1:], strict=False))
+    return version and {"nemotron", "super", "vl"}.issubset(tokens)
 
 
 class RateLimiter:
@@ -199,6 +209,42 @@ def _usage(response: Any) -> dict[str, Any] | None:
     if getattr(details, "reasoning_tokens", None) is not None:
         out["reasoning_tokens"] = details.reasoning_tokens
     return out
+
+
+def log_call_attempt(
+    *,
+    model: str,
+    media_hash: str,
+    started: float,
+    response: Any = None,
+    attempt: int = 1,
+    outcome: str = "ok",
+    error_type: str | None = None,
+) -> int:
+    """One consistent record per API attempt, including failures and comparison calls."""
+    latency_ms = round((time.monotonic() - started) * 1000)
+    usage = _usage(response) or {}
+    choices = getattr(response, "choices", None)
+    record = {
+        "model": model,
+        "returned_model": getattr(response, "model", None),
+        "hash": media_hash,
+        "latency_ms": latency_ms,
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "reasoning_tokens": usage.get("reasoning_tokens"),
+        "finish_reason": getattr(choices[0], "finish_reason", None) if choices else None,
+        "attempt": attempt,
+        "outcome": outcome,
+        "error_type": error_type,
+    }
+    log.log(
+        logging.INFO if outcome == "ok" else logging.WARNING,
+        "nemotron call %s",
+        " ".join(f"{key}={value}" for key, value in record.items()),
+        extra={"nemotron_call": record},
+    )
+    return latency_ms
 
 
 class NemotronClient:
@@ -318,39 +364,44 @@ class NemotronClient:
                 retryable = isinstance(exc, openai.APIConnectionError | openai.RateLimitError) or (
                     isinstance(status, int) and status >= 500
                 )
-                log.warning(
-                    "nemotron call failed model=%s hash=%s attempt=%d status=%s error=%s",
-                    self.model,
-                    media_hash,
-                    attempt + 1,
-                    status,
-                    type(exc).__name__,
+                retry = retryable and attempt < self._max_retries - 1
+                log_call_attempt(
+                    model=self.model,
+                    media_hash=media_hash,
+                    started=started,
+                    attempt=attempt + 1,
+                    outcome="retry" if retry else type(exc).__name__,
+                    error_type=type(exc).__name__,
                 )
-                if not retryable or attempt == self._max_retries - 1:
+                if not retry:
                     raise NemotronError(f"Nemotron request failed: {exc}") from exc
                 delay = min(60.0, 2**attempt) * (1 + random.random() / 2)
                 self._sleep(delay)
                 continue
-            latency_ms = round((time.monotonic() - started) * 1000)
-            usage = _usage(response) or {}
-            choice = response.choices[0] if response.choices else None
-            log.info(
-                "nemotron call model=%s returned_model=%s hash=%s latency_ms=%d prompt_tokens=%s "
-                "completion_tokens=%s reasoning_tokens=%s finish_reason=%s attempt=%d",
-                self.model,
-                response.model,
-                media_hash,
-                latency_ms,
-                usage.get("prompt_tokens"),
-                usage.get("completion_tokens"),
-                usage.get("reasoning_tokens"),
-                getattr(choice, "finish_reason", None),
-                attempt + 1,
+            except Exception as exc:  # a programming error, not an API failure: log, re-raise
+                log_call_attempt(
+                    model=self.model,
+                    media_hash=media_hash,
+                    started=started,
+                    attempt=attempt + 1,
+                    outcome=type(exc).__name__,
+                    error_type=type(exc).__name__,
+                )
+                raise
+            returned_model = getattr(response, "model", None)
+            valid_model = is_super_vl_model(returned_model)
+            latency_ms = log_call_attempt(
+                model=self.model,
+                media_hash=media_hash,
+                started=started,
+                response=response,
+                attempt=attempt + 1,
+                outcome="ok" if valid_model else "NotVisionModelError",
             )
-            if not is_vl_model(response.model):
+            if not valid_model:
                 raise NotVisionModelError(
                     f"asked for {self.model!r} at {self.base_url} but the response came from "
-                    f"{response.model!r}, which is not a VL model"
+                    f"{returned_model!r}, which is not a Nemotron Super VL model"
                 )
             return response, latency_ms
         raise AssertionError("unreachable")

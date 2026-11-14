@@ -25,7 +25,14 @@ pts = []
 for j, i in enumerate(idx):
     k = kps[i]
     size = float(np.clip(k.size * 1.6, 46, 120))
-    pts.append({"x": round(k.pt[0] / w, 4), "y": round(k.pt[1] / h, 4), "s": round(size / w, 4), "r": float(k.response)})
+    pts.append(
+        {
+            "x": round(k.pt[0] / w, 4),
+            "y": round(k.pt[1] / h, 4),
+            "s": round(size / w, 4),
+            "r": float(k.response),
+        }
+    )
 # matches between selected keypoints by descriptor distance (self-similarity in the painting)
 D = des[idx]
 pairs = []
@@ -53,18 +60,33 @@ json.dump({"w": w, "h": h, "points": pts, "links": links}, open("out/venus-cv.js
 dark = (crop * 0.42).astype(np.uint8)
 for l in links:
     a, b = pts[l["a"]], pts[l["b"]]
-    p1 = (int(a["x"] * w), int(a["y"] * h)); p2 = (int(b["x"] * w), int(b["y"] * h))
+    p1 = (int(a["x"] * w), int(a["y"] * h))
+    p2 = (int(b["x"] * w), int(b["y"] * h))
     n = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]) // 12)
     for t in range(n):
         if t % 2 == 0:
             q1 = (int(p1[0] + (p2[0] - p1[0]) * t / n), int(p1[1] + (p2[1] - p1[1]) * t / n))
-            q2 = (int(p1[0] + (p2[0] - p1[0]) * (t + 1) / n), int(p1[1] + (p2[1] - p1[1]) * (t + 1) / n))
+            q2 = (
+                int(p1[0] + (p2[0] - p1[0]) * (t + 1) / n),
+                int(p1[1] + (p2[1] - p1[1]) * (t + 1) / n),
+            )
             cv2.line(dark, q1, q2, (220, 220, 220), 1, cv2.LINE_AA)
 for p in pts:
-    s = int(p["s"] * w); x = int(p["x"] * w - s / 2); y = int(p["y"] * h - s / 2)
+    s = int(p["s"] * w)
+    x = int(p["x"] * w - s / 2)
+    y = int(p["y"] * h - s / 2)
     x0, y0 = max(0, x), max(0, y)
-    dark[y0:y + s, x0:x + s] = crop[y0:y + s, x0:x + s]
+    dark[y0 : y + s, x0 : x + s] = crop[y0 : y + s, x0 : x + s]
     cv2.rectangle(dark, (x, y), (x + s, y + s), (60, 220, 60), 2)
-    cv2.putText(dark, f"{p['score']:.4f}", (x + 4, y + s // 2 + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (235, 235, 235), 1, cv2.LINE_AA)
+    cv2.putText(
+        dark,
+        f"{p['score']:.4f}",
+        (x + 4, y + s // 2 + 4),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.38,
+        (235, 235, 235),
+        1,
+        cv2.LINE_AA,
+    )
 cv2.imwrite("out/prev-cv.png", cv2.resize(dark, (1440, int(1440 * h / w))))
 print(len(pts), "points", len(links), "links")

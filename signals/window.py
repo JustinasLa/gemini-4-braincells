@@ -51,6 +51,21 @@ class WindowData:
     background: dict[str, np.ndarray] = field(default_factory=dict)
     # Distinct accounts per kind over the whole stream in the window (for popularity / base rates).
     active_accounts: int = 0
+    _index: "WindowIndex | None" = field(default=None, repr=False, compare=False)
+
+    def index(self) -> "WindowIndex":
+        """Per-account / per-URI lookups, built once per window (scoring runs per cluster and
+        must not rescan every post and action each time). Rebuilt if the lists changed size."""
+        key = (len(self.posts), len(self.actions))
+        if self._index is None or self._index.key != key:
+            posts_by_did: dict[str, list[WPost]] = {}
+            for p in self.posts:
+                posts_by_did.setdefault(p.did, []).append(p)
+            actions_by_did: dict[str, list[WAction]] = {}
+            for a in self.actions:
+                actions_by_did.setdefault(a.did, []).append(a)
+            self._index = WindowIndex(key, posts_by_did, actions_by_did)
+        return self._index
 
     def background_for(self, kind: str) -> np.ndarray:
         bg = self.background.get(kind)
@@ -69,42 +84,57 @@ class WindowData:
         return out
 
 
+@dataclass
+class WindowIndex:
+    key: tuple[int, int]
+    posts_by_did: dict[str, list[WPost]]
+    actions_by_did: dict[str, list[WAction]]
+
+
+# Plain range scans, no ORDER BY / DISTINCT ON: on an hour of likes (~1.3M rows) the planner
+# misjudged the join and sorted 190 MB on disk (27 s). Duplicates (the same record from two
+# Jetstream hosts, different seen_at) are dropped in Python, keeping the earliest copy, and the
+# per-subject account counts are done in Python too. Same rows out, same order, as before.
 _POSTS_SQL = """
-SELECT DISTINCT ON (uri) uri, did, extract(epoch FROM seen_at)::float8 AS t, text, text_hash,
+SELECT uri, did, extract(epoch FROM seen_at)::float8 AS t, text, text_hash,
        embed_urls, media_hashes, reply_to, reply_root, quote_uri,
        extract(epoch FROM created_at)::float8 AS created_t, deleted_at IS NOT NULL AS deleted, langs
 FROM posts WHERE seen_at >= %(s)s AND seen_at < %(e)s
-ORDER BY uri, seen_at
 """
 
-# Only subjects shared by a non-trivial, non-viral number of accounts can create edges.
 _ACTIONS_SQL = """
-WITH subj AS (
-    SELECT subject_uri FROM {table}
-    WHERE seen_at >= %(s)s AND seen_at < %(e)s
-    GROUP BY subject_uri
-    HAVING count(DISTINCT did) BETWEEN %(lo)s AND %(hi)s
-)
-SELECT DISTINCT ON (a.uri) a.uri, a.did, extract(epoch FROM a.seen_at)::float8 AS t,
-       a.subject_uri, a.subject_did, a.deleted_at IS NOT NULL AS deleted
-FROM {table} a JOIN subj USING (subject_uri)
-WHERE a.seen_at >= %(s)s AND a.seen_at < %(e)s
-ORDER BY a.uri, a.seen_at
+SELECT uri, did, extract(epoch FROM seen_at)::float8 AS t, subject_uri, subject_did,
+       deleted_at IS NOT NULL AS deleted
+FROM {table} WHERE seen_at >= %(s)s AND seen_at < %(e)s
 """
 
 _FOLLOWS_SQL = """
-WITH subj AS (
-    SELECT subject_did FROM follows
-    WHERE seen_at >= %(s)s AND seen_at < %(e)s
-    GROUP BY subject_did
-    HAVING count(DISTINCT did) BETWEEN %(lo)s AND %(hi)s
-)
-SELECT DISTINCT ON (f.uri) f.uri, f.did, extract(epoch FROM f.seen_at)::float8 AS t,
-       f.subject_did, f.deleted_at IS NOT NULL AS deleted
-FROM follows f JOIN subj USING (subject_did)
-WHERE f.seen_at >= %(s)s AND f.seen_at < %(e)s
-ORDER BY f.uri, f.seen_at
+SELECT uri, did, extract(epoch FROM seen_at)::float8 AS t, subject_did, subject_did,
+       deleted_at IS NOT NULL AS deleted
+FROM follows WHERE seen_at >= %(s)s AND seen_at < %(e)s
 """
+
+
+def _earliest(rows) -> dict:
+    """uri -> the earliest row (index 2 is seen_at) among duplicates."""
+    best: dict = {}
+    for r in rows:
+        old = best.get(r[0])
+        if old is None or r[2] < old[2]:
+            best[r[0]] = r
+    return best
+
+
+def _shared_subjects(rows: dict, lo: int, hi: int) -> list:
+    """Rows whose subject (index 3) was hit by lo..hi distinct accounts, ordered by uri.
+    Only these can create edges: one account is no co-action, and viral subjects (> hi) can't
+    tell coordination from popularity."""
+    accounts: dict[str, set] = {}
+    for r in rows.values():
+        accounts.setdefault(r[3], set()).add(r[1])
+    keep = {subj for subj, a in accounts.items() if lo <= len(a) <= hi}
+    return sorted((r for r in rows.values() if r[3] in keep), key=lambda r: r[0])
+
 
 _BACKGROUND_SQL = """
 SELECT floor(extract(epoch FROM seen_at) - %(s_epoch)s)::int AS sec, count(*)
@@ -124,7 +154,8 @@ def load_window(
     }
     wd = WindowData(start=start.timestamp(), end=end.timestamp())
     cur = conn.cursor()
-    for r in cur.execute(_POSTS_SQL, p):
+    posts = _earliest(cur.execute(_POSTS_SQL, p))
+    for r in sorted(posts.values(), key=lambda r: r[0]):
         wd.posts.append(
             WPost(
                 uri=r[0],
@@ -142,11 +173,14 @@ def load_window(
                 langs=r[12] or [],
             )
         )
+    lo, hi = cfg.min_key_accounts, cfg.max_key_accounts
     for table, kind in (("likes", "like"), ("reposts", "repost")):
-        for r in cur.execute(_ACTIONS_SQL.format(table=table), p):
+        rows = _earliest(cur.execute(_ACTIONS_SQL.format(table=table), p))
+        for r in _shared_subjects(rows, lo, hi):
             wd.actions.append(WAction(kind, r[0], r[1], r[2], r[3], r[4], r[5]))
-    for r in cur.execute(_FOLLOWS_SQL, p):
-        wd.actions.append(WAction("follow", r[0], r[1], r[2], r[3], r[3], r[4]))
+    rows = _earliest(cur.execute(_FOLLOWS_SQL, p))
+    for r in _shared_subjects(rows, lo, hi):
+        wd.actions.append(WAction("follow", r[0], r[1], r[2], r[3], r[4], r[5]))
     n = max(1, int(round(wd.end - wd.start)))
     for table, kind in (
         ("posts", "post"),

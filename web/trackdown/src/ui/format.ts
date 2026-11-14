@@ -36,6 +36,7 @@ export function fmtDur(ms: number): string {
 }
 export function fmtNum(n?: number): string {
   if (n == null) return "–";
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
   if (n < 1000) return String(n);
   if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
   return Math.round(n / 1000) + "k";
@@ -50,6 +51,13 @@ export const initials = (name: string) =>
     .join("") || "?";
 
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+export const httpUrl = (value?: string | null): string | undefined => {
+  try {
+    const url = new URL(value ?? "");
+    return ["http:", "https:"].includes(url.protocol) ? url.href : undefined;
+  } catch { return undefined; }
+};
 
 export const STATUS: Record<Status, { word: string; css: string; short: string; tag: string; color: string }> = {
   coordinated: { word: "Shill", css: "var(--shill)", color: "#e2533c", short: "Shill", tag: "Coordinated spread" },
@@ -83,7 +91,8 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   oxylabs: { label: "oxylabs", long: "Oxylabs Web API" },
   gemini: { label: "gemini", long: "Gemini analyst" },
   you: { label: "input", long: "Your submission" },
-  archive: { label: "archive", long: "Historical record" },
+  archive: { label: "archive", long: "Archive / post-ID timestamp" },
+  bluesky: { label: "bluesky", long: "Bluesky public AppView" },
 };
 
 export const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];

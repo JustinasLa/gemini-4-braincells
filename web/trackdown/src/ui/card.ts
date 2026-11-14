@@ -4,7 +4,7 @@ import { esc, fmtDate, fmtNum, ROLE } from "./format";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 
-export const PLATFORM: Record<string, string> = { text: "Submitted text", bluesky: "Bluesky", web: "Web page", news: "News", forum: "Forum", video: "Video", chat: "Chat", factcheck: "Web page", print: "Print", letter: "Letter" };
+export const PLATFORM: Record<string, string> = { text: "Submitted text", x: "𝕏", bluesky: "Bluesky", web: "Web page", news: "News", forum: "Forum", video: "Video", chat: "Chat", factcheck: "Web page", print: "Print", letter: "Letter" };
 
 /** Machine-vision boxes over a media plate. Positions are stable per post; the score is the
  *  similarity of the link that brought it in (if any), so the boxes say what the matcher said. */
@@ -38,6 +38,7 @@ function mediaHtml(m: Media, seed: string, score?: number): string {
       return `<div class="media shot${cropped ? " cropped" : ""}">${cv}<div class="mast"><span>${esc((m.domain ?? "").toUpperCase())}</span><span class="tag2">SATIRE</span></div><div class="hl">${esc(m.title)}</div><div class="bars"></div></div>${note}`;
     }
     case "photo":
+      if (m.src) return `<div class="media source-photo"><img src="${esc(m.src)}" alt="${esc(m.title)}" draggable="false" loading="lazy" referrerpolicy="no-referrer"></div>${note}`;
       return `<div class="media photo">${cv}<span class="cap">${esc(m.title)}</span></div>${note}`;
     case "video":
       return `<div class="media video">${cv}<div class="play"></div><span class="cap">${esc(m.title)}</span></div>${note}`;
@@ -54,21 +55,22 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
   const fresh = (a.ageDays ?? 999) < 30;
   const shield = cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: compact ? 22 : 30 });
   // a web result's handle is its domain, already the title: don't say it twice
-  const handle = a.handle === a.name ? "" : `${n.platform === "bluesky" ? "@" : ""}${esc(a.handle)}`;
+  const handle = a.handle === a.name ? "" : `${n.platform === "bluesky" || n.platform === "x" ? "@" : ""}${esc(a.handle.replace(/^@/, ""))}`;
+  const unknownTime = n.undated || n.timeUnknown;
   if (compact) {
     const t = new Date(n.t);
     const clock = `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}:${String(t.getUTCSeconds()).padStart(2, "0")}`;
     return `<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div></header>
-      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${clock}</time></div>`;
+      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${unknownTime ? "time unknown" : clock}</time></div>`;
   }
   const mark = ROLE[n.role].mark ? `<div class="rolemark">${esc(ROLE[n.role].mark!)}</div>` : "";
   const stamp = n.role === "submitted" ? `<div class="stamp">SUBMITTED</div>` : "";
   const flags = n.flags?.length ? `<div class="flags">${n.flags.map((f) => `<span class="flag${flagClass(f)}">${esc(f)}</span>`).join("")}</div>` : "";
   const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${PLATFORM[n.platform] ?? n.platform}</span>`;
-  return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div>${n.undated ? "" : `<span class="catno">#${String(no).padStart(2, "0")}</span>`}</header>
+  return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div>${n.platform === "x" ? '<span class="platform-x" aria-label="X post">𝕏</span>' : ""}${unknownTime ? "" : `<span class="catno">#${String(no).padStart(2, "0")}</span>`}</header>
     ${mark}
     <p class="txt">${esc(n.text)}</p>
     ${n.media ? mediaHtml(n.media, n.id, matchScore) : ""}
     ${flags}
-    <footer>${eng}${n.undated ? "<time>date unknown</time>" : `<time>${fmtDate(n.t)}</time>`}</footer>`;
+    <footer>${eng}<time>${unknownTime ? "time unknown" : fmtDate(n.t)}</time></footer>`;
 }

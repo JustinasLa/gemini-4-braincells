@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     oxylabs_web_api_key: str = ""
     context_dev_api_key: str = ""
 
+    # Link lookup (lookup/README.md): every lookup spends live Oxylabs, Nemotron and Gemini calls.
+    lookup_max_per_hour: int = 60  # all clients together; 0 = no cap
+    lookup_max_per_ip_per_hour: int = 10
+    lookup_cache_ttl_s: float = 1800  # same input within this window returns the earlier result
+    lookup_job_ttl_s: float = 3600
+    lookup_verify_max: int = 8  # candidate X copies whose own page is read
+    lookup_profiles_max: int = 4  # copier profiles read (account age, followers)
+    lookup_time_budget_s: float = 150
+    lookup_media: bool = True  # Nemotron reads the post's images
+    lookup_gemini: bool = True  # Gemini writes the cited reading
+
     jetstream_url: str = "wss://jetstream2.us-east.bsky.network/subscribe"
 
 

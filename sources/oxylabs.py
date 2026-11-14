@@ -6,6 +6,7 @@ logged with endpoint, HTTP status, latency and the Oxylabs request id.
 
 import logging
 import re
+import threading
 import time
 from datetime import date, datetime
 from typing import Any
@@ -85,6 +86,12 @@ class OxylabsClient:
         )
         self._max_retries = max_retries
         self._backoff_s = backoff_s
+        self._local = threading.local()
+
+    @property
+    def last_call(self) -> dict:
+        """{endpoint, status, latency_ms, request_id} of this thread's latest call (receipts)."""
+        return getattr(self._local, "last_call", {})
 
     @classmethod
     def from_settings(cls) -> "OxylabsClient":
@@ -99,8 +106,10 @@ class OxylabsClient:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def search(self, query: str, max_results: int = 10) -> list[SearchHit]:
-        data = self._post("/search", {"query": query, "max_results": max_results})
+    def search(
+        self, query: str, max_results: int = 10, *, deadline: float | None = None
+    ) -> list[SearchHit]:
+        data = self._post("/search", {"query": query, "max_results": max_results}, deadline)
         hits = []
         for i, r in enumerate(data.get("results") or [], start=1):
             if not r.get("url"):
@@ -117,10 +126,10 @@ class OxylabsClient:
             )
         return hits
 
-    def scrape_facts(self, url: str) -> PageFacts:
+    def scrape_facts(self, url: str, *, deadline: float | None = None) -> PageFacts:
         """Scrape `url` and let Oxylabs extract publisher, date, headline and main claims."""
         data = self._post(
-            "/scrape", {"url": url, "output": ["json"], "json": {"schema": FACTS_SCHEMA}}
+            "/scrape", {"url": url, "output": ["json"], "json": {"schema": FACTS_SCHEMA}}, deadline
         )
         results = data.get("results") or []
         if not results:
@@ -140,14 +149,34 @@ class OxylabsClient:
             claims=[c for c in (_text(x) for x in claims) if c][:5],
         )
 
-    def _post(self, path: str, body: dict) -> dict:
+    def scrape_markdown(self, url: str, *, deadline: float | None = None) -> tuple[str, dict]:
+        """The page as markdown (no AI extraction) plus the result metadata (final url, status)."""
+        data = self._post("/scrape", {"url": url, "output": ["markdown"]}, deadline)
+        results = data.get("results") or []
+        if not results or not isinstance(results[0].get("markdown"), str):
+            raise OxylabsError(f"/scrape returned no markdown for {url}")
+        return results[0]["markdown"], results[0].get("metadata") or {}
+
+    def _post(self, path: str, body: dict, deadline: float | None = None) -> dict:
+        """`deadline` (time.monotonic()): each attempt's timeout is clamped to it and no retry
+        starts after it."""
         attempt = 0
         while True:
             started = time.monotonic()
             status: int | None = None
             payload: dict = {}
             try:
-                res = self._http.post(path, json=body)
+                timeout = None
+                if deadline is not None:
+                    left = deadline - time.monotonic()
+                    if left <= 1:
+                        raise OxylabsError(f"oxylabs {path}: time budget used up")
+                    timeout = min(self._http.timeout.read or left, left)
+                res = (
+                    self._http.post(path, json=body, timeout=timeout)
+                    if timeout is not None
+                    else self._http.post(path, json=body)
+                )
                 status = res.status_code
                 try:
                     payload = res.json()
@@ -156,6 +185,12 @@ class OxylabsClient:
             except httpx.TransportError as exc:
                 log.warning("oxylabs %s transport error: %s", path, type(exc).__name__)
             request_id = (payload.get("metadata") or {}).get("request_id")
+            self._local.last_call = {
+                "endpoint": path,
+                "status": status,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "request_id": request_id,
+            }
             log.info(
                 "oxylabs call endpoint=%s status=%s latency_ms=%d request_id=%s attempt=%d",
                 path,
@@ -166,7 +201,14 @@ class OxylabsClient:
             )
             if status == 200:
                 return payload
-            if (status is None or status in RETRY_STATUS) and attempt < self._max_retries:
+            out_of_time = deadline is not None and (
+                time.monotonic() + self._backoff_s * 2**attempt >= deadline
+            )
+            if (
+                (status is None or status in RETRY_STATUS)
+                and attempt < self._max_retries
+                and not out_of_time
+            ):
                 time.sleep(self._backoff_s * 2**attempt)
                 attempt += 1
                 continue

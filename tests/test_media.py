@@ -1,4 +1,5 @@
 import json
+import logging
 from types import SimpleNamespace
 
 import httpx
@@ -13,6 +14,7 @@ from media.nemotron import (
     NemotronError,
     NotVisionModelError,
     RateLimiter,
+    is_super_vl_model,
     is_vl_model,
     parse_content,
     safe_description,
@@ -139,7 +141,7 @@ def test_is_vl_model(model_id, ok):
 
 def test_non_vl_response_fails_loudly():
     client, _, _ = _client(_response(GOOD, model="private/nvidia/nemotron-3.5-super-120b-a12b"))
-    with pytest.raises(NotVisionModelError, match="not a VL model"):
+    with pytest.raises(NotVisionModelError, match="not a Nemotron Super VL model"):
         client.analyze(MediaInput("h", "image/png", data=b"x"))
 
 
@@ -249,3 +251,116 @@ def test_ordinary_descriptions_pass_through():
         "A promotional graphic for a law firm.",
         ["promo_or_ad"],
     )
+
+
+@pytest.mark.parametrize(
+    "model_id, accepted",
+    [
+        ("nemotron-3.5-super-vl", True),
+        ("nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4", True),
+        ("nvidia/nemotron-3.5-super-vl-120b-a12b", True),
+        ("nvidia/nemotron-3.5-super-120b-a12b", False),
+        ("nvidia/nemotron-nano-vl", False),
+        ("other/super-vl", False),
+        ("other/vl", False),
+        ("nemotron-supervl", False),
+        ("nemotron-super-vllm", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_super_vl_model(model_id, accepted):
+    assert is_super_vl_model(model_id) is accepted
+
+
+@pytest.mark.parametrize("model_id", ["other/vl", "nemotron-nano-vl", None])
+def test_other_vision_models_are_rejected_and_logged(model_id, caplog):
+    client, _, _ = _client(_response(GOOD, model=model_id))
+    with pytest.raises(NotVisionModelError):
+        client.analyze(MediaInput("hash", "image/png", data=b"x"))
+    [record] = [record.nemotron_call for record in caplog.records]
+    assert record["outcome"] == "NotVisionModelError"
+    assert record["returned_model"] == model_id
+    assert record["prompt_tokens"] == 10
+
+
+def test_every_attempt_logs_latency_tokens_and_outcome(caplog, monkeypatch):
+    caplog.set_level(logging.INFO, logger="media.nemotron")
+    clock = iter([1.0, 1.25, 2.0, 2.5])
+    monkeypatch.setattr("media.nemotron.time.monotonic", lambda: next(clock))
+    client, _, _ = _client(_status_error(429), _response(GOOD))
+    client.analyze(MediaInput("hash", "image/png", data=b"x"))
+    records = [record.nemotron_call for record in caplog.records]
+    assert len(records) == 2
+    failed, succeeded = records
+    assert failed == {
+        "model": client.model,
+        "returned_model": None,
+        "hash": "hash",
+        "latency_ms": 250,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "reasoning_tokens": None,
+        "finish_reason": None,
+        "attempt": 1,
+        "outcome": "retry",
+        "error_type": "RateLimitError",
+    }
+    assert succeeded.keys() == failed.keys()
+    assert succeeded["latency_ms"] == 500 and succeeded["attempt"] == 2
+    assert succeeded["outcome"] == "ok"
+    assert succeeded["returned_model"] == "nemotron-3.5-super-vl"
+    assert succeeded["prompt_tokens"] == 10 and succeeded["completion_tokens"] == 20
+    assert succeeded["finish_reason"] == "stop"
+
+
+@pytest.mark.parametrize("error", [_status_error(400), _status_error(503), RuntimeError("boom")])
+def test_terminal_failure_logs_one_complete_record(error, caplog):
+    client, calls, _ = _client(error, max_retries=1)
+    # API failures become NemotronError; a programming error is re-raised unchanged
+    expected = RuntimeError if isinstance(error, RuntimeError) else NemotronError
+    with pytest.raises(expected):
+        client.analyze(MediaInput("hash", "image/png", data=b"x"))
+    [record] = [record.nemotron_call for record in caplog.records]
+    assert len(calls.calls) == 1
+    assert record["latency_ms"] >= 0
+    assert record["outcome"] == type(error).__name__
+    assert record["attempt"] == 1 and record["returned_model"] is None
+    assert record["prompt_tokens"] is None and record["completion_tokens"] is None
+
+
+def test_success_without_usage_logs_unknown_tokens(caplog):
+    caplog.set_level(logging.INFO, logger="media.nemotron")
+    response = _response(GOOD)
+    response.usage = None
+    client, _, _ = _client(response)
+    client.analyze(MediaInput("hash", "image/png", data=b"x"))
+    [record] = [record.nemotron_call for record in caplog.records]
+    assert record["outcome"] == "ok"
+    assert record["prompt_tokens"] is None and record["completion_tokens"] is None
+
+
+def test_comparison_uses_same_log_fields_and_keeps_prompt_tokens(caplog):
+    from media.compare import VARIANTS, _metrics, _one
+
+    caplog.set_level(logging.INFO, logger="media.nemotron")
+    client, _, _ = _client(_response(GOOD), _status_error(400))
+    item = {"cid": "hash", "data_url": "data:image/png;base64,eA=="}
+    success = _one(client, VARIANTS["v3"], item)
+    failed = _one(client, VARIANTS["v3"], item)
+    records = [record.nemotron_call for record in caplog.records]
+    assert len(records) == 2 and records[0].keys() == records[1].keys()
+    assert records[0]["outcome"] == "ok" and records[0]["prompt_tokens"] == 10
+    assert records[1]["outcome"] == "APIStatusError" and records[1]["latency_ms"] >= 0
+    assert failed["error"] == "APIStatusError" and failed["latency_ms"] >= 0
+    assert success["prompt_tokens"] == 10
+    assert _metrics([success, failed])["prompt_tokens_mean"] == 10
+
+
+def test_super_vl_guard_requires_version_3_5():
+    from media.nemotron import is_super_vl_model
+
+    assert is_super_vl_model("nemotron-3.5-super-vl")
+    assert is_super_vl_model("nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4")
+    assert not is_super_vl_model("nemotron-2-super-vl")
+    assert not is_super_vl_model("nvidia/nemotron-3.5-super-120b-a12b")  # text-only label

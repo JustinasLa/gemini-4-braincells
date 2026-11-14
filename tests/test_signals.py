@@ -319,3 +319,93 @@ def test_identity_test_does_not_flag_aged_look_alikes():
             base_rates=_rates(),
         )
         assert not [c for c in res.clusters if c.status == "coordinated"]
+
+
+# ------------------------------------------------------------------ v1.6 guards --------------
+def _fresh_campaign(seed=13):
+    from signals.synth import from_texts
+
+    base = empty_window(seed=seed)
+    texts = [
+        f"amazing deal number {i}: this fictional gadget changed my whole week, link below"
+        for i in range(8)
+    ]
+    s = from_texts(texts, base, coordinated=True, timing="burst", accounts="fresh", seed=seed)
+    return base, s
+
+
+def test_members_converse_guard_separates_friend_groups_from_rings():
+    import dataclasses as dc
+
+    base, s = _fresh_campaign()
+
+    def info(dids):
+        return {d: s.accounts[d] for d in dids if d in s.accounts}
+
+    ring = best_cluster(detect(inject(base, s), info, DEFAULT, base_rates=_rates()), s.dids)
+    assert ring.status == "coordinated"
+    assert not [g for g in ring.signals if g.name == "members_converse"]
+    # Same accounts, but they also reply to each other's posts: a conversation, not a broadcast.
+    dids = sorted(s.dids)
+    posts = {p.did: p for p in s.posts}
+    chat = []
+    for i, d in enumerate(dids):
+        target = posts[dids[(i + 1) % len(dids)]]
+        for k in range(2):
+            chat.append(
+                WPost(
+                    uri=f"at://{d}/app.bsky.feed.post/chat{k}",
+                    did=d,
+                    t=target.t + 30 + k,
+                    text=f"haha yes {k}",
+                    reply_to=target.uri,
+                    reply_root=target.uri,
+                )
+            )
+    talky = dc.replace(s, posts=s.posts + chat)
+    c = best_cluster(detect(inject(base, talky), info, DEFAULT, base_rates=_rates()), s.dids)
+    guard = next(g for g in c.signals if g.name == "members_converse")
+    assert guard.score >= DEFAULT.organic_guard_strong
+    assert c.status != "coordinated"
+
+
+def test_declared_automation_guard_needs_old_accounts_that_say_so():
+    from signals.score import AccountInfo, organic_guards
+
+    members = [f"did:plc:wv{i}" for i in range(5)]
+    old_bots = {
+        d: AccountInfo(
+            did=d,
+            age_days=300.0,
+            display_name="511 Northern WV",
+            description="Automated traffic alerts for West Virginia roads",
+        )
+        for d in members
+    }
+    fresh_bots = {
+        d: AccountInfo(
+            did=d, age_days=5.0, display_name="Deals bot", description="automated deals feed"
+        )
+        for d in members
+    }
+    humans = {
+        d: AccountInfo(
+            did=d, age_days=300.0, display_name="Sam", description="I like hiking and robotics"
+        )
+        for d in members
+    }
+    wd = WindowData(start=0, end=600)
+
+    def guard(info):
+        return next(
+            (
+                g
+                for g in organic_guards(members, [], info, wd, DEFAULT)
+                if g.name == "declared_automation"
+            ),
+            None,
+        )
+
+    assert guard(old_bots).score == 1.0
+    assert guard(fresh_bots) is None  # new accounts calling themselves bots don't get a pass
+    assert guard(humans) is None  # "robotics" doesn't match the word "bot"

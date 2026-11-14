@@ -43,6 +43,7 @@ run may add fetched profiles to the profile cache (`--offline` fetches nothing).
 | `live_hand_labels` | **precision** of `coordinated` and **FPR** on live clusters, against two humans' blind labels (below) | `precision`, `fpr`, `n` (definite human labels in that split), `details` (kappa, CIs, per-item labels) |
 | `organic_synth` | **FPR**: share of injected synthetic organic bursts (viral, news link, live event, fandom) the detector marks `coordinated` | `fpr`, `n`, `details` |
 | `organic_live` | **FPR** on real organic bursts in recorded windows, picked by a fixed rule that never reads detector output | `fpr`, `n`, `details` |
+| `bluesky_takedowns` | **External validation**: share of accounts Bluesky itself takes down or suspends within `horizon_h` hours after we flag them, per detector status, vs. random active accounts (`eval/takedowns.py`, below) | `n` (eligible `coordinated` accounts), `details` (all groups, Wilson CIs, cluster-level table) |
 
 `split` is `dev` (we may look at it while changing the detector or the eval) or `heldout`
 (reported only; never tune thresholds, hit rules or synth settings on it). **Split rule** (shared
@@ -367,3 +368,32 @@ tune them against these held-out errors. Built with Codex.
 - Fixed 10-minute windows: the live worker also slides the window every minute and runs a 1 h
   window. A campaign split across two fixed windows isn't tested here (campaigns are placed inside
   one window).
+
+
+## External validation: Bluesky moderation (`takedowns.py`)
+
+```bash
+uv run python -m eval takedowns [--horizon-h 3]          # print
+uv run python -m eval takedowns --horizon-h 3 --write    # ...and write a bluesky_takedowns row
+```
+
+Bluesky's own moderation never sees our scores and we never tune on it, so "how many of the
+accounts we flag does Bluesky later take down?" is an independent check. It is **not precision**:
+moderation misses many bad accounts (a lower bound) and acts for reasons other than coordination.
+
+- Groups: members of stored clusters by status (`coordinated`, `insufficient`, `likely_organic`,
+  first flag time = the first such cluster's `created_at`; synthetic clusters excluded), the live
+  random sample `baseline_accounts`, and `random_active`: per UTC hour since ingest began, 300
+  accounts drawn by hash from everyone who posted, liked or reposted in that hour (retroactive, so
+  it covers the same hours as our flags).
+- Outcome: a Jetstream `account` event with status `takendown` or `suspended`; `deleted` and
+  `throttled` are reported separately; `deactivated` (voluntary) is ignored.
+- Same time at risk for everyone: an account counts only if flagged at least `horizon_h` ago, and
+  only events within `horizon_h` after its flag count. Accounts actioned before their flag are
+  dropped. 95% Wilson intervals. The cluster-level table shows whether the rate comes from many
+  clusters or one ring.
+
+First run (Sat 14 Nov ~02:40 Espoo, horizon 3 h, mixed detector versions v1.3-v1.5):
+`coordinated` 33/229 accounts moderated (14.4%, 95% CI 10.5-19.6%); `insufficient` 1.8%;
+`likely_organic` 0/3,288 (CI 0-0.12%); `random_active` 0/600 (CI 0-0.64%). Clusters with a
+moderated member: `coordinated` 6/27, `insufficient` 6/171, `likely_organic` 0/472.
