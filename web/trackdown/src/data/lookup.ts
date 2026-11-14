@@ -197,7 +197,7 @@ export async function startLookup(input: string, onUpdate: (result: LookupResult
       if (controller.signal.aborted) throw abortError();
       throw new LookupError("The live lookup service could not be reached.", true);
     }
-    if (response.status === 400) throw new LookupError("That input could not be read. Enter a valid http(s) link or some post text.");
+    if (response.status === 400) throw new LookupError("That input could not be read. Enter an http(s) link, an @handle or at least 5 words of post text.");
     if (response.status === 429) throw new LookupError("Lookup rate limit reached. Please try again later.");
     if (response.status === 503) throw new LookupError("Live lookup is not configured or is temporarily unavailable.", true);
     if (response.status === 404) throw new LookupError("The lookup endpoint or job is unavailable (it may have expired).", true);
@@ -213,7 +213,7 @@ export async function startLookup(input: string, onUpdate: (result: LookupResult
   };
   try {
     const text = input.trim();
-    if (!text) throw new LookupError("Enter a link or some post text first.");
+    if (!text) throw new LookupError("Enter a link, an @handle or some post text first.");
     const first = await request("/api/lookup", /^https?:\/\//i.test(text) ? { url: text } : { text });
     emit(first.raw, first.result);
     let result = first.result;

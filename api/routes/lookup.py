@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from typing import Annotated
@@ -16,9 +17,40 @@ from common.config import get_settings
 from lookup.jobs import JobStore, RateLimited
 from lookup.models import LookupInput
 from lookup.service import IMAGE_CALL_S, Deps
+from signals.textnorm import normalize_text, word_count
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/lookup", tags=["lookup"])
+
+# A Bluesky handle is a domain name (atproto handle syntax); a DID names the same account.
+_HANDLE_RE = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", re.I
+)
+_DID_RE = re.compile(r"did:(?:plc:[a-z2-7]{24}|web:[a-z0-9.-]+)", re.I)
+
+
+def handle_profile_url(text: str) -> str | None:
+    """The Bluesky profile link for an account typed as text, else None.
+
+    `@name.bsky.social`, `@example.com`, `name.bsky.social` and DIDs are accounts; `@name`
+    without a dot means `name.bsky.social`. A bare domain without `@` (`example.com`) stays text,
+    since people type websites that way too.
+    """
+    t = text.strip()
+    if len(t) > 253 or any(c.isspace() for c in t):
+        return None
+    if _DID_RE.fullmatch(t):
+        return f"https://bsky.app/profile/{t.lower()}"
+    at = t.startswith("@")
+    name = t.removeprefix("@").lower()
+    if at and "." not in name and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", name):
+        name += ".bsky.social"
+    if not _HANDLE_RE.fullmatch(name):
+        return None
+    if at or name.endswith(".bsky.social"):
+        return f"https://bsky.app/profile/{name}"
+    return None
+
 
 _store: JobStore | None = None
 
@@ -145,8 +177,11 @@ def start_lookup(
         if len(url) > 2000 or not url.lower().startswith(("http://", "https://")):
             raise HTTPException(400, "url must be an http(s) link")
         inp = LookupInput(url=url)
+    elif profile := handle_profile_url(text):  # an @handle: look up that Bluesky account
+        inp = LookupInput(url=profile)
     elif text:
-        if len(text.split()) < 5:
+        # word_count counts Japanese/Chinese/Thai text, which has no spaces between words
+        if word_count(normalize_text(text)) < 5:
             raise HTTPException(400, "text needs at least 5 words to search for")
         inp = LookupInput(text=text[:2000])
     else:

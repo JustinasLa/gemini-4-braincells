@@ -281,7 +281,7 @@ evidence `kind` is `signal | media | source | analyst`.
 - `GET /api/clusters/{id}` → summary + `signals` + `members` + `posts` (25, with bsky.app links) + `evidence` (signal/media/source) + `analyst` (full latest verdict) *(implemented)*
 - `GET /api/metrics` → latest `eval_runs` per (dataset, split) *(implemented)*
 - `GET /api/feed.atom?status=&min_score=&limit=&include_synthetic=` → Atom 1.0 feed of the newest clusters with one status (default `coordinated`, real traffic only), each entry linking to its dashboard page; follow new calls in any feed reader *(implemented)*
-- `POST /api/lookup` `{url}` or `{text}` → 202 + `LookupResult` (`state: running`); `GET /api/lookup/{id}` polls it until `done`. Live, receipted trace of one link; schema in `lookup/README.md` *(implemented)*
+- `POST /api/lookup` `{url}` or `{text}` (an `@handle` as text is looked up as that Bluesky profile) → 202 + `LookupResult` (`state: running`); `GET /api/lookup/{id}` polls it until `done`. Live, receipted trace of one link; schema in `lookup/README.md` *(implemented)*
 - `POST /api/analyze` `{text?, url?, handle?}` → `{status: matched|insufficient, clusters, author_clusters, web_findings, notes}`. `matched` = the input is in a monitored cluster (its verdicts apply); otherwise live Oxylabs findings only, never a verdict. `url` may be a web page, a Bluesky post or profile link (`bsky.app/profile/<handle|did>[/post/<rkey>]`) or an `at://` post URI; a post is matched against cluster posts, and when only its author is in a cluster that cluster is listed in `author_clusters` (context about the account, never `matched`). Control characters are removed from the input *(implemented)*
 
 **Analyst verdict** (stored in `evidence.detail` with `kind='analyst'`):
