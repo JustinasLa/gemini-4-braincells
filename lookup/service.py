@@ -1831,7 +1831,9 @@ class Lookup:
             pg.publisher = facts.publisher or pg.publisher
             pg.author = facts.author or pg.author
             pg.published_at = facts.published_at
-            pg.headline = facts.headline or pg.headline
+            pg.headline = (
+                facts.headline if self.result.kind == "image" else facts.headline or pg.headline
+            )
             pg.claims = facts.claims
             self._page_read[pg.id] = "\n".join([facts.headline or "", *facts.claims])
             pg.receipt_id = rid
@@ -2410,7 +2412,7 @@ class Lookup:
                 # A successful read supersedes the search hit, even when it returned no
                 # text. Its claims can carry the caption; a stale snippet cannot verify it.
                 texts = (
-                    (self._page_read[pg.id],)
+                    (pg.headline, *pg.claims)
                     if pg.id in self._page_read
                     else (pg.headline, pg.snippet)
                 )

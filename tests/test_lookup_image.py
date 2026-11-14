@@ -528,6 +528,7 @@ def _graph_job():
         )
         if read is not None:
             job._page_read[pg.id] = read
+            pg.headline, *pg.claims = read.split("\n")
         return pg
 
     return job, page
@@ -574,6 +575,9 @@ def test_a_search_snippet_alone_never_makes_a_page_the_uploads_origin():
         (None, [], []),  # an empty successful read still supersedes the search hit
         ("An open letter", ["SEARCH PUBLIC SIGNERS BY NAME"], ["SEARCH PUBLIC SIGNERS BY NAME"]),
         ("Stand with Example", [], ["Stand with Example"]),
+        ("Stand", ["with Example"], []),  # distinct fields do not make a caption run
+        ("Unrelated", ["Stand", "with Example"], []),
+        (None, ["SEARCH PUBLIC\nSIGNERS BY NAME"], ["SEARCH PUBLIC\nSIGNERS BY NAME"]),
     ],
 )
 def test_upload_page_filter_uses_its_own_read_not_the_search_hit(headline, claims, expected_match):
