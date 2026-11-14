@@ -31,17 +31,15 @@ def check_cluster(conn, checker: SourceChecker, cluster_id: int, *, dry_run: boo
 
 
 def run_worker(checker: SourceChecker, *, interval_s: float, min_score: float, batch: int) -> None:
-    seen: dict[int, object] = {}  # cluster_id -> updated_at already checked by this process
     while True:
         try:
             with connect() as conn:
-                for cluster_id, updated_at in store.clusters_to_check(
+                for cluster_id, _updated_at in store.clusters_to_check(
                     conn, min_score=min_score, limit=batch
                 ):
-                    if seen.get(cluster_id) == updated_at:
-                        continue
+                    # Stored evidence skips completed checks; the checker's failure TTL backs
+                    # off missing ones. An unchanged cluster can still need a failed call retried.
                     check_cluster(conn, checker, cluster_id)
-                    seen[cluster_id] = updated_at
         except Exception:
             log.exception("sources worker pass failed; retrying next interval")
         time.sleep(interval_s)
