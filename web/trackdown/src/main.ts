@@ -488,7 +488,7 @@ function showHome() {
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
-      <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
+      <form class="home-form" aria-describedby="home-note"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
       <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
@@ -499,9 +499,46 @@ function showHome() {
   stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
+  // a pasted image sits in the search box until Trace it (or Enter) sends it
+  const q = $<HTMLElement>(".home-q", homeEl);
+  const att = $<HTMLElement>(".home-att", homeEl);
+  const placeholder = input.placeholder;
+  let attached: File | null = null;
+  let attachedUrl = "";
+  const detach = () => {
+    if (attachedUrl) URL.revokeObjectURL(attachedUrl);
+    attached = null;
+    attachedUrl = "";
+    att.hidden = true;
+    q.classList.remove("has-img");
+    input.readOnly = false;
+    input.placeholder = placeholder;
+  };
+  const attach = (f: File) => {
+    if (!IMAGE_TYPES.includes(f.type)) {
+      toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
+      return;
+    }
+    detach();
+    attached = f;
+    attachedUrl = URL.createObjectURL(f);
+    $<HTMLImageElement>("img", att).src = attachedUrl;
+    $<HTMLElement>(".nm", att).textContent = f.name && !/^image\.\w+$/.test(f.name) ? f.name : "Pasted image";
+    att.hidden = false;
+    q.classList.add("has-img");
+    input.value = "";
+    input.readOnly = true; // one thing at a time: the image, or text after removing it
+    input.placeholder = "Press Enter";
+    input.focus();
+  };
+  $<HTMLButtonElement>(".x", att).addEventListener("click", () => { detach(); input.focus(); });
+  input.addEventListener("keydown", (e) => {
+    if (attached && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); detach(); }
+  });
   $("form", homeEl).addEventListener("submit", (e) => {
     e.preventDefault();
-    startTrace(input.value);
+    if (attached) traceImage(attached);
+    else startTrace(input.value);
   });
   // an image comes in three ways: the Image button, a drop anywhere on the home, a paste
   const imageOf = (files?: FileList | null, items?: DataTransferItemList | null) =>
@@ -512,10 +549,17 @@ function showHome() {
     : toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
   const file = $<HTMLInputElement>('input[type="file"]', homeEl);
   file.addEventListener("change", () => { const f = imageOf(file.files); file.value = ""; if (f) traceImage(f); });
-  input.addEventListener("paste", (e) => {
+  // Ctrl+V / ⌘V puts a copied image into the search box: in the box, or anywhere on the home
+  // screen (focus is often elsewhere after a click on the page)
+  const pasteImage = (e: ClipboardEvent) => {
+    if (homeEl !== home) return document.removeEventListener("paste", pasteImage);
     const f = imageOf(e.clipboardData?.files, e.clipboardData?.items);
-    if (f) { e.preventDefault(); traceImage(f); }
-  });
+    if (f) { e.preventDefault(); attach(f); return; }
+    if (e.target === input || attached) return; // text into the box is the browser's own paste
+    const text = e.clipboardData?.getData("text/plain")?.trim();
+    if (text) { e.preventDefault(); input.value = text; input.focus(); }
+  };
+  document.addEventListener("paste", pasteImage);
   homeEl.addEventListener("dragover", (e) => {
     if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
     e.preventDefault();
