@@ -7,6 +7,7 @@ no `pds_host` yet). The author's PDS (`com.atproto.sync.getBlob`) is a fallback 
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from urllib.parse import quote, urlencode
 
@@ -63,6 +64,7 @@ class BlobFetcher:
             headers={"User-Agent": "noise-radar-media/0.1 (read-only research)"},
         )
         self._owned = client is None
+        self._timeout_s = timeout_s
 
     def close(self) -> None:
         if self._owned:
@@ -80,19 +82,34 @@ class BlobFetcher:
         errors = []
         for url, media_kind in media_urls(did, cid, embed_kind, pds_host):
             try:
-                response = self._http.get(url)
+                # streamed: pds_host comes from the account's DID document, so the body is read
+                # only after status and type pass, and is cut at MAX_BYTES and timeout_s in total
+                with self._http.stream("GET", url) as response:
+                    mime_type = response.headers.get("content-type", "").split(";", 1)[0].strip()
+                    if response.status_code != 200:
+                        errors.append(f"HTTP {response.status_code}")
+                        continue
+                    if not mime_type.startswith("image/"):
+                        errors.append(f"not an image ({mime_type or 'no content-type'})")
+                        continue
+                    data = self._read_capped(response)
             except httpx.HTTPError as exc:
                 errors.append(f"{type(exc).__name__}")
                 continue
-            mime_type = response.headers.get("content-type", "").split(";", 1)[0].strip()
-            if response.status_code != 200:
-                errors.append(f"HTTP {response.status_code}")
+            if data is None:
+                errors.append(f"over {MAX_BYTES} bytes or {self._timeout_s:g} s")
                 continue
-            if not mime_type.startswith("image/"):
-                errors.append(f"not an image ({mime_type or 'no content-type'})")
-                continue
-            if len(response.content) > MAX_BYTES:
-                errors.append(f"too large ({len(response.content)} bytes)")
-                continue
-            return Blob(response.content, mime_type, url, media_kind)
+            return Blob(data, mime_type, url, media_kind)
         raise BlobFetchError(f"media {cid} of {did} not retrievable: {', '.join(errors)}")
+
+    def _read_capped(self, response: httpx.Response) -> bytes | None:
+        """The body, or None once it passes MAX_BYTES or timeout_s (the client's timeout is per
+        read, so a server dripping bytes would otherwise never time out)."""
+        deadline = time.monotonic() + self._timeout_s
+        chunks, size = [], 0
+        for chunk in response.iter_bytes():
+            size += len(chunk)
+            if size > MAX_BYTES or time.monotonic() > deadline:
+                return None
+            chunks.append(chunk)
+        return b"".join(chunks)

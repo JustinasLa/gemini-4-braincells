@@ -6,7 +6,7 @@
 
 Picks the same clusters for every model (per detector status: clusters with stored posts,
 those sharing links first so the web tools get exercised, then by score and id), then runs
-each model in two modes:
+each model in each of `--modes` (default agent,single):
 - agent: function calling with live Oxylabs search/scrape + DB lookups (analyst/agent.py),
   tool evidence kept in memory (MemorySink); one WebCache is shared by all models, so a page or
   query is fetched from Oxylabs once per comparison;
@@ -82,7 +82,10 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
     with connect(timeout_s=10) as conn:
         for cid in cluster_ids:
             full_ctx = store.load_context(conn, cid)  # the toolbox's URL allowlist uses all of it
-            ctx = fit_evidence(full_ctx) if full_ctx is not None else full_ctx
+            if full_ctx is None:
+                log.warning("cluster %s not found; skipped", cid)
+                continue
+            ctx = fit_evidence(full_ctx)
             rec = {"model": model, "mode": mode, "cluster_id": cid, "detector": ctx.status}
             started = time.monotonic()
             try:
@@ -237,8 +240,9 @@ def table(data: dict) -> str:
         n = r["n"]
         cv = "n/a" if r["citations_valid"] is None else f"{r['citations_valid']:.0%}"
         cost = "n/a" if r["cost_per_cluster_usd"] is None else f"${r['cost_per_cluster_usd']:.4f}"
-        tc = "-" if r["mode"] == "single" else f"{r['tool_calls_mean']:.1f}"
-        te = "-" if r["mode"] == "single" else str(r["cited_tool_evidence"])
+        no_tools = r["mode"] == "single" or r["tool_calls_mean"] is None  # None: every run failed
+        tc = "-" if no_tools else f"{r['tool_calls_mean']:.1f}"
+        te = "-" if no_tools else str(r["cited_tool_evidence"])
         lines.append(
             f"| {r['mode']} | {r['model']} | {r['json_valid']}/{n} | {cv} | {r['usable']}/{n} "
             f"| {r['agrees']}/{n} | {r['latency_p50_s']:.1f} / {r['latency_max_s']:.1f} "

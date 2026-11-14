@@ -98,19 +98,13 @@ def communities(g: Graph, cfg: DetectorConfig) -> list[list[str]]:
 
 
 def _leiden(sub, cfg: DetectorConfig) -> list[list[int]]:
-    try:
-        import leidenalg
+    import leidenalg
 
-        part = leidenalg.find_partition(
-            sub,
-            leidenalg.RBConfigurationVertexPartition,
-            weights="weight",
-            resolution_parameter=cfg.leiden_resolution,
-            seed=cfg.seed,
-        )
-        return [list(c) for c in part]
-    except ImportError:  # fall back to igraph's own Leiden
-        part = sub.community_leiden(
-            objective_function="modularity", weights="weight", resolution=cfg.leiden_resolution
-        )
-        return [list(c) for c in part]
+    part = leidenalg.find_partition(
+        sub,
+        leidenalg.RBConfigurationVertexPartition,
+        weights="weight",
+        resolution_parameter=cfg.leiden_resolution,
+        seed=cfg.seed,
+    )
+    return [list(c) for c in part]

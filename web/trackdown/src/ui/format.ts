@@ -22,9 +22,10 @@ export function fmtShort(t: number): string {
 export function fmtDur(ms: number): string {
   const a = Math.abs(ms);
   const s = a / 1000;
-  if (s < 60) return `${Math.round(s)} s`;
+  // compare the rounded value, so 59.7 s reads "1 min", not "60 s"
+  if (Math.round(s) < 60) return `${Math.round(s)} s`;
   const m = s / 60;
-  if (m < 60) return `${Math.round(m)} min`;
+  if (Math.round(m) < 60) return `${Math.round(m)} min`;
   const h = m / 60;
   if (h < 48) return `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)} h`;
   const d = h / 24;
@@ -36,21 +37,32 @@ export function fmtDur(ms: number): string {
 }
 export function fmtNum(n?: number): string {
   if (n == null) return "–";
-  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 999500) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
   if (n < 1000) return String(n);
   if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
   return Math.round(n / 1000) + "k";
 }
-export const initials = (name: string) =>
-  name
-    .replace(/[^\p{L}\p{N} ]/gu, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("") || "?";
-
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/** `text` escaped, with every occurrence of each of `runs` (exact parts of it, such as the
+ *  words an uploaded image's caption shares with this post) wrapped in a highlight. */
+export function markRuns(text: string, runs?: string[]): string {
+  const spans: [number, number][] = [];
+  for (const run of runs ?? []) {
+    if (!run) continue;
+    for (let i = text.indexOf(run); i >= 0; i = text.indexOf(run, i + run.length)) spans.push([i, i + run.length]);
+  }
+  if (!spans.length) return esc(text);
+  spans.sort((a, b) => a[0] - b[0]);
+  let out = "", at = 0;
+  for (const [start, end] of spans) {
+    if (end <= at) continue;
+    const from = Math.max(start, at);
+    out += esc(text.slice(at, from)) + `<mark class="caption-hit">${esc(text.slice(from, end))}</mark>`;
+    at = end;
+  }
+  return out + esc(text.slice(at));
+}
 
 export const httpUrl = (value?: string | null): string | undefined => {
   try {
@@ -64,6 +76,10 @@ export const STATUS: Record<Status, { word: string; css: string; short: string; 
   likely_organic: { word: "Chill", css: "var(--chill)", color: "#5fc9a8", short: "Chill", tag: "Organic spread" },
   insufficient: { word: "Can't tell", css: "var(--unsure)", color: "#9aa6bf", short: "Can't tell", tag: "Not enough evidence" },
 };
+
+/** A cluster's short label: its status, except a lookup's "insufficient" cluster (a copy sample, or a
+ *  monitored cluster that shares only an account), which is no call rather than a Can't tell verdict. */
+export const clusterShort = (status: Status, lookup: boolean) => lookup && status === "insufficient" ? "No call" : STATUS[status].short;
 
 export const ROLE: Record<Role, { label: string; color: string; mark?: string }> = {
   origin: { label: "Earliest known", color: "#e4b36a", mark: "Earliest known" },
@@ -80,6 +96,7 @@ export const roleOf = (role: string | undefined): (typeof ROLE)[Role] =>
   (role && Object.prototype.hasOwnProperty.call(ROLE, role) ? ROLE[role as Role] : undefined) ?? { label: "Post", color: "#8f8b84" };
 
 export const REL: Record<Relation, { label: string; dash: number[] }> = {
+  variant: { label: "image variation", dash: [3, 5] },
   repost: { label: "reposted", dash: [] },
   quote: { label: "quoted", dash: [] },
   copy: { label: "copied", dash: [6, 4] },
@@ -88,6 +105,8 @@ export const REL: Record<Relation, { label: string; dash: number[] }> = {
   reply: { label: "replied", dash: [] },
   cites: { label: "cites", dash: [10, 5] },
   screenshot_of: { label: "screenshot of", dash: [2, 5] },
+  history: { label: "documented history", dash: [] },
+  derived: { label: "same photograph", dash: [] },
 };
 /** Relation style that never throws: an unknown rel renders as a plain "related" line. */
 export const relOf = (rel: string | undefined): (typeof REL)[Relation] =>
@@ -96,7 +115,7 @@ export const relOf = (rel: string | undefined): (typeof REL)[Relation] =>
 export const isMatchRel = (rel: string | undefined) => rel === "copy" || rel === "media";
 /** Relations that form the copy/spread tree (parent -> child). A screenshot link, or a rel this
  *  app does not know yet, is drawn but kept out of the chain, the path to the earliest copy and lineage. */
-const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites"]);
+const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites", "history", "derived"]);
 export const isLineageRel = (rel: string | undefined) => rel != null && LINEAGE_RELS.has(rel);
 /** A lineage edge: a lineage rel between two posts that are both in the copy/spread tree. A post
  *  shown in a screenshot ("screenshotted") is never in it, even when another edge (a reply to it,
@@ -125,7 +144,11 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   you: { label: "input", long: "Your submission" },
   archive: { label: "archive", long: "Archive / post-ID timestamp" },
   bluesky: { label: "bluesky", long: "Bluesky public AppView" },
+  fetch: { label: "fetch", long: "Direct image download" },
+  fxtwitter: { label: "fxtwitter", long: "FxTwitter API (X's own post data)" },
 };
 
-export const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
-export const roman = (n: number) => ROMAN[n - 1] ?? String(n);
+/** T3 Code's font stacks: the system UI font, Inter (Google Fonts) where there is none. Canvas text
+ *  uses these; keep them identical to --sans and --mono in styles.css. */
+export const SANS = '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif';
+export const MONO = 'ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
