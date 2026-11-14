@@ -168,7 +168,7 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
 | What | Result | How |
 |---|---|---|
 | Recall, synthetic campaigns in recorded live windows, **dev** hours (20, 22, 00 UTC) | L1 18/18, L2 17/18, L3 0/18 (all L3 shown as "can't tell") | `python -m eval recall --split dev --repeats 1 --base-rates ...` |
-| Recall, **heldout** hours | HELDOUT_PLACEHOLDER | same, `--split heldout` (nothing tuned on these hours) |
+| Recall, **heldout** hours (19, 21, 23, 01, 03, 05 UTC; detector v1.7) | L1 26/26, L2 24/26 (92%, CI 76-98%), L3 0/26 (all shown as "can't tell") | same, `--split heldout` (nothing tuned on these hours) |
 | External validation: Bluesky took down / suspended within 3 h | `coordinated` 56/458 accounts (12.2%, CI 9.5-15.6%); `likely_organic` 0/8,402; random active 0/1,200; clusters 13/81 vs 0/1,188 | `python -m eval takedowns --horizon-h 3` |
 | Gemini red team (fictional paraphrase campaigns vs organic look-alikes) | fresh-account campaigns 16/16 coordinated, aged 0/16, look-alikes 0/16; semantic signal 32/32 vs 0/16 | `python -m signals.attack_eval` |
 | Speed (2-vCPU budget, warm cache) | 10m pass ~5 s CPU, 1h pass ~40 s CPU + ~19 s DB; live worker 10-12 s per 10m pass | profiling in PR #34 |
