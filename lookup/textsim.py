@@ -21,6 +21,11 @@ def tokens(text: str | None) -> list[str]:
     return [w for w in _TOKEN.findall(t) if w not in STOP]
 
 
+def n_words(text: str | None) -> int:
+    """Words in `text`, stop words included (what caption_runs counts in a run)."""
+    return len(_TOKEN.findall(text or ""))
+
+
 def strip_snippet(snippet: str) -> str:
     """Drop the '23 hours ago · ' / 'Nov 13, 2026 — ' prefix and a trailing ellipsis."""
     s = _LEADING_DATE.sub("", snippet or "").strip()
@@ -91,4 +96,63 @@ def caption_runs(text: str | None, caption: str | None, min_words: int = RUN_MIN
             i += best
         else:
             i += 1
+    return out
+
+
+# A site address written in an image ("standwithjensen.com"): the most distinctive thing a
+# screenshot of a web page carries. Big platforms' own names say nothing about the content.
+_DOMAIN = re.compile(
+    r"(?<![\w@.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?![\w-])", re.I
+)
+_NOT_TLD = frozenset(
+    "png jpg jpeg gif webp heic svg pdf txt doc docx xls xlsx ppt pptx csv json xml html htm "
+    "mp4 mov avi mp3 wav zip rar exe dmg apk js ts py md".split()
+)
+_SECOND_LEVEL = frozenset("co com org net gov ac edu ne or go".split())  # bbc.co.uk -> bbc
+_PLATFORMS = frozenset(
+    "x.com twitter.com t.co bsky.app bsky.social facebook.com fb.com instagram.com "
+    "threads.net threads.com tiktok.com youtube.com youtu.be reddit.com linkedin.com "
+    "google.com bing.com yandex.com telegram.org t.me whatsapp.com discord.com discord.gg "
+    "medium.com substack.com wikipedia.org imgur.com pinterest.com tumblr.com".split()
+)
+DOMAIN_LABEL_MIN = 8  # a bare name part ("#standwithjensen") matches only from this length
+
+
+def domain_label(domain: str) -> str:
+    """The name part of a site address: standwithjensen.com -> standwithjensen."""
+    parts = domain.lower().split(".")
+    if len(parts) >= 3 and parts[-2] in _SECOND_LEVEL:
+        return parts[-3]
+    return parts[-2] if len(parts) >= 2 else domain.lower()
+
+
+def domains(text: str | None, limit: int = 2) -> list[str]:
+    """Site addresses written in `text`, in order, without big platforms' own (x.com, ...),
+    file names (photo.jpg) or short labels (e.g, a.m)."""
+    out: list[str] = []
+    for m in _DOMAIN.finditer(text or ""):
+        d = m.group(1).lower().removeprefix("www.")
+        if d.rsplit(".", 1)[-1] in _NOT_TLD or len(domain_label(d)) < 4:
+            continue
+        if any(d == p or d.endswith("." + p) for p in _PLATFORMS):
+            continue
+        if d not in out:
+            out.append(d)
+    return out[:limit]
+
+
+def domain_hits(text: str | None, doms: list[str]) -> list[str]:
+    """Where `text` names one of the sites `doms`, as written (for highlighting): the address
+    itself, or its name part alone when that is distinctive (#standwithjensen,
+    standwithjensen.online)."""
+    if not text or not doms:
+        return []
+    out: list[str] = []
+    for d in doms:
+        label = domain_label(d)
+        alts = re.escape(d) + (f"|{re.escape(label)}" if len(label) >= DOMAIN_LABEL_MIN else "")
+        # the full address first, so "StandWithJensen.com" is one match, not two
+        for m in re.finditer(rf"(?<![\w-])(?:{alts})(?![\w-])", text, re.I):
+            if m.group() not in out:
+                out.append(m.group())
     return out

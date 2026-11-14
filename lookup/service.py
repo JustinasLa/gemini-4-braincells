@@ -280,6 +280,9 @@ class Lookup:
         # an uploaded image's text in reading order: searched for, and a text hit joins the
         # trace only with 3+ of its words in a row (textsim.caption_runs)
         self._caption: str | None = None
+        # site addresses written in the uploaded image (textsim.domains): searched for too, and
+        # a hit that names one joins the trace like a caption run
+        self._domains: list[str] = []
         self._upload_read = False  # Nemotron read the uploaded image (its text may be empty)
         self._page_seq = 0
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
@@ -611,11 +614,16 @@ class Lookup:
             # and posts or pages that carry 3+ words in a row of its text. Nemotron's
             # description is never searched for, and nor is the loose coverage query.
             self.skip("coverage", "an uploaded image: only its exact text is searched for")
-            if self._phrase():
+            if self._phrase() or self._domains:
                 self.note(
                     "Results are matches of the uploaded picture, and posts or pages that carry "
-                    f"at least {textsim.RUN_MIN} words in a row of its text (highlighted). "
-                    "Nemotron's description of the image is never searched for."
+                    f"at least {textsim.RUN_MIN} words in a row of its text"
+                    + (
+                        " or name the site written in it (" + ", ".join(self._domains) + ")"
+                        if self._domains
+                        else ""
+                    )
+                    + " (highlighted). Nemotron's description of the image is never searched for."
                 )
                 x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
                 rest = [pool.submit(self._copies_bsky)]
@@ -1334,10 +1342,45 @@ class Lookup:
 
     def _caption_match(self, *texts: str | None) -> list[str]:
         """An uploaded image's lookup: the parts of `texts` that repeat 3+ words in a row of
-        the image's text. A text hit without one doesn't join the trace."""
+        the image's text, or name a site written in it. A text hit without one doesn't join
+        the trace."""
         out: list[str] = []
         for text in texts:
             out += [r for r in textsim.caption_runs(text, self._caption) if r not in out]
+            out += [d for d in textsim.domain_hits(text, self._domains) if d not in out]
+        return out
+
+    def _carries_caption(self, text: str | None) -> bool:
+        """An uploaded image's copy repeats a real part of its text: runs of it covering 6+
+        words (or half of a shorter text). A short post that only names the site or a few of its
+        words ("#standwithjensen standwithjensen.com") is about the image, not a copy of it."""
+        n_cap = len(textsim.tokens(self._caption)) if self._caption else 0
+        need = min(6, max(textsim.RUN_MIN, n_cap // 2))
+        runs = textsim.caption_runs(text, self._caption)
+        return sum(textsim.n_words(r) for r in runs) >= need
+
+    def _text_queries(self, where: Literal["web", "x", "bsky"]) -> list[tuple[str, str]]:
+        """(query, what it looks for) for the copy searches. An upload adds one search per site
+        address written in it (at most 2): a screenshot of a web page is found by its address
+        far more often than by its first words, which are mostly the page's menus."""
+        image = self.result.kind == "image"
+        if where == "bsky":
+            phrase = (
+                textsim.phrase(self._caption, 8, min_words=textsim.RUN_MIN)
+                if image
+                else textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
+            )
+        else:
+            phrase = self._phrase()
+        out = []
+        if phrase:
+            out.append(
+                (f'site:x.com "{phrase}"' if where == "x" else f'"{phrase}"', "the exact text")
+            )
+        for d in self._domains if image else []:
+            label = textsim.domain_label(d)
+            term = label if where != "web" and len(label) >= textsim.DOMAIN_LABEL_MIN else d
+            out.append((f'site:x.com "{term}"' if where == "x" else f'"{term}"', d))
         return out
 
     def _classify_hit(
@@ -1422,48 +1465,61 @@ class Lookup:
         return short
 
     def _copies_web(self) -> None:
-        phrase = self._phrase()
-        if not phrase:
+        queries = self._text_queries("web")
+        if not queries:
             self.skip(
                 "copies_web", self._copies_skip_detail("text too short for an exact-phrase search")
             )
             return
         with self.step("copies_web") as st:
-            q = f'"{phrase}"'
-            hits, call = self._search(q)
-            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
-            rid = self.receipt(
-                "oxylabs",
-                "/search",
-                f"Web search for the exact text: {len(hits)} results",
-                query=q,
-                call=call,
+            ref = self._subject_text or self._phrase() or self._caption or ""
+            found: list[str] = []
+            for q, what in queries:
+                hits, call = self._search(q)
+                at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
+                rid = self.receipt(
+                    "oxylabs",
+                    "/search",
+                    f"Web search for {what}: {len(hits)} results",
+                    query=q,
+                    call=call,
+                )
+                found += [
+                    i
+                    for h in hits
+                    if (i := self._classify_hit(h, rid, at, reference=ref)) and i not in found
+                ]
+                st.found = found
+            st.detail = f"{len(found)} pages or posts carry the text" + (
+                " or name the site" if self._domains else ""
             )
-            ref = self._subject_text or phrase
-            st.found = [i for h in hits if (i := self._classify_hit(h, rid, at, reference=ref))]
-            st.detail = f"{len(st.found)} pages or posts carry the text"
 
     def _copies_x(self) -> None:
-        phrase = self._phrase()
-        if not phrase:
+        queries = self._text_queries("x")
+        if not queries:
             self.skip(
                 "copies_x", self._copies_skip_detail("text too short for an exact-phrase search")
             )
             return
         with self.step("copies_x") as st:
-            q = f'site:x.com "{phrase}"'
-            hits, call = self._search(q)
-            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
-            rid = self.receipt(
-                "oxylabs",
-                "/search",
-                f"X search for the exact text: {len(hits)} results",
-                query=q,
-                call=call,
-            )
-            ref = self._subject_text or phrase
-            found = [i for h in hits if (i := self._classify_hit(h, rid, at, reference=ref))]
-            st.found = found
+            ref = self._subject_text or self._phrase() or self._caption or ""
+            found: list[str] = []
+            for q, what in queries:
+                hits, call = self._search(q)
+                at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
+                rid = self.receipt(
+                    "oxylabs",
+                    "/search",
+                    f"X search for {what}: {len(hits)} results",
+                    query=q,
+                    call=call,
+                )
+                found += [
+                    i
+                    for h in hits
+                    if (i := self._classify_hit(h, rid, at, reference=ref)) and i not in found
+                ]
+                st.found = found
             st.detail = f"{len(found)} candidate posts on X (read on their own pages next)"
 
     # ---------------------------------------------------------------- verify (pipelined)
@@ -1472,7 +1528,7 @@ class Lookup:
 
         Called when the X and web searches are back and again after the image-text search, so
         reading copies starts while the slower steps (linked page, images) still run."""
-        ref = self._subject_text or self._phrase()
+        ref = self._subject_text or self._phrase() or self._caption
         if not ref:
             return
         with self.lock:
@@ -1818,51 +1874,54 @@ class Lookup:
         from urllib.parse import quote_plus
 
         image = self.result.kind == "image"
-        phrase = (
-            textsim.phrase(self._caption, 8, min_words=textsim.RUN_MIN)
-            if image
-            else textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
-        )
-        if not phrase or not self.deps.bsky:
+        queries = self._text_queries("bsky")
+        if not queries or not self.deps.bsky:
             self.skip(
                 "copies_bsky",
                 self._copies_skip_detail("text too short")
-                if not phrase
+                if not queries
                 else "Bluesky not configured",
             )
             return
         with self.step("copies_bsky") as st:
-            q = f'"{phrase}"'
-            self._spend()
-            posts = self.deps.bsky.search(q, limit=25, deadline=self._provider_deadline())
-            rid = self.receipt(
-                "bluesky",
-                "searchPosts",
-                f"Bluesky search for the exact text: {len(posts)} posts",
-                query=q,
-                source_url=f"https://bsky.app/search?q={quote_plus(q)}",
-                call=self.deps.bsky.last_call,
-            )
-            ref = self._subject_text or phrase
-            found = []
-            for pv in posts:
-                if pv.get("uri") == self.result.subject_id:
-                    continue
-                text = (pv.get("record") or {}).get("text") or ""
-                sim = textsim.similarity(text, ref)
-                sim = max(sim, textsim.similarity(text, ref, truncated=True) * 0.9)
-                match = self._caption_match(text) if image else []
-                if (not match) if image else sim < COPY_MIN:
-                    continue
-                bp = self._bsky_post_obj(pv, "bluesky", round(sim, 2), rid)
-                bp = self.add_post(bp.model_copy(update={"caption_match": match}))
-                if bp.author_handle:
-                    self._bsky_handles.add(bp.author_handle)
-                found.append(bp.id)
-            st.found = found
+            ref = self._subject_text or queries[0][0].strip('"')
+            found: list[str] = []
+            for q, what in queries:
+                self._spend()
+                posts = self.deps.bsky.search(q, limit=25, deadline=self._provider_deadline())
+                rid = self.receipt(
+                    "bluesky",
+                    "searchPosts",
+                    f"Bluesky search for {what}: {len(posts)} posts",
+                    query=q,
+                    source_url=f"https://bsky.app/search?q={quote_plus(q)}",
+                    call=self.deps.bsky.last_call,
+                )
+                self._bsky_hits(posts, rid, ref, image, found)
+                st.found = found
             st.detail = f"{len(found)} Bluesky posts with the same text" + (
-                f" (or {textsim.RUN_MIN}+ of its words in a row)" if image else ""
+                f" (or {textsim.RUN_MIN}+ of its words in a row"
+                + (", or naming the site)" if self._domains else ")")
+                if image
+                else ""
             )
+
+    def _bsky_hits(self, posts: list, rid: int, ref: str, image: bool, found: list[str]) -> None:
+        for pv in posts:
+            if pv.get("uri") == self.result.subject_id:
+                continue
+            text = (pv.get("record") or {}).get("text") or ""
+            sim = textsim.similarity(text, ref)
+            sim = max(sim, textsim.similarity(text, ref, truncated=True) * 0.9)
+            match = self._caption_match(text) if image else []
+            if (not match) if image else sim < COPY_MIN:
+                continue
+            bp = self._bsky_post_obj(pv, "bluesky", round(sim, 2), rid)
+            bp = self.add_post(bp.model_copy(update={"caption_match": match}))
+            if bp.author_handle:
+                self._bsky_handles.add(bp.author_handle)
+            if bp.id not in found:
+                found.append(bp.id)
 
     def _coverage(self) -> None:
         q = self._card_title or textsim.phrase(self._subject_text, 14)
@@ -1959,6 +2018,7 @@ class Lookup:
             if a is not None:
                 self._upload_read = True
                 self._caption = "\n".join(a.extracted_text)[:2000] or None  # reading order
+                self._domains = textsim.domains(self._caption)
                 if subj is not None:
                     subj.text = self._caption or ""  # for the card
         joined = " ".join(texts)
@@ -2270,6 +2330,7 @@ class Lookup:
                     and p.verified  # only posts read on their own page or API
                     and p.role in ("submitted", "copy", "bluesky")
                     and (p.similarity or 0) >= COPY_MIN
+                    and (self.result.kind != "image" or self._carries_caption(p.text))
                 ),
                 key=lambda p: p.created_at,
             )
