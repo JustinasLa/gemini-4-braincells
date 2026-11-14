@@ -1,4 +1,4 @@
-import { boxFrame, domainOf, engineLabel, firstSeenLabel, humanLabel, imageAlt, normalizedBox, pageUrl, relationOf, type ImageMatch } from "../data/imageTrace";
+import { boxFrame, changeDirection, domainOf, engineLabel, firstSeenLabel, humanLabel, imageAlt, normalizedBox, pageUrl, relationOf, type ImageMatch } from "../data/imageTrace";
 import { uploadUrl } from "../data/lookup";
 import type { TraceCase } from "../types";
 import { esc } from "./format";
@@ -32,7 +32,8 @@ function changesHtml(trace: TraceCase, match: ImageMatch): string {
   const kinds = [...new Set((match.change_kinds ?? []).filter((kind) => typeof kind === "string"))]; // one chip per kind
   const step = trace.lookup?.steps.find((candidate) => candidate.id === "variations");
   const pending = step?.state === "pending" || step?.state === "running";
-  return `<h3>What changed</h3>${pending ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}${changes.length ? `<ul>${changes.map((change) => `<li>${esc(change)}</li>`).join("")}</ul>` : !pending ? '<p class="meme-note">No change description returned.</p>' : ""}<div class="meme-kind-chips">${kinds.map((kind) => `<span>${esc(humanLabel(kind))}</span>`).join("")}</div><p class="meme-honesty">Changes are Nemotron’s model reading of the two images, not verified facts.</p>`;
+  const direction = changeDirection(match).heading;
+  return `<h3>What changed${direction ? ` <small class="meme-direction">${esc(direction)}</small>` : ""}</h3>${pending ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}${changes.length ? `<ul>${changes.map((change) => `<li>${esc(change)}</li>`).join("")}</ul>` : !pending ? '<p class="meme-note">No change description returned.</p>' : ""}<div class="meme-kind-chips">${kinds.map((kind) => `<span>${esc(humanLabel(kind))}</span>`).join("")}</div><p class="meme-honesty">Changes are Nemotron’s model reading of the two images, not verified facts.</p>`;
 }
 
 const titleText = (match: ImageMatch) => {

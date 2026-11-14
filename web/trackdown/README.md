@@ -172,7 +172,9 @@ Optional `image_matches` add an earliest-match Original card and grouped variati
 timeline and panel. Select a variation to compare the submission with it (side by side or a keyboard
 slider; slider on phones). Image dates say “first seen by TinEye” (an upper bound, not publication),
 “page dated”, “time from post id”, or “date unknown”; an upload never becomes its own origin.
-Descriptions are Nemotron’s reading, not verified facts. Boxes from the pixel comparison are 0..1 fractions of
+Descriptions are Nemotron’s reading, not verified facts. `changes_from` says which way to read them: "match" → the
+list is headed "This copy → your picture", "upload" → "Your picture → this copy"; absent stays a
+plain "What changed". It is a reading convention, not a claim about which picture is older. Boxes from the pixel comparison are 0..1 fractions of
 the submission (`media.variants.relate(upload, match)`): the edited region is drawn on both images,
 a crop box marks the part of the submission a cropped match shows. Variant links are visual relationships drawn beside the copy chain, never lineage: the server's
 variant edges (image origin → edited/cropped matches) are used as sent. The submission joins the copy
