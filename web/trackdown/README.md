@@ -64,9 +64,8 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
   follows, the origin gets a shockwave, the rest of the spread pours in, and the verdict coin lands.
 - **Timeline dock** (`src/ui/dock.ts`): histogram on the same compressed axis, scrub or play the
   spread (also a native range input for keyboards), ruler across the top, minimap.
-- **Panel** (`src/ui/panel.ts`): tabs Verdict / Chain / Evidence / Post. Evidence is grouped as
-  "Supports the verdict" and "Signs of organic spread" (or "Evidence considered" for Can't tell),
-  plus "what would change our mind". On phones it is a modal sheet opened from the verdict bar.
+- **Panel** (`src/ui/panel.ts`): tabs Verdict (Findings for a lookup) / Post. On phones it is a
+  modal sheet opened from the verdict bar.
 
 Keys: `N` trace a post · `Space` play/pause · `,`/`.` step · `F` fit · `M` key and map · `←/→`
 earlier/later post, `↑/↓` siblings · `1-9` open a case · `Esc` skip/close.
@@ -163,8 +162,8 @@ submitted picture in place of the coin and the same sentence at the top of the M
 
 A match is older when the submission is an upload (it has no time of its own, and every match was
 online before it) or when its date is before the post's, with the server's one-day slack for a
-TinEye crawl date. A lookup with no image search and no verdict has no finale; the header chip then
-reads "Live trace". `npm run check:meme` covers each finding.
+TinEye crawl date. A lookup with no image search and no verdict has no finale and no header chip.
+`npm run check:meme` covers each finding.
 
 ## Meme trace (image matches)
 
