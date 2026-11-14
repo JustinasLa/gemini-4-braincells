@@ -380,7 +380,7 @@ class SiteOxylabs(FakeOxylabs):
             SearchHit(
                 url="https://forum.example/thread",
                 title="Is the example-site petition real?",
-                snippets=["People keep adding fake names to example-site"],
+                snippets=["People keep adding fake names; example-site.net is a lookalike"],
                 position=2,
             ),
             SearchHit(
@@ -428,9 +428,7 @@ def test_site_address_in_image_is_searched_and_matches():
 
     assert domains("\n".join(SITE_TEXT)) == ["petition.example-site.org"]
     ox, bsky = SiteOxylabs(), SiteBsky()
-    deps = Deps(
-        oxylabs=ox, bsky=bsky, nemotron=FakeReader(text=SITE_TEXT, media_type="screenshot")
-    )
+    deps = Deps(oxylabs=ox, bsky=bsky, nemotron=FakeReader(text=SITE_TEXT, media_type="screenshot"))
     job = Lookup("lk_site", LookupInput(image=_ref()), deps, image=JPEG)
     job.run()
     r = job.result
@@ -444,7 +442,7 @@ def test_site_address_in_image_is_searched_and_matches():
     assert pages["https://petition.example-site.org/"].caption_match == [
         "petition.example-site.org"
     ]
-    # the site's distinctive name alone counts too
+    # the site's distinctive name under another ending (a lookalike) counts too
     assert pages["https://forum.example/thread"].caption_match == ["example-site"]
     assert "https://other.example/letters" not in pages  # names neither the site nor 3 words
     promo = next(p for p in r.posts if p.id == f"x:{PROMO}")
@@ -470,7 +468,66 @@ def test_platform_addresses_and_file_names_are_not_searched():
     ]
     hits = domain_hits(
         "Visit StandWithJensen.com, #standwithjensen, standwithjensen.online; not "
-        "standwithjensenfan.com",
+        "standwithjensenfan.com, and not a plain standwithjensen",
         ["standwithjensen.com"],
     )
-    assert hits == ["StandWithJensen.com", "standwithjensen"]
+    assert hits == ["StandWithJensen.com", "#standwithjensen", "standwithjensen"]
+    # a dictionary word as the site's name is never matched as a plain word
+    assert domain_hits("The information is incorrect", ["information.com"]) == []
+
+
+def _graph_job():
+    from datetime import UTC, datetime
+
+    from lookup.models import Page, Post
+
+    job = Lookup("lk_graph", LookupInput(image=_ref()), Deps(oxylabs=FakeOxylabs()), image=JPEG)
+    job._add_upload_post()
+    job._caption = "\n".join(SITE_TEXT)
+    job._domains = ["petition.example-site.org"]
+    copy_text = "petition.example-site.org Stand with Example Sign the letter SEARCH PUBLIC SIGNERS"
+    job.add_post(
+        Post(
+            id="at://did:plc:aaaaaaaaaaaaaaaaaaaaaaaa/app.bsky.feed.post/copy",
+            platform="bluesky",
+            text=copy_text,
+            created_at=datetime(2026, 11, 13, 21, tzinfo=UTC),
+            role="bluesky",
+            similarity=0.9,
+            verified=True,
+        )
+    )
+
+    def page(url, headline, snippet):
+        return job.add_page(
+            Page(
+                id="",
+                url=url,
+                role="reference",
+                headline=headline,
+                snippet=snippet,
+                time=datetime(2026, 11, 12, tzinfo=UTC),
+                time_source="page",
+                time_uncertainty_s=0,
+            )
+        )
+
+    return job, page
+
+
+def test_page_that_only_names_the_site_is_not_the_uploads_origin():
+    job, page = _graph_job()
+    page("https://petition.example-site.org/", "petition.example-site.org", "An open letter")
+    job._finish_graph()
+    assert job.result.origin_id.endswith("/copy")  # the post that repeats the page's text
+
+
+def test_page_that_repeats_the_images_text_can_be_its_origin():
+    job, page = _graph_job()
+    pg = page(
+        "https://archive.example/snap",
+        "Stand with Example: Sign the letter",
+        "SEARCH PUBLIC SIGNERS BY NAME · 1–2 of 2 matching public signers",
+    )
+    job._finish_graph()
+    assert job.result.origin_id == pg.id

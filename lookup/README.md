@@ -119,10 +119,11 @@ reads it (its text goes on the card and into the monitor check and the reading),
   address, X and Bluesky by its name part when that is 8+ letters (`"standwithjensen"` also
   finds `#standwithjensen`), else by the address. A screenshot of a web page is found by its
   address far more often than by its first words, which are mostly the page's menus. A hit
-  that names the site (the address, or the distinctive name part) joins the trace like a
-  3-word run and is highlighted the same way.
-- a copy of the image (a candidate for its origin) must repeat a real part of its text: runs
-  covering 6+ words, or half of a shorter text. A short post that only names the site or a few
+  that names the site (the address, or its 8+ letter name part as a hashtag or under another
+  ending: `#standwithjensen`, `standwithjensen.online`, never as a plain word) joins the trace
+  like a 3-word run and is highlighted the same way.
+- a copy of the image (a candidate for its origin), post or page, must repeat a real part of
+  its text: runs covering 6+ words, or half of a shorter text. A short post that only names the site or a few
   of its words is about the image, not a copy of it.
 - Nemotron's description is never searched for, and nor is the looser coverage query (skipped).
   With fewer than 3 words of text and no site address, only the picture is searched for.

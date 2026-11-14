@@ -143,16 +143,19 @@ def domains(text: str | None, limit: int = 2) -> list[str]:
 
 def domain_hits(text: str | None, doms: list[str]) -> list[str]:
     """Where `text` names one of the sites `doms`, as written (for highlighting): the address
-    itself, or its name part alone when that is distinctive (#standwithjensen,
-    standwithjensen.online)."""
+    itself, or its name part (8+ letters) as a hashtag (#standwithjensen) or under another
+    ending (standwithjensen.online). Never the name part as a plain word: information.com's
+    "information" is in ordinary sentences."""
     if not text or not doms:
         return []
     out: list[str] = []
     for d in doms:
         label = domain_label(d)
-        alts = re.escape(d) + (f"|{re.escape(label)}" if len(label) >= DOMAIN_LABEL_MIN else "")
+        name = re.escape(label)
+        other_ending = rf"{name}(?=\.[a-z]{{2,24}}(?![\w-]))"
+        alts = re.escape(d) + (f"|#{name}|{other_ending}" if len(label) >= DOMAIN_LABEL_MIN else "")
         # the full address first, so "StandWithJensen.com" is one match, not two
-        for m in re.finditer(rf"(?<![\w-])(?:{alts})(?![\w-])", text, re.I):
+        for m in re.finditer(rf"(?<![\w#-])(?:{alts})(?![\w-])", text, re.I):
             if m.group() not in out:
                 out.append(m.group())
     return out

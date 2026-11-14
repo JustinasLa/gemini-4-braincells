@@ -2354,6 +2354,14 @@ class Lookup:
                     and pg.time_uncertainty_s is not None
                     and origin_t
                     and latest(pg) < origin_t - timedelta(minutes=5)
+                    # an upload: the page must carry a real part of the image's text, as read
+                    # (a page that only names the site is about it, like a short post)
+                    and (
+                        not image
+                        or self._carries_caption(
+                            "\n".join([pg.headline or "", pg.snippet or "", *pg.claims])
+                        )
+                    )
                 ),
                 key=latest,
             )
