@@ -1,0 +1,23 @@
+Delegated task node:delegated-task:command%3Amcp%3Ac0f8f809-c8c7-4845-b583-e4551f63f19c%3Adelegate-task%3A682a381c-8b29-47d8-8f36-80fc3c6ee271 (Meme trace part 3: Sol review round 4) [completed]:
+## Findings
+
+1. **P1 — Oversized ICOs decode before the size check.** [media/imagediff.py:144](/home/dev/work/meme-imagediff/media/imagediff.py:144)  
+   `Image.open()` eagerly loads ICO contents before returning, so the subsequent 24 MP check is too late. A **12,249-byte ICO containing a 10000×10000 PNG** reached its decoder with the new code; the previous warning-as-error policy stopped it first. I intercepted decoding before allocation. Concurrent oversized inputs can exhaust lookup memory even though the function eventually returns `None`.  
+   **Fix:** reject eager-decoding containers before dispatch, or preflight their embedded dimensions. Add a regression asserting oversized ICOs never reach decoding; do not restore a process-wide warning filter.
+
+2. **P1 — Arbitrary quotes bypass wording and marker guards.** [media/imagediff.py:257](/home/dev/work/meme-imagediff/media/imagediff.py:257)  
+   Every matching quoted span is treated as image text, including the model’s own commentary. Reproduced accepted outputs include `The face was replaced with a "fake" one.` and `"The face was replaced with a fake one."` With `marked=True`, `A 'red box' was added around the caption.` also survives. These are not necessarily quoted image text and violate the wording/marker rules.  
+   **Fix:** exempt only recognizable image-text quotations, using context and OCR corroboration where available—not arbitrary scare quotes or whole quoted narration. Add negative tests for these cases while retaining legitimate caption swaps. Unbalanced quotes were rejected, and the tested `dog's` / `DON'T` cases behaved correctly.
+
+3. **P2 — The minimum request budget is not rechecked after waiting.** [media/imagediff.py:335](/home/dev/work/meme-imagediff/media/imagediff.py:335)  
+   `_fits()` predicts the available budget before `limiter.wait()`, but afterward the loop checks only whether time remains—not whether **0.5 seconds** remains. Using the actual `RateLimiter`, a planned 0.4-second wait with 0.3-second scheduling overshoot caused a request with approximately **0.3 seconds** of timeout to start and return successfully. This breaks the newly documented minimum-budget guarantee.  
+   **Fix:** check the actual remaining budget against `_MIN_REQUEST_S` immediately before each request, before setting `pending` or incrementing `calls`. Do not call `_fits()` again there: `wait()` has already advanced `_next` to the following slot.
+
+## Verification
+
+- **142 tests passed**; Ruff lint and format checks passed.
+- Verified nominal retry spacing and exact `(1, retry), (2, ok)` logging with the actual limiter.
+- Raw-text adult/graphic guards, wrong-model `ERROR` plus `None`, final-image box rendering/width cap, and separated-input hashing passed the requested checks.
+- `media/nemotron.py` is unchanged. Working tree remains clean; no edits or live model calls.
+
+CHANGES REQUESTED
