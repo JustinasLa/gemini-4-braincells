@@ -1,0 +1,19 @@
+Delegated task node:delegated-task:command%3Amcp%3A36a7890f-d906-44be-bda4-707f810bda82%3Adelegate-task%3A48e6f4d2-2ec1-4cf7-93b5-ee3536b16444 (Sol review: verify read cap) [completed]:
+Reviewed **049cf04**, excluding the concurrent follow-up commit.
+
+1. **must-fix — Timed-out candidates are reported as read.** [lookup/service.py:1173](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:1173): `_v_posts` contains **queued** candidate IDs, but `_join_verify` uses its length for `"N read"`. With one candidate whose scrape times out, I reproduced: `"1 read: 0 copies · 0 quotes · 0 replies · 1 more candidates not read"`. The candidate correctly remains an unverified mention and cannot become the origin, but the completion detail contradicts itself and falsely claims a completed read. **Fix:** track successfully completed reads separately, including pages successfully read but subsequently dropped; report completed versus queued counts. Add a timeout regression test—the submitted test checks deadline propagation only. Follow-up `ebc6fc6` appears to address this, but is outside this round’s reviewed commit.
+
+Validation: **63 tests passed** with `lookup/service.py` pinned in memory to `049cf04`; the timeout reproduction confirmed the finding. Config/env/README wiring is consistent, and the copy/page-origin guards remain intact on read failures.
+
+VERDICT: changes requested
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A36a7890f-d906-44be-bda4-707f810bda82%3Adelegate-task%3A9ef8d55e-3e82-444a-8725-75b862246c78 (Sol review r2: verify read cap) [completed]:
+1. **nit** — [lookup/README.md:186](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/README.md:186): The documentation still says a timed-out straggler appears under “N more candidates not read.” After ebc6fc6, that suffix counts only candidates never queued. **Scenario:** the only queued candidate times out; the detail correctly says “0 of 1 read,” without that suffix. **Fix:** describe queued failures using “R of N read” and reserve “more candidates not read” for never-queued candidates.
+
+No must-fix or should-fix findings. The counter fix correctly excludes failed reads, counts successful reads even when no matching post survives, and leaves failed candidates as mentions.
+
+Validation: **64 tests passed**. An additional offline mixed-case check covering success, timeout, empty page, unrelated post, and an unqueued candidate also passed. No files changed or paid APIs called.
+
+VERDICT: approved
