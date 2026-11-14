@@ -35,6 +35,7 @@
     ::selection { background: rgba(63,224,122,.3); }
     h1, h2, h3, p { margin: 0; }
     ul { margin: 0; padding-left: 18px; }
+    [hidden] { display: none !important; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .label { font: 500 11px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
     .muted { color: var(--text-3); }
@@ -171,7 +172,6 @@
     .hist i { flex: 1; background: #5a5650; min-height: 0; }
     .hist .obs { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--shill); }
     .axis { display: flex; justify-content: space-between; gap: 12px; font: 11.5px/1.4 var(--mono); color: var(--text-3); margin-top: 6px; }
-    .axis .mid { text-align: center; }
     .chart-caption { font-size: 14px; color: var(--text-2); margin-top: 12px; }
     .key { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: var(--text-3); margin-top: 8px; }
     .key i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
@@ -201,6 +201,7 @@
     .hits { display: grid; gap: 4px; font-size: 13px; }
     .hits a { color: var(--text-2); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hits a:hover { color: var(--text); text-decoration: underline; }
+    details .hits a { white-space: normal; }
     .hits b { color: var(--text-3); font: 500 11px var(--mono); margin-right: 8px; }
 
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -210,6 +211,7 @@
     td a:hover { text-decoration: underline; }
     th.r, td.r { padding-left: 14px; }
     th:last-child, td:last-child { padding-right: 0; }
+    td.r { white-space: nowrap; }
     .handle { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .post { padding: 14px 0; border-top: 1px solid var(--line); }
@@ -241,10 +243,9 @@
     .acc-intro div { border-top: 1px solid var(--line-2); padding-top: 12px; font-size: 14px; color: var(--text-2); }
     .acc-intro strong { display: block; color: var(--text); margin-bottom: 2px; }
     .planned { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
-    .planned div { background: var(--surface); padding: 16px 18px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 20px; align-items: baseline; }
+    .planned div { background: var(--surface); padding: 16px 18px; display: grid; gap: 4px; }
     .planned strong { font-weight: 600; }
-    .planned p { grid-column: 1 / -1; color: var(--text-2); font-size: 14px; }
-    .planned .tag { grid-column: 2; grid-row: 1; margin: 0; }
+    .planned p { color: var(--text-2); font-size: 14px; }
 
     /* method */
     .method { max-width: 980px; }
@@ -275,8 +276,6 @@
       .c-op { display: none; }
       /* one column: the explanation comes before the raw material */
       .detail { grid-template-columns: minmax(0,1fr); }
-      .col { display: contents; }
-      .o-call { order: 1; } .o-op { order: 2; } .o-sig { order: 3; } .o-time { order: 4; } .o-media { order: 5; } .o-src { order: 6; } .o-acc { order: 7; } .o-posts { order: 8; }
     }
     @media (max-width: 720px) {
       /* backdrop-filter would make the topbar the containing block of the fixed bottom nav */
@@ -305,7 +304,6 @@
       .card { padding: 18px; }
       .level { grid-template-columns: 26px minmax(0,1fr) 88px; }
       .sig-top { grid-template-columns: minmax(0,1fr) 92px; gap: 12px; }
-      .axis .mid { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
   </style>
@@ -509,6 +507,9 @@
   }
 
   // ---------- cluster detail
+  // one column on narrow screens, in reading order, so focus order matches what is on screen
+  const oneCol = matchMedia('(max-width: 1000px)');
+  oneCol.addEventListener('change', () => { const m = location.hash.match(/^#\/cluster\/(\d+)/); const c = m && state.details.get(Number(m[1])); if (c) renderCluster(c); });
   async function showCluster(id) {
     document.title = `Cluster #${id} · Noise Radar`;
     const cached = state.details.get(id);
@@ -543,20 +544,9 @@
         <h1>${esc(headline(c, signals))}</h1>
         <div class="facts num"><span>Cluster #${Number(c.id)}</span><span>${plural(c.size || 0, 'account')}</span><span>Tracked ${esc(span)}</span>${win ? `<span>Latest window ${esc(win)}</span>` : c.window_kind ? `<span>Scored in ${esc(WINDOW[c.window_kind] || c.window_kind)}</span>` : ''}${sig.detector_version ? `<span>Detector ${esc(sig.detector_version)}</span>` : ''}</div>
       </section>
-      <div class="detail">
-        <div class="col">
-          ${callCard(c)}
-          ${signalsCard(signals, byId, win)}
-          ${timingCard(c, handles, win)}
-          ${postsCard(c, handles)}
-        </div>
-        <div class="col">
-          ${opinionCard(c, anchored)}
-          ${mediaCard(c, evidence)}
-          ${sourcesCard(evidence)}
-          ${accountsCard(c)}
-        </div>
-      </div>`;
+      ${oneCol.matches
+        ? `<div class="detail"><div class="col">${callCard(c)}${opinionCard(c, anchored)}${signalsCard(signals, byId, win)}${timingCard(c, handles, win)}${mediaCard(c, evidence)}${sourcesCard(evidence)}${accountsCard(c)}${postsCard(c, handles)}</div></div>`
+        : `<div class="detail"><div class="col">${callCard(c)}${signalsCard(signals, byId, win)}${timingCard(c, handles, win)}${postsCard(c, handles)}</div><div class="col">${opinionCard(c, anchored)}${mediaCard(c, evidence)}${sourcesCard(evidence)}${accountsCard(c)}</div></div>`}`;
     app.querySelectorAll('[data-showall]').forEach((b) => (b.onclick = () => showAll(b)));
     app.querySelectorAll('.thumb').forEach((t) => (t.onclick = () => { t.classList.add('shown'); t.setAttribute('aria-pressed', 'true'); }));
   }
@@ -638,7 +628,7 @@
       parts.push(`<div class="hist" role="img" aria-label="Synchrony in ${worlds} shuffled worlds; the real accounts score ${fix2(nd.observed)}.">
           ${nd.counts.map((n) => `<i style="height:${(n / max) * 100}%"></i>`).join('')}
           <span class="obs" style="left:calc(${left}% - 1px)"></span></div>
-        <div class="axis" aria-hidden="true"><span>${fix2(lo)}</span><span class="mid">share of actions in the same burst</span><span>${fix2(hi)}</span></div>
+        <div class="axis" aria-hidden="true"><span>${fix2(lo)}</span><span>${fix2(hi)}</span></div>
         <p class="muted small" style="margin-top:4px">Horizontal axis: share of the accounts’ actions that fall in the same tight burst.</p>
         <div class="key"><span><i style="background:#5a5650"></i>Shuffled timing</span><span><i style="background:var(--shill)"></i>Real accounts: ${fix2(nd.observed)}</span></div>
         <p class="chart-caption">We shuffled each account’s activity in time ${worlds.toLocaleString()} times.${k != null ? ` <strong>${k.toLocaleString()}</strong> of those shuffles were as synchronised as the real accounts` : ''}${timingP != null ? ` (timing p = ${pval(timingP)}).` : '.'}</p>`);
@@ -663,7 +653,7 @@
         <div class="key"><span>One row per account. One colour per shared link, text or image${keys.length > palette.length ? `; grey for the other ${keys.length - palette.length}` : ''}.</span></div>`);
     }
     if (!parts.length) return '';
-    return `<section class="card o-time" aria-labelledby="h-time"><div class="card-head"><h2 id="h-time">Timing test</h2><span class="label">${win ? `Latest window · ${esc(win)}` : 'Against chance'}</span></div>${parts.join('')}</section>`;
+    return `<section class="card o-time" aria-labelledby="h-time"><div class="card-head"><h2 id="h-time">Timing test</h2><span class="label">${win ? 'Latest window' : 'Against chance'}</span></div>${parts.join('')}</section>`;
   }
 
   function opinionCard(c, anchored) {
@@ -677,7 +667,7 @@
     const older = v && v.cluster_updated_at && c.updated_at && new Date(v.cluster_updated_at) < new Date(c.updated_at) - 1000;
     // "evidence_id 123" in model prose becomes the same citation link as the cited list
     const cite = (id) => (anchored.has(Number(id)) ? `<a class="cite" href="#ev-${Number(id)}" data-jump="${Number(id)}">#${Number(id)}</a>` : `<span class="cite">#${Number(id)}</span>`);
-    const prose = (t) => esc(t)
+    const prose = (t) => esc(tidy(t).replace(/\blikely_organic\b/g, 'likely organic'))
       .replace(/evidence_ids?[\s:=]*(\d+(?:(?:\s*,\s*|\s+and\s+)\d+)*)/g, (m, ids) => ids.replace(/\d+/g, (id) => cite(id)).replace(/\s+and\s+/g, ' and '));
     const cited = (v && Array.isArray(v.evidence) ? v.evidence : []).filter((x) => x.why || x.summary);
     const list = (title, xs) => (xs.length ? `<div><h3 class="label">${title}</h3><ul>${xs.map((x) => `<li>${x}</li>`).join('')}</ul></div>` : '');
@@ -685,8 +675,8 @@
     return `<section class="card o-op" aria-labelledby="h-op">
       <div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div>
       <p class="opinion-line">${chip(call)}<span>${agrees ? 'Agrees with the detector' : 'Reads it differently'}</span></p>
-      <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.</p>
-      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> The detector said ${esc(word(thenStatus))} at the time of this review.</p>` : older ? `<p class="notice"><strong>Reviewed an earlier snapshot.</strong> Account and post counts may differ from the evidence on this page.</p>` : ''}
+      <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.${older && !callChanged ? ` Reviewed ${esc(when(a.created_at))} on an earlier snapshot, so its counts may differ from the evidence on this page.` : ''}</p>
+      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> The detector said ${esc(word(thenStatus))} at the time of this review.</p>` : ''}
       ${a.summary ? `<p style="margin-top:14px">${prose(a.summary)}</p>` : ''}
       ${!agrees && !callChanged && a.disagreement_reason ? `<p class="notice"><strong>Why it disagrees:</strong> ${prose(a.disagreement_reason)}</p>` : ''}
       <div class="reasons">
@@ -701,7 +691,7 @@
   function mediaCard(c, evidence) {
     const media = evidence.filter((e) => e.kind === 'media');
     const failed = media.filter((e) => (e.detail || {}).status === 'failed');
-    const read = media.filter((e) => (e.detail || {}).status !== 'failed');
+    const read = media.filter((e) => (e.detail || {}).status !== 'failed').sort((a, b) => Number((b.detail || {}).n_accounts || 0) - Number((a.detail || {}).n_accounts || 0));
     const seen = new Set(media.map((e) => (e.detail || {}).media_hash));
     const unread = [...new Set((c.posts || []).flatMap((p) => p.media_hashes || []))].filter((h) => !seen.has(h)).length;
     if (!media.length && !unread) return '';
@@ -735,9 +725,9 @@
       return `<div class="item" id="ev-${Number(e.id)}"${i >= 4 ? ' hidden' : ''}><p style="color:var(--text)">${esc(e.summary || d.title || 'Web check')}</p>${by}
         ${allHits.length ? `<div class="hits">${allHits.slice(0, 3).map(hit).join('')}</div>` : ''}
         ${allHits.length > 3 ? `<details><summary>${allHits.length - 3} more ${allHits.length - 3 === 1 ? 'result' : 'results'}</summary><div class="hits" style="margin-top:6px">${allHits.slice(3).map(hit).join('')}</div></details>` : ''}
-        ${url ? ext(url, `${esc(host(url))} ↗`, 'out') : '<span class="muted small">No source URL recorded.</span>'}</div>`;
+        <span class="muted small">${url ? `${ext(url, `${esc(host(url))} ↗`, 'out')} · ` : 'No source URL recorded · '}checked ${esc(when(e.created_at))}</span></div>`;
     });
-    return `<section class="card o-src" aria-labelledby="h-src" data-fold><div class="card-head"><h2 id="h-src">On the web</h2><span class="label">Oxylabs, live</span></div>
+    return `<section class="card o-src" aria-labelledby="h-src" data-fold><div class="card-head"><h2 id="h-src">On the web</h2><span class="label">Oxylabs, live</span></div><p class="muted small" style="margin:-6px 0 14px">Each check’s account counts are as of the time it ran.</p>
       ${items.join('')}${items.length > 4 ? `<button class="linkish" data-showall style="margin-top:10px">Show all ${items.length}</button>` : ''}</section>`;
   }
 
@@ -829,7 +819,7 @@
     if (state.metricsError) { app.innerHTML = `${head('Error rates measured by the evaluation harness.')}<div class="card state" role="alert"><h2>Evaluation results are unavailable</h2><p>${esc(state.metricsError)}</p></div>`; return; }
     if (!ordered.length) {
       app.innerHTML = `${head('No evaluation runs have been published to this deployment yet, and we don’t show numbers we haven’t measured. Once the evaluation harness writes its results, this page answers:')}
-        <div class="planned">${Object.values(DATASETS).map((m) => `<div><strong>${esc(m.q)}</strong><span class="tag">Not measured yet</span><p>${esc(m.what)}</p></div>`).join('')}</div>`;
+        <div class="planned">${Object.values(DATASETS).map((m) => `<div><strong>${esc(m.q)}</strong><p>${esc(m.what)}</p></div>`).join('')}</div>`;
       return;
     }
     app.innerHTML = `${head('Every number on this page is read from the evaluation runs stored with this deployment. None is typed in by hand.')}
@@ -839,7 +829,7 @@
         <div><strong>Read the interval</strong>Small samples get wide 95% intervals. The range matters as much as the number.</div>
       </div>
       <div class="acc-grid">${ordered.map((ds) => accCard(ds, groups.get(ds))).join('')}</div>
-      ${missing.length ? `<h2 class="label" style="margin:40px 0 12px">Not measured on this deployment yet</h2><div class="planned">${missing.map((m) => `<div><strong>${esc(m.q)}</strong><span class="tag">Not measured yet</span><p>${esc(m.what)}</p></div>`).join('')}</div>` : ''}`;
+      ${missing.length ? `<h2 class="label" style="margin:40px 0 12px">Not measured on this deployment yet</h2><div class="planned">${missing.map((m) => `<div><strong>${esc(m.q)}</strong><p>${esc(m.what)}</p></div>`).join('')}</div>` : ''}`;
   }
 
   // ---------- method
@@ -863,8 +853,8 @@
         <ul>
           <li><strong>The detector decides.</strong> Its rules are code. Every cluster page shows the exact rule and the measured values.</li>
           <li><strong>Gemini explains.</strong> It may disagree, and the page says so when it does, but it never changes the call.</li>
-          <li><strong>Nemotron Super VL reads images:</strong> what they show, the text inside them, and whether different images share one template.</li>
-          <li><strong>Oxylabs fetches the web live</strong> to find where a link or text appeared before. Every result keeps its source URL.</li>
+          <li><strong>Nemotron Super VL reads images.</strong> It describes what they show, reads the text inside them and spots different images that share one template.</li>
+          <li><strong>Oxylabs fetches the web live.</strong> It finds where a link or text appeared before, and every result keeps its source URL.</li>
         </ul>
         <h2>Limits</h2>
         <ul>
