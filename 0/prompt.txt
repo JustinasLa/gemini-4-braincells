@@ -1,0 +1,13 @@
+Background command completed (exit 0): /bin/bash -lc 'entire review general'
+
+Output tail:
+...rray.
+- [low] `web/trackdown/src/ui/swarm.ts:72`: `<div class="sw-confidence" aria-label="Confidence and signal strengths">` puts `aria-label` on a plain `div` with no role. ARIA does not allow naming a generic element, and most screen readers ignore the label, so the group name the change intends is never announced. Fix: add `role="group"`, or use a `<section>`/`<figure>` with a visible heading.
+1 agent(s) done — 1 succeeded, 0 failed, 0 cancelled
+
+Note: review skills ran but findings were not persisted.
+  Reason: found 1 tagged review session(s) but BaseCommit mismatch: state="50b65325c65dfa838644aa2f918697c40e0d3600", run="b53c091e52c339f67a04115c7bbbbbf246486ad1" (HEAD moved between review start and first agent turn?)
+  `entire review --findings` will not see this run.
+  Re-run with `ENTIRE_LOG_LEVEL=debug` for diagnostic detail.
+Posted the review verdict to trail #185 as 3 findings.
+View the trail: https://entire.com/gh/JustinasLa/gemini-4-braincells/trails/185/fix/meme-confidence
