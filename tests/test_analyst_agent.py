@@ -182,6 +182,19 @@ def test_cache_is_shared_across_clusters_but_each_cluster_gets_its_own_row():
     assert b.records[0].cached and b.budget.web_calls == 0
 
 
+def test_cached_page_gets_each_clusters_own_sharing_counts():
+    from dataclasses import replace
+
+    web, cache = FakeWeb(), WebCache()
+    a = toolbox(replace(ctx(), size=5), web=web, cache=cache, sink=MemorySink(start_id=100))
+    b = toolbox(replace(ctx(), id=43, size=12), web=web, cache=cache, sink=MemorySink(start_id=200))
+    a.call("scrape_url", {"url": "https://news.example/story"})
+    b.call("scrape_url", {"url": "https://news.example/story"})
+    assert web.scrapes == ["https://news.example/story"]
+    eb = b.new_evidence[200]
+    assert eb.detail["cluster_accounts"] == 12 and "of 12 accounts" in eb.summary
+
+
 def test_already_stored_row_is_reused_without_oxylabs():
     web, sink = FakeWeb(), MemorySink(start_id=50)
     toolbox(web=web, sink=sink).call("scrape_url", {"url": "https://news.example/story"})
