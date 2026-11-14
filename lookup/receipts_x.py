@@ -250,11 +250,11 @@ def _run(pool: ThreadPoolExecutor, jobs: list[_Job], deps: ReceiptDeps, budget: 
                 continue
             j.done = True
             started += 1
-        elif f.running():
+        elif f.cancel():  # still queued at the deadline: cancelled, never started
+            _record(deps, j, f"{j.label}: not read, time budget used up", ok=False)
+        else:  # running, or finished just after the wait: too late either way
             started += 1
             _record(deps, j, f"{j.label}: no answer within the time budget", ok=False)
-        else:  # still queued at the deadline: cancelled, never started
-            _record(deps, j, f"{j.label}: not read, time budget used up", ok=False)
     return started
 
 
