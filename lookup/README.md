@@ -66,7 +66,13 @@ reads it, and:
   content). Those pages are role "coverage": about the image, never copies or the origin.
 - the upload is never its own origin: with no verified copy, `origin_id` is null.
 
-Search is by text, not pixels: an image with no text and no well-known look finds little.
+Reverse-image search runs alongside the text searches, including for captionless images:
+TinEye and Yandex find candidate pictures and optional local visual matching compares them.
+Uploads need a public URL: `LOOKUP_PUBLIC_BASE_URL`, or `https://{PUBLIC_HOST}`. The production
+host is `noise-radar.srv2159172.hstgr.cloud`. Without one, the reverse-image step explains why
+it is skipped. `LOOKUP_REVERSE_IMAGE=false` disables it (the API default is true). An uploaded
+image's temporary public URL is sent to those search engines through Oxylabs; it still expires
+with the lookup. For X/Bluesky, the first post image is used, not a link-card thumbnail.
 
 Trackdown (web/trackdown) opens the stream and falls back to polling when it errors or no
 snapshot arrives within 4 s (a buffering proxy). `deploy/Caddyfile` leaves the stream
@@ -80,7 +86,7 @@ Jobs live in the API process (single uvicorn worker) for `LOOKUP_JOB_TTL_S`.
 
 ## LookupResult (JSON)
 
-All arrays grow while `state` is `running`; the client re-renders on each poll. Times are ISO
+Results fill while `state` is `running`; the client re-renders on each poll. Times are ISO
 8601 UTC. Unknown values are `null`, never guessed.
 
 ```jsonc
@@ -108,9 +114,69 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "readings": [Assessment],           // every reading, primary first; the second one can arrive while running
   "readings_disagree": false,         // the readings' llm_reading differ: both shown, neither is the status
   "steps": [Step],
-  "notes": ["..."]
+  "notes": ["..."],
+  "image_matches": [ImageMatch],
+  "image_origin_id": "img:3" | null  // separate from origin_id; see the image-origin rule below
 }
 ```
+
+### Image matches
+
+```jsonc
+ImageMatch {
+  "id": "img:3", "image_url": "https://example.org/picture.jpg",
+  "thumb_url": "https://img.tineye.com/example.jpg" | null,
+  "page_url": "https://example.org/story" | null, "domain": "example.org" | null,
+  "engine": "tineye",               // tineye | yandex
+  "first_seen": "2012-03-01T00:00:00Z" | null,
+  "time_source": "crawl_date" | null, // crawl_date | page | snowflake | null
+  "width": 388, "height": 257,       // either can be null
+  "relation": "cropped",            // same | resized | cropped | edited | different | unknown
+  "distance": 6,                     // null when not compared
+  "crop_box": [0, 0, 388, 257] | null,
+  "edited_region": [0, 0, 388, 40] | null,
+  "relation_note": "Visible image comparison",
+  "changes": ["Caption changed from one line to another"],
+  "change_kinds": ["caption_changed"],
+  "receipt_id": 12
+}
+```
+
+`change_kinds`: `caption_changed`, `text_added`, `text_removed`, `element_added`,
+`element_removed`, `face_changed`, `cropped`, `recolored`, `watermark`, `other`.
+Only `edited`/`cropped` matches get Nemotron change descriptions; code decides the relation.
+`different` matches are removed after comparison. Candidate IDs remain stable, so arrays can
+shrink and IDs can have gaps. An unavailable comparison stays `unknown`, not an image origin.
+`receipt_id` identifies the engine result until comparison, then the downloaded/comparison
+receipt, or the Nemotron diff receipt; all earlier receipts remain in `receipts`.
+
+Edges additionally accept `rel: "variant"` and tools `tineye`/`yandex`. A variant edge runs from
+the image origin (else the earliest same/resized candidate, else the subject) to an edited or
+cropped match; its tool is the engine or `nemotron` when it described changes. These edges show
+visual relationships, not proof that one uploader copied another. Receipts additionally accept
+tools `tineye`, `yandex`, and `fetch`: every engine request, download/redirect attempt and diff
+call has a receipt, including failures and calls whose completion was not confirmed in time.
+
+Two steps are inserted between `coverage` and `media`:
+- `reverse_image`: **Find the picture on the web (TinEye, Yandex)**.
+- `variations`: **Compare every copy with the upload**.
+
+The trace starts before synchronous upload OCR, or just after the post read supplies its image
+URL, alongside the existing searches. TinEye, Yandex imageview and Yandex sites run in parallel
+(three Oxylabs `/scrape` calls; caps 20/15/15 s). Matches dedupe by image or thumbnail URL,
+preferring TinEye and its earliest dates over promoted ranks. At most `Deps.image_matches_max`
+(default 20) images are downloaded with eight workers: 5 s and 8 MiB per attempt, full image
+then thumbnail fallback. Only HTTP(S), global resolved IPs and `image/*` responses are accepted;
+connections pin the checked IP, redirects are checked again, and no credentials/cookies are
+sent. Up to `Deps.image_diffs_max` (default 4) edited/cropped comparisons run in parallel with
+20 s Nemotron timeouts, starting only with 23 s remaining before the 10 s assessment reserve.
+Every stage shares the lookup deadline; closed workers cannot publish late results.
+
+`Deps.relate` / `Deps.describe_changes` can be injected. Otherwise they import
+`media.variants.relate` / `media.imagediff.describe_changes` lazily. If either module is absent,
+`variations` is skipped with `variation matching is not installed on this server`; reverse
+results remain visible with relation `unknown`. Direct `Deps` callers default reverse search
+off for backward compatibility; the API passes the enabled setting explicitly.
 
 ```jsonc
 Post {
@@ -227,6 +293,16 @@ only while a bounded call (one attempt, 20 s, no rate-limiter wait: a lookup mak
 two) still fits before the reading's reserve.
 
 ## Rules that keep it honest (and why)
+
+- **Image origin is separate from text origin.** `image_origin_id` is the earliest dated
+  `same`/`resized`/`cropped` match whose latest possible first-seen time precedes **every**
+  dated verified post (including posts discovered during verification). A crawl date is an
+  upper bound on first appearance, not a publication date: the picture is at least that old
+  and may be older. For day-only crawls, the conservative upper bound is the next midnight;
+  a crawl on the same day as a post is not provably older. Without dated verified posts, the
+  earliest qualifying visual match can be the image origin. Without one, the field is null
+  and a note explains why. It never changes `origin_id` or claims who created the picture.
+  Describe differences as **edited** with the observed changes, never as a claim about intent.
 
 - **Times.** X post times come from the post id (snowflake), so every X post found, even one
   only seen in a search result, has its exact creation time. Bluesky times are the record's

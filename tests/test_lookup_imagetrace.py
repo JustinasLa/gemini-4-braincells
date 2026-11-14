@@ -1,0 +1,722 @@
+"""Reverse-image integration with deterministic provider, HTTP, and visual-tool doubles."""
+
+import hashlib
+import ipaddress
+import json
+import re
+import socket
+import struct
+import threading
+import time
+import zlib
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from lookup import imagetrace
+from lookup.assess import brief
+from lookup.models import ImageMatch, ImageRef, LookupInput, Post
+from lookup.service import Deps, Lookup
+from media.nemotron import MediaAnalysis
+from sources.reverse_image import ImageHit, ReverseResult
+
+
+def png(red):
+    def chunk(kind, data):
+        return (
+            struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(bytes([0, red, 0, 0])))
+        + chunk(b"IEND", b"")
+    )
+
+
+BASE, EDITED, OTHER, CROPPED = (png(red) for red in (0, 40, 80, 120))
+OLD = datetime(2008, 4, 22, tzinfo=UTC)
+RECENT = datetime(2022, 3, 1, tzinfo=UTC)
+POST_ID = "2121370648207671396"
+IMAGE_URL = "https://pbs.twimg.com/media/base.png?format=webp"
+
+
+def hit(path="old.png", *, engine="tineye", when=OLD, rank=0, thumb=None):
+    return ImageHit(
+        engine=engine,
+        image_url=f"https://images.example/{path}",
+        thumb_url=thumb,
+        page_url="https://www.zooomr.com/photos/old"
+        if when == OLD
+        else "https://en.wikipedia.org/wiki/Disaster_Girl",
+        domain="zooomr.com" if when == OLD else "wikipedia.org",
+        first_seen=when,
+        time_source="crawl_date" if when else None,
+        width=388,
+        height=257,
+        title="Disaster Girl",
+        rank=rank,
+    )
+
+
+def result(engine, url, hits):
+    return ReverseResult(
+        engine=engine,
+        query_image_url=url,
+        request_url=f"https://{engine}.com/search?url=picture",
+        hits=hits,
+        total=17200 if engine == "tineye" else None,
+        earliest=OLD if engine == "tineye" else None,
+        call={"request_id": f"{engine}-request", "latency_ms": 7},
+    )
+
+
+class Searches:
+    def __init__(self, hits=None):
+        self.hits = (
+            hits
+            if hits is not None
+            else [
+                hit("recent.png", when=RECENT, rank=0),
+                hit(rank=1),
+                hit("edited.png", when=None, rank=2),
+                hit("different.png", when=None, rank=3),
+            ]
+        )
+        self.calls = []
+
+    def tineye(self, client, url, *, deadline):
+        self.calls.append(("tineye", url, deadline))
+        return result("tineye", url, self.hits)
+
+    def yandex(self, client, url, *, sites, deadline):
+        self.calls.append((f"yandex-{sites}", url, deadline))
+        return result("yandex", url, [hit(engine="yandex", when=None)])
+
+
+class TextSources:
+    last_call = {"request_id": "text-request"}
+
+    def search(self, query, *, max_results=10, deadline=None):
+        return []
+
+    def scrape_markdown(self, url, *, deadline=None):
+        if not url.endswith(POST_ID):
+            raise RuntimeError("No profile")
+        return (
+            "## Conversation\n\n* "
+            + (
+                "[![@example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/example)\n\n"
+                "[Example](/example)[@example](/example)\n\n"
+                "Here are the words on this post about a picture\n\n"
+                f"![Image]({IMAGE_URL})\n\n"
+                f"[10:32 PM · Nov 13, 2026](/example/status/{POST_ID})·[1,928\n\n"
+                f"Views](/example/status/{POST_ID})\n\n2\n\n26"
+            ).replace("\n", "\n  ")
+            + "\n",
+            {},
+        )
+
+
+class Reader:
+    def analyze(self, media, *, context=None):
+        return MediaAnalysis(
+            media_hash=media.media_hash,
+            model="nemotron-3.5-super-vl",
+            media_type="meme",
+            description="A girl standing near a house.",
+            extracted_text=[],
+            reuse_cues=[],
+            manipulation_cues=[],
+            confidence=0.9,
+            latency_ms=1,
+        )
+
+
+def relate(base, other):
+    assert base == BASE
+    kind = {BASE: "same", EDITED: "edited", OTHER: "different", CROPPED: "cropped"}[other]
+    return SimpleNamespace(
+        kind=kind,
+        distance=0 if kind == "same" else 6,
+        crop_box=(0, 0, 1, 1) if kind == "cropped" else None,
+        edited_region=(0, 0, 1, 1) if kind == "edited" else None,
+        note="Visible image comparison",
+    )
+
+
+def describe(client, original, variant, *, timeout_s):
+    assert original == BASE and variant in (EDITED, CROPPED) and 0 < timeout_s <= 20
+    return SimpleNamespace(
+        changes=["Caption changed from one line to another"],
+        kinds=["caption_changed"],
+        latency_ms=9,
+        model="nemotron-3.5-super-vl",
+    )
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch):
+    def resolve(host, port, **kwargs):
+        try:
+            address = str(ipaddress.ip_address(host))
+        except ValueError:
+            address = "93.184.216.34"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+
+    monkeypatch.setattr(imagetrace.socket, "getaddrinfo", resolve)
+
+
+def transport(request):
+    assert request.url.host == "93.184.216.34"
+    assert "authorization" not in request.headers and "cookie" not in request.headers
+    assert request.extensions["sni_hostname"] == request.headers["host"]
+    data = {"/edited.png": EDITED, "/different.png": OTHER, "/cropped.png": CROPPED}.get(
+        request.url.path, BASE
+    )
+    return httpx.Response(200, headers={"content-type": "image/png"}, content=data)
+
+
+def job_for(searches=None, **overrides):
+    searches = searches or Searches()
+    deps = dict(
+        oxylabs=TextSources(),
+        reverse_image=True,
+        public_base_url="https://public.example",
+        search_tineye=searches.tineye,
+        search_yandex=searches.yandex,
+        relate=relate,
+        describe_changes=describe,
+        nemotron=Reader(),
+        image_transport=httpx.MockTransport(transport),
+        media_max=0,
+    )
+    deps.update(overrides)
+    ref = ImageRef(sha256=hashlib.sha256(BASE).hexdigest(), mime="image/png", bytes=len(BASE))
+    return Lookup("lk_trace", LookupInput(image=ref), Deps(**deps), image=BASE)
+
+
+def run_trace(job):
+    job._add_upload_post()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        trace = imagetrace.start(job, pool)
+        trace.future.result(timeout=5)
+        trace.finish()
+    return trace
+
+
+def test_upload_end_to_end_dates_dedup_relations_receipts_and_brief():
+    searches = Searches()
+    job = job_for(searches)
+    job.run()
+    assert job.result.state == "done", job.result.error
+    matches = job.result.image_matches
+    assert [match.image_url.rsplit("/", 1)[-1] for match in matches] == [
+        "old.png",
+        "recent.png",
+        "edited.png",
+    ]
+    assert job.result.image_origin_id == "img:1" and job.result.origin_id is None
+    assert matches[0].engine == "tineye" and matches[0].first_seen == OLD
+    assert matches[-1].changes and matches[-1].edited_region == (0, 0, 1, 1)
+    edge = next(edge for edge in job.result.edges if edge.rel == "variant")
+    assert edge.from_ == "img:1" and edge.to == "img:3" and edge.tool == "nemotron"
+    assert len(searches.calls) == 3
+    assert all(
+        url == "https://public.example/api/lookup/lk_trace/image" for _, url, _ in searches.calls
+    )
+    receipts = job.result.receipts
+    engine_receipts = [receipt for receipt in receipts if receipt.tool in ("tineye", "yandex")]
+    assert len(engine_receipts) == 3 and all(receipt.ok for receipt in engine_receipts)
+    assert engine_receipts[0].request_id and engine_receipts[0].source_url
+    assert any(
+        "17,200" in receipt.summary and "2008-04-22" in receipt.summary for receipt in receipts
+    )
+    assert len([receipt for receipt in receipts if receipt.tool == "fetch"]) == 4
+    assert all(match.receipt_id in {receipt.id for receipt in receipts} for match in matches)
+    prompt = json.loads(brief(job.result))
+    assert prompt["image_origin_id"] == "img:1"
+    assert prompt["image_matches"][-1]["changes"] == matches[-1].changes
+    assert any("at least that old" in note for note in job.result.notes)
+
+
+def test_x_post_uses_its_first_image_without_waiting_for_ocr():
+    searches = Searches([hit()])
+    deps = job_for(searches, nemotron=None).deps
+    job = Lookup("lk_x", LookupInput(url=f"https://x.com/example/status/{POST_ID}"), deps)
+    job.run()
+    assert job.result.state == "done", job.result.error
+    assert len(searches.calls) == 3
+    assert all("format=jpg" in url and "name=large" in url for _, url, _ in searches.calls)
+    assert job.result.image_matches[0].relation == "same"
+    assert job.result.image_origin_id == "img:1"
+    assert job.result.origin_id == f"x:{POST_ID}"
+
+
+@pytest.mark.parametrize("kind", ["x_post", "bsky_post"])
+def test_post_skips_cards_and_uses_first_actual_image(kind):
+    searches = Searches([hit()])
+    job = job_for(searches)
+    job._upload = None
+    job.result.kind = kind
+    job._media_urls = [
+        "https://pbs.twimg.com/card_img/one",
+        "https://cdn.bsky.app/base.png",
+        "https://cdn.bsky.app/other.png",
+    ]
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        trace = imagetrace.start(job, pool)
+        trace.future.result(timeout=5)
+        trace.finish()
+    assert {url for _, url, _ in searches.calls} == {"https://cdn.bsky.app/base.png"}
+
+
+@pytest.mark.parametrize(
+    "created,expected",
+    [
+        (datetime(2007, 1, 1, tzinfo=UTC), None),
+        (datetime(2008, 4, 22, 12, tzinfo=UTC), None),
+        (datetime(2008, 4, 23, tzinfo=UTC), None),
+        (datetime(2008, 4, 24, tzinfo=UTC), "img:1"),
+    ],
+)
+def test_origin_requires_entire_crawl_day_before_every_verified_post(created, expected):
+    job = job_for(Searches([hit()]))
+    job.result.posts.append(Post(id="x:old", platform="x", created_at=created, verified=True))
+    job.result.posts.append(
+        Post(id="x:hint", platform="x", created_at=datetime(2000, 1, 1, tzinfo=UTC))
+    )
+    run_trace(job)
+    assert job.result.image_origin_id == expected
+    if expected is None:
+        assert any("provably older" in note for note in job.result.notes)
+
+
+def test_cropped_is_origin_eligible_and_described():
+    job = job_for(Searches([hit("cropped.png")]))
+    run_trace(job)
+    assert job.result.image_origin_id == "img:1"
+    assert job.result.image_matches[0].crop_box == (0, 0, 1, 1)
+    assert job.result.image_matches[0].changes
+    assert all(edge.from_ != edge.to for edge in job.result.edges)
+
+
+def test_no_image_origin_uses_subject_for_edited_edge():
+    searches = Searches([hit("edited.png", when=None)])
+    searches.yandex = lambda client, url, **kwargs: result("yandex", url, [])
+    job = job_for(searches, nemotron=None)
+    run_trace(job)
+    assert job.result.image_origin_id is None
+    assert job.result.edges[0].from_ == job.result.subject_id
+    assert job.result.edges[0].tool == "tineye"
+
+
+def test_one_engine_failure_is_isolated():
+    searches = Searches()
+
+    def failed(*args, **kwargs):
+        raise RuntimeError("fake deepfake manipulated upstream error")
+
+    searches.tineye = failed
+    job = job_for(searches)
+    run_trace(job)
+    assert job._step("reverse_image").state == "done"
+    assert job.result.image_matches[0].engine == "yandex"
+    assert any(receipt.tool == "tineye" and not receipt.ok for receipt in job.result.receipts)
+    assert all("upstream error" not in receipt.summary for receipt in job.result.receipts)
+
+
+@pytest.mark.parametrize("module", ["media.variants", "media.imagediff"])
+def test_missing_variants_retains_unknown_reverse_results(monkeypatch, module):
+    real_import = imagetrace.import_module
+
+    def missing(name):
+        if name == module:
+            raise ModuleNotFoundError(name)
+        return real_import(name)
+
+    monkeypatch.setattr(imagetrace, "import_module", missing)
+    job = job_for(**{"relate" if module == "media.variants" else "describe_changes": None})
+    run_trace(job)
+    assert job._step("variations").state == "skipped"
+    assert job._step("variations").detail == imagetrace.MISSING
+    assert job.result.image_matches and all(
+        match.relation == "unknown" for match in job.result.image_matches
+    )
+    assert not any(receipt.tool == "fetch" for receipt in job.result.receipts)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1/image",
+        "http://10.12.3.4/image",
+        "http://169.254.169.254/image",
+        "http://[::1]/image",
+        "http://224.0.0.1/image",
+        "file:///etc/passwd",
+        "https://user:password@images.example/image",
+    ],
+)
+def test_ssrf_refused_without_a_request(url):
+    requests = []
+    job = job_for(image_transport=httpx.MockTransport(lambda request: requests.append(request)))
+    trace = imagetrace.Trace(job)
+    assert trace._download(url) is None
+    assert requests == []
+    assert job.result.receipts and not job.result.receipts[-1].ok
+
+
+def test_redirect_to_private_address_is_refused_and_receipted():
+    requests = []
+
+    def redirect(request):
+        requests.append(request)
+        return httpx.Response(
+            302, headers={"location": "http://10.0.0.1/secret", "set-cookie": "session=private"}
+        )
+
+    job = job_for(image_transport=httpx.MockTransport(redirect))
+    assert imagetrace.Trace(job)._download("https://images.example/redirect") is None
+    assert len(requests) == 1 and len(job.result.receipts) == 2
+    assert not job.result.receipts[-1].ok
+
+
+def test_public_redirect_does_not_forward_cookies_or_authorization():
+    requests = []
+
+    def redirect(request):
+        requests.append(request)
+        assert "cookie" not in request.headers and "authorization" not in request.headers
+        if len(requests) == 1:
+            return httpx.Response(302, headers={"location": "/done", "set-cookie": "secret=value"})
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=BASE)
+
+    job = job_for(image_transport=httpx.MockTransport(redirect))
+    assert imagetrace.Trace(job)._download("https://images.example/redirect")[0] == BASE
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [{"content-type": "text/html"}, {"content-type": "image/png", "content-length": "99999999"}],
+)
+def test_download_requires_image_type_and_byte_limit(headers):
+    job = job_for(
+        image_transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers=headers, content=BASE)
+        )
+    )
+    assert imagetrace.Trace(job)._download("https://images.example/invalid") is None
+
+
+def test_thumbnail_fallback_and_thumbnail_dedup():
+    searches = Searches(
+        [
+            hit("unavailable.png", thumb="https://thumb.example/thumb.png"),
+            hit("duplicate.png", thumb="https://thumb.example/thumb.png", when=RECENT),
+        ]
+    )
+    searches.yandex = lambda client, url, **kwargs: result("yandex", url, [])
+
+    def fetch(request):
+        if request.url.path == "/unavailable.png":
+            return httpx.Response(404)
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=BASE)
+
+    job = job_for(searches, image_transport=httpx.MockTransport(fetch))
+    run_trace(job)
+    assert len(job.result.image_matches) == 1 and job.result.image_matches[0].relation == "same"
+    downloads = [receipt for receipt in job.result.receipts if receipt.tool == "fetch"]
+    assert len(downloads) == 2 and not downloads[0].ok and downloads[1].ok
+
+
+@pytest.mark.parametrize(
+    "options,detail",
+    [
+        ({"public_base_url": ""}, "public image URL"),
+        ({"public_base_url": "/relative"}, "public image URL"),
+        ({"reverse_image": False}, "disabled"),
+    ],
+)
+def test_skip_without_public_url_or_when_disabled(options, detail):
+    searches = Searches()
+    job = job_for(searches, **options)
+    run_trace(job)
+    assert job._step("reverse_image").state == "skipped"
+    assert detail in job._step("reverse_image").detail and searches.calls == []
+
+
+def test_budget_exhaustion_starts_no_provider_calls():
+    searches = Searches()
+    job = job_for(searches, time_budget_s=1)
+    run_trace(job)
+    assert searches.calls == [] and job.result.receipts == []
+    assert job._step("reverse_image").state == "skipped"
+
+
+def test_uncooperative_engine_cannot_publish_after_finish(monkeypatch):
+    release, completed = threading.Event(), threading.Event()
+    searches = Searches()
+
+    def late(client, url, **kwargs):
+        release.wait(5)
+        return result("tineye", url, [hit()])
+
+    searches.tineye = late
+    job = job_for(searches, time_budget_s=10.08)
+    monkeypatch.setattr(job, "_spend", lambda *args: None)
+    original = imagetrace.Trace._complete
+
+    def complete(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        if threading.current_thread().name.startswith("image-trace") and release.is_set():
+            completed.set()
+
+    monkeypatch.setattr(imagetrace.Trace, "_complete", complete)
+    trace = run_trace(job)
+    before = job.result.model_dump()
+    release.set()
+    assert completed.wait(2) and trace.closed.is_set()
+    assert job.result.model_dump() == before
+
+
+def test_reverse_search_starts_before_synchronous_upload_ocr():
+    started = threading.Event()
+    searches = Searches([hit()])
+    original = searches.tineye
+
+    def search(*args, **kwargs):
+        started.set()
+        return original(*args, **kwargs)
+
+    searches.tineye = search
+
+    class CheckingReader(Reader):
+        def analyze(self, media, *, context=None):
+            assert started.wait(2)
+            return super().analyze(media, context=context)
+
+    job = job_for(searches, nemotron=CheckingReader(), media_max=1)
+    job.run()
+    assert job.result.state == "done" and started.is_set()
+    assert job._step("media").state == "done"
+
+
+def test_caps_on_matches_diffs_and_assessment():
+    searches = Searches([hit(f"edited{index}.png", when=None) for index in range(25)])
+
+    def fetch(request):
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=EDITED)
+
+    job = job_for(
+        searches,
+        image_matches_max=16,
+        image_diffs_max=2,
+        image_transport=httpx.MockTransport(fetch),
+    )
+    run_trace(job)
+    assert len(job.result.image_matches) == 16
+    assert sum(bool(match.changes) for match in job.result.image_matches) == 2
+    assert len(json.loads(brief(job.result))["image_matches"]) == 12
+
+
+def test_all_generated_wording_is_cautious():
+    def unsafe_relation(base, other):
+        relation = relate(base, other)
+        relation.note = "fake, faked, manipulated or DEEPFAKE"
+        return relation
+
+    def unsafe_diff(*args, **kwargs):
+        diff = describe(*args, **kwargs)
+        diff.changes = ["Fake caption, manipulated face, deepfake background"]
+        return diff
+
+    job = job_for(relate=unsafe_relation, describe_changes=unsafe_diff)
+    run_trace(job)
+    text = " ".join(
+        job.result.notes
+        + [step.detail or "" for step in job.result.steps]
+        + [receipt.summary for receipt in job.result.receipts]
+        + [match.relation_note for match in job.result.image_matches]
+        + [change for match in job.result.image_matches for change in match.changes]
+    )
+    assert not re.search(r"\b(?:fake\w*|deepfake\w*|manipulat\w*)\b", text, re.I)
+
+
+def test_dns_mixed_public_private_answers_refused(monkeypatch):
+    monkeypatch.setattr(
+        imagetrace.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", 443)),
+        ],
+    )
+    with pytest.raises(ValueError, match="not public"):
+        imagetrace._pinned_url("https://images.example/test")
+
+
+def test_public_download_pins_dns_answer():
+    pinned, host, sni = imagetrace._pinned_url("https://images.example:8443/test")
+    assert str(pinned) == "https://93.184.216.34:8443/test"
+    assert host == "images.example:8443" and sni == "images.example"
+
+
+def test_new_result_contract_serializes_boxes_as_arrays():
+    match = ImageMatch(
+        id="img:1", engine="tineye", image_url="https://images.example/test", crop_box=(1, 2, 3, 4)
+    )
+    assert match.model_dump(mode="json")["crop_box"] == [1, 2, 3, 4]
+
+
+def test_earliest_tineye_hit_wins_even_if_promoted_result_is_first():
+    searches = Searches([hit("wiki.png", when=RECENT, rank=0), hit(rank=6)])
+    job = job_for(searches, image_matches_max=1)
+    run_trace(job)
+    assert job.result.image_matches[0].domain == "zooomr.com"
+    assert job.result.image_origin_id == "img:1"
+
+
+def test_three_engine_calls_start_in_parallel_with_individual_caps():
+    barrier = threading.Barrier(3)
+    searches = Searches([hit()])
+
+    def search(client, url, *, deadline, sites=None):
+        cap = 20 if sites is None else 15
+        assert 0 < deadline - time.monotonic() <= cap
+        barrier.wait(timeout=2)
+        return result("tineye" if sites is None else "yandex", url, [hit()])
+
+    job = job_for(searches, search_tineye=search, search_yandex=search)
+    run_trace(job)
+    assert job._step("reverse_image").detail.startswith("3/3")
+
+
+def test_lazy_imports_call_both_optional_interfaces(monkeypatch):
+    imports = []
+
+    def imported(name):
+        imports.append(name)
+        return SimpleNamespace(relate=relate, describe_changes=describe)
+
+    monkeypatch.setattr(imagetrace, "import_module", imported)
+    job = job_for(relate=None, describe_changes=None)
+    run_trace(job)
+    assert imports == ["media.variants", "media.imagediff"]
+    assert any(match.changes for match in job.result.image_matches)
+
+
+@pytest.mark.parametrize("stage", ["download", "diff"])
+def test_completed_matches_survive_but_late_workers_never_publish(monkeypatch, stage):
+    release, started, completed = threading.Event(), threading.Event(), threading.Event()
+    searches = Searches([hit(), hit("different.png", when=None), hit("edited.png", when=None)])
+
+    def delayed_fetch(request):
+        if stage == "download" and request.url.path == "/edited.png":
+            started.set()
+            release.wait(5)
+        return transport(request)
+
+    def delayed_diff(*args, **kwargs):
+        started.set()
+        release.wait(5)
+        return describe(*args, **kwargs)
+
+    job = job_for(
+        searches,
+        time_budget_s=10.2,
+        image_transport=httpx.MockTransport(delayed_fetch),
+        describe_changes=delayed_diff,
+    )
+    monkeypatch.setattr(job, "_spend", lambda *args: None)
+    original = imagetrace.Trace._complete
+
+    def complete(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        if release.is_set():
+            completed.set()
+
+    monkeypatch.setattr(imagetrace.Trace, "_complete", complete)
+    try:
+        run_trace(job)
+        assert started.is_set()
+        assert job.result.image_origin_id == "img:1"
+        assert all("different.png" not in match.image_url for match in job.result.image_matches)
+        before = job.result.model_dump()
+    finally:
+        release.set()
+    assert completed.wait(2)
+    assert job.result.model_dump() == before
+
+
+def test_origin_waits_for_post_verification():
+    job = job_for(Searches([hit()]))
+    job._add_upload_post()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        trace = imagetrace.start(job, pool)
+        trace.future.result(timeout=5)
+        job.result.posts.append(
+            Post(
+                id="x:early",
+                platform="x",
+                created_at=datetime(2000, 1, 1, tzinfo=UTC),
+                verified=True,
+            )
+        )
+        trace.finish()
+    assert job.result.image_origin_id is None
+
+
+def test_streaming_byte_cap_without_content_length(monkeypatch):
+    class Stream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield BASE[:32]
+            yield BASE[32:]
+
+    monkeypatch.setattr(imagetrace, "DOWNLOAD_BYTES", 32)
+    job = job_for(
+        image_transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "image/png"},
+                stream=Stream(),
+            )
+        )
+    )
+    assert imagetrace.Trace(job)._download("https://images.example/large") is None
+    assert not job.result.receipts[-1].ok
+
+
+def test_existing_http_credentials_are_not_used_for_untrusted_images():
+    with httpx.Client(auth=("user", "password"), cookies={"session": "secret"}) as client:
+        job = job_for(http=client)
+        run_trace(job)
+    assert job.result.image_matches[0].relation == "same"
+
+
+def test_budget_gate_says_skipped_even_with_time_in_assessment_reserve():
+    searches = Searches()
+    job = job_for(searches, time_budget_s=12)
+    run_trace(job)
+    assert searches.calls == [] and job.result.receipts == []
+    assert job._step("reverse_image").state == "skipped"
+    assert job._step("reverse_image").detail == "time budget used up"
+
+
+def test_compressed_http_body_is_refused_before_decompression():
+    job = job_for(
+        image_transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "image/png", "content-encoding": "gzip"},
+                stream=httpx.ByteStream(b"untrusted compressed data"),
+            )
+        )
+    )
+    assert imagetrace.Trace(job)._download("https://images.example/compressed") is None
+    assert not job.result.receipts[-1].ok

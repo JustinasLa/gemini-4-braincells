@@ -11,6 +11,40 @@ Kind = Literal["x_post", "x_profile", "bsky_post", "bsky_profile", "web", "text"
 StepState = Literal["pending", "running", "done", "failed", "skipped"]
 
 
+class ImageMatch(BaseModel):
+    id: str
+    image_url: str
+    thumb_url: str | None = None
+    page_url: str | None = None
+    domain: str | None = None
+    engine: Literal["tineye", "yandex"]
+    first_seen: datetime | None = None
+    time_source: Literal["crawl_date", "page", "snowflake"] | None = None
+    width: int | None = None
+    height: int | None = None
+    relation: Literal["same", "resized", "cropped", "edited", "different", "unknown"] = "unknown"
+    distance: float | None = None
+    crop_box: tuple[int, int, int, int] | None = None
+    edited_region: tuple[int, int, int, int] | None = None
+    relation_note: str = ""
+    changes: list[str] = Field(default_factory=list)
+    change_kinds: list[
+        Literal[
+            "caption_changed",
+            "text_added",
+            "text_removed",
+            "element_added",
+            "element_removed",
+            "face_changed",
+            "cropped",
+            "recolored",
+            "watermark",
+            "other",
+        ]
+    ] = Field(default_factory=list)
+    receipt_id: int | None = None
+
+
 class Card(BaseModel):
     title: str | None = None
     domain: str | None = None
@@ -99,9 +133,11 @@ class MediaFinding(BaseModel):
 class Edge(BaseModel):
     from_: str = Field(alias="from", serialization_alias="from")
     to: str
-    rel: Literal["repost", "quote", "copy", "media", "link", "reply", "cites"]
+    rel: Literal["repost", "quote", "copy", "media", "link", "reply", "cites", "variant"]
     sim: float | None = None
-    tool: Literal["oxylabs", "nemotron", "gemini", "detector", "bluesky"] = "oxylabs"
+    tool: Literal["oxylabs", "nemotron", "gemini", "detector", "bluesky", "tineye", "yandex"] = (
+        "oxylabs"
+    )
     note: str | None = None
 
     model_config = {"populate_by_name": True}
@@ -121,7 +157,9 @@ class Spread(BaseModel):
 
 class Receipt(BaseModel):
     id: int
-    tool: Literal["oxylabs", "nemotron", "gemini", "bluesky", "detector", "x-id"]
+    tool: Literal[
+        "oxylabs", "nemotron", "gemini", "bluesky", "detector", "x-id", "tineye", "yandex", "fetch"
+    ]
     endpoint: str
     summary: str
     source_url: str | None = None
@@ -210,3 +248,5 @@ class LookupResult(BaseModel):
     # why the submitted post couldn't be read ("Account suspended"); the UI shows it in place of
     # "Not enough evidence", since there was nothing to judge
     unreadable: str | None = None
+    image_matches: list[ImageMatch] = Field(default_factory=list)
+    image_origin_id: str | None = None

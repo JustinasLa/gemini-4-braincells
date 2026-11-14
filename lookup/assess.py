@@ -25,6 +25,9 @@ collected (X and Bluesky posts with exact times and counts, author profiles, web
 readings by Nemotron), each with a receipt id.
 
 Write a short, plain reading for a general audience:
+- image_matches: crawl_date is when an engine first saw the picture, not its publication
+  date; it is at least that old and may be older. image_origin_id is separate from the text
+  origin. Say "edited" and list observed changes, never "fake" or "deepfake"; cite receipt ids.
 - summary: 2-4 sentences: what the post is, where it comes from, how it spread.
 - origin: the earliest known source and how sure that is (search results are a sample).
 - corroboration: whether independent outlets report the same thing (name them), or "none found".
@@ -112,6 +115,21 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
             for x in r.receipts
         ],
         "notes": r.notes,
+        "image_origin_id": r.image_origin_id,
+        "image_matches": [
+            {
+                "id": match.id,
+                "engine": match.engine,
+                "domain": match.domain,
+                "page_url": match.page_url,
+                "first_seen": match.first_seen,
+                "time_source": match.time_source,
+                "relation": match.relation,
+                "changes": match.changes[:4],
+                "receipt_id": match.receipt_id,
+            }
+            for match in r.image_matches[:12]
+        ],
     }
     return json.dumps(data, default=str, ensure_ascii=False)
 

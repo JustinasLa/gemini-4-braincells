@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 import httpx
 
-from lookup import textsim
+from lookup import imagetrace, textsim
 from lookup.bsky import BlueskyClient, BlueskyTimeUp, parse_time, post_url
 from lookup.models import (
     Account,
@@ -62,6 +62,8 @@ STEPS = [
     ("copies_x", "oxylabs", "Search X for the same text"),
     ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
     ("coverage", "oxylabs", "Find coverage of the story"),
+    ("reverse_image", "oxylabs", "Find the picture on the web (TinEye, Yandex)"),
+    ("variations", "nemotron", "Compare every copy with the upload"),
     ("media", "nemotron", "Read the images with Nemotron VL"),
     ("verify", "oxylabs", "Read candidate copies on their own pages"),
     ("monitor", "detector", "Check the clusters we monitor"),
@@ -204,6 +206,15 @@ class Deps:
     verify_read_s: float = 8.0
     second_reading_s: float = 45.0  # the second reading's own bound; it never delays the first
     workers: int = 16
+    reverse_image: bool = False
+    public_base_url: str = ""
+    image_matches_max: int = 20
+    image_diffs_max: int = 4
+    relate: Callable | None = None
+    describe_changes: Callable | None = None
+    search_tineye: Callable | None = None
+    search_yandex: Callable | None = None
+    image_transport: httpx.BaseTransport | None = None
 
 
 class Lookup:
@@ -546,6 +557,7 @@ class Lookup:
             self.skip("author", "text input")
             self.skip("linked", "text input")
         self._wait_text(subject)
+        trace = imagetrace.start(self, pool)
 
         if kind in ("x_profile", "bsky_profile"):
             for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
@@ -569,12 +581,14 @@ class Lookup:
         wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
         self._queue_older_pages()  # web hits dated before the post: read their own date
+        rest.append(trace.future)
         wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # candidates the search for the image's text found
         self._queue_older_pages()
         # the link, text and Bluesky accounts are known now; verify adds only X posts
         self._monitor()
         self._join_verify()
+        trace.finish()
 
     def _wait_text(self, futures: list[Future]) -> None:
         """Until one of `futures` has finished with the subject's text known, or all are done.
