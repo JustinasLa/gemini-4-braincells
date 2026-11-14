@@ -43,7 +43,6 @@ class Settings(BaseSettings):
     media_screenshot_max_tokens: int = 1536
 
     oxylabs_web_api_key: str = ""
-    context_dev_api_key: str = ""
     public_host: str = ""
     lookup_public_base_url: str = ""
     lookup_reverse_image: bool = True
