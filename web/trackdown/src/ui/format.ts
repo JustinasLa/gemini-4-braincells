@@ -65,6 +65,10 @@ export const STATUS: Record<Status, { word: string; css: string; short: string; 
   insufficient: { word: "Can't tell", css: "var(--unsure)", color: "#9aa6bf", short: "Can't tell", tag: "Not enough evidence" },
 };
 
+/** A cluster's short label: its status, except a lookup's "insufficient" cluster (a copy sample, or a
+ *  monitored cluster that shares only an account), which is no call rather than a Can't tell verdict. */
+export const clusterShort = (status: Status, lookup: boolean) => lookup && status === "insufficient" ? "No call" : STATUS[status].short;
+
 export const ROLE: Record<Role, { label: string; color: string; mark?: string }> = {
   origin: { label: "Earliest known", color: "#e4b36a", mark: "Earliest known" },
   mutation: { label: "Altered copy", color: "#d9783d", mark: "Altered copy" },
@@ -80,6 +84,7 @@ export const roleOf = (role: string | undefined): (typeof ROLE)[Role] =>
   (role && Object.prototype.hasOwnProperty.call(ROLE, role) ? ROLE[role as Role] : undefined) ?? { label: "Post", color: "#8f8b84" };
 
 export const REL: Record<Relation, { label: string; dash: number[] }> = {
+  variant: { label: "image variation", dash: [3, 5] },
   repost: { label: "reposted", dash: [] },
   quote: { label: "quoted", dash: [] },
   copy: { label: "copied", dash: [6, 4] },
@@ -125,6 +130,7 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   you: { label: "input", long: "Your submission" },
   archive: { label: "archive", long: "Archive / post-ID timestamp" },
   bluesky: { label: "bluesky", long: "Bluesky public AppView" },
+  fetch: { label: "fetch", long: "Direct image download" },
 };
 
 export const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];

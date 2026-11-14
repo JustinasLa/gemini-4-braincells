@@ -89,8 +89,9 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   image hash or normalised text.
 - **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise (the API looks up an `@handle` as that Bluesky profile),
   then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
-  the step console, cards and receipts. The verdict coin is revealed only for a completed job;
-  failures and timeouts leave partial receipts available without a final verdict. Starting another
+  the step console, cards and receipts. The finale is revealed once the primary reading is in (an
+  image search still running delays it until that search finishes); failures and timeouts leave
+  partial receipts available without a finale. See "Finale: verdict coin or meme finding". Starting another
   trace cancels the previous client polling. All API paths are absolute so the app works at `/` and `/trackdown/`.
 - **Real lookup data**: posts, platform engagement snapshots, profile facts, linked pages and
   their exact timestamps come from the backend contract in `lookup/README.md`. Selected cards
@@ -113,7 +114,8 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   status, never a coordination verdict. Only a matched monitored cluster supplies the detector
   status. Cluster summaries do not identify memberships, so no lookup account is silently assigned
   to a monitored cluster. If several match, the first returned cluster supplies the headline status;
-  all matched statuses remain visible in Provenance. Otherwise coordination says "Can't tell (yet)".
+  all matched statuses remain visible in Provenance. Otherwise coordination is "No call": no coin,
+  no "Can't tell", and copy-sample clusters are tagged "No call" on the map and in Provenance.
 - **Factual findings**: the lookup's Findings tab shows claim-level model assessments and
   clickable source receipts separately from the coordination coin and its confidence. A missing
   assessment is not treated as false content. Media descriptions do not authenticate the exact
@@ -144,3 +146,42 @@ field with a flag, a verdigris CHILL field with sunglasses, and the legend
 `blender/pack.py`. Shill lands on frame 0, Chill on frame 24, and "Can't tell (yet)" lands on
 its edge and wobbles. The rail and panel use stills; the abstain still is a motion-blurred,
 still-spinning coin. The font is Cinzel (OFL).
+
+## Finale: verdict coin or meme finding
+
+The coin flips only for a real coordination verdict (`hasVerdict` in `src/data/lookup.ts`): every
+simulated, historical and monitored case, and a lookup only when it matched a monitored cluster. A
+lookup's `insufficient` is the absence of a call, so it never gets the coin. Instead, a lookup with
+an image search ends on what that search found (`memeFinding` in `src/data/imageTrace.ts`), with the
+submitted picture in place of the coin and the same sentence at the top of the Meme trace panel:
+
+- **Copy**: the earliest match older than the submission is the same picture (same, resized, cropped).
+- **Edited**: the earliest older match is an edited version; the model's change list is quoted as a reading.
+- **Original**: matches exist, but none is dated before the post (undated ones are named as possibly older).
+- **First sighting**: the search found no related copy at all.
+- **Seen before**: older matches exist but their relation was not checked, or the post has no time.
+
+A match is older when the submission is an upload (it has no time of its own, and every match was
+online before it) or when its date is before the post's, with the server's one-day slack for a
+TinEye crawl date. A lookup with no image search and no verdict has no finale; the header chip then
+reads "Live trace". `npm run check:meme` covers each finding.
+
+## Meme trace (image matches)
+
+Optional `image_matches` add an earliest-match Original card and grouped variations to the map,
+timeline and panel. Select a variation to compare the submission with it (side by side or a keyboard
+slider; slider on phones). Image dates say “first seen by TinEye” (an upper bound, not publication),
+“page dated”, “time from post id”, or “date unknown”; an upload never becomes its own origin.
+Descriptions are Nemotron’s reading, not verified facts. Boxes from the pixel comparison are 0..1 fractions of
+the submission (`media.variants.relate(upload, match)`): the edited region is drawn on both images,
+a crop box marks the part of the submission a cropped match shows. Variant links are visual relationships drawn beside the copy chain, never lineage: the server's
+variant edges (image origin → edited/cropped matches) are used as sent. The submission joins the copy
+chain, as a same-image link from the Original, only when real dates put the Original first. The section appears only when
+there is an image search to report (the server always sends `image_matches`, `[]` by default, and
+skips both steps for inputs without an image). Say “edited”, “changed”, “variation”, never
+“fake”, “deepfake”, or claims about intent. Different-looking matches are not counted as variations.
+Dev-only `?mockLookup=meme`, `?mockLookup=meme-empty`, `?mockLookup=meme-failed`, and
+`?mockLookup=meme-blocked` (and `meme-upload`, an image upload with only crawl-dated matches) show fictional `.example` results and self-contained images, including
+progressive searching/comparing states. The mock submission is a link with a local image; it needs
+no backend. `?mockLookup=meme-loading` holds each loading phase for 15 seconds for inspection.
+All mocks remain dev-only and labelled MOCK. Run `npm run check:meme` for pure checks.

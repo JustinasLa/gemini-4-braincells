@@ -4,6 +4,7 @@
 export type Status = "coordinated" | "likely_organic" | "insufficient";
 
 import type { LookupResult } from "./data/lookup";
+import type { ImageMatch } from "./data/imageTrace";
 
 export type Platform = "x" | "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter" | "text";
 
@@ -19,11 +20,11 @@ export type Role =
   | "screenshotted"; // the real post a screenshot in the submitted post shows: never a copy, origin or spread
 
 /** How a child relates to its parent. */
-export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" | "cites"
+export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" | "cites" | "variant"
   | "screenshot_of"; // from the post carrying a screenshot to the real post it shows (not a copy link)
 
 /** Which part of the pipeline produced a link or a receipt. */
-export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive" | "bluesky";
+export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive" | "bluesky" | "fetch";
 
 export interface Author {
   name: string;
@@ -44,6 +45,7 @@ export interface Media {
 }
 
 export interface TraceNode {
+  imageMatch?: ImageMatch;
   id: string;
   t: number; // epoch ms
   platform: Platform;

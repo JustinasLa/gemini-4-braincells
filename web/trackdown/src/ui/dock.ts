@@ -504,11 +504,12 @@ export class Dock {
     const d = this.clock.querySelector(".d")!;
     const rel = this.clock.querySelector(".rel")!;
     const txt = `${fmtDate(t, false)} · ${fmtClock(t)}`;
-    const dated = posts.filter((n) => !n.d.undated).map((n) => n.d.t);
-    const firstCopy = dated.length ? Math.min(...dated) : first;
+    // only a real time sets "the first": a crawl date (undated) or a lookup start (time unknown) states no interval
+    const dated = posts.filter((n) => !n.d.undated && !n.d.timeUnknown).map((n) => n.d.t);
+    const firstCopy = dated.length ? Math.min(...dated) : NaN;
     const N = posts.length;
     const count = shownN >= N ? (N === 1 ? "1 post" : `All ${N} posts`) : `${shownN} of ${N} posts`;
-    const since = Math.abs(t - firstCopy) < 1000 ? (shownN ? " · the first post" : "") : t < firstCopy ? ` · ${fmtDur(firstCopy - t)} before the first` : ` · ${fmtDur(t - firstCopy)} after the first`;
+    const since = Number.isNaN(firstCopy) ? " · time of the first unknown" : Math.abs(t - firstCopy) < 1000 ? (shownN ? " · the first post" : "") : t < firstCopy ? ` · ${fmtDur(firstCopy - t)} before the first` : ` · ${fmtDur(t - firstCopy)} after the first`;
     const r2 = count + since;
     if (d.textContent !== txt) d.textContent = txt;
     if (rel.textContent !== r2) {
