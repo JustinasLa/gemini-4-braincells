@@ -41,6 +41,12 @@ Write a short, plain reading for a general audience:
   shown as such; it is NOT the verdict. Many accounts posting the same words in minutes, new or
   templated accounts, and no organic explanation lean to copy_campaign_looking; a well-known
   author whose words are quoted and replied to by established accounts leans organic.
+- kind "image": the input is an image the user uploaded (often a meme or a screenshot), not a
+  post. The submitted post is that upload: it has no author or time, and its text is what
+  Nemotron read in it. Its origin is the earliest known copy (earliest_known_source_id), not
+  proof of who made it. Copies with similarity_to_submitted below 0.8 carry changed wording:
+  call them possible variations. Pages found by the image's description are about it, not
+  copies of it.
 
 Rules: never call any account or person a shill, bot or liar; describe behaviour. Never invent
 facts, numbers, dates or sources not in the input. If data is thin, say so and use "unclear".

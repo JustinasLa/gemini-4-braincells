@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -11,12 +12,13 @@ from contextlib import contextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from common.config import get_settings
 from lookup.jobs import JobStore, RateLimited
-from lookup.models import LookupInput
-from lookup.service import IMAGE_CALL_S, Deps
+from lookup.models import ImageRef, LookupBody, LookupInput
+from lookup.service import IMAGE_CALL_S, MAX_IMAGE_BYTES, Deps
+from lookup.upload import sniff_image
 from signals.textnorm import normalize_text, word_count
 
 log = logging.getLogger(__name__)
@@ -167,7 +169,7 @@ def _client(request: Request) -> str:
 
 @router.post("", status_code=202)
 def start_lookup(
-    body: LookupInput, request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
+    body: LookupBody, request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
 ) -> JSONResponse:
     url = (body.url or "").strip()
     text = (body.text or "").strip()
@@ -192,6 +194,67 @@ def start_lookup(
         raise HTTPException(429, str(exc)) from exc
     snap = job.snapshot()
     return JSONResponse(snap, status_code=200 if snap["state"] != "running" else 202)
+
+
+def _media_configured() -> bool:
+    s = get_settings()
+    return bool(s.lookup_media and (s.verda_inference_key or s.nvidia_api_key))
+
+
+@router.post("/image", status_code=202)
+async def start_image_lookup(
+    request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
+) -> JSONResponse:
+    """Trace an uploaded image (a meme, a screenshot): the raw bytes are the request body.
+
+    Nemotron reads it; the text inside drives the same searches as a post's text, so copies,
+    the earliest known copy and reworded variants are found. The bytes stay in the job (memory
+    only, `LOOKUP_JOB_TTL_S`) and are never stored."""
+    if not _media_configured():
+        raise HTTPException(503, "Image lookups need Nemotron, which is not configured here.")
+    too_big = HTTPException(413, f"the image is larger than {MAX_IMAGE_BYTES >> 20} MB")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_IMAGE_BYTES:
+        raise too_big  # before reading any of it
+    try:
+        jobs.check_budget(_client(request))  # a refused client never makes us read the body
+    except RateLimited as exc:
+        raise HTTPException(429, str(exc)) from exc
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > MAX_IMAGE_BYTES:
+            raise too_big
+    data = bytes(buf)
+    mime = sniff_image(data)  # the bytes decide, not the declared content type
+    if mime is None:
+        raise HTTPException(415, "upload a JPEG, PNG, WebP or GIF image")
+    ref = ImageRef(sha256=hashlib.sha256(data).hexdigest(), mime=mime, bytes=len(data))
+    try:
+        job = jobs.start(LookupInput(image=ref), _client(request), image=data)
+    except RateLimited as exc:
+        raise HTTPException(429, str(exc)) from exc
+    snap = job.snapshot()
+    return JSONResponse(snap, status_code=200 if snap["state"] != "running" else 202)
+
+
+@router.get("/{job_id}/image")
+def get_lookup_image(job_id: str, jobs: Annotated[JobStore, Depends(get_jobs)]) -> Response:
+    """The image an image lookup was started with, while its job lives."""
+    job = jobs.get(job_id)
+    upload = job.upload if job is not None else None
+    if upload is None:
+        raise HTTPException(404, "no uploaded image for this lookup id (it may have expired)")
+    data, mime = upload
+    return Response(
+        data,
+        media_type=mime,
+        headers={
+            "cache-control": "private, max-age=3600",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 @router.get("/{job_id}")
