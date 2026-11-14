@@ -6,7 +6,7 @@ from collections import Counter
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
-from signals.textnorm import UNSPACED_RE, normalize_url
+from signals.textnorm import UNSPACED_CHARS, UNSPACED_RE, normalize_url
 from sources.models import ClusterPost
 
 # Links that point back into Bluesky itself say nothing about outside sources.
@@ -15,7 +15,7 @@ MEDIA_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".m3
 
 _URL = re.compile(r"https?://\S+")
 _MENTION_OR_TAG = re.compile(r"(?<!\w)[@#][\w.\-]+")
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[。！？])\s*|\n+")
+_SENTENCE_SPLIT = re.compile(rf"(?<=[.!?])\s+|(?<=[。！？])\s*|(?<=[!?])(?=[{UNSPACED_CHARS}])|\n+")
 
 
 def checkable_url(url: str) -> str | None:
@@ -58,22 +58,29 @@ def _unspaced_chars(s: str) -> int:
     return sum(1 for c in UNSPACED_RE.findall(s) if not unicodedata.category(c).startswith("M"))
 
 
+def _mostly_unspaced(s: str) -> bool:
+    """At least half of the letters are in an unspaced script: then words can't be counted.
+    A mostly-English sentence with one 東京 in it is still measured in words."""
+    letters = sum(1 for c in s if c.isalpha())
+    return letters > 0 and _unspaced_chars(s) * 2 >= letters
+
+
 def _size(s: str) -> float:
     """Sentence length in words; unspaced scripts count two characters as one word."""
-    n = _unspaced_chars(s)
-    return n / 2 if n else len(s.split())
+    return _unspaced_chars(s) / 2 if _mostly_unspaced(s) else len(s.split())
 
 
-def _cut_chars(s: str, max_chars: int) -> str:
-    """Whole space-separated chunks up to `max_chars`, else the first chunk cut there
-    (never between a character and its combining marks, as in Thai)."""
+def _cut_chars(s: str, max_chars: int, min_chars: int) -> str:
+    """Whole space-separated chunks up to `max_chars` when they keep `min_chars` unspaced
+    characters, else a plain cut at `max_chars` (never between a character and its combining
+    marks, as in Thai). Never a single short word like the 'iPhone' of 'iPhone 15を買ったら...'."""
     out = ""
     for chunk in s.split():
         joined = f"{out} {chunk}" if out else chunk
         if len(joined) > max_chars:
             break
         out = joined
-    if out:
+    if out and _unspaced_chars(out) >= min_chars:
         return out
     end = max_chars
     while end < len(s) and unicodedata.category(s[end]).startswith("M"):
@@ -103,10 +110,11 @@ def claim_phrase(
     original = next(c for c in cleaned if c.lower() == common)
     sentences = [s.strip(" \"'“”「」『』") for s in _SENTENCE_SPLIT.split(original)]
     best = max(sentences, key=_size, default="")
-    if UNSPACED_RE.search(best):
+    if _mostly_unspaced(best):
         if _unspaced_chars(best) < min_chars:
             return None
-        return _cut_chars(best, max_chars).rstrip(",;:、，")
+        # End punctuation differs between copies (。！ or none), so it isn't searched for.
+        return _cut_chars(best, max_chars, min_chars).rstrip(",;:、，。！？!?. ")
     words = best.split()
     if len(words) < min_words:
         return None

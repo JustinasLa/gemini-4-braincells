@@ -125,6 +125,9 @@ def test_spaced_tokens_and_text_hash_are_unchanged():
 def test_unspaced_scripts_count_per_character():
     assert len(tokens(normalize_text(JA_TEXT))) >= DEFAULT.min_text_tokens
     assert tokens(normalize_text("iphone15を買った")) == ["iphone15", "を", "買", "っ", "た"]
+    # Thai is left as before: normalize_text drops its vowel/tone marks, so per-character
+    # tokens would compare consonant skeletons (review of #52).
+    assert tokens(normalize_text(TH_TEXT)) == normalize_text(TH_TEXT).split()
 
 
 @pytest.mark.parametrize("text", [JA_TEXT, TH_TEXT])

@@ -14,14 +14,22 @@ _MENTION_RE = re.compile(r"@[\w.-]+")
 _NON_WORD_RE = re.compile(r"[^\w#]+", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
 _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:(?!\d)", re.IGNORECASE)
-# Scripts written without spaces between words (Thai, Lao, Myanmar, Khmer, kana, CJK
-# ideographs). tokens() counts these per character, so word thresholds and shingles work.
+# Scripts written without spaces between words. UNSPACED_RE (used for the web-search phrase,
+# on raw text) covers Thai, Lao, Myanmar, Khmer, kana incl. half-width, CJK ideographs.
 UNSPACED_CHARS = (
     "\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff\u3040-\u30ff\u31f0-\u31ff"
-    "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f"
+    "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\U00020000-\U0003134f"
 )
 UNSPACED_RE = re.compile(f"[{UNSPACED_CHARS}]")
-_UNSPACED_PIECE_RE = re.compile(f"[{UNSPACED_CHARS}]|[^{UNSPACED_CHARS}]+")
+# tokens() splits only kana and CJK ideographs per character. Thai, Lao, Myanmar and Khmer are
+# left as they were: normalize_text drops their vowel and tone marks (not \w), so one token per
+# remaining character would compare consonant skeletons. (NFKC has already widened half-width
+# kana here.)
+_CJK_CHARS = (
+    "\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f"
+)
+_CJK_RE = re.compile(f"[{_CJK_CHARS}]")
+_CJK_PIECE_RE = re.compile(f"[{_CJK_CHARS}]|[^{_CJK_CHARS}]+")
 
 # Query parameters that only track clicks; dropping them makes the same link compare equal.
 _TRACKING_PARAMS = {
@@ -67,14 +75,14 @@ def normalize_text(text: str | None) -> str:
 
 
 def tokens(norm_text: str) -> list[str]:
-    """Words of a normalised text. Characters of unspaced scripts (Japanese, Chinese, Thai...)
-    are one token each; words of space-separated scripts are unchanged."""
+    """Words of a normalised text. Kana and CJK ideographs (Japanese, Chinese) are one token per
+    character; words of every other script are unchanged."""
     if not norm_text:
         return []
     out: list[str] = []
     for w in norm_text.split():
-        if UNSPACED_RE.search(w):
-            out.extend(_UNSPACED_PIECE_RE.findall(w))
+        if _CJK_RE.search(w):
+            out.extend(_CJK_PIECE_RE.findall(w))
         else:
             out.append(w)
     return out

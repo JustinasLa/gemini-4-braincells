@@ -123,8 +123,8 @@ class MinHashCache:
         return mh
 
 
-def _text_ok(norm: str, cfg: DetectorConfig) -> bool:
-    return len(norm) >= cfg.min_text_chars and len(tokens(norm)) >= cfg.min_text_tokens
+def _text_ok(norm: str, toks: list[str], cfg: DetectorConfig) -> bool:
+    return len(norm) >= cfg.min_text_chars and len(toks) >= cfg.min_text_tokens
 
 
 def build_keys(
@@ -145,9 +145,9 @@ def build_keys(
     long_posts: list[tuple[str, list[str], str, float]] = []
     for p in sorted(wd.posts, key=lambda p: (p.t, p.uri)):
         norm = cache.norm(p.uri, p.text)
-        if p.text_hash and _text_ok(norm, cfg):
+        toks = tokens(norm) if p.text_hash else []
+        if p.text_hash and _text_ok(norm, toks, cfg):
             add("text", p.text_hash, p.did, p.t, p.uri)
-            toks = tokens(norm)
             if len(toks) >= cfg.minhash_min_tokens:
                 long_posts.append((p.uri, toks, p.did, p.t))
         for m in p.media_hashes:
