@@ -759,15 +759,16 @@ class Lookup:
             conv, call, _gone = self._fx_read(t.post_id)
             if conv is not None and conv.main.status_id == t.post_id:
                 m, replies, ancestors = conv.main, conv.replies, []
+                parent_call: dict | None = None
                 if conv.parent_id:
                     try:  # the post it replies to: one more quick read, for the thread
-                        parent, _, _ = self._fx_read(conv.parent_id, replies=False)
+                        parent, parent_call, _ = self._fx_read(conv.parent_id, replies=False)
                     except BudgetExceeded:
                         parent = None
-                    if parent is not None:
+                    if parent is not None and parent.main.status_id == conv.parent_id:
                         parent.main.is_main = False
                         ancestors = [parent.main]
-                self._read_post(st, m, ancestors, replies, call, fx=True)
+                self._read_post(st, m, ancestors, replies, call, fx=True, parent_call=parent_call)
                 return
             md, call = self._scrape_x(t.url, cap_s=max(1.0, read_end - time.monotonic()))
             page: PostPage = parse_post_page(md, t.post_id)
@@ -805,8 +806,12 @@ class Lookup:
         call: dict,
         *,
         fx: bool,
+        parent_call: dict | None = None,
     ) -> None:
-        """The submitted X post, read through FxTwitter (`fx`) or on its logged-out page."""
+        """The submitted X post, read through FxTwitter (`fx`) or on its logged-out page.
+        `parent_call`: the FxTwitter read of the post it replies to (`ancestors`), made apart
+        from the post's: its receipt is its own. Without it the ancestors came on the post's
+        page."""
         t = self.target
         counts = ", ".join(
             f"{v:,} {k}"
@@ -865,9 +870,22 @@ class Lookup:
             self.add_edge(q.id, post.id, "quote", note="quoted by the submitted post")
             found.append(q.id)
         prev = None
+        a_rid, a_now = rid, now
+        if ancestors and parent_call:
+            a = ancestors[0]
+            a_rid = self.receipt(
+                "fxtwitter",
+                "/2/status",
+                f"X post by @{a.handle} that the submitted post replies to, read through FxTwitter",
+                source_url=x_post_url(a.handle, a.status_id),
+                call=parent_call,
+            )
+            a_now = parent_call.get("fetched_at") or _now()
         for a in ancestors:
             ap = self.add_post(
-                self._x_post_from_item(a, "mention", sim=None, rid=rid, verified=False, as_of=now)
+                self._x_post_from_item(
+                    a, "mention", sim=None, rid=a_rid, verified=False, as_of=a_now
+                )
             )
             if prev:
                 self.add_edge(prev, ap.id, "reply")

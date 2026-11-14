@@ -8,7 +8,7 @@ fallback, and its receipts name it as the source.
 
 `/2/conversation/<id>` returns the post and the first page of its replies (about 30), with a
 cursor for more; `/2/status/<id>` the post alone. A missing post is HTTP 404 with
-`{"status": null}`.
+`{"status": null}` (deleted) or a `"tombstone"` status (suspended account).
 """
 
 from __future__ import annotations
@@ -94,16 +94,20 @@ def to_item(st: Any) -> XItem:
     if not handle:
         raise FxTwitterError("FxTwitter returned no author")
     text = st.get("text")
-    if text is not None and not isinstance(text, str):
-        raise FxTwitterError("FxTwitter returned a malformed text")
+    if not isinstance(text, str):  # "" is a real (media-only) post; a missing text is not
+        raise FxTwitterError("FxTwitter returned no text")
     q = _dict(st.get("quote"))
     q_id = _id(q.get("id")) if q else None
-    card = _dict(st.get("card"))
+    # like the page parser (lookup/xpage.py), a quoted post's card and pictures are read with
+    # the post that quotes it: they show on its page, and the linked page is traced from them
+    card = _dict(st.get("card")) or (_dict(q.get("card")) if q_id else {})
+    media = _photos(st)
+    media += [u for u in (_photos(q) if q_id else []) if u not in media]
     return XItem(
         handle=handle,
         name=_str(author.get("name")),
         status_id=sid,
-        text=text or "",
+        text=text,
         avatar_url=_str(author.get("avatar_url")),
         is_main=True,
         quoted_handle=_str(_dict(q.get("author")).get("screen_name")) if q_id else None,
@@ -114,7 +118,7 @@ def to_item(st: Any) -> XItem:
         likes=_int(st.get("likes")),
         bookmarks=_int(st.get("bookmarks")),
         views=_int(st.get("views")),
-        media_urls=_photos(st),
+        media_urls=media,
         card_title=_str(card.get("title")),
         card_url=_str(card.get("url")),
         card_domain=_str(card.get("domain")),
@@ -186,14 +190,24 @@ class FxTwitterClient:
             raise FxTwitterError(f"FxTwitter answered HTTP {status}, not JSON") from exc
         if not isinstance(data, dict):
             raise FxTwitterError(f"FxTwitter answered HTTP {status} with no object")
-        # only an explicit {"status": null} (FxTwitter's not-found answer) means the post is
-        # gone; an answer without the field is an error, and the caller reads the X page
-        if status == 404 or (status == 200 and "status" in data and data["status"] is None):
-            raise FxNotFound("FxTwitter: no such post")
+        # a missing post is HTTP 404: deleted {"status": null, "code": 404}; suspended (and the
+        # like) {"status": {"type": "tombstone", "reason": "suspended", ...}}. Any other answer
+        # without a post (an odd 404 body, an empty object, an upstream error) is not "gone":
+        # the caller reads the X page, which says why
+        st = data.get("status")
+        tomb = isinstance(st, dict) and st.get("type") == "tombstone"
+        if (
+            status == 404
+            and "status" in data
+            and (st is None or tomb)
+            and data.get("code", 404) == 404
+        ):
+            reason = _str(st.get("reason")) if tomb else None
+            raise FxNotFound(f"FxTwitter: no such post ({reason or 'gone'})")
         if status != 200:
             raise FxTwitterError(f"FxTwitter answered HTTP {status}")
-        if "status" not in data:
-            raise FxTwitterError("FxTwitter answer has no status")
+        if not isinstance(st, dict) or tomb:
+            raise FxTwitterError("FxTwitter answered with no post")
         return data
 
     def status(self, status_id: str, *, deadline: float | None = None) -> Conversation:

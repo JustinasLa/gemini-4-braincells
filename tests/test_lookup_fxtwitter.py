@@ -90,7 +90,19 @@ def test_client_conversation_and_cursor():
     "status,body,exc",
     [
         (404, {"status": None, "thread": None, "author": None, "code": 404}, FxNotFound),
-        (200, {"status": None, "code": 200}, FxNotFound),
+        # a suspended account's post (the real answer, 2026-11-14)
+        (
+            404,
+            {"status": {"type": "tombstone", "reason": "suspended", "id": VG_ID}, "code": 404},
+            FxNotFound,
+        ),
+        # answers without a post that don't say it is gone: the page is read instead
+        (200, {"status": None, "code": 200}, FxTwitterError),
+        (200, {}, FxTwitterError),
+        (200, {"code": 500, "message": "temporary upstream failure"}, FxTwitterError),
+        (404, {"code": 500, "message": "upstream"}, FxTwitterError),
+        (404, {"status": None, "code": 500}, FxTwitterError),
+        (404, {"status": {"type": "status", "id": VG_ID}}, FxTwitterError),
         (500, {"code": 500, "message": "oops"}, FxTwitterError),
         (429, {"code": 429}, FxTwitterError),
         (200, ["not", "an", "object"], FxTwitterError),
@@ -224,6 +236,8 @@ def test_candidate_copy_is_verified_through_fxtwitter():
         lambda d: d["status"].update(text=["a", "list"]),
         lambda d: d["status"].update(id={"x": 1}),
         lambda d: d.update(status="a string"),
+        lambda d: d["status"].pop("text"),  # no text field at all: not a readable post
+        lambda d: d["status"].update(text=None),
     ],
 )
 def test_malformed_main_post_is_an_fxtwitter_error(mutate):
@@ -455,3 +469,61 @@ def test_a_connection_opened_after_the_bound_is_cut_at_once(monkeypatch):
     finally:
         stop.set()
         srv.close()
+
+
+# ---------------------------------------------------------------- landing review round 1
+
+
+def test_media_only_post_with_empty_text_is_readable():
+    it = to_item(dict(VG["status"], text=""))
+    assert it.text == "" and it.media_urls
+
+
+def test_quoted_posts_card_and_pictures_are_read_with_the_quote():
+    """Like the page parser: the quoted post's link card shows on the quoting post's page,
+    and the linked page is traced from it."""
+    m = FxTwitterClient._conversation(GT, with_replies=True).main
+    assert m.card_url == "https://standwithjensen.com"
+    assert m.card_image.startswith("https://pbs.twimg.com/card_img/")
+    data = json.loads(json.dumps(GT))
+    data["status"]["quote"]["media"] = {"photos": [{"url": "https://pbs.twimg.com/media/Q.jpg"}]}
+    data["status"]["card"] = {"url": "https://own.example/", "title": "Own"}
+    m = FxTwitterClient._conversation(data, with_replies=True).main
+    assert m.card_url == "https://own.example/"  # the post's own card first
+    assert m.media_urls == ["https://pbs.twimg.com/media/Q.jpg"]
+
+
+def test_parent_read_apart_gets_its_own_receipt():
+    reply = dict(VG["replies"][0])
+    rid_ = reply["id"]
+    fx = FakeFx({rid_: {"status": reply, "replies": []}, VG_ID: VG})
+    job = Lookup(
+        "lk_rp",
+        LookupInput(url=f"https://x.com/{reply['author']['screen_name']}/status/{rid_}"),
+        Deps(
+            oxylabs=FakeOxylabs(), fxtwitter=fx, bsky=None, store=None, nemotron=None, assessor=None
+        ),
+    )
+    job.run()
+    r = job.result
+    assert (VG_ID, False) in fx.calls
+    sub = next(p for p in r.posts if p.id == r.subject_id)
+    parent = next(p for p in r.posts if p.id == f"x:{VG_ID}")
+    assert parent.receipt_id != sub.receipt_id
+    rec = next(x for x in r.receipts if x.id == parent.receipt_id)
+    assert (rec.tool, rec.endpoint) == ("fxtwitter", "/2/status")
+    assert rec.source_url.endswith(f"/visegrad24/status/{VG_ID}")
+
+
+def test_a_parent_answer_for_another_post_is_not_the_parent():
+    reply = dict(VG["replies"][0])
+    rid_ = reply["id"]
+    other = dict(VG["status"], id="2121220535044460000")
+    fx = FakeFx({rid_: {"status": reply, "replies": []}, VG_ID: {"status": other}})
+    job = Lookup(
+        "lk_rp2",
+        LookupInput(url=f"https://x.com/{reply['author']['screen_name']}/status/{rid_}"),
+        Deps(oxylabs=FakeOxylabs(), fxtwitter=fx),
+    )
+    job.run()
+    assert not any(p.id in (f"x:{VG_ID}", "x:2121220535044460000") for p in job.result.posts)
