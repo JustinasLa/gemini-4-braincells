@@ -267,6 +267,7 @@ evidence `kind` is `signal | media | source | analyst`.
 - `GET /api/clusters?status=&min_score=&limit=&include_synthetic=` → cluster summaries, newest first, each with `top_signals` and the latest analyst `verdict` *(implemented)*
 - `GET /api/clusters/{id}` → summary + `signals` + `members` + `posts` (25, with bsky.app links) + `evidence` (signal/media/source) + `analyst` (full latest verdict) *(implemented)*
 - `GET /api/metrics` → latest `eval_runs` per (dataset, split) *(implemented)*
+- `GET /api/feed.atom?status=&min_score=&limit=&include_synthetic=` → Atom 1.0 feed of the newest clusters with one status (default `coordinated`, real traffic only), each entry linking to its dashboard page; follow new calls in any feed reader *(implemented)*
 - `POST /api/lookup` `{url}` or `{text}` → 202 + `LookupResult` (`state: running`); `GET /api/lookup/{id}` polls it until `done`. Live, receipted trace of one link; schema in `lookup/README.md` *(implemented)*
 - `POST /api/analyze` `{text?, url?, handle?}` → `{status: matched|insufficient, clusters, web_findings, notes}`. `matched` = the input is in a monitored cluster (its verdicts apply); otherwise live Oxylabs findings only, never a verdict *(implemented)*
 
