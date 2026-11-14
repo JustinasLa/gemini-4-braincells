@@ -297,3 +297,22 @@ def test_lag_watchdog_fails_over_only_on_sustained_upstream_lag():
     assert not w.update(90, 10, now=410)
     assert not w.update(90, 50_000, now=600)  # our own backlog: not the host's fault, reset
     assert not w.update(None, 0, now=700)
+
+
+def test_huge_urls_and_lists_are_bounded():
+    long = "https://example.com/" + "a" * 5000
+    facets = [
+        {
+            "index": {"byteStart": 0, "byteEnd": 1},
+            "features": [{"$type": "app.bsky.richtext.facet#link", "uri": f"{long}{i}"}],
+        }
+        for i in range(40)
+    ]
+    row = normalize(
+        commit(
+            "app.bsky.feed.post",
+            {"text": "x", "createdAt": "2026-11-13T19:32:02Z", "facets": facets},
+        )
+    )
+    assert len(row.embed_urls) <= 20
+    assert all(len(u) <= 1000 for u in row.embed_urls)

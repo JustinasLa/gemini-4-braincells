@@ -257,6 +257,11 @@ def normalize(event: dict) -> Row | None:
             post.reply_root = _strong_ref_uri(reply.get("root"))
         _embed(record, post)
         _facets(record, post)
+        # Bounds for malformed or abusive records (Postgres index entries max out near 2.7 kB).
+        post.embed_urls = post.embed_urls[:20]
+        post.media_hashes = [m[:200] for m in post.media_hashes[:10]]
+        post.mentions = [m[:300] for m in post.mentions[:50]]
+        post.tags = post.tags[:30]
         return post
 
     if collection == FOLLOW:

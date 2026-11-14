@@ -104,6 +104,7 @@ class Writer:
         self._hours_ready: set[datetime] = set()
         self.rows_written = 0
         self.dupes_dropped = 0
+        self.rows_skipped = 0
 
     def dedupe(self, row: Row) -> bool:
         """True if the row should be dropped as a cross-host duplicate."""
@@ -114,7 +115,43 @@ class Writer:
         return False
 
     def flush(self, batch: Batch, host: str | None, events_per_s: float | None) -> float:
-        """Write the batch in one transaction. Returns seconds taken."""
+        """Write the batch in one transaction. Returns seconds taken. If the batch fails because
+        of its content (one malformed record must never stop ingest), write it again row by row
+        and skip only the rows Postgres rejects."""
+        try:
+            return self._flush(batch, host, events_per_s, safe=False)
+        except psycopg.Error as exc:
+            if self.conn.broken or self.conn.closed:
+                raise  # the database is gone: let the process fail and restart
+            log.warning(
+                "batch write failed (%s: %s); retrying row by row",
+                type(exc).__name__,
+                str(exc).splitlines()[0][:200],
+            )
+            return self._flush(batch, host, events_per_s, safe=True)
+
+    def _many(self, cur: psycopg.Cursor, sql: str, params: list, safe: bool, what: str) -> None:
+        if not safe:
+            cur.executemany(sql, params)
+            return
+        for row in params:
+            try:
+                with self.conn.transaction():  # savepoint: a bad row rolls back alone
+                    cur.execute(sql, row)
+            except psycopg.Error as exc:
+                if self.conn.broken or self.conn.closed:
+                    raise
+                self.rows_skipped += 1
+                log.warning(
+                    "skipped %s %s: %s",
+                    what,
+                    row[0] if row else "?",
+                    str(exc).splitlines()[0][:200],
+                )
+
+    def _flush(
+        self, batch: Batch, host: str | None, events_per_s: float | None, safe: bool
+    ) -> float:
         if batch.n == 0:
             return 0.0
         t0 = time.monotonic()
@@ -130,7 +167,8 @@ class Writer:
                     (dids,),
                 )
             if batch.posts:
-                cur.executemany(
+                self._many(
+                    cur,
                     _POST_SQL,
                     [
                         (
@@ -153,6 +191,8 @@ class Writer:
                         )
                         for p in batch.posts
                     ],
+                    safe,
+                    "post",
                 )
             for table, rows in batch.actions.items():
                 if not rows:
@@ -164,7 +204,7 @@ class Writer:
                         (a.uri, a.did, a.subject_uri, a.subject_did, a.created_at, a.seen_at)
                         for a in rows
                     ]
-                cur.executemany(_ACTION_SQL[table], params)
+                self._many(cur, _ACTION_SQL[table], params, safe, table)
             for table, rows in batch.deletes.items():
                 cur.execute(
                     _DELETE_SQL.format(table=table),
