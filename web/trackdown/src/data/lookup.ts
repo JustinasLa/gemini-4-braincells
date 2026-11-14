@@ -400,7 +400,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     steps: result.steps.map((step) => ({ id: step.id, tool: toolFor(step.tool), text: step.label, state: step.state, detail: step.detail, found: step.found.map(resolve).filter((id) => nodeIds.has(id)) })),
     // two readings that differ are both shown in the panel; neither is put up front as the summary
     summary: readingsDisagree(result) ? `Two model readings of these receipts differ; both are shown below. ${result.posts.length} posts and ${result.pages.length} pages collected.`
-      : result.assessment?.summary || (!matched && result.unreadable ? `${result.unreadable}: the submitted post can't be read, so there is nothing to trace. Can't tell is not a verdict on the account.` : null) || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : `Can't tell: this ${result.kind === "image" ? "image's" : "link's"} footprint does not establish coordination.`}`,
+      : result.assessment?.summary || (!matched && result.unreadable ? `${result.unreadable}: the submitted post can't be read${result.input.text ? "; these results trace the text you supplied" : ", so there is nothing to trace"}. Can't tell is not a verdict on the account.` : null) || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : `Can't tell: this ${result.kind === "image" ? "image's" : "link's"} footprint does not establish coordination.`}`,
     lookup: result,
   };
 }
