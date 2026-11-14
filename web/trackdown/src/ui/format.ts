@@ -42,15 +42,6 @@ export function fmtNum(n?: number): string {
   if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
   return Math.round(n / 1000) + "k";
 }
-export const initials = (name: string) =>
-  name
-    .replace(/[^\p{L}\p{N} ]/gu, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("") || "?";
-
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 export const httpUrl = (value?: string | null): string | undefined => {
@@ -133,6 +124,3 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   bluesky: { label: "bluesky", long: "Bluesky public AppView" },
   fetch: { label: "fetch", long: "Direct image download" },
 };
-
-export const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
-export const roman = (n: number) => ROMAN[n - 1] ?? String(n);
