@@ -156,6 +156,7 @@ def test_stored_media_reaches_api_and_dashboard(media_cases):
 
     dashboard = (ROOT / "web/public/index.html").read_text()
     # The media card (redesigned in #39) reads these fields of each media evidence row.
-    assert "e.kind === 'media'" in dashboard
-    assert "d.media_url" in dashboard and "Show image" in dashboard
-    assert "d.n_accounts" in dashboard and "d.n_posts" in dashboard
+    start = dashboard.index("e.kind === 'media'")
+    card = dashboard[start : dashboard.index('id="h-media"', start)]
+    assert "d.media_url" in card and "Show image" in card
+    assert "d.n_accounts" in card and "d.n_posts" in card
