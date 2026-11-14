@@ -84,6 +84,14 @@ class Reader(threading.Thread):
         return f"wss://{host}/subscribe?{urlencode(params)}"
 
     def run(self) -> None:
+        try:
+            self._run()
+        finally:  # even if the thread dies, so the writer stops instead of waiting forever
+            if self.recorder:
+                self.recorder.close()
+            self.out.put(STOP)
+
+    def _run(self) -> None:
         backoff = 1.0
         i = 0
         while not self.stop_event.is_set():
@@ -93,6 +101,7 @@ class Reader(threading.Thread):
                 log.info("connecting to %s (cursor=%s)", host, self.cursor_us)
                 with ws_connect(url, max_size=2**22, open_timeout=15, close_timeout=5) as ws:
                     self.host = host
+                    self.failover_event.clear()  # a request made while disconnected is stale
                     got_any = False
                     while not self.stop_event.is_set():
                         if self.failover_event.is_set():
@@ -129,9 +138,6 @@ class Reader(threading.Thread):
                 )
                 time.sleep(sleep)
                 backoff = min(backoff * 2, 30.0)
-        if self.recorder:
-            self.recorder.close()
-        self.out.put(STOP)
 
 
 def load_cursor(conn: psycopg.Connection, stream: str) -> int | None:
