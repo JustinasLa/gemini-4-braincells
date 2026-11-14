@@ -7,13 +7,19 @@ Crops with a small additional edit can still be classified as cropped. Unknown m
 a decoded image has a side below 16 pixels or insufficient grayscale variation.
 
 Very small rendered glyph substitutions (for example, a single digit in text
-under roughly 20px on a 600px image) may be reported as resized, by design:
+about 24px tall or smaller on a 600px image) may be reported as resized, by design:
 unchanged reposts must not be called edited. Rendered shape and contrast matter,
 so font size alone does not guarantee detection.
 
 The 300 ms budget targets 2048-pixel photo/meme pairs, not full-entropy noise
 stored as quality-95, 4:4:4 progressive JPEGs: entropy decoding alone can exceed
-that budget even with luminance-only draft decoding.
+that budget even with luminance-only draft decoding. Images above Pillow's
+decompression-bomb limit (about 179 megapixels) are rejected with ValueError.
+
+Strong global tone changes (brightness or contrast boosts that clip highlights,
+gamma curves, filters on coloured text) are not modelled: such a repost of an
+unchanged picture may be reported as edited, with scattered regions. Grayscale
+and sepia conversions come out as resized.
 """
 
 import hashlib
@@ -23,7 +29,7 @@ from typing import Literal
 
 import imagehash
 import numpy as np
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 from scipy import fft, ndimage
 
 RelationKind = Literal["same", "resized", "cropped", "edited", "different", "unknown"]
@@ -36,6 +42,18 @@ _ALIGN_SIDE = 256
 _GRID_SIDE = 32
 # A 512-pixel, 64-block map resolves small text alongside coarse edits.
 _FINE_GRID_SIDE = 64
+# EXIF/TIFF orientation tag -> the transpose that shows the picture upright (as
+# ImageOps.exif_transpose). Applied explicitly because the converted working copy
+# no longer carries TIFF tags, so exif_transpose on it would do nothing.
+_ORIENTATION_TRANSPOSE = {
+    2: Image.Transpose.FLIP_LEFT_RIGHT,
+    3: Image.Transpose.ROTATE_180,
+    4: Image.Transpose.FLIP_TOP_BOTTOM,
+    5: Image.Transpose.TRANSPOSE,
+    6: Image.Transpose.ROTATE_270,
+    7: Image.Transpose.TRANSVERSE,
+    8: Image.Transpose.ROTATE_90,
+}
 _REGISTRATION_LIMIT = 0.04
 _TRIM_LIMIT = 0.015
 _RESIDUAL_SIGMA = 0.85
@@ -150,8 +168,8 @@ def _decode(data: bytes) -> tuple[Image.Image, tuple[int, int], str | None]:
             if reduction > 1:
                 working = working.reduce(reduction)
             working = working.convert("L")
-            working.info.update(source.info)
-            working = ImageOps.exif_transpose(working)
+            if orientation in _ORIENTATION_TRANSPOSE:
+                working = working.transpose(_ORIENTATION_TRANSPOSE[orientation])
             working.thumbnail((_WORK_SIDE, _WORK_SIDE), Image.Resampling.LANCZOS)
             return working, size, image_format
     except (
@@ -344,6 +362,10 @@ def _edit_location(box: tuple[float, float, float, float]) -> str:
     return location
 
 
+def _band_share(location: str) -> int:
+    return int(location.split()[1].rstrip("%")) if location.startswith(("top ", "bottom ")) else 0
+
+
 def _edit_note(changed: np.ndarray) -> str:
     """Group nearby glyphs into areas without enlarging the reported edit box."""
     structure = np.ones((3, 3))
@@ -356,6 +378,13 @@ def _edit_note(changed: np.ndarray) -> str:
         box = _mask_box(changed & (labels == label))
         if box is not None:
             locations.append(_edit_location(box))
+    # One phrase per band: "bottom 16%" and "bottom 14%" read as one place.
+    merged: dict[str, str] = {}
+    for location in locations:
+        band = location.split()[0] if location.startswith(("top ", "bottom ")) else location
+        if band not in merged or _band_share(location) > _band_share(merged[band]):
+            merged[band] = location
+    locations = list(merged.values())
     if len(locations) == 1:
         return f"Same picture with changes in the {locations[0]}."
     return f"Same picture with changes in {len(locations)} areas ({' and '.join(locations)})."
@@ -527,13 +556,10 @@ def relate(base: bytes, other: bytes) -> Relation:
             )
             if abs(scale - 1) > 0.003:
                 geometry = "a thin border trimmed" if scale > 1 else "a thin border added"
-                note = (
-                    f"Same picture, re-encoded at {second_size[0]}x{second_size[1]} "
-                    f"with {geometry}."
-                )
+                note = f"{note[:-1]}, with {geometry}."
             elif np.max(np.abs(shift)) > 0.5:
                 pixels = max(1, round(float(np.linalg.norm(shift))))
-                note = f"Same picture, shifted by {pixels} pixel{'s' if pixels != 1 else ''}."
+                note = f"{note[:-1]}, shifted by {pixels} pixel{'s' if pixels != 1 else ''}."
             return Relation("resized", distance, None, None, note)
         if (
             aligned

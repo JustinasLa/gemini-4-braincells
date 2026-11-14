@@ -715,3 +715,35 @@ def test_tiny_vs_huge_performance(picture):
     tiny = _bytes(picture.resize((8, 8)))
     huge = _bytes(picture.resize((4096, 4096)), "JPEG", quality=85)
     _assert_performance(tiny, huge, "unknown", "tiny vs huge")
+
+
+def test_tiff_orientation_tag_is_applied(picture):
+    # TIFF keeps orientation in its tag directory, not info["exif"].
+    rotated = picture.transpose(Image.Transpose.ROTATE_90)
+    exif = Image.Exif()
+    exif[274] = 6
+    data = _bytes(rotated, "TIFF", exif=exif)
+    result = fingerprint(data)
+    assert (result.width, result.height) == picture.size
+    assert result.format == "TIFF"
+    assert relate(_bytes(picture), data).kind == "resized"
+
+
+def test_edit_note_names_each_location_once():
+    image = _picture(size=(600, 600))
+    first, second = image.copy(), image.copy()
+    draw = ImageDraw.Draw(second)
+    draw.rectangle((20, 520, 120, 580), fill="white")
+    draw.rectangle((420, 520, 560, 580), fill="black")
+    result = relate(_bytes(first), _bytes(second))
+    assert result.kind == "edited", result
+    assert result.note.count("bottom") <= 1, result.note
+    _assert_note(result)
+
+
+def test_rescale_note_keeps_dimensions_with_trim(picture):
+    trimmed = picture.crop((4, 3, 796, 597)).resize((400, 300), Image.Resampling.LANCZOS)
+    result = relate(_bytes(picture), _bytes(trimmed, "JPEG", quality=90))
+    assert result.kind in {"resized", "cropped"}, result
+    if result.kind == "resized":
+        assert "400x300" in result.note, result.note
