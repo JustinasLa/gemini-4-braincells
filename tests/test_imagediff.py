@@ -1300,6 +1300,8 @@ def test_label_like_transcriptions_kept_otherwise(images, before, after):
         "The labels were changed from 'A: earlier' to 'B: later'.",
         "The panel label changed from 'A: earlier' to 'B: later'.",
         "The top-left panel label 'A: earlier' was replaced with 'B: later' at the top left.",
+        "The text 'A: earlier' was replaced by 'B: later'.",
+        "The top label was replaced by 'B: later'.",
     ],
 )
 def test_more_label_only_wordings_dropped(images, sentence):
@@ -1318,6 +1320,7 @@ def test_more_label_only_wordings_dropped(images, sentence):
         "The caption changed from 'B: earlier' to 'A: later'.",  # never drawn
         "The label 'A: earlier' changed to 'B: later' and a hat was added.",
         "The top label was replaced with 'B: later' by a red sticker.",
+        "The top label was replaced by 'B: later' by a red sticker.",
         "The caption changed to 'A: earlier'.",  # A's label as a destination: real text
         "The caption changed from 'B: later' to 'A: earlier'.",  # wrong direction
         "The text 'A: earlier' was added at the top.",  # A's label is never "added"
