@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -83,6 +83,50 @@ class Evidence(BaseModel):
     source_url: str | None = None
     model: str | None = None
     created_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_media_detail(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or value.get("kind") != "media":
+            return value
+        result = dict(value)
+        detail = result.get("detail")
+        if not isinstance(detail, dict):
+            result["detail"] = {
+                "status": "malformed",
+                "malformed_reason": "detail_not_object",
+            }
+            return result
+        detail = dict(detail)
+        media_hash = detail.get("media_hash")
+        has_hash = isinstance(media_hash, str) and bool(media_hash.strip())
+        is_template = (
+            detail.get("type") == "ocr_template"
+            and media_hash == "ocr-template"
+            and isinstance(detail.get("media_hashes"), list)
+            and len(detail["media_hashes"]) >= 2
+            and all(isinstance(cid, str) and cid.strip() for cid in detail["media_hashes"])
+            and bool(result.get("summary") or detail.get("shared_tokens"))
+        )
+        has_description = (
+            isinstance(detail.get("description"), str)
+            and bool(detail["description"].strip())
+        )
+        valid_complete = (has_hash and has_description) or is_template
+        status = detail.get("status")
+        if status is None:
+            status = "complete" if valid_complete else "malformed"
+        elif status == "complete" and not valid_complete:
+            status = "malformed"
+        elif status in ("pending", "failed") and not has_hash:
+            status = "malformed"
+        elif status not in ("complete", "pending", "failed", "malformed"):
+            status = "malformed"
+        detail["status"] = status
+        if status == "malformed":
+            detail.setdefault("malformed_reason", "incomplete_or_unknown_media_evidence")
+        result["detail"] = detail
+        return result
 
 
 class ClusterDetail(ClusterSummary):

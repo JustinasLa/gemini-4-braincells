@@ -72,7 +72,13 @@ def stored_media(conn: psycopg.Connection, cluster_id: int) -> dict[str, dict[st
         "SELECT id, detail FROM evidence WHERE cluster_id = %s AND kind = 'media'",
         (cluster_id,),
     ).fetchall()
-    return {r["detail"]["media_hash"]: r for r in rows if r["detail"].get("media_hash")}
+    stored = {}
+    for row in rows:
+        detail = row.get("detail")
+        media_hash = detail.get("media_hash") if isinstance(detail, dict) else None
+        if isinstance(media_hash, str) and media_hash.strip():
+            stored[media_hash] = row
+    return stored
 
 
 def cached_analysis(conn: psycopg.Connection, media_hash: str) -> dict[str, Any] | None:

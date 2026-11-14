@@ -50,8 +50,9 @@ python -m media.compare_screenshot ... # screenshot read, reasoning on vs off (b
    Screenshot rows also have `screenshot` (the `ScreenshotPost` fields, or null),
    `screenshot_status` (`post`, `not_post`, `failed`, `skipped_adult`),
    `screenshot_prompt_version` and, when failed, `screenshot_error`; a post adds one sentence to the summary ("Reads as a screenshot of an X
-   post shown as from @handle."). `prompt_version` is `media-v4` (media-v3 plus the screenshot
-   read), so media-v3 rows are no longer cache hits and each blob is read once more.
+   post shown as from @handle."). `prompt_version` is `media-v5` (media-v3 plus the screenshot
+   read in v4, plus the 20-entry `extracted_text` cap in v5), so older rows are no longer cache
+   hits and each blob is read once more.
 6. **OCR template** (`worker.ocr_template`): different files whose in-image text is mostly the
    same (token Jaccard >= 0.5) across >= 2 accounts get one extra row,
    `detail.type='ocr_template'`, `detail.media_hash='ocr-template'`, listing the words that
@@ -119,6 +120,15 @@ What we learned:
   described bodies in 4 of them under v2; v3's rule plus the guard bring that to 0. The guard
   stays as a backstop because a prompt is not a guarantee.
 - No version called a person a bot, shill, spammer or troll (0 in every row).
+- v5 (`media-v5`, 2026-11-14): a page of text (an image of 100+ lines) made v4 transcribe
+  every line, about 2000-3000 completion tokens, while the client keeps only the first 20. With
+  reasoning on that ran into `max_tokens=4096` (2 of 3 reads of a 172-line test image failed
+  with an unterminated string; the link lookup showed "Nemotron returned invalid analysis").
+  v5 asks for at most 20 entries of at most 300 characters: 7 of 7 reads of the same two test
+  images stopped normally, at 1270-2440 completion tokens. If a reply is still cut
+  (`finish_reason=length`), `parse_content(..., truncated=True)` keeps the fields the model
+  finished, so that read is kept with `finish_reason="length"` instead of being lost. A reply cut
+  before its description is still an error.
 
 ## Screenshot read (`screenshot-v1`)
 
@@ -172,4 +182,3 @@ What we learned:
   `other`, after the "not in the list is other, never x" rule). On a cut-off Bluesky post the
   model read the next, fully legible post of the thread (both settings).
 - No count was ever written as 0 when not shown; no UI-oddity note described a person.
-

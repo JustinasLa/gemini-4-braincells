@@ -124,6 +124,7 @@ def test_worker_reads_each_cid_once_caps_media_and_keeps_failures():
     assert [f.media_hash for f in run.failures] == ["missing"]
     assert run.skipped == 1 and client.calls == ["same"]
     detail = run.findings[0].detail()
+    assert detail["status"] == "complete"
     assert detail["n_accounts"] == 2 and detail["n_posts"] == 2
     assert detail["post_urls"][0] == "https://bsky.app/profile/did:a/post/r1"
     assert "2 accounts" in run.findings[0].summary()
@@ -136,13 +137,34 @@ def test_failed_media_is_exposed_as_retryable_evidence():
     )
     row = run.evidence_rows()[0]
     assert row["model"] is None
+    assert row["summary"] == "Media processing failed during fetch; analysis is unavailable."
     assert row["detail"] == {
         "media_hash": "missing",
         "status": "failed",
-        "error": "not found",
-        "did": "did:a",
-        "profile_url": "https://bsky.app/profile/did:a",
+        "type": "processing_failure",
+        "stage": "fetch",
+        "error_code": "BlobFetchError",
+        "media_kind": "images",
+        "post_uris": ["at://did:a/app.bsky.feed.post/r1"],
+        "post_urls": ["https://bsky.app/profile/did:a/post/r1"],
+        "dids": ["did:a"],
+        "profile_urls": ["https://bsky.app/profile/did:a"],
     }
+    assert row["source_url"] == "https://bsky.app/profile/did:a/post/r1"
+    assert "not found" not in str(row)
+
+
+def test_malformed_cached_analysis_is_reanalyzed_instead_of_used_as_success():
+    stored = _analysis("same").evidence_detail() | {"description": "", "status": "complete"}
+    client, fetcher = FakeClient(), FakeFetcher()
+    run = process_cluster_media(
+        [_post(1, "did:a", "same")],
+        client,
+        fetcher,
+        cache_lookup=lambda _hash: stored,
+    )
+    assert client.calls == ["same"] and fetcher.calls == ["same"]
+    assert run.findings[0].cached is False
 
 
 def test_stored_analysis_is_reused_without_fetch_or_model_call():

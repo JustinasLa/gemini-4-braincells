@@ -12,7 +12,14 @@ from psycopg.types.json import Jsonb
 
 from media import store
 from media.nemotron import PROMPT_VERSION, MediaAnalysis
-from media.worker import TEMPLATE_KEY, load_cluster_media, persist_evidence, process_cluster_media
+from media.worker import (
+    TEMPLATE_KEY,
+    MediaFailure,
+    MediaRun,
+    load_cluster_media,
+    persist_evidence,
+    process_cluster_media,
+)
 
 DSN = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="TEST_DATABASE_URL not set")
@@ -157,6 +164,42 @@ def test_persist_upserts_by_media_hash_and_cache_spans_clusters(conn):
     assert persist_evidence(conn, cid, grown) == 2  # t1 and the template row (new account)
     after = store.stored_media(conn, cid)["t1"]
     assert after["id"] == rows[0]["id"] and after["detail"]["n_accounts"] == 3
+
+
+def test_failed_evidence_is_persisted_then_updated_in_place(conn):
+    cluster_id = _cluster(conn, "coordinated", 0.9, [("did:retry", ["retry-cid"], False)])
+    uri = f"at://did:retry/app.bsky.feed.post/c{cluster_id}p0"
+    failure = MediaFailure(
+        media_hash="retry-cid",
+        did="did:retry",
+        error="provider response should not be stored",
+        stage="fetch",
+        error_code="BlobFetchError",
+        media_kind="images",
+        post_uris=(uri,),
+        dids=("did:retry",),
+    )
+    assert persist_evidence(conn, cluster_id, MediaRun(failures=[failure])) == 1
+    failed = store.stored_media(conn, cluster_id)["retry-cid"]
+    assert failed["detail"]["status"] == "failed"
+    assert failed["detail"]["error_code"] == "BlobFetchError"
+    assert "error" not in failed["detail"]
+    assert failed["source_url"] == "https://bsky.app/profile/did:retry/post/retry"
+    assert store.cached_analysis(conn, "retry-cid") is None
+
+    run = process_cluster_media(
+        load_cluster_media(conn, cluster_id), Client({}), Fetcher(),
+        cache_lookup=lambda media_hash: store.cached_analysis(conn, media_hash),
+    )
+    assert persist_evidence(conn, cluster_id, run) == 1
+    complete = store.stored_media(conn, cluster_id)["retry-cid"]
+    assert complete["id"] == failed["id"]
+    assert complete["detail"]["status"] == "complete"
+    assert complete["model"] == "nemotron-3.5-super-vl"
+    assert store.cached_analysis(conn, "retry-cid")["status"] == "complete"
+    assert conn.execute("SELECT status FROM clusters WHERE id = %s", (cluster_id,)).fetchone()[
+        "status"
+    ] == "coordinated"
 
 
 def test_done_clusters_do_not_use_up_the_batch(conn):

@@ -12,6 +12,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Michroma&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    .media-evidence { border-left: 3px solid var(--line-2); padding-left: 12px; }
+    .media-evidence[data-media-status="complete"] .evidence-kind { color: var(--cv); }
+    .media-evidence[data-media-status="pending"], .media-evidence[data-media-status="malformed"] .evidence-kind { color: var(--text-2); }
+    .media-evidence[data-media-status="failed"] .evidence-kind { color: var(--shill); }
+    .evidence-detail { margin-top: 8px; }
     /* One visual language with Trackdown (web/trackdown/src/styles.css): same type, colours, square
        edges, cut-corner primary button and verdict chips. */
     :root {
@@ -330,7 +335,8 @@
     <span>A cluster is a behavioural signal, not a claim about a person or a viewpoint.</span>
     <span>Read-only analysis of public Bluesky posts.</span>
   </footer>
-<script>
+<script type="module">
+import { mediaEvidenceItems, renderMediaEvidence } from "../media-evidence.mjs";
 (() => {
   'use strict';
   const app = document.getElementById('app');
@@ -699,28 +705,8 @@
   }
 
   function mediaCard(c, evidence) {
-    const media = evidence.filter((e) => e.kind === 'media');
-    const failed = media.filter((e) => (e.detail || {}).status === 'failed');
-    const read = media.filter((e) => (e.detail || {}).status !== 'failed').sort((a, b) => Number((b.detail || {}).n_accounts || 0) - Number((a.detail || {}).n_accounts || 0));
-    const seen = new Set(media.map((e) => (e.detail || {}).media_hash));
-    const unread = [...new Set((c.posts || []).flatMap((p) => p.media_hashes || []))].filter((h) => !seen.has(h)).length;
-    if (!media.length && !unread) return '';
-    const items = read.map((e) => {
-      const d = e.detail || {};
-      if (d.type === 'ocr_template') return `<div class="item" id="ev-${Number(e.id)}"><span class="label">Same text template in different images</span><p>${esc(e.summary || '')}</p>${(d.varying_tokens || []).length ? `<p class="muted">Words that change: ${esc(d.varying_tokens.join(', '))}</p>` : ''}</div>`;
-      const ocr = Array.isArray(d.extracted_text) ? d.extracted_text.join(' / ') : '';
-      return `<div class="item" id="ev-${Number(e.id)}">
-        ${d.media_url ? `<button class="thumb" type="button" aria-pressed="false" aria-label="Show the image"><img src="${esc(d.media_url)}" alt="${esc(d.description || 'Image posted by the cluster')}" loading="lazy" referrerpolicy="no-referrer"><span>Show image</span></button>` : ''}
-        <p>${esc(d.description || e.summary || '')}</p>
-        ${ocr ? `<p class="muted">Text in image: “${esc(ocr)}”</p>` : ''}
-        <span class="muted small">${Number(d.n_accounts || 0) > 1 ? `Same file from ${plural(Number(d.n_accounts), 'account')}${d.n_posts ? ` in ${plural(Number(d.n_posts), 'post')}` : ''}` : 'Posted by one account'}${e.source_url ? ` · ${ext(e.source_url, 'first post ↗', 'out')}` : ''}</span>
-      </div>`;
-    });
-    const notes = [];
-    if (failed.length) notes.push(`<details class="fold"><summary>${plural(failed.length, 'file')} couldn’t be read (videos or other non-image files)</summary><div class="receipt-body">${failed.map((e) => `<div id="ev-${Number(e.id)}">${esc((e.detail || {}).error || e.summary || '')}</div>`).join('')}</div></details>`);
-    if (unread) notes.push(`<p class="muted small" style="margin-top:12px">${plural(unread, 'image')} in these posts ${unread === 1 ? 'hasn’t' : 'haven’t'} been read by the model yet.</p>`);
-    return `<section class="card o-media" aria-labelledby="h-media"><div class="card-head"><h2 id="h-media">Images</h2><span class="label">Nemotron Super VL</span></div>
-      ${items.join('')}${notes.join('')}</section>`;
+    const items = mediaEvidenceItems(c.posts, evidence);
+    return `<section class="card o-media" aria-labelledby="h-media"><div class="card-head"><h2 id="h-media">Images</h2><span class="label">Nemotron Super VL</span></div>${items.map((item) => renderMediaEvidence(item, when)).join('')}</section>`;
   }
 
   function sourcesCard(evidence) {

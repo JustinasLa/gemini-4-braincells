@@ -35,6 +35,11 @@ class MediaFailure:
     media_hash: str
     did: str
     error: str
+    stage: str = "analysis"
+    error_code: str = "MediaError"
+    media_kind: str | None = None
+    post_uris: tuple[str, ...] = ()
+    dids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -219,6 +224,7 @@ def ocr_template(
         "source_url": post_urls[0] if post_urls else None,
         "model": model,
         "detail": {
+            "status": "complete",
             "type": "ocr_template",
             "media_hash": TEMPLATE_KEY,
             "media_hashes": sorted(members),
@@ -261,17 +267,27 @@ class MediaRun:
         ]
         rows.extend(
             {
-                "summary": (
-                    f"Nemotron media analysis failed for {failure.media_hash}: {failure.error}"
-                ),
+                "summary": f"Media processing failed during {failure.stage}; analysis is unavailable.",
                 "detail": {
                     "media_hash": failure.media_hash,
                     "status": "failed",
-                    "error": failure.error,
-                    "did": failure.did,
-                    "profile_url": f"https://bsky.app/profile/{failure.did}",
+                    "type": "processing_failure",
+                    "stage": failure.stage,
+                    "error_code": failure.error_code,
+                    "media_kind": failure.media_kind,
+                    "post_uris": list(failure.post_uris),
+                    "post_urls": [
+                        url for url in map(bsky_post_url, failure.post_uris) if url
+                    ],
+                    "dids": list(failure.dids or (failure.did,)),
+                    "profile_urls": [
+                        f"https://bsky.app/profile/{did}"
+                        for did in (failure.dids or (failure.did,))
+                    ],
                 },
-                "source_url": f"https://bsky.app/profile/{failure.did}",
+                "source_url": next(
+                    (url for url in map(bsky_post_url, failure.post_uris) if url), None
+                ),
                 "model": None,
             }
             for failure in self.failures
@@ -327,28 +343,50 @@ def process_cluster_media(
         first = group.posts[0]
         stored = cache_lookup(group.media_hash) if cache_lookup else None
         if stored is not None:
-            finding = Finding(
-                group,
-                MediaAnalysis.from_detail(stored),
-                stored.get("media_kind", "image"),
-                stored.get("media_url", ""),
-                cached=True,
-            )
-            if finding.is_screenshot:
-                reused = _stored_screenshot(stored)
-                if reused is not None:
-                    finding.screenshot, finding.screenshot_status = reused
-                else:  # failed or never read: fetch again, but only for the screenshot read
-                    _read_screenshot(finding, client, partial(_media_input, fetcher, group))
-            run.findings.append(finding)
-            continue
+            try:
+                analysis = MediaAnalysis.from_detail(stored)
+                if analysis.media_hash != group.media_hash:
+                    raise ValueError("cached media hash does not match")
+            except (KeyError, TypeError, ValueError):
+                log.warning(
+                    "ignoring malformed cached media analysis cluster_id=%d hash=%s",
+                    first.cluster_id,
+                    group.media_hash,
+                )
+            else:
+                finding = Finding(
+                    group,
+                    analysis,
+                    stored.get("media_kind", "image"),
+                    stored.get("media_url", ""),
+                    cached=True,
+                )
+                if finding.is_screenshot:
+                    reused = _stored_screenshot(stored)
+                    if reused is not None:
+                        finding.screenshot, finding.screenshot_status = reused
+                    else:  # failed or never read: fetch again, but only for the screenshot read
+                        _read_screenshot(finding, client, partial(_media_input, fetcher, group))
+                run.findings.append(finding)
+                continue
         try:
             fetched = _media_input(fetcher, group)
             analysis = client.analyze(fetched.input, context=first.text)
         except NotVisionModelError:
             raise
         except (BlobFetchError, NemotronError) as exc:
-            run.failures.append(MediaFailure(group.media_hash, first.did, str(exc)))
+            run.failures.append(
+                MediaFailure(
+                    media_hash=group.media_hash,
+                    did=first.did,
+                    error=str(exc),
+                    stage="fetch" if isinstance(exc, BlobFetchError) else "analysis",
+                    error_code=type(exc).__name__,
+                    media_kind=first.embed_kind,
+                    post_uris=tuple(group.post_uris),
+                    dids=tuple(group.dids),
+                )
+            )
             log.warning(
                 "media analysis failed cluster_id=%d hash=%s error=%s",
                 first.cluster_id,

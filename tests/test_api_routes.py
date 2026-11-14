@@ -97,8 +97,109 @@ def test_list_clusters_rejects_unknown_status(client):
 
 def test_get_cluster_and_404(client):
     c, _ = client
-    assert c.get("/api/clusters/1").json()["id"] == 1
+    body = c.get("/api/clusters/1").json()
+    assert body["id"] == 1
+    assert body["evidence"] == []  # missing media evidence remains an empty list
     assert c.get("/api/clusters/2").status_code == 404
+
+
+def test_media_evidence_serializes_all_states_without_changing_detector_status(client):
+    c, store = client
+
+    def get_cluster(cluster_id):
+        if cluster_id != 1:
+            return None
+        data = summary(1, "coordinated").model_dump()
+        data["evidence"] = [
+            {
+                "id": 10,
+                "kind": "media",
+                "summary": "Same image reused across accounts.",
+                "detail": {
+                    "status": "complete",
+                    "media_hash": "cid-one",
+                    "description": "A campaign graphic with a date.",
+                    "media_type": "image",
+                    "extracted_text": ["MEETING FRIDAY"],
+                },
+                "source_url": "https://bsky.app/profile/did:a/post/one",
+                "model": "nemotron-3.5-super-vl",
+                "created_at": T0,
+            },
+            {
+                "id": 11,
+                "kind": "media",
+                "summary": "Video frame analysis.",
+                "detail": {
+                    "media_hash": "cid-two",
+                    "description": "A video frame with a repeated slogan.",
+                    "media_type": "video",
+                },
+                "source_url": "https://bsky.app/profile/did:b/post/two",
+                "model": "nemotron-3.5-super-vl",
+                "created_at": T0,
+            },
+            {
+                "id": 12,
+                "kind": "media",
+                "summary": "OCR text is nearly identical across two images.",
+                "detail": {
+                    "status": "complete",
+                    "type": "ocr_template",
+                    "media_hash": "ocr-template",
+                    "media_hashes": ["cid-one", "cid-two"],
+                    "shared_tokens": ["USE", "VIDEO"],
+                    "varying_tokens": ["AUSTIN", "CHICAGO"],
+                },
+                "source_url": "https://bsky.app/profile/did:a/post/one",
+                "model": "nemotron-3.5-super-vl",
+                "created_at": T0,
+            },
+            {
+                "id": 13,
+                "kind": "media",
+                "summary": "Media processing failed during fetch; analysis is unavailable.",
+                "detail": {
+                    "status": "failed",
+                    "media_hash": "cid-failed",
+                    "error_code": "BlobFetchError",
+                    "stage": "fetch",
+                },
+                "source_url": "https://bsky.app/profile/did:c/post/failed",
+                "created_at": T0,
+            },
+            {
+                "id": 14,
+                "kind": "media",
+                "summary": None,
+                "detail": {"status": "pending", "media_hash": "cid-pending"},
+                "created_at": T0,
+            },
+            {
+                "id": 15,
+                "kind": "media",
+                "summary": "Must not look like successful analysis.",
+                "detail": None,
+                "model": "untrusted",
+                "created_at": T0,
+            },
+        ]
+        return ClusterDetail(**data)
+
+    store.get_cluster = get_cluster
+    response = c.get("/api/clusters/1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "coordinated"  # media evidence cannot replace detector status
+    evidence = body["evidence"]
+    assert [row["detail"]["status"] for row in evidence] == [
+        "complete", "complete", "complete", "failed", "pending", "malformed"
+    ]
+    assert evidence[0]["detail"]["media_hash"] == "cid-one"
+    assert evidence[1]["detail"]["media_hash"] == "cid-two"
+    assert evidence[2]["detail"]["type"] == "ocr_template"
+    assert evidence[3]["detail"]["error_code"] == "BlobFetchError"
+    assert evidence[5]["detail"]["malformed_reason"] == "detail_not_object"
 
 
 def test_metrics(client):

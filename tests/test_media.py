@@ -14,6 +14,7 @@ from media.nemotron import (
     NemotronError,
     NotVisionModelError,
     RateLimiter,
+    close_truncated,
     is_super_vl_model,
     is_vl_model,
     parse_content,
@@ -98,6 +99,52 @@ def test_parse_content_rejects_non_objects(content):
 def test_null_content_is_an_error_that_names_the_finish_reason():
     client, _, _ = _client(_response(None, finish="length"))
     with pytest.raises(NemotronError, match="finish_reason=length"):
+        client.analyze(MediaInput("h", "image/png", data=b"x"))
+
+
+# A page of text: the model transcribes line after line until max_tokens cuts it mid-string.
+CUT = (
+    '<think>a page of text</think>{"description": "A numbered list of 172 lines.",'
+    ' "media_type": "text_image", "extracted_text": ["1. market vote", "2. tax \\"rule\\", road",'
+    ' "3. energy pri'
+)
+
+
+@pytest.mark.parametrize(
+    ("cut", "closed"),
+    [
+        ('{"a": "x", "b": ["y", "z', '{"a": "x", "b": ["y"]}'),
+        ('{"a": "x", "b": [', '{"a": "x", "b": []}'),
+        ('{"a": "x", "b"', '{"a": "x"}'),
+        ('{"a": "x", "b": 0.', '{"a": "x"}'),
+        ('{"a": {"c": [1, 2]}, "b": "has, comma', '{"a": {"c": [1, 2]}}'),
+        ('{"a": "x"} trailing', '{"a": "x"}'),
+    ],
+)
+def test_close_truncated_keeps_only_complete_values(cut, closed):
+    assert json.loads(close_truncated(cut)) == json.loads(closed)
+
+
+def test_reply_cut_at_max_tokens_keeps_the_fields_it_finished():
+    client, _, _ = _client(_response(CUT, finish="length"))
+    a = client.analyze(MediaInput("h", "image/png", data=b"x"))
+    assert a.description == "A numbered list of 172 lines."
+    assert a.media_type == "text_image"
+    assert a.extracted_text == ["1. market vote", '2. tax "rule", road']
+    assert a.finish_reason == "length"
+
+
+def test_a_cut_reply_is_only_repaired_when_the_model_hit_max_tokens():
+    with pytest.raises(json.JSONDecodeError):
+        parse_content(CUT)  # finish_reason=stop: a broken reply stays an error
+    client, _, _ = _client(_response(CUT, finish="stop"))
+    with pytest.raises(NemotronError, match="finish_reason=stop"):
+        client.analyze(MediaInput("h", "image/png", data=b"x"))
+
+
+def test_reply_cut_before_its_description_is_still_an_error():
+    client, _, _ = _client(_response('{"description": "A numbered li', finish="length"))
+    with pytest.raises(NemotronError, match="description"):
         client.analyze(MediaInput("h", "image/png", data=b"x"))
 
 

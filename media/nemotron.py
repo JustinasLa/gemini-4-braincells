@@ -30,7 +30,8 @@ DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 # Bumped whenever the prompt or output schema changes (media/README.md has the iteration log).
 # media-v4: the media-v3 prompt, plus the screenshot-v1 read of screenshots (detail.screenshot).
-PROMPT_VERSION = "media-v4"
+# media-v5: extracted_text capped at 20 entries in the prompt (pages of text ran into max_tokens).
+PROMPT_VERSION = "media-v5"
 
 MEDIA_TYPES = ("photo", "screenshot", "meme", "ad_or_promo", "text_image", "video_frame", "other")
 CONTENT_FLAGS = ("adult", "promo_or_ad", "scam_cue", "news_or_politics", "handle_or_url_watermark")
@@ -46,7 +47,9 @@ Rules:
   description as exactly "Adult content." (or "Graphic content."). Do not describe bodies, acts
   or clothing; list only text, logos, handles and URLs, in extracted_text.
 - extracted_text: legible text in the image, verbatim, one entry per line or block, in reading
-  order. Empty list if there is none. Never invent unreadable text.
+  order, at most 20 entries of at most 300 characters each (stop there: on a page of text, keep
+  the headline, handles, URLs and the first lines). Empty list if there is none. Never invent
+  unreadable text.
 - reuse_cues: visible signs the image is mass-produced or reused: template layouts, watermarks,
   handles, URLs, QR codes, placeholder slots (a city or name that looks swapped in), stock imagery.
 - manipulation_cues: visible signs of manipulated or misleading context: edited or mismatched
@@ -127,11 +130,31 @@ class MediaAnalysis:
 
     def evidence_detail(self) -> dict[str, Any]:
         """JSON-ready detail for the shared ``evidence`` table."""
-        return asdict(self)
+        return {**asdict(self), "status": "complete"}
 
     @classmethod
     def from_detail(cls, detail: dict[str, Any]) -> MediaAnalysis:
         """Rebuild from a stored ``evidence.detail`` (the media-hash cache)."""
+        if not isinstance(detail, dict) or detail.get("status") not in (None, "complete"):
+            raise ValueError("stored media analysis is not complete")
+        required_strings = ("media_hash", "description", "model")
+        if any(
+            not isinstance(detail.get(key), str) or not detail[key].strip()
+            for key in required_strings
+        ):
+            raise ValueError("stored media analysis is missing required text")
+        for key in ("extracted_text", "reuse_cues", "manipulation_cues"):
+            value = detail.get(key)
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise ValueError("stored media analysis has malformed text lists")
+        confidence = detail.get("confidence")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+            raise ValueError("stored media analysis has malformed confidence")
+        if not 0 <= confidence <= 1:
+            raise ValueError("stored media analysis has out-of-range confidence")
+        latency = detail.get("latency_ms")
+        if isinstance(latency, bool) or not isinstance(latency, int) or latency < 0:
+            raise ValueError("stored media analysis has malformed latency")
         names = cls.__dataclass_fields__.keys()
         return cls(**{k: detail[k] for k in names if k in detail})
 
@@ -173,8 +196,11 @@ class RateLimiter:
         self._next = now + self.interval
 
 
-def parse_content(content: Any) -> dict[str, Any]:
-    """The first JSON object in a reply, tolerating fences, <think> blocks and prose around it."""
+def parse_content(content: Any, *, truncated: bool = False) -> dict[str, Any]:
+    """The first JSON object in a reply, tolerating fences, <think> blocks and prose around it.
+
+    ``truncated`` (finish_reason=length): an object cut off mid-value keeps its complete fields.
+    """
     if isinstance(content, list):
         content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
     if not isinstance(content, str) or not content.strip():
@@ -189,10 +215,51 @@ def parse_content(content: Any) -> dict[str, Any]:
     if start is None:
         raise ValueError("no JSON object in response")
     # Only the first object: never promote an object nested in a broken envelope.
-    payload, _ = json.JSONDecoder().raw_decode(content, start)
+    try:
+        payload, _ = json.JSONDecoder().raw_decode(content, start)
+    except json.JSONDecodeError:
+        if not truncated:
+            raise
+        payload = json.loads(close_truncated(content, start))
+        log.warning("nemotron reply cut at max_tokens; kept the fields it completed")
     if not isinstance(payload, dict):
         raise ValueError("response JSON is not an object")
     return payload
+
+
+def close_truncated(text: str, start: int = 0) -> str:
+    """The JSON object opening at ``text[start]``, cut off at max_tokens, closed after its last
+    complete value. The value being written when the reply stopped (a half string, a bare key)
+    is dropped, so what is left is only what the model finished writing.
+    """
+    stack: list[str] = []
+    cut, cut_stack = start, [""]
+    in_string = escaped = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif c == "\\":
+                escaped = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+        elif c in "[{":
+            stack.append("]" if c == "[" else "}")
+            cut, cut_stack = i + 1, stack.copy()
+        elif c in "]}":
+            if not stack:
+                break
+            stack.pop()
+            cut, cut_stack = i + 1, stack.copy()
+            if not stack:
+                return text[start:cut]  # complete after all
+        elif c == ",":
+            cut, cut_stack = i, stack.copy()  # everything before a comma is a complete value
+    return text[start:cut] + "".join(reversed(cut_stack))
 
 
 def _strings(value: Any, limit: int = 20) -> list[str]:
@@ -355,7 +422,8 @@ class NemotronClient:
         try:
             if choice is None:
                 raise ValueError("no choices in response")
-            payload = parse_content(choice.message.content)
+            # cut off at max_tokens (a page of text): keep the fields it finished writing
+            payload = parse_content(choice.message.content, truncated=finish == "length")
             result = self._make_analysis(media, payload, latency_ms, response, finish)
         except (TypeError, ValueError, KeyError) as exc:
             raise NemotronError(
