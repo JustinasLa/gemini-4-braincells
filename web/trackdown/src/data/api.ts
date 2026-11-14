@@ -65,7 +65,11 @@ const host = (u: string) => {
 };
 
 /** API summaries use ASCII comparisons; show them as typeset text. */
-const tidy = (s: string) => s.replace(/>=/g, "≥").replace(/<=/g, "≤").replace(/!=/g, "≠");
+const tidy = (s: string) => {
+  const t = s.trim().replace(/>=/g, "≥").replace(/<=/g, "≤").replace(/!=/g, "≠");
+  return t ? t[0].toUpperCase() + t.slice(1) : t;
+};
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 const toolFor = (model?: string | null, kind?: string): Tool =>
   /nemotron/i.test(model ?? "") || kind === "media" ? "nemotron" : /oxylabs/i.test(model ?? "") || kind === "source" ? "oxylabs" : /gemini/i.test(model ?? "") || kind === "analyst" ? "gemini" : "detector";
@@ -145,10 +149,13 @@ export async function liveCase(id: number): Promise<TraceCase> {
     clusters: live.length >= 3 ? [{ id: "live", label: d.status === "coordinated" ? "Coordinated cluster" : "Cluster", status: d.status, members: live, stat: `${d.size ?? d.members.length} accounts` }] : [],
     receipts,
     wouldChange: d.analyst?.would_change_verdict ?? [],
-    summary: tidy(d.verdict?.summary ?? d.top_signals.map((s) => s.summary).filter(Boolean).slice(0, 2).join(" ")),
+    // no analyst summary: say what the cluster is and point to the evidence, never stitch signals into a "reason"
+    summary: d.verdict?.summary
+      ? tidy(d.verdict.summary)
+      : `The detector grouped ${plural(d.size ?? d.members.length, "account", "accounts")} that acted on the same posts. There is no written summary for this cluster yet; the Evidence tab lists what points each way.`,
     steps: [
-      { tool: "detector", text: `Loaded ${posts.length} posts from ${d.members.length} accounts`, found: nodes.filter((n) => n.role !== "source").map((n) => n.id) },
-      { tool: "oxylabs", text: `${nodes.filter((n) => n.role === "source").length} source pages checked`, found: nodes.filter((n) => n.role === "source").map((n) => n.id) },
+      { tool: "detector", text: `Loaded ${plural(posts.length, "post", "posts")} from ${plural(d.members.length, "account", "accounts")}`, found: nodes.filter((n) => n.role !== "source").map((n) => n.id) },
+      { tool: "oxylabs", text: `${plural(nodes.filter((n) => n.role === "source").length, "source page", "source pages")} checked`, found: nodes.filter((n) => n.role === "source").map((n) => n.id) },
       { tool: "gemini", text: "Verdict from the stored analyst run" },
     ],
   };
@@ -166,14 +173,13 @@ export async function analyze(input: string): Promise<TraceCase | null> {
   if (res.status === "matched" && res.clusters.length) return liveCase(res.clusters[0].id);
   // not in our window: show the web findings as what they are, no verdict
   const now = Date.now();
-  const sub: TraceNode = { id: "you", t: now, platform: "bluesky", role: "submitted", author: { name: "Your input", handle: "you", hue: 0 }, text: input };
+  const sub: TraceNode = { id: "you", t: now, platform: "text", role: "submitted", author: { name: "Your input", handle: "pasted text", hue: 0 }, text: input };
   const nodes: TraceNode[] = [sub];
-  const edges: TraceEdge[] = [];
+  const edges: TraceEdge[] = []; // search results are related pages, not a known chain: no links drawn
   res.web_findings.forEach((f, i) => {
     const h = f.source_url ? host(f.source_url) : "web";
     const id = `wf-${i}`;
     nodes.push({ id, t: now - (i + 1) * 3600000, undated: true, platform: "factcheck", role: "source", author: { name: h, handle: h, hue: 210 }, text: tidy(f.summary), url: f.source_url ?? undefined });
-    edges.push({ from: id, to: "you", rel: "cites", tool: "oxylabs" });
   });
   return {
     id: `adhoc-${now}`,
@@ -197,7 +203,7 @@ export async function analyze(input: string): Promise<TraceCase | null> {
     summary: "This post isn't in the accounts and time window we monitor, so there is no coordination verdict. The web results are related pages found by search, not a confirmed chain of copies.",
     steps: [
       { tool: "you", text: "Input submitted", found: ["you"] },
-      { tool: "oxylabs", text: `${res.web_findings.length} web findings`, found: nodes.slice(1).map((n) => n.id) },
+      { tool: "oxylabs", text: plural(res.web_findings.length, "related web result", "related web results"), found: nodes.slice(1).map((n) => n.id) },
       { tool: "detector", text: "Not in our window: abstain" },
     ],
   };

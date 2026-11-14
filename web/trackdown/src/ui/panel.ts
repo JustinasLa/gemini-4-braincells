@@ -3,6 +3,7 @@ import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
 import { esc, fmtDate, fmtDur, fmtNum, REL, ROLE, STATUS, TOOL } from "./format";
+import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 
@@ -41,6 +42,20 @@ export class Panel {
       if (t.dataset.act === "sheet-close") this.onCloseSheet();
       if (t.dataset.act === "path" && this.g.selId) this.g.setHighlight(new Set(this.g.pathToOrigin(this.g.selId)));
     });
+    // tab list: arrows, Home and End move between tabs (roving focus)
+    el.addEventListener("keydown", (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>("[role=tab]");
+      if (!t) return;
+      const tabs = [...el.querySelectorAll<HTMLElement>("[role=tab]")];
+      const i = tabs.indexOf(t);
+      const j = e.key === "ArrowRight" ? (i + 1) % tabs.length : e.key === "ArrowLeft" ? (i - 1 + tabs.length) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
+      if (j < 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.tab = tabs[j].dataset.tab as Tab;
+      this.render();
+      this.el.querySelector<HTMLElement>(`[data-tab="${this.tab}"]`)?.focus();
+    });
     el.addEventListener("mouseover", (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>("[data-go]");
       this.g.setHighlight(t ? this.g.lineage(t.dataset.go!) : this.g.selId ? this.g.lineage(this.g.selId) : null);
@@ -74,8 +89,8 @@ export class Panel {
     ] as [Tab, string, string][];
     const body = this.pending ? this.pendingHtml() : this.tab === "verdict" ? this.verdict(c) : this.tab === "provenance" ? this.provenance(c) : this.tab === "receipts" ? this.receipts(c) : this.detail(sel!);
     this.el.innerHTML = `<div class="panel-inner"><div class="win-head"><div class="tabs" role="tablist" aria-label="Result">${tabs
-      .map(([id, label, n]) => `<button role="tab" data-tab="${id}" aria-selected="${this.tab === id}" tabindex="${this.tab === id ? 0 : -1}" class="${this.tab === id ? "on" : ""}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`)
-      .join("")}</div><button class="sheet-close mobile-only" data-act="sheet-close" aria-label="Close">${sm(icon.close, 14)}</button></div><div class="pane" role="tabpanel">${body}</div></div>`;
+      .map(([id, label, n]) => `<button role="tab" id="tab-${id}" aria-controls="tabpanel" data-tab="${id}" aria-selected="${this.tab === id}" tabindex="${this.tab === id ? 0 : -1}" class="${this.tab === id ? "on" : ""}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`)
+      .join("")}</div><button class="sheet-close mobile-only" data-act="sheet-close" aria-label="Close">${sm(icon.close, 14)}</button></div><div class="pane" role="tabpanel" id="tabpanel" aria-labelledby="tab-${this.tab}">${body}</div></div>`;
     const bar = this.el.querySelector<HTMLElement>(".conf .bar i");
     if (bar) requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = `${Math.round(c.confidence * 100)}%`)));
   }
@@ -109,7 +124,7 @@ export class Panel {
       ? `<div class="stats">
         <div class="stat" data-tip="${esc(`<h4>Copies back</h4>Hops from the submitted post to the earliest copy we found.`)}"><div class="n">${hops}</div><div class="l">${hops === 1 ? "Copy back" : "Copies back"}</div></div>
         <div class="stat" data-tip="${esc(`<h4>Age of the claim</h4><div class='row'><span>Earliest</span><b>${ori ? fmtDate(ori.t, false) : "–"}</b></div><div class='row'><span>Submitted</span><b>${sub ? fmtDate(sub.t, false) : "–"}</b></div>`)}"><div class="n">${sub && ori ? fmtDur(sub.t - ori.t) : "–"}</div><div class="l">Since earliest</div></div>
-        <div class="stat" data-tip="${esc(`<h4>${c.historical ? "Hands" : "Accounts"}</h4><div class='row'><span>Distinct</span><b>${accounts}</b></div><div class='row'><span>Under 30 days old</span><b class='${fresh ? "neg" : ""}'>${fresh}</b></div>`)}"><div class="n">${accounts}</div><div class="l">${c.historical ? "Hands" : accounts === 1 ? "Account" : "Accounts"}</div></div>
+        <div class="stat" data-tip="${esc(`<h4>${c.historical ? "Hands" : "Accounts"}</h4><div class='row'><span>Distinct</span><b>${accounts}</b></div><div class='row'><span>Under 30 days old</span><b class='${fresh ? "neg" : ""}'>${fresh}</b></div>`)}"><div class="n">${accounts}</div><div class="l">${c.historical ? "Hands" : accounts === 1 ? "Account in trace" : "Accounts in trace"}</div></div>
       </div>
       <div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} Replay the trackdown</button></div>`
       : "";
@@ -181,7 +196,7 @@ export class Panel {
       ${n.media?.note ? `<div class="media-note">${esc(n.media.note)}</div>` : ""}
       <div class="kv">
         ${n.undated ? "" : `<div><div class="k2">Posted</div><div class="v2">${fmtDate(n.t)}</div></div>`}
-        <div><div class="k2">Where</div><div class="v2" style="text-transform:capitalize">${n.platform}</div></div>
+        <div><div class="k2">Where</div><div class="v2">${PLATFORM[n.platform] ?? n.platform}</div></div>
         ${a.ageDays != null ? `<div><div class="k2">Account age</div><div class="v2${fresh ? " warn" : ""}">${fmtDur(a.ageDays * 86400000)}</div></div>` : ""}
         ${a.followers != null ? `<div><div class="k2">Followers</div><div class="v2${a.followers < 20 ? " warn" : ""}">${fmtNum(a.followers)}</div></div>` : ""}
       </div>

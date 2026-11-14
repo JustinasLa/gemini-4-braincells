@@ -48,6 +48,18 @@ document.querySelector("#app")!.innerHTML = `
 </div>`;
 
 const app = $(".app");
+// Closed drawers must not take keyboard focus; keep inert + aria-expanded in sync with the classes.
+const syncDrawers = () => {
+  const phone = innerWidth < 860;
+  const rail = $(".rail");
+  const pnl = $("#panel");
+  rail.inert = !app.classList.contains("rail-open");
+  pnl.inert = phone ? !app.classList.contains("sheet-open") : !app.classList.contains("panel-open");
+  document.querySelector('[data-act="rail"]')?.setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
+  document.querySelector("#peek")?.setAttribute("aria-expanded", String(app.classList.contains("sheet-open")));
+};
+new MutationObserver(syncDrawers).observe(app, { attributes: true, attributeFilter: ["class"] });
+addEventListener("resize", syncDrawers);
 const stage = $("#stage");
 const g = new Graph(stage);
 (window as unknown as { __g: Graph }).__g = g;
@@ -67,7 +79,7 @@ initTooltips();
 $("#legend").innerHTML =
   `<div class="legend-title"><span class="label">key</span></div>` +
   (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="sw box" style="--c:#3fe07a"></span>Machine detection</div>`;
+  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div>`;
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done
@@ -95,6 +107,9 @@ function renderResources(c: TraceCase) {
   const empty = !hasChain(c) && !c.findingsOnly;
   if (empty) app.dataset.empty = "";
   else delete app.dataset.empty;
+  // search-only results have no known dates: no time axis, no playback
+  if (c.findingsOnly) app.dataset.notime = "";
+  else delete app.dataset.notime;
   $("#empty").hidden = !empty;
   document.title = `${c.title} · Shill or Chill`;
 }
@@ -133,7 +148,7 @@ function renderRail() {
     .map(
       (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(2)}"></span>
       <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster #${r.id}</span>
-      <span class="meta">${r.size ?? "?"} accounts · score ${r.score.toFixed(2)}</span></button>`,
+      <span class="meta">${r.size ?? "?"} accounts · detector score ${r.score.toFixed(2)}</span></button>`,
     )
     .join("");
   $("#rail").innerHTML = `
@@ -181,10 +196,13 @@ document.addEventListener("click", (e) => {
   if (act === "trace" || act === "home") showHome();
   if (act === "rail") {
     app.classList.toggle("rail-open");
-    $('[data-act="rail"]').setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
+    if (app.classList.contains("rail-open")) setTimeout(() => $("#rail").querySelector<HTMLElement>("button")?.focus(), 50);
     setTimeout(() => g.fit(undefined, 800), 650);
   }
-  if (act === "sheet") app.classList.toggle("sheet-open");
+  if (act === "sheet") {
+    app.classList.toggle("sheet-open");
+    if (app.classList.contains("sheet-open")) setTimeout(() => $("#panel").querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(), 50);
+  }
 });
 stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   const z = (e.target as HTMLElement).closest<HTMLElement>("[data-z]")?.dataset.z;
@@ -539,13 +557,20 @@ function toast(msg: string) {
 // ---------------------------------------------------------------- keyboard
 document.addEventListener("keydown", (e) => {
   if ((e.target as HTMLElement).closest("textarea,input")) return;
-  // Space and Enter belong to the focused control
+  // Space and Enter belong to the focused control; arrows belong to the tab list
   if ((e.key === " " || e.key === "Enter") && (e.target as HTMLElement).closest("button,a,[role=tab]")) return;
+  if ((e.target as HTMLElement).closest("[role=tablist]")) return;
   if (e.key === "Escape") {
     if (eventEl) closeEvent();
     else if (tracing) skipFlag = true;
     else if (g.selId) g.select(null);
-    else app.classList.remove("rail-open", "tools");
+    else if (app.classList.contains("sheet-open")) {
+      app.classList.remove("sheet-open");
+      $("#peek").focus();
+    } else if (app.classList.contains("rail-open")) {
+      app.classList.remove("rail-open");
+      $<HTMLElement>('[data-act="rail"]').focus();
+    } else app.classList.remove("tools");
   }
   if (e.key === " ") {
     e.preventDefault();
@@ -584,6 +609,7 @@ document.addEventListener("keydown", (e) => {
 
 // ---------------------------------------------------------------- boot
 renderRail();
+syncDrawers();
 const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
 if (params.has("static")) openCase(first, "static");

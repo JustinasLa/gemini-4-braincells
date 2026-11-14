@@ -1,7 +1,7 @@
 // Trackdown graph engine: DOM cards over canvas layers, custom force physics, inertial camera.
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
-import backdropUrl from "../assets/venus-backdrop.webp";
+import backdropUrl from "../assets/venus-full.webp";
 import { fmtDur, REL, ROLE, STATUS } from "../ui/format";
 
 
@@ -841,8 +841,8 @@ export class Graph {
     const k = this.k;
     const ox = this.W / 2 - this.cx * k;
     const oy = this.H / 2 - this.cy * k;
-    // semantic zoom: below ~0.5 a card's text is too small to read, so it becomes a labelled marker
-    const op = clamp((k - 0.42) / 0.1, 0, 1);
+    // semantic zoom: until a card's text is readable (~0.8x) it is drawn as a labelled marker
+    const op = clamp((k - 0.66) / 0.14, 0, 1);
     if (Math.abs(op - this.cardOpacity) > 0.001) {
       this.cardOpacity = op;
       this.world.style.setProperty("--card-op", op.toFixed(3));
@@ -942,7 +942,9 @@ export class Graph {
     c.lineCap = "round";
     for (const e of this.edges) {
       if (!e.a.vis || !e.b.vis) continue;
-      const pts = this.edgePts(e);
+      // in map mode the cluster hull stands for its members: no spaghetti between the dots
+      if (op < 0.5 && e.a.compact && e.b.compact) continue;
+      const pts = this.edgePts(e, op);
       const prog = clamp((now - e.born) / 650, 0, 1);
       const on = hl ? hl.has(e.a.d.id) && hl.has(e.b.d.id) : false;
       const dim = hl && !on;
@@ -975,14 +977,14 @@ export class Graph {
         continue;
       }
       if (dim) continue;
-      if (match) {
+      if (match && op >= 1) {
         // detection boxes at both ends, like matched keypoints
         c.strokeStyle = C.cv;
         c.lineWidth = 1.5 / k;
         const s = (on ? 12 : 9) / k;
         c.strokeRect(pts[0] - s / 2, pts[1] - s / 2, s, s);
         c.strokeRect(pts[6] - s / 2, pts[7] - s / 2, s, s);
-      } else {
+      } else if (!match) {
         // arrowhead
         const tx = pts[6] - bez(pts[0], pts[2], pts[4], pts[6], 0.97);
         const ty = pts[7] - bez(pts[1], pts[3], pts[5], pts[7], 0.97);
@@ -1025,15 +1027,20 @@ export class Graph {
         if (!n.vis) continue;
         const col = this.colors[n.d.role] ?? C.ink2;
         const big = n.d.role === "origin" || n.d.role === "submitted";
-        const r = (big ? 9 : n.compact ? 4.5 : 6.5) / k;
+        const r = this.markerR(n);
         const dim = hl && !hl.has(n.d.id);
+        const lit = n.d.id === this.hoverId || n.d.id === this.selId;
         c.globalAlpha = clamp(1 - op * 1.7, 0, 1) * (dim ? 0.25 : 1);
         c.fillStyle = col;
-        c.strokeStyle = "#0b1117";
-        c.lineWidth = 1.5 / k;
+        if (n.compact && !lit) {
+          // a cluster member: one small dot; the hull around them carries the label and count
+          c.fillRect(n.x - r * 0.5, n.y - r * 0.5, r, r);
+          continue;
+        }
         c.fillRect(n.x - r * 0.6, n.y - r * 0.6, r * 1.2, r * 1.2);
-        c.strokeStyle = big ? col : "#3fe07a";
-        c.lineWidth = 1.4 / k;
+        c.strokeStyle = lit ? C.cv : col;
+        c.lineWidth = (lit ? 2 : 1.4) / k;
+        c.globalAlpha *= lit || big ? 1 : 0.7;
         c.strokeRect(n.x - r * 1.3, n.y - r * 1.3, r * 2.6, r * 2.6);
         if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId)
           labels.push({ n, r, text: n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Submitted" : n.d.author.name });
@@ -1044,11 +1051,10 @@ export class Graph {
       const placed = this.clusterTabs.slice();
       // markers count as occupied too, so a label never sits on another post
       const markers = labels.length ? this.nodes.filter((n) => n.vis).map((n) => {
-        const big = n.d.role === "origin" || n.d.role === "submitted";
-        const r = ((big ? 9 : n.compact ? 4.5 : 6.5) / k) * 1.3;
+        const r = this.markerR(n) * 1.3;
         return { id: n.d.id, x0: n.x - r, x1: n.x + r, y0: n.y - r, y1: n.y + r };
       }) : [];
-      c.font = `600 ${12.5 / k}px "Inter Tight", sans-serif`;
+      c.font = `600 ${(this.W < 600 ? 11 : 12.5) / k}px "Inter Tight", sans-serif`;
       c.textAlign = "center";
       c.textBaseline = "alphabetic";
       c.lineJoin = "round";
@@ -1158,7 +1164,7 @@ export class Graph {
       // label
       c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
       c.font = '600 11px "JetBrains Mono", monospace';
-      const label = `MATCH · ${ROLE[n.d.role].label.toUpperCase()}`;
+      const label = ROLE[n.d.role].label.toUpperCase();
       const tw = c.measureText(label).width + 12;
       c.fillStyle = r.color;
       c.fillRect(sx - hw, sy - hh - 20, tw, 16);
@@ -1204,10 +1210,22 @@ export class Graph {
     c.restore();
   }
 
-  /** bezier control points for an edge: [x0,y0,c1x,c1y,c2x,c2y,x1,y1] */
-  private edgePts(e: VEdge): number[] {
-    const a = e.a;
-    const b = e.b;
+  /** half-size of a node's map marker, in world units */
+  private markerR(n: VNode): number {
+    const big = n.d.role === "origin" || n.d.role === "submitted";
+    // phones fit a long timeline into a narrow view: smaller markers keep posts apart
+    return ((big ? 9 : n.compact ? 4.5 : 6.5) * (this.W < 600 ? 0.7 : 1)) / this.k;
+  }
+
+  /** bezier control points for an edge: [x0,y0,c1x,c1y,c2x,c2y,x1,y1]. `op` blends the anchors
+   *  from the card's edge (cards shown) to the marker's edge (map mode). */
+  private edgePts(e: VEdge, op = 1): number[] {
+    const box = (n: VNode) => {
+      const m = this.markerR(n) * (n.compact ? 0.5 : 1.3);
+      return { x: n.x, y: n.y, w: lerp(m * 2, n.w, op), h: lerp(m * 2, n.h, op) };
+    };
+    const a = box(e.a);
+    const b = box(e.b);
     const ax = a.x + a.w / 2;
     const bx = b.x - b.w / 2;
     if (bx - ax > 30) {

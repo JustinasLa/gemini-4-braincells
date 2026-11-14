@@ -3,7 +3,7 @@
 
 export type Status = "coordinated" | "likely_organic" | "insufficient";
 
-export type Platform = "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter";
+export type Platform = "bluesky" | "web" | "news" | "forum" | "video" | "chat" | "factcheck" | "print" | "letter" | "text";
 
 /** What a node is in the story. */
 export type Role =

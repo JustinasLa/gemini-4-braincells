@@ -172,16 +172,25 @@ export class Dock {
     c.lineTo(R, base + 0.5);
     c.stroke();
     // break + endpoint labels
-    c.font = '600 9.5px "JetBrains Mono", monospace';
-    c.fillStyle = "#7a7770";
+    c.font = '500 10.5px "JetBrains Mono", monospace';
+    c.fillStyle = "#908c84";
     c.textBaseline = "top";
     const first = g.timeMap[0]?.[0];
     const last = g.timeMap[g.timeMap.length - 1]?.[0];
     if (first != null) {
-      c.textAlign = "left";
-      c.fillText(fmtShort(first), L, base + 4);
+      // under a day the dates would be identical: show clock times instead
+      const short = last - first < 86400000;
+      const end = (t: number) => (short ? fmtClock(t).slice(0, 5) : fmtShort(t));
+      const a = end(first);
+      const b = end(last);
+      // narrow dock: keep the end labels apart, or show only the latest
+      const fits = c.measureText(a).width + c.measureText(b).width + 16 < R - L;
       c.textAlign = "right";
-      c.fillText(fmtShort(last), R, base + 4);
+      c.fillText(b, R, base + 4);
+      if (fits) {
+        c.textAlign = "left";
+        c.fillText(a, L, base + 4);
+      }
     }
     c.textAlign = "center";
     let lastB = -1e9;
@@ -190,7 +199,7 @@ export class Dock {
       if (x < L + 80 || x > R - 95 || x - lastB < 80) continue;
       lastB = x;
       c.fillStyle = "#e4b36a";
-      c.fillText(`// ${fmtDur(b.gap)} //`, x, base + 4);
+      c.fillText(`${fmtDur(b.gap)} gap`, x, base + 4);
     }
     // origin + submitted markers
     const mark = (id: string, col: string) => {
@@ -225,7 +234,7 @@ export class Dock {
       const rel = this.clock.querySelector(".rel")!;
       const txt = `${fmtDate(t, false)} ${fmtClock(t)}`;
       if (d.textContent !== txt) d.textContent = txt;
-      const r2 = `T+${fmtDur(t - first)} // since origin`;
+      const r2 = t - first < 1000 ? "Earliest copy" : `${fmtDur(t - first)} after the earliest copy`;
       if (rel.textContent !== r2) rel.textContent = r2;
     }
   }
@@ -243,14 +252,18 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   let lastX = -1e9;
   let lastT = -1e15;
   let lastLabel = "";
+  let firstDone = false;
+  const drawn: [number, number][] = []; // x-extents of date labels; "later" pills keep off them
   for (const n of ns) {
     const s = g.toScreen(n.tx, 0);
     if (s.x < -20 || s.x > w + 20) continue;
     c.fillStyle = "rgba(255,255,255,0.3)";
     c.fillRect(s.x, h - 5, 1, 5);
     if (s.x - lastX < 120) continue;
-    if (g.timeBreaks.some((b) => Math.abs(g.toScreen(b.x, 0).x - s.x - 40) < 95)) continue;
-    const label = n.d.t - lastT > 86400000 ? fmtDate(n.d.t, false) : fmtClock(n.d.t);
+    // the first visible label always carries the date; later ones say only what changed
+    if (firstDone && g.timeBreaks.some((b) => Math.abs(g.toScreen(b.x, 0).x - s.x - 40) < 95)) continue;
+    const newDay = !firstDone || new Date(n.d.t).toDateString() !== new Date(lastT).toDateString();
+    const label = newDay ? fmtDate(n.d.t, false) : fmtClock(n.d.t).slice(0, 5);
     if (label === lastLabel) continue;
     if (s.x + 5 + c.measureText(label.toUpperCase()).width > w - 6) continue; // never clip at the edge
     lastLabel = label;
@@ -258,8 +271,10 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     c.fillRect(s.x, h - 12, 1, 12);
     c.fillStyle = "#f2efe9";
     c.fillText(label.toUpperCase(), s.x + 5, h / 2 - 1);
+    drawn.push([s.x, s.x + 5 + c.measureText(label.toUpperCase()).width]);
     lastX = s.x;
     lastT = n.d.t;
+    firstDone = true;
   }
   c.textAlign = "center";
   let lastPill = -1e9;
@@ -271,6 +286,7 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     const up = label.toUpperCase();
     const tw = c.measureText(up).width + 16;
     if (s.x - tw / 2 < 2 || s.x + tw / 2 > w - 2) continue;
+    if (drawn.some(([a, b]) => s.x + tw / 2 + 6 > a && s.x - tw / 2 - 6 < b)) continue;
     lastPill = s.x;
     c.fillStyle = "#050506";
     c.fillRect(s.x - tw / 2, h / 2 - 10, tw, 18);

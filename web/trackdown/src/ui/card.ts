@@ -4,7 +4,7 @@ import { esc, fmtDate, fmtNum, ROLE } from "./format";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 
-const PLATFORM: Record<string, string> = { bluesky: "Bluesky", web: "Web page", news: "News", forum: "Forum", video: "Video", chat: "Chat", factcheck: "Web page", print: "Print", letter: "Letter" };
+export const PLATFORM: Record<string, string> = { text: "Submitted text", bluesky: "Bluesky", web: "Web page", news: "News", forum: "Forum", video: "Video", chat: "Chat", factcheck: "Web page", print: "Print", letter: "Letter" };
 
 /** Machine-vision boxes over a media plate. Positions are stable per post; the score is the
  *  similarity of the link that brought it in (if any), so the boxes say what the matcher said. */
