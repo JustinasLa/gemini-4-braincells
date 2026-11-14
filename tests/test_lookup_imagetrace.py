@@ -290,7 +290,9 @@ def test_post_skips_cards_and_uses_first_actual_image(kind):
 )
 def test_origin_requires_entire_crawl_day_before_every_verified_post(created, expected):
     job = job_for(Searches([hit()]))
-    job.result.posts.append(Post(id="x:old", platform="x", created_at=created, verified=True))
+    job.result.posts.append(
+        Post(id="x:old", platform="x", role="copy", created_at=created, verified=True)
+    )
     job.result.posts.append(
         Post(id="x:hint", platform="x", created_at=datetime(2000, 1, 1, tzinfo=UTC))
     )
@@ -334,7 +336,7 @@ def test_one_engine_failure_is_isolated():
     assert all("upstream error" not in receipt.summary for receipt in job.result.receipts)
 
 
-@pytest.mark.parametrize("module", ["media.variants", "media.imagediff"])
+@pytest.mark.parametrize("module", ["media.variants"])
 def test_missing_variants_retains_unknown_reverse_results(monkeypatch, module):
     real_import = imagetrace.import_module
 
@@ -703,6 +705,7 @@ def test_origin_waits_for_post_verification():
             Post(
                 id="x:early",
                 platform="x",
+                role="copy",
                 created_at=datetime(2000, 1, 1, tzinfo=UTC),
                 verified=True,
             )
@@ -1063,3 +1066,114 @@ def test_variations_detail_counts_comparisons_dropped_as_different():
     assert (
         step.detail == "1 image compared (1 a different picture, not shown); 0 change descriptions"
     )
+
+
+@pytest.mark.parametrize("role", ["author_recent", "reply", "mention", "screenshotted"])
+def test_posts_without_the_picture_do_not_block_the_image_origin(role):
+    """Entire review: the author's other posts, replies and a screenshotted post say nothing
+    about when this picture first appeared."""
+    job = job_for(Searches([hit()]))
+    job.result.posts.append(
+        Post(
+            id="x:other",
+            platform="x",
+            role=role,
+            created_at=datetime(2000, 1, 1, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    run_trace(job)
+    assert job.result.image_origin_id == "img:1"
+
+
+def test_missing_imagediff_still_compares_without_change_descriptions(monkeypatch):
+    """Entire review: relate() alone classifies; only the Nemotron change text is skipped."""
+    real_import = imagetrace.import_module
+
+    def missing(name):
+        if name == "media.imagediff":
+            raise ModuleNotFoundError(name)
+        return real_import(name)
+
+    monkeypatch.setattr(imagetrace, "import_module", missing)
+    job = job_for(describe_changes=None)
+    run_trace(job)
+    step = job._step("variations")
+    assert step.state == "done" and "not installed" in step.detail
+    relations = {m.image_url.rsplit("/", 1)[-1]: m.relation for m in job.result.image_matches}
+    assert relations["edited.png"] == "edited" and relations["old.png"] == "same"
+    assert all(not m.changes for m in job.result.image_matches)
+    assert job.result.image_origin_id == "img:1"
+
+
+def test_downloads_send_a_browser_user_agent():
+    """Entire review: Wikimedia and other CDNs refuse httpx's default agent."""
+    from lookup.service import UA
+
+    agents = []
+
+    def fetch(request):
+        agents.append(request.headers.get("user-agent"))
+        return transport(request)
+
+    job = job_for(image_transport=httpx.MockTransport(fetch))
+    run_trace(job)
+    assert agents and set(agents) == {UA}
+
+
+def test_quoted_caption_is_kept_verbatim():
+    """Entire review: a quoted caption is evidence; only our own wording is rewritten."""
+    assert (
+        imagetrace._wording("Caption changed to 'FAKE NEWS'; the doctored look")
+        == "Caption changed to 'FAKE NEWS'; the edited look"
+    )
+    assert imagetrace._wording('Text "Deepfake alert" added') == 'Text "Deepfake alert" added'
+    assert imagetrace._wording("The girl's fake smile") == "The girl's edited smile"
+
+
+def test_search_refused_by_budget_is_skipped_not_failed():
+    """Entire review: a call the time budget refuses is a skip with the budget reason."""
+    job = job_for(time_budget_s=12.0)  # 10 s reserve + 3 s need > 12 s: every call refused
+    run_trace(job)
+    step = job._step("reverse_image")
+    assert step.state == "skipped" and "time budget" in step.detail
+
+
+def test_crash_marks_reverse_image_failed_not_timed_out(monkeypatch):
+    """Entire review: an exception must not end as "skipped: time budget used up"."""
+
+    def boom(self, result, rid):
+        raise RuntimeError("parser bug")
+
+    monkeypatch.setattr(imagetrace.Trace, "_accept", boom)
+    job = job_for()
+    run_trace(job)
+    assert job._step("reverse_image").state == "failed"
+    assert job._step("variations").state == "failed"
+
+
+def test_nemotron_down_still_returns_visual_matches_and_origin():
+    """Verda outage 2026-11-14: Nemotron times out on every call. The OCR reading and the
+    change descriptions fail; reverse search, comparisons and the image origin don't need it."""
+
+    class Down:
+        def analyze(self, media, *, context=None):
+            raise TimeoutError("nemotron endpoint timed out")
+
+    def describe_down(client, original, variant, *, timeout_s):
+        raise TimeoutError("nemotron endpoint timed out")
+
+    job = job_for(nemotron=Down(), describe_changes=describe_down, media_max=1)
+    job.run()
+    assert job.result.state == "done", job.result.error
+    assert job._step("media").state == "failed"
+    assert job._step("reverse_image").state == "done"
+    assert job._step("variations").state == "done"
+    relations = {m.image_url.rsplit("/", 1)[-1]: m.relation for m in job.result.image_matches}
+    assert relations == {"old.png": "same", "recent.png": "same", "edited.png": "edited"}
+    assert job.result.image_origin_id == "img:1"
+    assert all(not m.changes for m in job.result.image_matches)
+    diffs = [
+        r for r in job.result.receipts if r.tool == "nemotron" and r.endpoint != "chat.completions"
+    ]
+    assert diffs and not any(r.ok for r in diffs)

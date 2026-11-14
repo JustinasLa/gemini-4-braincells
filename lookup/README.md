@@ -224,9 +224,10 @@ sent. Up to `Deps.image_diffs_max` (default 4) edited/cropped comparisons run in
 Every stage shares the lookup deadline; closed workers cannot publish late results.
 
 `Deps.relate` / `Deps.describe_changes` can be injected. Otherwise they import
-`media.variants.relate` / `media.imagediff.describe_changes` lazily. If either module is absent,
-`variations` is skipped with `variation matching is not installed on this server`; reverse
-results remain visible with relation `unknown`. Direct `Deps` callers default reverse search
+`media.variants.relate` / `media.imagediff.describe_changes` lazily. Without `media.variants`,
+`variations` is skipped with `variation matching is not installed on this server` and reverse
+results remain visible with relation `unknown`; without `media.imagediff` the comparisons still
+run and only the change descriptions are missing (the step detail says so). Direct `Deps` callers default reverse search
 off for backward compatibility; the API passes the enabled setting explicitly.
 
 ```jsonc
@@ -393,10 +394,12 @@ two) still fits before the reading's reserve.
 
 - **Image origin is separate from text origin.** `image_origin_id` is the earliest dated
   `same`/`resized`/`cropped` match whose latest possible first-seen time precedes **every**
-  dated verified post (including posts discovered during verification). A crawl date is an
+  dated verified post that carries the picture (role `submitted`, `origin`, `copy` or `quote`,
+  including posts discovered during verification). The author's other posts, replies and a
+  screenshotted post say nothing about when this picture appeared, so they don't bound it. A crawl date is an
   upper bound on first appearance, not a publication date: the picture is at least that old
   and may be older. For day-only crawls, the conservative upper bound is the next midnight;
-  a crawl on the same day as a post is not provably older. Without dated verified posts, the
+  a crawl on the same day as a post is not provably older. Without such posts, the
   earliest qualifying visual match can be the image origin. Without one, the field is null
   and a note explains why. It never changes `origin_id` or claims who created the picture.
   Describe differences as **edited** with the observed changes, never as a claim about intent.

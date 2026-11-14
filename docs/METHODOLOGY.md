@@ -271,7 +271,8 @@ unrelated pictures are dropped, and Nemotron describes changes in edited/cropped
 Every request has a receipt. Downloads check public DNS addresses, pin the checked IP, check
 redirects, and bound time/bytes. Optional comparison modules may be unavailable; then candidates
 remain explicitly `unknown`. The separate `image_origin_id` requires a same/resized/cropped
-match whose first-seen upper bound predates all dated verified posts. TinEye crawl dates say
+match whose first-seen upper bound predates every dated verified post that carries the picture
+(the submitted post and its copies/quotes, not the author's other posts or replies). TinEye crawl dates say
 the picture is at least that old, not when it was published or who created it; day-only dates
 use the following midnight as a conservative bound. Text origin and coordination status do
 not change. Visual differences are described as **edited**, with the observed changes.

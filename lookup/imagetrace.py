@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 import socket
 import threading
@@ -17,6 +18,8 @@ import httpx
 from lookup.models import ImageMatch
 from sources import reverse_image
 
+log = logging.getLogger(__name__)
+
 DOWNLOAD_S = 5.0
 DOWNLOAD_BYTES = 8 * 1024 * 1024
 DIFF_S = 20.0
@@ -25,13 +28,23 @@ DIFF_NEED_S = DIFF_S + 3.0
 # the image origin, so faster Yandex hits never fill the whole cap before TinEye answers
 TINEYE_RESERVE = 10
 MISSING = "variation matching is not installed on this server"
+PICTURE_ROLES = ("submitted", "origin", "copy", "quote")
 _UNSUITABLE = re.compile(
     r"\b(?:deepfakes?|fake[ds]?|manipulated|manipulation|doctored|doctoring)\b", re.I
 )
 
 
+# quoted spans ("...", “...”, '...' not inside a word): a caption quoted as evidence stays as is
+_QUOTED = re.compile(r"(\"[^\"]*\"|“[^”]*”|‘[^’]*’|(?<!\w)'[^']*'(?!\w))")
+
+
 def _wording(text: str) -> str:
-    return _UNSUITABLE.sub("edited", text or "")[:500]
+    """Our wording says "edited", never fake/deepfake/manipulated/doctored; quoted text (the
+    caption a change quotes, e.g. Caption changed to 'FAKE NEWS') is kept verbatim."""
+    parts = _QUOTED.split(text or "")
+    return "".join(
+        part if i % 2 else _UNSUITABLE.sub("edited", part) for i, part in enumerate(parts)
+    )[:500]
 
 
 def _pinned_url(raw: str) -> tuple[httpx.URL, str, str]:
@@ -93,6 +106,7 @@ class Trace:
         self.aliases: dict[str, str] = {}
         self.priorities: dict[str, tuple] = {}
         self.next_match = 1
+        self.out_of_time = False  # a call was refused by the time budget (skip, not failure)
         # ids queued for download + comparison: never evicted, never more than the cap in all
         self.admitted: set[str] = set()
         self.tried: dict[str, set[str]] = {}  # match id -> URLs already downloaded or refused
@@ -127,7 +141,13 @@ class Trace:
         with self.job.lock:
             if not self._active():
                 return None
-            self.job._spend(need_s)
+            from lookup.service import BudgetExceeded
+
+            try:
+                self.job._spend(need_s)
+            except BudgetExceeded:
+                self.out_of_time = True
+                return None
             return self.job.receipt(tool, endpoint, _wording(summary), source_url=url, ok=False)
 
     def _complete(self, rid, summary, *, ok=True, call=None, source_url=None, latency_ms=None):
@@ -330,6 +350,8 @@ class Trace:
             return None
 
     def _download(self, raw):
+        from lookup.service import UA  # service imports this module
+
         end = self.job._provider_deadline(DOWNLOAD_S)
         for _hop in range(4):
             rid = self._receipt(
@@ -355,6 +377,8 @@ class Trace:
                             "Host": authority,
                             "Accept": "image/*",
                             "Accept-Encoding": "identity",
+                            # CDNs (Wikimedia) refuse httpx's default python-httpx agent
+                            "User-Agent": UA,
                         },
                         extensions={"sni_hostname": hostname},
                     ) as response:
@@ -479,6 +503,11 @@ class Trace:
             self._step("reverse_image", "skipped", "time budget used up")
             self._step("variations", "skipped", "time budget used up")
         except Exception:
+            log.warning("image trace %s failed", self.job.result.id, exc_info=True)
+            with self.job.lock:
+                searching = self.job._step("reverse_image").state == "running"
+            if searching:
+                self._step("reverse_image", "failed", "Reverse image search unavailable")
             self._step("variations", "failed", "Image comparison unavailable")
         finally:
             with self.job.lock:
@@ -496,6 +525,7 @@ class Trace:
         skip = None
         waiting = []
         base = self.job._upload
+        describe = None
         try:
             for engine_view in (("tineye", False), ("yandex", False), ("yandex", True)):
                 pending[searches.submit(self._search, engine_view)] = "search:" + engine_view[0]
@@ -520,8 +550,11 @@ class Trace:
                             waiting.extend(self._settle_tineye())
                         self._step(
                             "reverse_image",
-                            ("done" if answered else "failed") if finished == 3 else "running",
-                            f"{answered}/3 searches answered; {len(self.matches)} candidate images",
+                            ("done" if answered else "skipped" if self.out_of_time else "failed")
+                            if finished == 3
+                            else "running",
+                            f"{answered}/3 searches answered; {len(self.matches)} candidate images"
+                            + ("; time budget used up" if self.out_of_time else ""),
                             self.matches,
                         )
                         if waiting and not initialized:
@@ -530,12 +563,15 @@ class Trace:
                                 relate = (
                                     self.job.deps.relate or import_module("media.variants").relate
                                 )
+                            except ImportError:
+                                skip = MISSING
+                            try:  # change descriptions are optional: relations stand alone
                                 describe = (
                                     self.job.deps.describe_changes
                                     or import_module("media.imagediff").describe_changes
                                 )
                             except ImportError:
-                                skip = MISSING
+                                describe = None
                             if not skip:
                                 self._step("variations", "running")
                                 if base is None:
@@ -544,7 +580,11 @@ class Trace:
                                     )
                     elif stage == "base":
                         if value is None:
-                            skip = "The submitted image could not be downloaded"
+                            skip = (
+                                "time budget used up"
+                                if self.out_of_time
+                                else "The submitted image could not be downloaded"
+                            )
                         else:
                             base, _rid = value
                     elif stage == "compare" and value is not None:
@@ -554,6 +594,7 @@ class Trace:
                             and match.id in self.matches
                             and match.relation in ("edited", "cropped")
                             and self.job.deps.nemotron
+                            and describe is not None
                             and diffs_started < max(0, self.job.deps.image_diffs_max)
                             and self._active()
                         ):
@@ -595,7 +636,8 @@ class Trace:
         self._step(
             "variations",
             "done",
-            f"{detail}; {diffs_done} change descriptions",
+            f"{detail}; {diffs_done} change descriptions"
+            + ("" if describe is not None else " (not installed on this server)"),
             [match.id for match in matches],
         )
 
@@ -619,7 +661,13 @@ class Trace:
                     match.id,
                 ),
             )
-            posts = [post.created_at for post in result.posts if post.verified and post.created_at]
+            # only verified posts that carry the picture bound it: the author's other posts,
+            # replies and a screenshotted post say nothing about when this picture appeared
+            posts = [
+                post.created_at
+                for post in result.posts
+                if post.verified and post.created_at and post.role in PICTURE_ROLES
+            ]
             origins = [
                 match
                 for match in matches
