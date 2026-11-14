@@ -1242,3 +1242,41 @@ def test_relation_numbers_are_plain_floats():
     run_trace(job)
     match = next(m for m in job.result.image_matches if m.relation == "cropped")
     assert type(match.distance) is float and all(type(v) is float for v in match.crop_box)
+
+
+@pytest.mark.parametrize(
+    "post_url",
+    [
+        "https://pbs.twimg.com/media/BCOVrUMCIAAdN5J.jpg",
+        "https://pbs.twimg.com/media/BCOVrUMCIAAdN5J?format=webp",
+        "https://pbs.twimg.com/media/BCOVrUMCIAAdN5J?format=jpg&name=small",
+    ],
+)
+def test_carrier_url_variants_still_block_the_origin(post_url):
+    """Sol r5: _x_img() adds name=large / swaps webp for jpg; a verified post showing the same
+    picture under another rendition URL must still block a later crawl from being the origin."""
+    from lookup.service import _x_img
+
+    match = replace(hit(), image_url="https://pbs.twimg.com/media/BCOVrUMCIAAdN5J.jpg")
+    job = job_for(Searches([match]))
+    job.result.posts.append(_carrier("mention", [_x_img(post_url)]))
+    run_trace(job)
+    assert job.result.image_matches[0].relation == "same"
+    assert job.result.image_origin_id is None
+
+
+def test_media_id_collapses_rendition_variants_only():
+    ids = {
+        imagetrace._media_id(u)
+        for u in (
+            "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:abc/bafkrei123@jpeg",
+            "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:abc/bafkrei123@webp",
+        )
+    }
+    assert ids == {"bsky:did:plc:abc/bafkrei123"}
+    assert imagetrace._media_id("/api/lookup/lk_1/image") == imagetrace._media_id(
+        "https://public.example/api/lookup/lk_1/image"
+    )
+    assert imagetrace._media_id("https://pbs.twimg.com/media/A.jpg") != imagetrace._media_id(
+        "https://pbs.twimg.com/media/B.jpg"
+    )

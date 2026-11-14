@@ -46,6 +46,29 @@ _QUOTED = re.compile(
 )
 
 
+_LOOKUP_IMAGE = re.compile(r"/api/lookup/([^/]+)/image$")
+_BSKY_IMAGE = re.compile(r"/img/[^/]+/plain/([^/]+)/([^/@]+)")
+
+
+def _media_id(url: str) -> str:
+    """One identity per picture rendition family, so a URL variant never hides a carrier:
+    pbs.twimg.com by media id (any format/name/extension), cdn.bsky.app by (did, cid) (any
+    size), this server's upload by lookup id, else host + path without extension, query and
+    case. Over-matching only withholds an origin claim (the honest direction)."""
+    try:
+        parsed = httpx.URL(url)
+    except Exception:
+        return url
+    host, path = (parsed.host or "").lower(), parsed.path
+    if m := _LOOKUP_IMAGE.search(path):
+        return f"lookup:{m.group(1)}"
+    if host == "pbs.twimg.com":
+        return "twimg:" + path.rsplit("/", 1)[-1].split(".", 1)[0]
+    if host == "cdn.bsky.app" and (m := _BSKY_IMAGE.search(path)):
+        return f"bsky:{m.group(1)}/{m.group(2)}"
+    return f"{host}{re.sub(r'\.[A-Za-z0-9]{2,5}$', '', path)}".lower()
+
+
 def _num(value):
     return None if value is None else float(value)
 
@@ -681,8 +704,8 @@ class Trace:
             # only verified posts that may carry the picture bound it: the subject or a copy of
             # it with an image, or any post whose image URL is one of the picture's own copies.
             # Text-only copies, the author's other posts and replies don't date this picture.
-            own = {self.query_url} | {
-                url
+            own = {_media_id(self.query_url)} | {
+                _media_id(url)
                 for match in matches
                 if match.relation in ("same", "resized", "cropped")
                 for url in (match.image_url, match.thumb_url)
@@ -694,7 +717,7 @@ class Trace:
                 if post.verified
                 and post.created_at
                 and post.media_urls
-                and (post.role in PICTURE_ROLES or own & set(post.media_urls))
+                and (post.role in PICTURE_ROLES or own & {_media_id(u) for u in post.media_urls})
             ]
             origins = [
                 match
