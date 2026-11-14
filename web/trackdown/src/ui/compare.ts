@@ -58,15 +58,27 @@ function swap(region: HTMLElement, html: string) {
   if (focused) (region.querySelector<HTMLElement>(href ? `a[href="${CSS.escape(href)}"]` : "a,button") ?? region.closest<HTMLElement>("dialog")?.querySelector<HTMLElement>(".meme-close"))?.focus();
 }
 
-function renderVariant(dialog: HTMLElement, match: ImageMatch) {
+/** Replace a plane's picture when what it shows changed. A replaced frame that held focus hands it to
+ *  its new fallback link when one is showing, else to the dialog's close button, never to the page. */
+function setPicture(plane: HTMLElement, key: string, html: string) {
+  if (plane.dataset.picture === key) return false;
+  const old = plane.querySelector(".meme-image");
+  const focused = !!old && old.contains(document.activeElement);
+  plane.dataset.picture = key;
+  old?.remove();
+  plane.insertAdjacentHTML("beforeend", html);
+  if (focused) (plane.querySelector<HTMLElement>(".meme-image-fallback:not([hidden]) a") ?? plane.closest("dialog")?.querySelector<HTMLElement>(".meme-close"))?.focus();
+  return true;
+}
+
+/** Both pictures (the submission's source can arrive after the dialog opened) and the boxes over them. */
+function renderPictures(dialog: HTMLElement, trace: TraceCase, match: ImageMatch) {
+  const upload = dialog.querySelector<HTMLElement>(".meme-upload")!;
+  const source = comparisonSource(trace);
+  setPicture(upload, source ?? "", memeImage({ image_url: source, relation_note: "Submitted image", domain: "submitted source" }));
   const plane = dialog.querySelector<HTMLElement>(".meme-variant")!;
   plane.querySelector("h3")!.textContent = variantHeading(match);
-  const key = pictureKey(match);
-  if (plane.dataset.picture !== key) {
-    plane.dataset.picture = key;
-    plane.querySelector(".meme-image")?.remove();
-    plane.insertAdjacentHTML("beforeend", memeImage({ ...match, relation_note: imageAlt(match) }));
-  } else {
+  if (!setPicture(plane, pictureKey(match), memeImage({ ...match, relation_note: imageAlt(match) }))) {
     const image = plane.querySelector("img");
     if (image) image.alt = imageAlt(match);
   }
@@ -84,7 +96,7 @@ export function refreshComparison(trace: TraceCase) {
   const match = trace.lookup?.image_matches?.find((candidate) => candidate.id === active!.dataset.match);
   if (!match) return;
   active.querySelector("#meme-compare-title")!.textContent = titleText(match);
-  renderVariant(active, match);
+  renderPictures(active, trace, match);
   swap(active.querySelector<HTMLElement>(".meme-comparison-facts")!, factsHtml(match));
   swap(active.querySelector<HTMLElement>(".meme-changes")!, changesHtml(trace, match));
 }
@@ -103,7 +115,7 @@ export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLEle
     <div class="meme-compare-body">
       <div class="meme-modes" role="group" aria-label="Comparison layout"><button data-view="side" aria-pressed="true">Side by side</button><button data-view="overlay" aria-pressed="false">Slider overlay</button></div>
       <div class="meme-comparison" data-view="side" style="--reveal:50%">
-        <section class="meme-plane meme-upload"><h3>Submission</h3>${memeImage({ image_url: comparisonSource(trace), relation_note: "Submitted image", domain: "submitted source" })}</section>
+        <section class="meme-plane meme-upload"><h3>Submission</h3></section>
         <section class="meme-plane meme-variant"><h3></h3></section>
         <div class="meme-slider-line" aria-hidden="true"></div>
       </div>
@@ -113,7 +125,7 @@ export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLEle
       <div class="meme-comparison-facts">${factsHtml(match)}</div>
       <section class="meme-changes" aria-live="polite">${changesHtml(trace, match)}</section>
     </div>`;
-  renderVariant(dialog, match);
+  renderPictures(dialog, trace, match);
   document.body.append(dialog);
   const comparison = dialog.querySelector<HTMLElement>(".meme-comparison")!;
   const slider = dialog.querySelector<HTMLElement>(".meme-slider")!;

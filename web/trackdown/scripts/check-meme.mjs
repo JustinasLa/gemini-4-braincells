@@ -14,8 +14,14 @@ check("image matches flow through lookupCase with original styling and variant e
   assert.equal(trace.edges.length, 6);
   assert.ok(trace.edges.every((edge) => edge.from === "img:origin" && edge.rel === "variant"));
   assert.ok(trace.edges.some((edge) => edge.to === fixture.subject_id), "the submission hangs off the image original");
-  assert.equal(trace.originId, "img:origin");
+  assert.equal(trace.originId, "", "a crawl-dated original is no trace origin: no age is derived from it");
   assert.ok(trace.nodes.find((node) => node.id === "img:origin").undated, "a crawl date is not shown as a publication time");
+  const paged = structuredClone(fixture);
+  paged.image_matches.find((match) => match.id === "img:origin").time_source = "page";
+  assert.equal(api.lookupCase(paged).originId, "img:origin", "a page-dated original before the post is the origin");
+  const upload = { ...structuredClone(paged), kind: "image" };
+  upload.posts[0].created_at = null;
+  assert.equal(api.lookupCase(upload).originId, "", "an upload has no time of its own, so no age either");
   assert.ok(!trace.nodes.find((node) => node.id === "img:edited").undated, "a page date is");
   assert.ok(!trace.nodes.some((node) => node.id === "img:different"));
   assert.ok(!trace.steps.flatMap((step) => step.found).includes("img:different"));

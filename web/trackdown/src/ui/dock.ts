@@ -256,7 +256,7 @@ export class Dock {
       const v = String(Math.round(this.u * 1000));
       if (this.slider.value !== v && document.activeElement !== this.slider) this.slider.value = v;
       // the real post shown in a screenshot is not a copy: it never sets "the earliest copy"
-      const copies = g.nodes.filter((n) => n.d.role !== "screenshotted").map((n) => n.d.t);
+      const copies = g.nodes.filter((n) => n.d.role !== "screenshotted" && !n.d.undated && !n.d.timeUnknown).map((n) => n.d.t);
       const firstCopy = copies.length ? Math.min(...copies) : first;
       const r2 = Math.abs(t - firstCopy) < 1000 ? "At the earliest copy" : t < firstCopy ? `Playhead: ${fmtDur(firstCopy - t)} before the earliest copy` : `Playhead: ${fmtDur(t - firstCopy)} after the earliest copy`;
       if (rel.textContent !== r2) rel.textContent = r2;

@@ -126,7 +126,11 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
   const validIds = new Set([...trace.nodes, ...nodes].map((node) => node.id));
   return {
     ...trace, nodes: [...trace.nodes, ...nodes],
-    originId: trace.originId || origin?.id || "", // a post origin, when the lookup found one, stays the origin
+    // a post origin, when the lookup found one, stays the origin. The image original becomes the trace
+    // origin only when both it and the submission have real times (page / post id): the origin feeds
+    // "Earliest → submitted", the earliest-copy line and the dock mark, which would otherwise turn a
+    // TinEye crawl date (an upper bound) or a lookup start time into an asserted age
+    originId: trace.originId || (origin && !origin.undated && submitted && !submitted.undated && !submitted.timeUnknown && origin.t <= submitted.t ? origin.id : ""),
     edges: [...trace.edges.filter((edge) => edge.rel !== "variant" || (!ids.has(edge.to) && !ids.has(edge.from))), ...edges],
     steps: trace.steps.map((step) => ({ ...step, found: [...new Set([...(step.found ?? []), ...(trace.lookup!.steps.find((raw) => raw.id === step.id)?.found ?? []).filter((id) => validIds.has(id))])] })),
   };
