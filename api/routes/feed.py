@@ -25,11 +25,6 @@ LABEL = {
     "insufficient": "Can’t tell",
     "likely_organic": "Likely organic",
 }
-FEED_TITLE = {
-    "coordinated": "Noise Radar: new coordinated clusters",
-    "insufficient": "Noise Radar: new can’t-tell clusters",
-    "likely_organic": "Noise Radar: new likely-organic clusters",
-}
 ID_PREFIX = "tag:noise-radar,2026-11-13:"
 DISCLAIMER = (
     "A cluster is evidence of coordinated behaviour, not proof of who is behind it or why. "
@@ -37,7 +32,7 @@ DISCLAIMER = (
 )
 
 # XML 1.0 forbids most control characters; detector and model text can carry them.
-_XML_BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+_XML_BAD = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
 
 
 def _clean(text: object) -> str:
@@ -52,6 +47,17 @@ def public_base(request: Request) -> str:
     proto = proto if proto in ("http", "https") else request.url.scheme
     host = host or request.headers.get("host") or request.url.netloc
     return f"{proto}://{host}"
+
+
+def _utc(t: datetime) -> datetime:
+    """Naive values are UTC (as the DB stores them); aware ones are converted."""
+    return t.replace(tzinfo=UTC) if t.tzinfo is None else t.astimezone(UTC)
+
+
+def _window(c: ClusterSummary) -> str:
+    start, end = _utc(c.window_start), _utc(c.window_end)
+    end_fmt = "%H:%M" if end.date() == start.date() else "%Y-%m-%d %H:%M"
+    return f"{start:%Y-%m-%d %H:%M}–{end:{end_fmt}} UTC"
 
 
 def _num(x: float | None, fmt: str) -> str | None:
@@ -79,16 +85,22 @@ def entry_text(c: ClusterSummary) -> str:
         f"coordination score {_num(c.score, '.2f')}",
         f"timing p-value {_num(c.p_value, '.3g')}" if c.p_value is not None else None,
         f"{c.window_kind} window" if c.window_kind else None,
-        f"{c.window_start:%Y-%m-%d %H:%M}–{c.window_end:%H:%M} UTC",
+        _window(c),
     ]
     lines.append("; ".join(f for f in facts if f) + ".")
     if stale:
         lines.append("Gemini reviewed this cluster before the detector's call changed.")
-    elif v and v.agrees_with_detector is False and v.llm_assessment:
-        lines.append(
-            f"Gemini reads it differently ({LABEL.get(v.llm_assessment)}); "
-            "the detector's call stands."
-        )
+    elif v:
+        # Same rule as the dashboard's opinionOf(): older verdicts have no agrees_with_detector.
+        call = v.llm_assessment or v.status
+        agrees = v.agrees_with_detector
+        if agrees is None:
+            agrees = call == c.status
+        if not agrees:
+            lines.append(
+                f"Gemini reads it differently ({LABEL.get(call, call)}); "
+                "the detector's call stands."
+            )
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
@@ -96,11 +108,11 @@ def entry_text(c: ClusterSummary) -> str:
 def _updated(c: ClusterSummary) -> datetime:
     # Analyst verdicts land later without touching clusters.updated_at.
     times = [c.updated_at or c.window_end] + ([c.verdict.created_at] if c.verdict else [])
-    return max(t if t.tzinfo else t.replace(tzinfo=UTC) for t in times)
+    return max(_utc(t) for t in times)
 
 
 def _iso(t: datetime) -> str:
-    return t.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    return _utc(t).isoformat().replace("+00:00", "Z")
 
 
 def _sub(parent: ET.Element, tag: str, text: str | None = None, **attrs: str) -> ET.Element:
@@ -116,7 +128,7 @@ def build_feed(
     ET.register_namespace("", ATOM_NS)
     feed = ET.Element(f"{{{ATOM_NS}}}feed")
     _sub(feed, "id", f"{ID_PREFIX}feed/{status}")
-    _sub(feed, "title", FEED_TITLE.get(status, f"Noise Radar: new {status} clusters"))
+    _sub(feed, "title", f"Noise Radar: new {LABEL[status].lower()} clusters")
     _sub(
         feed,
         "subtitle",
@@ -156,7 +168,9 @@ def clusters_feed(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     include_synthetic: bool = False,
 ) -> Response:
-    """Atom 1.0 feed of the newest clusters with one detector status (default `coordinated`)."""
+    """Atom 1.0 feed of the newest clusters with one detector status (default `coordinated`).
+    Newest window first, like /api/clusters: a detector call change moves `window_end` to the
+    current window (signals/store.py), so a newly called cluster comes to the top."""
     clusters = store.list_clusters(
         status=status, min_score=min_score, limit=limit, include_synthetic=include_synthetic
     )
@@ -172,5 +186,9 @@ def clusters_feed(
     return Response(
         body,
         media_type="application/atom+xml; charset=utf-8",
-        headers={"Cache-Control": "public, max-age=60"},
+        # Links are built from these request headers, so shared caches must key on them.
+        headers={
+            "Cache-Control": "public, max-age=60",
+            "Vary": "Host, X-Forwarded-Host, X-Forwarded-Proto",
+        },
     )

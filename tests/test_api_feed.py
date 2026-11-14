@@ -179,3 +179,33 @@ def test_verdict_for_an_earlier_call_is_not_shown_as_current(make_client):
     assert "Not enough to call it." not in text
     assert "reads it differently" not in text
     assert "Gemini reviewed this cluster before the detector's call changed." in text
+
+
+def test_older_verdict_without_agree_flag_follows_dashboard_rule(make_client):
+    # Before agrees_with_detector existed: the dashboard compares llm_assessment to the status.
+    v = VerdictBrief(
+        status="coordinated", confidence=0.5, created_at=T1, llm_assessment="insufficient"
+    )
+    c, _ = make_client([cluster(6, verdict=v)])
+    text = parse(c.get("/api/feed.atom")).find("a:entry/a:summary", NS).text
+    assert "Gemini reads it differently (Can’t tell); the detector's call stands." in text
+
+
+def test_window_text_is_utc_and_dates_a_window_across_midnight(make_client):
+    from datetime import timedelta, timezone
+
+    helsinki = timezone(timedelta(hours=2))
+    start = datetime(2026, 11, 14, 1, 30, tzinfo=helsinki)  # 23:30 UTC on the 13th
+    end = datetime(2026, 11, 14, 2, 30, tzinfo=helsinki)  # 00:30 UTC on the 14th
+    c, _ = make_client([cluster(8, window_start=start, window_end=end, updated_at=None)])
+    res = c.get("/api/feed.atom")
+    entry = parse(res).find("a:entry", NS)
+    assert "2026-11-13 23:30–2026-11-14 00:30 UTC" in entry.find("a:summary", NS).text
+    assert entry.find("a:published", NS).text == "2026-11-14T00:30:00Z"
+    assert "X-Forwarded-Host" in res.headers["vary"]
+
+
+def test_feed_title_per_status(make_client):
+    c, _ = make_client([])
+    feed = parse(c.get("/api/feed.atom", params={"status": "insufficient"}))
+    assert feed.find("a:title", NS).text == "Noise Radar: new can’t tell clusters"
