@@ -70,6 +70,7 @@ _REL_UNIT = {
     "year": 31557600,
 }
 SHORTENERS = {"t.co", "bit.ly", "buff.ly", "ow.ly", "tinyurl.com", "dlvr.it", "trib.al", "lnkd.in"}
+MEDIA_HOSTS = {"pbs.twimg.com", "cdn.bsky.app", "video.bsky.app"}
 UA = "Mozilla/5.0 (compatible; shill-or-chill-lookup/1.0)"
 _BSKY_POST = re.compile(r"https?://bsky\.app/profile/([^/\s?#]+)/post/([a-z0-9]+)")
 
@@ -695,14 +696,17 @@ class Lookup:
 
     # ---------------------------------------------------------------- pages
     def _resolve(self, url: str) -> str:
-        """t.co and other shorteners -> the page they point to (Oxylabs rejects some of them)."""
-        if domain(url) not in SHORTENERS:
+        """t.co and other shorteners -> the page they point to (Oxylabs rejects some of them).
+
+        Reads only the shortener's own redirect (Location header, no redirect is followed), so
+        the server never requests the target itself: no SSRF through a short link."""
+        if domain(url) not in SHORTENERS or not url.startswith("https://"):
             return url
-        http = self.deps.http or httpx.Client(timeout=10, follow_redirects=True)
+        http = self.deps.http or httpx.Client(timeout=10)
         try:
-            res = http.head(url, follow_redirects=True, headers={"user-agent": UA})
-            final = str(res.url)
-            return final if final.startswith("http") else url
+            res = http.head(url, follow_redirects=False, headers={"user-agent": UA})
+            loc = res.headers.get("location", "")
+            return loc if res.is_redirect and loc.startswith(("https://", "http://")) else url
         except httpx.HTTPError:
             return url
 
@@ -1017,14 +1021,15 @@ class Lookup:
         with self.step("media") as st:
             from media.nemotron import MediaInput, is_vl_model
 
-            http = self.deps.http or httpx.Client(timeout=20, follow_redirects=True)
+            http = self.deps.http or httpx.Client(timeout=20, follow_redirects=False)
             texts, read = [], 0
             for url in urls:
+                if domain(url) not in MEDIA_HOSTS or not url.startswith("https://"):
+                    continue  # only the platforms' own image CDNs are downloaded
                 own_media = "/card_img/" not in url  # link-card thumbnails: describe only
-                res = http.get(url)
-                res.raise_for_status()
-                data = res.content[: 10 * 1024 * 1024]
-                mime = res.headers.get("content-type", "image/jpeg").split(";")[0]
+                data, mime = _download_image(http, url)
+                if data is None:
+                    continue
                 h = hashlib.sha256(data).hexdigest()
                 started = time.monotonic()
                 a = self.deps.nemotron.analyze(
@@ -1241,6 +1246,24 @@ class Lookup:
             with self.lock:
                 self.result.assessment = a
             st.detail = f"{a.model} · cites {len(a.cites)} receipts · receipt #{rid}"
+
+
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+def _download_image(http: httpx.Client, url: str) -> tuple[bytes | None, str]:
+    """Stream at most MAX_IMAGE_BYTES of an image; (None, '') if it isn't an image or too big."""
+    with http.stream("GET", url, headers={"user-agent": UA}) as res:
+        res.raise_for_status()
+        mime = res.headers.get("content-type", "").split(";")[0].strip()
+        if not mime.startswith("image/"):
+            return None, ""
+        buf = bytearray()
+        for chunk in res.iter_bytes():
+            buf += chunk
+            if len(buf) > MAX_IMAGE_BYTES:
+                return None, ""
+    return bytes(buf), mime
 
 
 def _spread(posts: list[Post]) -> Spread | None:
