@@ -39,6 +39,7 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
     ${state.searching ? '<p class="meme-scanning" role="status">Searching for earlier copies…</p>' : ""}
     ${original ? `${button(original.id, domainOf(original), firstSeenLabel(original))}<p class="meme-note">Earliest match returned, not proof of the first publication or authorship.</p>` : state.noEarlier ? '<p class="meme-empty">No earlier copy found</p>' : !state.searching ? '<p class="meme-note">No original established.</p>' : ""}
     ${state.failures.map((failure) => `<p class="meme-failure" role="status">${esc(failure)}</p>`).join("")}
+    ${state.skipped.map((note) => `<p class="meme-note">${esc(note)}</p>`).join("")}
     <h3>Variations <span class="meme-count">${count}</span></h3>
     ${state.comparing ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}
     ${state.groups.filter((group) => group.matches.length).map((group) => `<div class="meme-group meme-${group.relation}"><h4>${humanLabel(group.relation)} <span>${group.matches.length}</span></h4>${group.matches.map((match) => button(match.id, domainOf(match), match.relation_note || firstSeenLabel(match))).join("")}</div>`).join("")}

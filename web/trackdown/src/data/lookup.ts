@@ -346,7 +346,8 @@ export const readingsDisagree = (result: LookupResult) => result.readings_disagr
 export const modelTool = (model: string | null | undefined): Tool => /nemotron/i.test(model ?? "") ? "nemotron" : /gemini/i.test(model ?? "") ? "gemini" : "archive";
 
 const toolFor = (tool: string): Tool => {
-  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you"].includes(tool)) return tool as Tool;
+  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you", "fetch"].includes(tool)) return tool as Tool;
+  if (tool === "tineye" || tool === "yandex") return "oxylabs"; // reverse-image engines, read through Oxylabs /scrape
   return "archive";
 };
 const timeOf = (value: string | null): number | undefined => {

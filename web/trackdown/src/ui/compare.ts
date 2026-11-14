@@ -1,4 +1,4 @@
-import { domainOf, engineLabel, firstSeenLabel, humanLabel, imageAlt, normalizedBox, pageUrl, relationOf, type ImageMatch } from "../data/imageTrace";
+import { boxFrame, domainOf, engineLabel, firstSeenLabel, humanLabel, imageAlt, normalizedBox, pageUrl, relationOf, type ImageMatch } from "../data/imageTrace";
 import { uploadUrl } from "../data/lookup";
 import type { TraceCase } from "../types";
 import { esc } from "./format";
@@ -13,8 +13,15 @@ export function comparisonSource(trace: TraceCase): string | undefined {
   return result.posts.find((post) => post.id === result.subject_id)?.media_urls?.[0];
 }
 
-function boxes(match: ImageMatch): string {
-  return ([ [match.edited_region, "edited", "Edited region"], [match.crop_box, "crop", "Crop of the original"] ] as const).map(([raw, kind, label]) => {
+/** The boxes drawn on one side. Fraction boxes (relate(upload, match)) live in the upload's frame; the
+ *  edited region is also drawn on the match, which an "edited" relation has aligned with the upload.
+ *  Pixel boxes are in the match's own frame. */
+function boxes(match: ImageMatch, side: "upload" | "match"): string {
+  const drawn = ([
+    [match.edited_region, "edited", "Edited region", true],
+    [match.crop_box, "crop", side === "upload" ? "Part the match shows" : "Crop", false],
+  ] as const).filter(([raw, , , both]) => boxFrame(raw) === side || (both && boxFrame(raw) === "upload"));
+  return drawn.map(([raw, kind, label]) => {
     const box = normalizedBox(raw, match.width, match.height);
     return box ? `<span class="meme-region meme-region-${kind}" style="left:${box[0]}%;top:${box[1]}%;width:${box[2]}%;height:${box[3]}%"><span>${label}</span></span>` : "";
   }).join("");
@@ -63,9 +70,11 @@ function renderVariant(dialog: HTMLElement, match: ImageMatch) {
     const image = plane.querySelector("img");
     if (image) image.alt = imageAlt(match);
   }
-  const frame = plane.querySelector(".meme-image")!;
-  frame.querySelectorAll(".meme-region").forEach((region) => region.remove());
-  frame.insertAdjacentHTML("beforeend", boxes(match));
+  for (const [selector, side] of [[".meme-variant", "match"], [".meme-upload", "upload"]] as const) {
+    const frame = dialog.querySelector(`${selector} .meme-image`)!;
+    frame.querySelectorAll(".meme-region").forEach((region) => region.remove());
+    frame.insertAdjacentHTML("beforeend", boxes(match, side));
+  }
 }
 
 /** Live update of an open comparison: every field that depends on the match, without touching the
@@ -99,8 +108,8 @@ export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLEle
         <div class="meme-slider-line" aria-hidden="true"></div>
       </div>
       <label class="meme-slider" hidden>Reveal match <output>50%</output><input type="range" min="0" max="100" value="50" aria-label="Reveal matched image" aria-valuetext="50 percent match revealed"></label>
-      <div class="meme-box-key"><span>Solid green: edited region</span><span>Dashed white: crop of the original</span></div>
-      <p class="meme-note">Boxes use the matched image’s coordinates. Slider alignment is visual only, not an image registration.</p>
+      <div class="meme-box-key"><span>Solid green: edited region</span><span>Dashed white: the part of the submission a cropped match shows</span></div>
+      <p class="meme-note">Boxes come from the pixel comparison of the two images. Slider alignment is visual only, not an image registration.</p>
       <div class="meme-comparison-facts">${factsHtml(match)}</div>
       <section class="meme-changes" aria-live="polite">${changesHtml(trace, match)}</section>
     </div>`;

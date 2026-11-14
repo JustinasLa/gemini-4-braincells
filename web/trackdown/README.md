@@ -151,7 +151,11 @@ Optional `image_matches` add an earliest-match Original card and grouped variati
 timeline and panel. Select a variation to compare the submission with it (side by side or a keyboard
 slider; slider on phones). Image dates say “first seen by TinEye” (an upper bound, not publication),
 “page dated”, “time from post id”, or “date unknown”; an upload never becomes its own origin.
-Descriptions are Nemotron’s reading, not verified facts. Say “edited”, “changed”, “variation”, never
+Descriptions are Nemotron’s reading, not verified facts. Boxes from the pixel comparison are 0..1 fractions of
+the submission (`media.variants.relate(upload, match)`): the edited region is drawn on both images,
+a crop box marks the part of the submission a cropped match shows. The section appears only when
+there is an image search to report (the server always sends `image_matches`, `[]` by default, and
+skips both steps for inputs without an image). Say “edited”, “changed”, “variation”, never
 “fake”, “deepfake”, or claims about intent. Different-looking matches are not counted as variations.
 Dev-only `?mockLookup=meme`, `?mockLookup=meme-empty`, `?mockLookup=meme-failed`, and
 `?mockLookup=meme-blocked` show fictional `.example` results and self-contained images, including
