@@ -41,7 +41,9 @@ Write a short, plain reading for a general audience:
   matches (label matches | differs | not_found | unchecked, with the reason and differences).
   not_found means the post may be deleted, private or never posted; never say it was faked.
   Counts in a screenshot are context only (they change). The label describes the screenshot,
-  not a person. Cite the screenshot's receipt_ids when you mention it.
+  not a person. Cite the screenshot's receipt_ids when you mention it. A screenshot that
+  matches was checked against the real post itself: that outweighs any visual cue from the
+  image reading, and its shown date is the real post's date (never call it a "future" date).
 - llm_reading: "organic_looking", "copy_campaign_looking" or "unclear". This is your reading,
   shown as such; it is NOT the verdict. Many accounts posting the same words in minutes, new or
   templated accounts, and no organic explanation lean to copy_campaign_looking; a well-known

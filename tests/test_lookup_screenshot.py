@@ -452,3 +452,22 @@ def test_a_check_still_running_at_the_cutoff_leaves_a_failed_receipt(monkeypatch
     [rid] = rec.receipt_ids
     r = next(x for x in job.result.receipts if x.id == rid)
     assert r.ok is False and "no answer within the time budget" in r.summary
+
+
+def test_date_judgement_cues_are_dropped_from_the_image_reading(monkeypatch):
+    class CueNemotron(FakeNemotron):
+        def analyze(self, media, *, context=None):
+            a = super().analyze(media, context=context)
+            from dataclasses import replace
+
+            return replace(
+                a,
+                manipulation_cues=[
+                    "Future date (Nov 14, 2026) suggests fabricated or mock-up context",
+                    "Cropped edges",
+                ],
+            )
+
+    job = _run(monkeypatch, CueNemotron())
+    [m] = job.result.media
+    assert m.manipulation_cues == ["Cropped edges"]

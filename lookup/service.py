@@ -1787,6 +1787,7 @@ class Lookup:
         the exception. A known image (same URL or bytes, same post text as context) is not
         read again: its receipt says cached and keeps the time of the original reading."""
         from media.nemotron import MediaInput, is_vl_model
+        from media.screenshot import judges_date
 
         try:
             cache, by_url = self.deps.media_cache, self.deps.media_urls
@@ -1852,7 +1853,9 @@ class Lookup:
                     description=a.description,
                     extracted_text=a.extracted_text,
                     reuse_cues=a.reuse_cues,
-                    manipulation_cues=a.manipulation_cues,
+                    # "a future date suggests a mock-up" judges the date against the model's
+                    # training cutoff, not the image: dropped (media/screenshot.py)
+                    manipulation_cues=[c for c in a.manipulation_cues if not judges_date(c)],
                     confidence=a.confidence,
                     model=a.model,
                     latency_ms=a.latency_ms,
