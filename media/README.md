@@ -12,9 +12,8 @@ graphics) and lists cautious manipulated-context cues. Each result becomes an
   each media evidence id, model id, description, bounded OCR (up to 600 characters), reuse and
   manipulation cues, account/post counts, and OCR-template shared/varying tokens and image counts.
   It can cite these rows like any other evidence; OCR is not proof of authorship or coordination.
-- **Link lookup (`lookup/`, incoming on `dev/lookup`).** The lookup path sends the images of a
-  submitted X/Bluesky post to Nemotron, then searches the OCR text to find where a screenshot
-  circulates. This integration is being merged separately; it is not part of this worker change.
+- **Link lookup (`lookup/`).** The lookup path sends the images of a submitted X/Bluesky post
+  to Nemotron, then searches the OCR text to find where a screenshot circulates.
 
 ```
 python -m media model                  # served model id + root, and the VL check
