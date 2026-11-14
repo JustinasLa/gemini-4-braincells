@@ -1194,34 +1194,58 @@ def test_real_rate_limiter_reserves_and_sleeps_within_budget(images):
     "sentence",
     [
         "The top label changed from 'A: earlier' to 'B: later'.",  # live, lk_a83a7c2ff47c2545
-        "The label 'A: earlier' was replaced with 'B: later'.",
-        "The text 'earlier' at the top was replaced with 'later'.",
-        "The heading A: earlier became B: later.",
+        "The label \u201cA: Earlier\u201d was replaced with \u201cB: later\u201d.",
+        'The text "B: later" was added at the top.',
     ],
 )
-def test_panel_label_changes_are_dropped(images, sentence):
+@pytest.mark.parametrize("layout", ["composite", "pair"])
+def test_panel_label_changes_dropped_only_in_composite(images, sentence, layout):
     payload = {
         **FULL,
         "changes": [sentence, *FULL["changes"]],
         "kinds": ["caption_changed", "caption_changed"],
     }
-    result, _ = compare(images, payload, layout="composite")
-    assert result.changes == FULL["changes"] and result.kinds == ["caption_changed"]
+    result, _ = compare(images, payload, layout=layout)
+    if layout == "composite":
+        assert result.changes == FULL["changes"] and result.kinds == ["caption_changed"]
+    else:  # no labels drawn: it is image text
+        assert result.changes[0] == sentence
 
 
-def test_panel_labels_removed_from_transcriptions(images):
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The caption changed from 'LATER' to 'NOW'.",
+        "The caption changed from \u201cLater\u201d to \u201cTomorrow\u201d.",
+        "The caption changed from 'Plan A: earlier start' to 'Plan B: later start'.",
+        "The caption changed from 'SEE YOU LATER' to 'SEE YOU SOON'.",
+        "The sunflower inset was removed in the later version.",
+    ],
+)
+def test_real_text_resembling_labels_is_kept(images, sentence):
     payload = {
         **FULL,
-        "text_before": ["A: earlier", "A:", "earlier", "A: earlier THEY SAID", "LATER THAT DAY"],
-        "text_after": ["B: later", "B: Later WAS AN ACCIDENT", "later"],
+        "changes": [sentence],
+        "kinds": ["caption_changed"],
+        "text_before": ["LATER", "Later", "Plan A: earlier start", "SEE YOU LATER"],
+        "text_after": ["NOW", "Tomorrow", "Plan B: later start", "SEE YOU SOON"],
     }
     result, _ = compare(images, payload, layout="composite")
-    assert result.text_before == ["THEY SAID", "LATER THAT DAY"]
-    assert result.text_after == ["WAS AN ACCIDENT"]
-
-
-def test_prose_later_is_not_a_label(images):
-    sentence = "The sunflower inset was removed in the later version."
-    payload = {**FULL, "changes": [sentence], "kinds": ["element_removed"]}
-    result, _ = compare(images, payload)
     assert result.changes == [sentence]
+    assert result.text_before == payload["text_before"]
+    assert result.text_after == payload["text_after"]
+
+
+@pytest.mark.parametrize("layout", ["composite", "pair"])
+def test_exact_label_lines_removed_from_transcriptions_in_composite(images, layout):
+    payload = {
+        **FULL,
+        "text_before": ["A: earlier", " a : Earlier ", "THEY SAID", "LATER"],
+        "text_after": ["B: later", "WAS AN ACCIDENT"],
+    }
+    result, _ = compare(images, payload, layout=layout)
+    if layout == "composite":
+        assert result.text_before == ["THEY SAID", "LATER"]
+        assert result.text_after == ["WAS AN ACCIDENT"]
+    else:
+        assert result.text_before == ["A: earlier", "a : Earlier", "THEY SAID", "LATER"]

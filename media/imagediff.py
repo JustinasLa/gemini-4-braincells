@@ -129,13 +129,9 @@ _NO_CHANGE_FORMS = tuple(
     )
 )
 # The composite's own panel labels, read back as image text or as an edit (live, prod lookup
-# lk_a83a7c2ff47c2545: "The top label changed from 'A: earlier' to 'B: later'.").
-_LABEL = re.compile(
-    r"(?<!\w)[AB]\s*:\s*(?:earlier|later)\b"
-    r"|(?<!\w)['\"\u2018\u201c](?:earlier|later)['\"\u2019\u201d]",
-    re.I,
-)
-_LABEL_LINE = re.compile(r"\s*(?:[AB]\s*:\s*)?(?:earlier|later)?\s*", re.I)
+# lk_a83a7c2ff47c2545: "The top label changed from 'A: earlier' to 'B: later'."). Only the
+# exact label text counts: a real caption "LATER" or "Plan A: earlier start" is image text.
+_LABEL = re.compile(r"\s*[AB]\s*:\s*(?:earlier|later)\s*", re.I)
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
 # Larger inputs are refused from the header, before decoding (decompression bombs). This is far
@@ -369,18 +365,24 @@ def _part(image: Image.Image) -> dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}}
 
 
-def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> ImageDiff:
+def _normalise(
+    payload: dict[str, Any], model: str, *, marked: bool = False, labelled: bool = False
+) -> ImageDiff:
     """Keep kinds aligned 1:1: padding, drops and deduplication follow original change indices.
 
     ``marked``: we drew a red edited_region box on B, so a change about a red box is ours.
+    ``labelled``: we drew the "A: earlier" / "B: later" panel labels (composite layout).
     """
     raw = payload.get("changes")
     if not isinstance(raw, str | list):
         raise ValueError("changes must be a string or list")
     raw = [raw] if isinstance(raw, str) else raw
     sentences = [" ".join(" ".join(_strings([value])).split()) for value in raw]
-    before = _without_labels(_strings(payload.get("text_before"), limit=20))
-    after = _without_labels(_strings(payload.get("text_after"), limit=20))
+    before = [text[:300] for text in _strings(payload.get("text_before"), limit=20)]
+    after = [text[:300] for text in _strings(payload.get("text_after"), limit=20)]
+    if labelled:  # a transcribed line that is exactly one of our labels
+        before = [text for text in before if not _LABEL.fullmatch(text)]
+        after = [text for text in after if not _LABEL.fullmatch(text)]
     flags = [flag.lower() for flag in _strings(payload.get("content_flags"))]
     _, flags = safe_description(" ".join(sentences + before + after), flags)
     kinds = payload.get("kinds", [])
@@ -394,7 +396,7 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
         if (
             not sentence
             or _FORBIDDEN.search(unquoted)
-            or _LABEL.search(sentence)  # our own "A: earlier" / "B: later" panel labels
+            or (labelled and _cites_label(sentence))
             or _says_no_change(sentence)
             or (marked and _MARKER.search(unquoted))
         ):
@@ -438,14 +440,9 @@ def _words(text: str) -> list[str]:
     return _WORD.findall(text.casefold())
 
 
-def _without_labels(lines: list[str]) -> list[str]:
-    """Transcribed lines without our panel labels (an entry that is only a label is dropped)."""
-    out = []
-    for line in lines:
-        line = " ".join(_LABEL.sub(" ", line).split())
-        if line and not _LABEL_LINE.fullmatch(line):
-            out.append(line[:300])
-    return out
+def _cites_label(sentence: str) -> bool:
+    """A quoted span of the sentence is exactly one of our panel labels ('A: earlier')."""
+    return any(_LABEL.fullmatch(m.group()[1:-1]) for m in _QUOTE.finditer(sentence))
 
 
 def _says_no_change(sentence: str) -> bool:
@@ -585,7 +582,7 @@ def describe_changes(
         if getattr(choice, "finish_reason", None) == "length":
             raise ValueError("comparison cut off at max_tokens")
         payload = parse_content(choice.message.content)
-        result = _normalise(payload, response.model, marked=marked)
+        result = _normalise(payload, response.model, marked=marked, labelled=layout == "composite")
         latency = log_call_attempt(
             model=model,
             media_hash=media_hash,

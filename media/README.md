@@ -248,11 +248,11 @@ worker, is logged at ERROR here.
   a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported but scare quotes are not exempt. A
   sentence that is only a plain no-change statement ("The background is unchanged.", "Nothing
   else changed.") is dropped. A compound sentence is kept even if part of it says nothing
-  changed: dropping a real edit would wrongly report no change. The composite's own panel labels
-  are never reported: a sentence citing "A: earlier" / "B: later" (or a quoted 'earlier' /
-  'later') is dropped, and the labels are removed from `text_before` / `text_after` (seen once
-  live in prod, lookup `lk_a83a7c2ff47c2545`: "The top label changed from 'A: earlier' to 'B:
-  later'."). Adult or graphic media (model flag or the
+  changed: dropping a real edit would wrongly report no change. In the composite layout the panel
+  labels it draws are not reported: a sentence with a quoted span that is exactly "A: earlier"
+  or "B: later" is dropped, and transcribed lines that are exactly a label are removed (seen
+  once live in prod, lookup `lk_a83a7c2ff47c2545`: "The top label changed from 'A: earlier' to
+  'B: later'."). Real text such as 'LATER' or 'Plan A: earlier start' is kept. Adult or graphic media (model flag or the
   shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
   no text lists.
 
