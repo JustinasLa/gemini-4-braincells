@@ -69,7 +69,7 @@ def _unspaced_chars(s: str) -> int:
 def _mostly_unspaced(s: str) -> bool:
     """At least half of the letters are in an unspaced script: then words can't be counted.
     A mostly-English sentence with one 東京 in it is still measured in words."""
-    letters = sum(1 for c in s if c.isalpha())
+    letters = sum(1 for c in s if c.isalpha() and c not in _FILLER)
     return letters > 0 and _unspaced_chars(s) * 2 >= letters
 
 

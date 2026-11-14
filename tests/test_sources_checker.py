@@ -86,8 +86,8 @@ def test_claim_phrase_for_unspaced_scripts():
     th = "วันนี้ฝนตกหนักมากที่กรุงเทพ รถติดทุกถนน ทุกคนระวังด้วยนะ"
     assert claim_phrase([th]) == "วันนี้ฝนตกหนักมากที่กรุงเทพ"
     assert claim_phrase(["สวัสดีครับ"]) is None
-    long_ja = "あ" * 50
-    assert claim_phrase([long_ja]) == "あ" * 30
+    long_ja = "あいうえお" * 10
+    assert claim_phrase([long_ja]) == "あいうえお" * 6
 
 
 def test_claim_phrase_unspaced_review_cases():
