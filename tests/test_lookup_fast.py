@@ -990,3 +990,17 @@ def test_candidate_copy_reads_are_capped_but_the_post_read_is_not():
     copy = next(v for u, v in ox.allowed.items() if u.endswith(COPY))
     post = next(v for u, v in ox.allowed.items() if u.endswith(SUBJ))
     assert copy <= 2.0 < post  # the subject's own page keeps the longer page cap
+
+
+class TimeoutCopyOxylabs(FakeOxylabs):
+    def scrape_markdown(self, url, deadline=None):
+        if url.endswith(COPY):
+            raise RuntimeError("oxylabs /scrape: time budget used up")
+        return super().scrape_markdown(url, deadline)
+
+
+def test_verify_detail_counts_only_reads_that_came_back():
+    job = _run(LookupInput(url=X_URL), _deps(TimeoutCopyOxylabs()))
+    detail = _steps(job)["verify"].detail
+    assert detail.startswith("0 of 1 read: 0 copies")  # the timed-out copy is not "read"
+    assert next(p for p in job.result.posts if p.id == f"x:{COPY}").role == "mention"

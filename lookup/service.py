@@ -195,6 +195,7 @@ class Lookup:
         self._v_posts: list[str] = []  # candidate X posts queued for their own page
         self._v_profiles: set[str] = set()  # copier profiles queued
         self._v_pages: list[str] = []  # older-looking pages queued for their own date
+        self._v_read = 0  # candidate copy pages that came back (read, whatever they showed)
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
@@ -1163,14 +1164,20 @@ class Lookup:
             ids = list(self._v_posts)
             by_id = {p.id: p for p in self.result.posts}
             kinds = [by_id[i].role for i in ids if i in by_id and by_id[i].verified]
+            queued = set(ids)
             unread = sum(
                 1
                 for p in self.result.posts
-                if p.platform == "x" and not p.verified and p.role == "mention"
+                if p.platform == "x"
+                and not p.verified
+                and p.role == "mention"
+                and p.id not in queued
             )
+            read = self._v_read  # pages that came back; a timed-out or failed read isn't one
             st.found = [i for i in ids if i in by_id]
             st.detail = (
-                f"{len(ids)} read: {kinds.count('copy') + kinds.count('origin')} copies"
+                (f"{read} read" if read == len(ids) else f"{read} of {len(ids)} read")
+                + f": {kinds.count('copy') + kinds.count('origin')} copies"
                 f" · {kinds.count('quote')} quotes · {kinds.count('reply')} replies"
                 + (f" · {unread} more candidates not read" if unread else "")
                 + (" · time budget used up" if out_of_time else "")
@@ -1238,6 +1245,8 @@ class Lookup:
         except Exception as exc:
             log.info("verify %s failed: %s", p.url, exc)
             return
+        with self.lock:
+            self._v_read += 1
         if post is not None and post.role in ("copy", "quote") and post.author_handle:
             self._queue_profile(post.author_handle)
 
