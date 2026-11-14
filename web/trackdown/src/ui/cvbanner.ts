@@ -119,7 +119,9 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
     ctx.filter = "none";
     if (!opts.src || opts.cv) {
       const P = pts0.map((p) => ({ x: ix + p.x * iw, y: iy + p.y * ih, s: p.s * iw, score: p.score, pin: !!p.pin }));
-      if (!patches.length) pts0.forEach((p, i) => patches.push(warpPatch(pic, p, i)));
+      // warp only a fully downloaded picture: a large image knows its size before its pixels arrive,
+      // and a patch built then stays black
+      if (!patches.length && pic.complete) pts0.forEach((p, i) => patches.push(warpPatch(pic, p, i)));
       // no boxes or lines over the text this banner sits behind
       const key = `${W}x${H}:${Math.floor(t / 250)}`;
       if (key !== avoidKey) {
@@ -185,7 +187,15 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
         const x = p.x - sz / 2;
         const y = p.y - sz / 2;
         ctx.globalAlpha = p.pin ? 1 : e;
-        ctx.drawImage(patches[i], x, y, sz, sz);
+        if (patches[i]) ctx.drawImage(patches[i], x, y, sz, sz);
+        else {
+          ctx.save(); // until then, the bright picture under the box
+          ctx.beginPath();
+          ctx.rect(x, y, sz, sz);
+          ctx.clip();
+          ctx.drawImage(pic, ix, iy, iw, ih);
+          ctx.restore();
+        }
         ctx.globalAlpha = e;
         ctx.strokeStyle = "#3fe07a";
         ctx.lineWidth = 2;
