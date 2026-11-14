@@ -53,16 +53,61 @@ class Key:
 
 
 class MinHashCache:
-    """MinHash signatures by post URI; windows overlap, so most posts are hashed once."""
+    """Per-post work that consecutive (overlapping) windows would otherwise redo: normalised
+    text, MinHash signatures, and an incrementally maintained LSH index with the near-duplicate
+    pairs found so far. A fresh cache gives exactly the same result as a warm one."""
 
     def __init__(self, num_perm: int, capacity: int = 300_000) -> None:
         self.num_perm = num_perm
         self.capacity = capacity
         self._d: dict[str, MinHash] = {}
+        self._norm: dict[str, str] = {}
+        self._lsh: MinHashLSH | None = None
+        self._lsh_threshold: float | None = None
+        self._lsh_sigs: dict[str, MinHash] = {}
+        self._adj: dict[str, set[str]] = {}
         # Permutations depend only on (num_perm, seed): compute them once, not per post.
         template = MinHash(num_perm=num_perm, seed=1)
         self._perms = template.permutations
         self._scheme = template.scheme
+
+    def norm(self, uri: str, text: str | None) -> str:
+        n = self._norm.get(uri)
+        if n is None:
+            n = normalize_text(text)
+            if len(self._norm) >= self.capacity:
+                self._norm.clear()
+            self._norm[uri] = n
+        return n
+
+    def near_duplicate_pairs(
+        self, items: list[tuple[str, list[str]]], threshold: float
+    ) -> dict[str, set[str]]:
+        """Adjacency of near-duplicate posts (MinHash Jaccard >= threshold) among `items`.
+        Posts that left the window are removed from the index, new ones are queried against
+        everything still in it and then inserted: every pair is checked exactly once, as in a
+        from-scratch build, because sharing an LSH band is symmetric."""
+        if self._lsh is None or self._lsh_threshold != threshold:
+            self._lsh = MinHashLSH(threshold=threshold, num_perm=self.num_perm)
+            self._lsh_threshold = threshold
+            self._lsh_sigs, self._adj = {}, {}
+        current = {u for u, _ in items}
+        for u in [u for u in self._lsh_sigs if u not in current]:
+            self._lsh.remove(u)
+            del self._lsh_sigs[u]
+            for n in self._adj.pop(u, ()):
+                self._adj[n].discard(u)
+        for u, toks in items:
+            if u in self._lsh_sigs:
+                continue
+            sig = self.get(u, toks)
+            nbrs = {o for o in self._lsh.query(sig) if self._lsh_sigs[o].jaccard(sig) >= threshold}
+            self._lsh.insert(u, sig)
+            self._lsh_sigs[u] = sig
+            self._adj[u] = nbrs
+            for o in nbrs:
+                self._adj[o].add(u)
+        return self._adj
 
     def get(self, uri: str, toks: list[str]) -> MinHash:
         mh = self._d.get(uri)
@@ -88,6 +133,7 @@ def build_keys(
     mh_cache: MinHashCache | None = None,
 ) -> dict[tuple[str, str], Key]:
     keys: dict[tuple[str, str], Key] = {}
+    cache = mh_cache or MinHashCache(cfg.minhash_perm)
 
     def add(kind: str, value: str, did: str, t: float, ref: str) -> None:
         k = keys.get((kind, value))
@@ -98,7 +144,7 @@ def build_keys(
 
     long_posts: list[tuple[str, list[str], str, float]] = []
     for p in sorted(wd.posts, key=lambda p: (p.t, p.uri)):
-        norm = normalize_text(p.text)
+        norm = cache.norm(p.uri, p.text)
         if p.text_hash and _text_ok(norm, cfg):
             add("text", p.text_hash, p.did, p.t, p.uri)
             toks = norm.split()
@@ -114,21 +160,18 @@ def build_keys(
         add(a.kind, a.subject, a.did, a.t, a.uri)
 
     if long_posts:
-        _near_duplicates(long_posts, cfg, mh_cache, add)
+        _near_duplicates(long_posts, cfg, cache, add)
 
     return {kv: k for kv, k in keys.items() if cfg.min_key_accounts <= k.n <= cfg.max_key_accounts}
 
 
-def _near_duplicates(long_posts, cfg: DetectorConfig, mh_cache, add) -> None:
-    """Group near-duplicate texts (MinHash LSH + union-find) into 'neardup' keys."""
-    cache = mh_cache or MinHashCache(cfg.minhash_perm)
-    lsh = MinHashLSH(threshold=cfg.minhash_threshold, num_perm=cfg.minhash_perm)
-    sigs = {}
+def _near_duplicates(long_posts, cfg: DetectorConfig, cache: MinHashCache, add) -> None:
+    """Group near-duplicate texts (MinHash LSH + union-find) into 'neardup' keys. A group's key
+    is its smallest post URI (union by smaller root), so it doesn't depend on merge order."""
+    seen: dict[str, list[str]] = {}
     for uri, toks, _did, _t in long_posts:
-        if uri in sigs:
-            continue
-        sigs[uri] = cache.get(uri, toks)
-        lsh.insert(uri, sigs[uri])
+        seen.setdefault(uri, toks)
+    adj = cache.near_duplicate_pairs(list(seen.items()), cfg.minhash_threshold)
     parent: dict[str, str] = {}
 
     def find(x: str) -> str:
@@ -137,12 +180,11 @@ def _near_duplicates(long_posts, cfg: DetectorConfig, mh_cache, add) -> None:
             x = parent[x]
         return x
 
-    for uri in sigs:
-        for other in lsh.query(sigs[uri]):
-            if other != uri and sigs[uri].jaccard(sigs[other]) >= cfg.minhash_threshold:
-                a, b = find(uri), find(other)
-                if a != b:
-                    parent[max(a, b)] = min(a, b)
+    for uri in seen:
+        for other in adj.get(uri, ()):
+            a, b = find(uri), find(other)
+            if a != b:
+                parent[max(a, b)] = min(a, b)
     groups: dict[str, list] = defaultdict(list)
     for uri, _toks, did, t in long_posts:
         groups[find(uri)].append((uri, did, t))

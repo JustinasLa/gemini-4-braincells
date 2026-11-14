@@ -95,7 +95,9 @@ def main() -> None:
     for noisy in ("httpx", "httpx2", "google_genai"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     cfg = DEFAULT
-    mh = MinHashCache(cfg.minhash_perm)
+    # One cache per window kind: they hold different posts, and sharing one would make each
+    # kind evict the other's posts from the incremental LSH index on every pass.
+    mh = {kind: MinHashCache(cfg.minhash_perm) for kind in cfg.windows}
     embed = None
     if not args.no_embeddings and os.environ.get("GEMINI_API_KEY"):
         embed = GeminiEmbedder()
@@ -119,7 +121,11 @@ def main() -> None:
             return
         if args.cmd == "once":
             print(
-                json.dumps(run_once(conn, args.window, cfg, mh, dry_run=args.dry_run, embed=embed))
+                json.dumps(
+                    run_once(
+                        conn, args.window, cfg, mh[args.window], dry_run=args.dry_run, embed=embed
+                    )
+                )
             )
             return
         last = {k: 0.0 for k in cfg.windows}
@@ -129,7 +135,9 @@ def main() -> None:
                 if time.monotonic() - last[kind] >= every.get(kind, 300):
                     last[kind] = time.monotonic()
                     try:
-                        log.info("pass %s", json.dumps(run_once(conn, kind, cfg, mh, embed=embed)))
+                        log.info(
+                            "pass %s", json.dumps(run_once(conn, kind, cfg, mh[kind], embed=embed))
+                        )
                     except Exception:
                         log.exception("detection pass %s failed", kind)
             time.sleep(5)
