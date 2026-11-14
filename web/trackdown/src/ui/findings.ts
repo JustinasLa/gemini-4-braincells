@@ -19,7 +19,7 @@ export function coordinationNote(result: LookupResult): string {
 export function factualFindings(result: LookupResult): string {
   const readings = readingsOf(result);
   const receipts = new Map(result.receipts.filter((receipt) => receipt.ok !== false).map((receipt) => [receipt.id, receipt]));
-  const sources = (check: ClaimCheck) => [...new Set(check.cites)].flatMap((id) => {
+  const sources = (cites: number[]) => [...new Set(cites)].flatMap((id) => {
     const receipt = receipts.get(id);
     if (!receipt) return [];
     const url = httpUrl(receipt.source_url);
@@ -28,17 +28,29 @@ export function factualFindings(result: LookupResult): string {
       : `<span class="receipt-meta">Receipt #${id}</span>`];
   }).join("");
   const media = result.media.length > 0 || result.posts.some((post) => post.id === result.subject_id && post.media_urls.length > 0);
-  const provenance = readings.find((reading) => reading.media_provenance)?.media_provenance || (media
-    ? "Exact media provenance is unverified. Image descriptions and OCR do not authenticate the image, its date, location, creator, or the caption's explanation."
-    : "");
+  const sourcePages = (result.pages ?? []).flatMap((page) => {
+    const url = httpUrl(page.final_url || page.url);
+    if (!url) return [];
+    const receipt = page.receipt_id == null ? null : receipts.get(page.receipt_id);
+    const read = receipt?.endpoint === "/scrape";
+    const date = read && page.published_at
+      ? ` · Published: ${page.published_at}`
+      : page.published_hint ? ` · Search date hint: ${page.published_hint}` : "";
+    return [`<section class="data-group"><a class="src" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(page.headline || new URL(url).hostname)} ↗</a><div class="receipt-meta">${read ? "Source page read · not automatic verification" : "Search lead · page not read"}${esc(date)}</div></section>`];
+  }).join("");
+  const mediaNote = media && !readings.some((reading) => reading.media_provenance)
+    ? '<div class="notice"><b>Media attribution.</b> Source discovery and exact-image verification are separate. Collected articles may document attribution; image descriptions and OCR alone do not authenticate the image or its caption.</div>'
+    : "";
   const unavailable = '<p class="lookup-message">No claim-level factual assessment is available. This is not evidence that the content is false.</p>';
   const findings = readings.map((reading) => {
     const checks = reading.claim_checks ?? [];
     return `<div class="receipt-meta">Model assessment · ${esc(reading.model)} · based on the collected sources, not a guarantee of truth</div>
-      ${checks.length ? checks.map((check) => `<section class="data-group"><h4>${esc(check.claim)}</h4><div class="label">${esc(FINDING[check.finding] ?? FINDING.unverified)}</div><p class="lookup-message">${esc(check.explanation)}</p>${sources(check)}</section>`).join("") : unavailable}`;
+      ${checks.length ? checks.map((check) => `<section class="data-group"><h4>${esc(check.claim)}</h4><div class="label">${esc(FINDING[check.finding] ?? FINDING.unverified)}</div><p class="lookup-message">${esc(check.explanation)}</p>${sources(check.cites)}</section>`).join("") : unavailable}
+      ${reading.media_provenance ? `<div class="notice"><b>Media attribution.</b> ${esc(reading.media_provenance)}${sources(reading.media_provenance_cites ?? [])}</div>` : ""}`;
   }).join("");
   return `<section aria-label="Factual findings"><div class="sect label" style="margin-top:0">Factual findings · separate from coordination</div>
     ${findings || unavailable}
-    ${provenance ? `<div class="notice"><b>Media provenance.</b> ${esc(provenance)}</div>` : ""}
+    ${mediaNote}
+    ${sourcePages ? `<div class="sect label">Collected source pages · available even without a model reading</div>${sourcePages}` : ""}
     <p class="lookup-message">The earliest observed copy is only the earliest found in this search sample, not necessarily the original source.</p></section>`;
 }

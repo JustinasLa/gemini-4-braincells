@@ -74,6 +74,21 @@ COPY_MIN = 0.5
 ASSESS_RESERVE_S = 10.0  # the last seconds of the budget are the primary (Nemotron) reading's
 X_MIN_SIM = 0.35  # an X search hit sharing fewer words with the text is not about it
 OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message worth searching
+REPOST_HOSTS = (
+    "reddit.com",
+    "youtube.com",
+    "youtu.be",
+    "instagram.com",
+    "tiktok.com",
+    "facebook.com",
+    "threads.com",
+    "threads.net",
+    "ifunny.co",
+    "ifunnyx.co",
+    "x.com",
+    "twitter.com",
+    "bsky.app",
+)
 UPLOAD = "upload:"  # media_urls entry of an uploaded image: its bytes are in the job, not a CDN
 # an uploaded image's own step labels: there is no post, the image is the input
 IMAGE_LABELS = {
@@ -564,7 +579,10 @@ class Lookup:
             # image-only post (or an uploaded image): read the image first, then search its text
             self._media(ocr_as_text=True)
         x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
-        rest = [pool.submit(self._copies_bsky), pool.submit(self._coverage)]
+        rest = [
+            pool.submit(self._copies_bsky),
+            pool.submit(lambda: (self._coverage(), self._queue_older_pages())),
+        ]
         if media_first:
             rest.append(pool.submit(self._screenshot))  # alongside the searches
         if kind != "web":
@@ -579,7 +597,6 @@ class Lookup:
             self._screenshot()  # media was skipped: the step says why
         wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
-        self._queue_older_pages()  # web hits dated before the post: read their own date
         wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # candidates the search for the image's text found
         self._queue_older_pages()
@@ -1337,11 +1354,14 @@ class Lookup:
                 and pg.id != self.result.subject_id
                 and pg.id not in self._v_pages
             ]
-        older_ids = {pg.id for pg in self._older_page_candidates()}
         candidates.sort(
             key=lambda pg: (
+                any(
+                    domain(pg.url) == host or domain(pg.url).endswith("." + host)
+                    for host in REPOST_HOSTS
+                ),
                 not domain(pg.url).endswith((".gov", ".edu", ".ac.uk", ".gov.uk")),
-                pg.id not in older_ids,
+                pg.time or datetime.max.replace(tzinfo=UTC),
             )
         )
         selected = []
@@ -1420,7 +1440,8 @@ class Lookup:
             read = self._v_read  # pages that came back; a timed-out or failed read isn't one
             read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
             read_pages = [
-                pg.id for pg in self.result.pages
+                pg.id
+                for pg in self.result.pages
                 if pg.id in self._v_pages and pg.receipt_id in read_ids
             ]
             st.found = [i for i in ids if i in by_id] + read_pages
@@ -1633,7 +1654,7 @@ class Lookup:
             st.detail = f"{len(found)} Bluesky posts with the same text"
 
     def _coverage(self) -> None:
-        q = self._card_title or textsim.phrase(self._subject_text, 40)
+        q = self._card_title or textsim.phrase(self._subject_text, 14)
         # an upload with too little text: pages about the image, found by its caption or
         # description. They describe the image; none of them is a copy or an origin.
         about = not q and bool(self._image_query)
@@ -1645,29 +1666,58 @@ class Lookup:
         if image and not about and self._upload_meme:
             q += " meme"  # meme pages (template, first use, variants) over unrelated matches
         with self.step("coverage") as st:
-            q = q.replace('"', "")
-            hits, call = self._search(q, 10)
-            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
-            what = "Search for pages about the uploaded image" if image else "Coverage search"
-            rid = self.receipt(
-                "oxylabs",
-                "/search",
-                f"{what}: {len(hits)} results" + (" (by its text or description)" if about else ""),
-                query=q,
-                call=call,
-            )
-            ref = self._subject_text or q
+            queries = [q.replace('"', "")]
+            claim_query = (textsim.phrase(self._subject_text, 40) or "").replace('"', "")
+            if not about and claim_query and claim_query not in queries:
+                queries.append(claim_query)
+            search_pool = ThreadPoolExecutor(max_workers=2)
+            futures = [search_pool.submit(self._search, query, 10) for query in queries]
             found = []
-            for h in hits:
-                if X_STATUS_RE.match(h.url) or "x.com/" in h.url or "twitter.com/" in h.url:
-                    continue
-                nid = self._classify_hit(
-                    h, rid, at, reference=ref, page_role="coverage" if about else None
+            succeeded = 0
+            try:
+                done, _ = wait(
+                    futures, timeout=max(0.0, self._provider_deadline() - time.monotonic())
                 )
-                if nid and nid.startswith("page:"):
-                    found.append(nid)
+                for query, future in zip(queries, futures, strict=True):
+                    try:
+                        if future not in done:
+                            raise BudgetExceeded("coverage search time budget used up")
+                        hits, call = future.result()
+                    except Exception as exc:
+                        log.info("coverage query failed: %s", exc)
+                        self.note("A coverage search was unavailable; other source leads are kept.")
+                        continue
+                    succeeded += 1
+                    at = call.get("fetched_at") or _now()
+                    rid = self.receipt(
+                        "oxylabs",
+                        "/search",
+                        f"Coverage search: {len(hits)} results",
+                        query=query,
+                        call=call,
+                    )
+                    for hit in hits:
+                        if X_STATUS_RE.match(hit.url) or domain(hit.url) in X_HOSTS:
+                            continue
+                        nid = self._classify_hit(
+                            hit,
+                            rid,
+                            at,
+                            reference=self._subject_text or query,
+                            page_role="coverage" if about else None,
+                        )
+                        if nid and nid.startswith("page:") and nid not in found:
+                            found.append(nid)
+            finally:
+                search_pool.shutdown(wait=False, cancel_futures=True)
+            if not succeeded:
+                raise StepUnavailable("coverage searches unavailable")
             st.found = found
-            st.detail = f"{len(found)} pages " + ("about the image" if image else "on the story")
+            st.detail = (
+                f"{len(found)} pages "
+                + ("about the image" if image else "on the story")
+                + f" · {succeeded}/{len(queries)} searches completed"
+            )
 
     # ---------------------------------------------------------------- media (Nemotron)
     def _is_upload(self, url: str) -> bool:

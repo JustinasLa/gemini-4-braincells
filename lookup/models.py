@@ -206,6 +206,7 @@ class Assessment(BaseModel):
     spread_pattern: str | None = None
     claim_checks: list[ClaimCheck] = Field(default_factory=list)
     media_provenance: str | None = None
+    media_provenance_cites: list[int] = Field(default_factory=list)
     counter_evidence: list[str] = Field(default_factory=list)
     would_change: list[str] = Field(default_factory=list)
     cites: list[int] = Field(default_factory=list)

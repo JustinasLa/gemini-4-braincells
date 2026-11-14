@@ -1,4 +1,5 @@
 import json
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -6,11 +7,19 @@ import pytest
 from lookup.assess import SYSTEM, _Draft, brief, guard
 from lookup.models import ClaimCheck, LookupInput, Page, Post
 from lookup.service import Lookup
-from sources.models import PageFacts
+from sources.models import PageFacts, SearchHit
 from tests.test_lookup import make_deps
 
 POST_URL = "https://x.com/Theveripost/status/2121190913804468478"
 CLAIM = "Sanders's Medicare drug-pricing amendment was defeated 99–1."
+PHOTO_CAPTION = (
+    "Senator Bernie Sanders sitting alone on the steps of the U.S. Capitol in Washington, "
+    "D.C. after his amendment to cut Medicare drug prices by 50% was defeated 99-1, 2022."
+)
+ARTICLE_URL = (
+    "https://www.businessinsider.com/"
+    "bernie-sanders-senate-steps-photo-leads-comparisons-schoolhouse-rock-2022-8"
+)
 
 
 def lookup():
@@ -180,7 +189,7 @@ def test_media_description_does_not_authenticate_exact_image():
         )
     )
     result = guard(draft([rid]), job.result, model="test")
-    assert "Exact media provenance is unverified" in result.media_provenance
+    assert "No source-backed media attribution is available" in result.media_provenance
     assert "caption" in result.media_provenance
 
 
@@ -279,8 +288,9 @@ def test_coverage_query_keeps_the_claim_not_only_the_caption_opening():
         "D.C. after his amendment to cut Medicare drug prices by 50% was defeated 99-1, 2022."
     )
     job._coverage()
-    query = next(call[1] for call in job.deps.oxylabs.calls if call[0] == "search")
-    assert "Medicare" in query and "99-1" in query
+    queries = [call[1] for call in job.deps.oxylabs.calls if call[0] == "search"]
+    assert any("Medicare" in query and "99-1" in query for query in queries)
+    assert any("Medicare" not in query and "Capitol" in query for query in queries)
 
 
 def test_coverage_prefers_linked_article_title_over_commentary():
@@ -288,8 +298,8 @@ def test_coverage_prefers_linked_article_title_over_commentary():
     job._subject_text = "This is my commentary about the article being shared."
     job._card_title = "Original study reports its results"
     job._coverage()
-    query = next(call[1] for call in job.deps.oxylabs.calls if call[0] == "search")
-    assert query == job._card_title
+    queries = [call[1] for call in job.deps.oxylabs.calls if call[0] == "search"]
+    assert job._card_title in queries
 
 
 def test_zero_budget_never_reads_source_pages():
@@ -327,3 +337,105 @@ def test_unavailable_source_cannot_verify_a_claim():
     job._safe_verify_page(page)
     assert page.receipt_id == rid
     assert guard(draft([rid]), job.result, model="test").claim_checks[0].finding == "unverified"
+
+
+@pytest.mark.parametrize("claim_search_fails", [False, True])
+def test_broad_search_preserves_photo_source_alongside_claim_search(claim_search_fails):
+    job = lookup()
+    job._subject_text = PHOTO_CAPTION
+    concurrent = threading.Barrier(2)
+
+    def search(query, limit):
+        concurrent.wait(timeout=2)
+        if "Medicare" in query:
+            if claim_search_fails:
+                raise RuntimeError("claim search unavailable")
+            return [SearchHit(url="https://reddit.com/r/example/", position=1)], {}
+        return [
+            SearchHit(url=ARTICLE_URL, title="Photo credited to its photographer", position=1)
+        ], {}
+
+    job._search = search
+    job._coverage()
+    assert any(page.url == ARTICLE_URL for page in job.result.pages)
+    assert job._step("coverage").state == "done"
+    assert len(job.result.receipts) == (1 if claim_search_fails else 2)
+
+
+def test_source_priority_keeps_historical_reporting_ahead_of_reposts():
+    job = lookup()
+    for url, year in (
+        ("https://www.reddit.com/r/example/", 2020),
+        ("https://www.youtube.com/watch?v=example", 2020),
+        ("https://instagram.com/p/example/", 2020),
+        ("https://recent.example/repost", 2026),
+        (ARTICLE_URL, 2022),
+        ("https://another.example/report", 2022),
+    ):
+        job.add_page(
+            Page(
+                id="",
+                url=url,
+                role="coverage",
+                time=datetime(year, 8, 8, tzinfo=UTC),
+                time_source="search_hint",
+            )
+        )
+    selected = job._source_page_candidates()
+    assert [page.url for page in selected] == [
+        ARTICLE_URL,
+        "https://another.example/report",
+        "https://recent.example/repost",
+    ]
+
+
+def test_source_budget_waits_for_coverage_instead_of_spending_on_copy_search():
+    job = Lookup("lk_sources", LookupInput(text=PHOTO_CAPTION), make_deps())
+    job.deps.source_pages_max = 1
+    copied = threading.Event()
+
+    def copies():
+        job.add_page(Page(id="", url="https://reddit.com/r/example/"))
+        copied.set()
+
+    def coverage():
+        assert copied.wait(timeout=2)
+        assert not job._v_pages
+        job.add_page(Page(id="", url=ARTICLE_URL))
+
+    job._copies_web = copies
+    job._coverage = coverage
+    job.run()
+    chosen = [page.url for page in job.result.pages if page.id in job._v_pages]
+    assert chosen == [ARTICLE_URL]
+
+
+@pytest.mark.parametrize("evidence", ["read", "snippet", "failed", "submitted", "invented"])
+def test_media_attribution_requires_its_own_read_source_citations(evidence):
+    job = lookup()
+    rid, page = source(
+        job, "/search" if evidence == "snippet" else "/scrape", ok=evidence != "failed"
+    )
+    job.result.posts.append(
+        Post(
+            id="submitted",
+            platform="x",
+            media_urls=["https://images.example/photo.jpg"],
+        )
+    )
+    job.result.subject_id = page.id if evidence == "submitted" else "submitted"
+    if evidence == "submitted":
+        job.result.posts[0].id = page.id
+    result_draft = draft([])
+    result_draft.claim_checks = []
+    result_draft.media_provenance = "The article credits a named photographer and a 2022 date."
+    result_draft.media_provenance_cites = [999 if evidence == "invented" else rid]
+    result = guard(result_draft, job.result, model="test")
+    if evidence == "read":
+        assert result_draft.media_provenance in result.media_provenance
+        assert "not an automated match" in result.media_provenance
+        assert result.media_provenance_cites == [rid]
+    else:
+        assert result_draft.media_provenance not in result.media_provenance
+        assert result.media_provenance_cites == []
+    assert result.llm_reading == "unclear"

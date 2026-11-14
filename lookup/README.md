@@ -44,10 +44,13 @@ The assessment returns up to six `claim_checks`, each with `claim`, `finding`
 of truth. An accurate claim can be amplified in a coordinated way; an inaccurate claim can
 spread organically. `status` and `llm_reading` keep their coordination meanings.
 
-Coverage searches retain up to 40 words of the claim, rather than only the caption opening.
+Coverage preserves the broad headline/caption-opening search and adds a separate search
+retaining up to 40 words of the claim. Both run concurrently, within the provider deadline;
+a failed search does not discard the other's results.
 The verification phase reads up to three source pages (`Deps.source_pages_max`) within the
-existing provider deadline, prioritizing government/academic records and older candidate
-sources, and diversifying domains. Domain priority is a retrieval heuristic, not a guarantee
+existing provider deadline, after coverage arrives, prioritizing non-social reporting,
+government/academic records and older candidate sources, and diversifying domains.
+Repost sites remain fallback leads. Domain priority is a retrieval heuristic, not a guarantee
 of credibility. Failed or unread pages remain search leads, with limitations shown in notes.
 The prompt distinguishes read pages from search snippets and includes their source URLs.
 
@@ -58,9 +61,13 @@ source availability, not semantic entailment: a model can still misinterpret a c
 The prompt requires primary-source preference, conflicting evidence, procedural context,
 attributed estimates versus guaranteed results, and chronology versus causation.
 
-When the submitted post contains media, `assessment.media_provenance` explicitly says the
-exact media is not authenticated. OCR and visual descriptions cannot establish its creator,
-date, location, or caption. Origin means the earliest observed copy in the sample, never proof
+When source pages document media attribution, `assessment.media_provenance` can describe it
+with `media_provenance_cites` pointing to successfully read source text. This is explicitly
+separate from an automated exact-image comparison. Without such citations, the reading says
+no source-backed attribution is available, not that no provenance exists. OCR and visual
+descriptions alone cannot establish its creator, date, location, or caption. Collected source
+pages and unread search leads stay visible even when the model fails or times out.
+Origin means the earliest observed copy in the sample, never proof
 of first publication. Older clients remain compatible; missing claim checks default to `[]`.
 
 ## API
