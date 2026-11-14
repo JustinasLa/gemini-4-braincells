@@ -486,6 +486,44 @@ def test_web_page_facts_that_land_first_are_not_replaced_by_the_quick_read():
     _web_page_checks(job)
 
 
+def test_web_page_facts_without_a_headline_keep_the_quick_read_search_text():
+    ox = WebOxylabs()
+    linked_done = threading.Event()
+    job = Lookup("lk_no_headline", LookupInput(url=WEB_URL), _deps(ox))
+    linked, markdown = job._linked, ox.scrape_markdown
+
+    def facts(url, deadline=None):
+        return PageFacts(
+            url=url, final_url=url, publisher="Example News", claims=["An extracted claim"]
+        )
+
+    def first_linked(url, is_input):
+        linked(url, is_input)
+        linked_done.set()
+
+    def last_markdown(url, deadline=None):
+        if url == WEB_URL:
+            assert linked_done.wait(WAIT_S)
+        return markdown(url, deadline)
+
+    ox.scrape_facts, ox.scrape_markdown = facts, last_markdown
+    job._linked = first_linked
+    job.run()
+
+    assert linked_done.is_set()
+    assert job.result.state == "done", job.result.error
+    assert _steps(job)["copies_web"].state == "done"
+    assert _steps(job)["copies_x"].state == "done"
+    assert any(kind == "search" and "The comets have landed" in q for kind, q in ox.calls)
+    (page,) = [pg for pg in job.result.pages if pg.url == WEB_URL]
+    assert page.headline == TEXT and page.claims == ["An extracted claim"]
+    assert page.publisher == "Example News" and job.result.subject_id == page.id
+    facts_rc = next(rc for rc in job.result.receipts if rc.summary.startswith("Linked page read"))
+    quick_rc = next(rc for rc in job.result.receipts if rc.summary.startswith("Page text read"))
+    assert page.receipt_id == facts_rc.id != quick_rc.id
+    assert TEXT in quick_rc.summary
+
+
 # ---------------------------------------------------------------- 7. verify / profile caps
 
 
@@ -1005,3 +1043,42 @@ def test_verify_detail_counts_only_reads_that_came_back():
     detail = _steps(job)["verify"].detail
     assert detail.startswith("0 of 1 read: 0 copies")  # the timed-out copy is not "read"
     assert next(p for p in job.result.posts if p.id == f"x:{COPY}").role == "mention"
+
+
+def test_a_late_screenshot_reading_is_not_handed_to_the_screenshot_step():
+    import dataclasses
+
+    from lookup.service import BudgetExceeded
+
+    class ShotReader(FakeImageReader):
+        def analyze(self, media, *, context=None):
+            a = super().analyze(media, context=context)
+            return dataclasses.replace(a, media_type="screenshot")
+
+    job = Lookup("lk_ls", LookupInput(url=X_URL), _deps(nemotron=ShotReader()))
+    closed = threading.Event()
+    closed.set()  # _media stopped waiting before this reading came back
+    assert isinstance(job._read_image(_image_http(), IMG_URL, closed), BudgetExceeded)
+    assert job._shots == [] and job.result.media == []
+
+
+def test_media_closes_the_download_client_it_made(monkeypatch):
+    from lookup import service
+
+    made: list[httpx.Client] = []
+    real_client = httpx.Client
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"\xff\xd8x")
+
+    def client(**_kw):
+        made.append(real_client(transport=httpx.MockTransport(handler)))
+        return made[-1]
+
+    monkeypatch.setattr(service.httpx, "Client", client)
+    reader = FakeImageReader()
+    job = Lookup("lk_c", LookupInput(url=X_URL), _deps(nemotron=reader))
+    job._media_urls = [IMG_URL]
+    job._subject_text = TEXT
+    job._media()
+    assert len(reader.calls) == 1 and len(made) == 1 and made[0].is_closed

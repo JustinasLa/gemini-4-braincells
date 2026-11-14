@@ -52,6 +52,10 @@ def bsky_target(url: str) -> tuple[str, str | None] | None:
     as written. The scheme may be missing, as in links copied from a share sheet. None otherwise.
     """
     url = url.strip()
+    # Request sanitization runs before percent decoding. Reject encoded NUL instead of
+    # passing a decoded author to PostgreSQL, whose text adapter raises DataError for it.
+    if "%00" in url:
+        return None
     if m := _AT_POST.match(url):
         return unquote(m[1]), m[2]
     if m := _AT_ACTOR.match(url):

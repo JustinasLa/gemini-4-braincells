@@ -122,6 +122,20 @@ def test_existing_health_failure_is_still_hard(run_check):
     assert result.returncode == 1 and "health not ok" in result.stdout
 
 
+@pytest.mark.parametrize("status,body", [(200, ""), (204, ""), (200, "\n")])
+def test_empty_health_response_is_a_hard_failure(run_check, status, body):
+    result, _ = run_check({"/api/health": [status, body]})
+    assert result.returncode == 1
+    assert " FAIL " in result.stdout and "health not ok" in result.stdout
+    assert " OK " not in result.stdout
+
+
+def test_unreachable_health_is_a_hard_failure(run_check):
+    result, _ = run_check({"/api/health": [503, "unavailable"]})
+    assert result.returncode == 1
+    assert " FAIL " in result.stdout and "/api/health unreachable" in result.stdout
+
+
 def test_empty_metrics_is_a_warning_not_a_failure(run_check):
     result, _ = run_check({"/api/metrics": [200, "[]"]})
     assert result.returncode == 0, result.stderr
@@ -137,3 +151,12 @@ def test_metrics_must_name_the_deployed_detector(run_check, tmp_path, deployed, 
     assert result.returncode == 0, result.stderr
     assert ("WARN eval rows are for detector ['v9'], the site runs v10" in result.stdout) is warns
     assert ("INFO metrics rows=1 replay detector=['v9'] deployed=v9" in result.stdout) is not warns
+
+
+def test_wheel_ships_every_backend_package():
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    shipped = set(config["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"])
+    packages = {p.parent.name for p in ROOT.glob("*/__init__.py")} - {"tests"}
+    assert packages <= shipped, sorted(packages - shipped)

@@ -14,25 +14,20 @@ import sys
 import time
 
 from analyst import store
-from analyst.gemini import VerdictModel
 from analyst.prompt import SYSTEM, build_prompt
 from analyst.runner import Analyst
-from analyst.service import analyze
 from common.config import get_settings
 from common.db import connect
 
 log = logging.getLogger("analyst")
 
 
-def run_cluster(conn, model: VerdictModel | Analyst, cluster_id: int, *, dry_run: bool = False):
+def run_cluster(conn, model: Analyst, cluster_id: int, *, dry_run: bool = False):
     ctx = store.load_context(conn, cluster_id)
     if ctx is None:
         log.warning("cluster %s not found", cluster_id)
         return None
-    if isinstance(model, Analyst):
-        verdict = model.verdict(conn, ctx, dry_run=dry_run)
-    else:
-        verdict = analyze(ctx, model)
+    verdict = model.verdict(conn, ctx, dry_run=dry_run)
     if not dry_run:
         store.save_verdict(conn, cluster_id, verdict)
         conn.commit()
@@ -53,7 +48,7 @@ def run_cluster(conn, model: VerdictModel | Analyst, cluster_id: int, *, dry_run
 
 
 def run_worker(
-    model: VerdictModel | Analyst,
+    model: Analyst,
     *,
     interval_s: float,
     min_score: float,

@@ -21,7 +21,7 @@ uv run pytest tests/test_signals.py
    coordination from popularity.
 3. **Graph** (`graph.py`): account-account edges weighted by rarity, `1/ln(1+n)` per shared key.
    An edge needs one shared content key or >= 3 shared engagement keys. Connected components;
-   components over 50 accounts are split with seeded Leiden.
+   components over 30 accounts (50 before v1.10) are split with seeded Leiden.
 4. **Score** (`score.py`): four families, each the max of its signals (correlated signals in a
    family are never added):
 
@@ -143,7 +143,8 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
   Calibration on Gemini-written fictional sets: at 0.85, 67% of same-campaign post pairs, 5% of
   same-topic organic pairs and 0.04% of random live pairs match. It is content evidence only:
   `coordinated` still needs a behavioural family and the timing p-value.
-  The worker uses it when `GEMINI_API_KEY` is set (`--no-embeddings` turns it off).
+  The worker uses it when `GEMINI_API_KEY` is set (`python -m signals --no-embeddings run`
+  turns it off; the flag goes before the subcommand).
 - **Red team** (`attack.py`): Gemini 4 writes fictional campaigns (one message, many personas,
   no shared phrases) and organic look-alikes (many people, same fictional event, own opinions).
   Saved in `fixtures/gemini_attacks.json`; never posted; all accounts built from them are
@@ -171,6 +172,7 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
 | Recall, **heldout** hours (19, 21, 23, 01, 03, 05 UTC; detector v1.7) | L1 26/26, L2 24/26 (92%, CI 76-98%), L3 0/26 (all shown as "can't tell") | same, `--split heldout` (nothing tuned on these hours) |
 | External validation: Bluesky took down / suspended within 3 h | `coordinated` 56/458 accounts (12.2%, CI 9.5-15.6%); `likely_organic` 0/8,402; random active 0/1,200; clusters 13/81 vs 0/1,188 | `python -m eval takedowns --horizon-h 3` |
 | Are our strongest abstentions real? `insufficient` clusters that met every `coordinated` condition except the p-value (Sat 14 Nov 11:45 Espoo, horizon 3 h, team-server DB, mixed versions) | taken down 40/600 accounts (6.7%, CI 4.9-9.0%) vs `coordinated` 60/922 (6.5%, CI 5.1-8.3%); the other `insufficient` 12/4,286 (0.3%); `likely_organic` 0/15,811; random active 0/3,290 | `python -m eval takedowns` (row `insufficient_p_only`) |
+| Gemini red team v2 (Sat 14 Nov; 4 fictional themes, 108 cases injected into a real 10-min window, with Gemini embeddings) | fresh-account campaigns: near-copies 8/8, homoglyph + zero-width copypasta 8/8, 12 link variants (utm/www/amp/mirrors/short links) 8/8, reply flood 8/8, **12-language campaign 0/8 → 8/8 in v1.10**, **ring hidden in a 24-person crowd sharing its link 2/8 → 8/8 in v1.10**; aged-account campaigns 0/40 (known limit); organic look-alikes (live match, headline shares, giveaway entries) 0/12 | `~/fuzz/redteam2.py` (kirill's seat, not in the repo) |
 | Gemini red team (fictional paraphrase campaigns vs organic look-alikes) | fresh-account campaigns 16/16 coordinated, aged 0/16, look-alikes 0/16; semantic signal 32/32 vs 0/16 | `python -m signals.attack_eval` |
 | Speed (2-vCPU budget, warm cache) | 10m pass ~5 s CPU, 1h pass ~40 s CPU + ~19 s DB; live worker 10-12 s per 10m pass | profiling in PR #34 |
 
@@ -225,6 +227,13 @@ Earlier fixes from the same kind of review: weather feeds sharing a custom handl
   burst is `insufficient`, not `coordinated` (identity base rates are planned).
 - Independent scheduled bots (clock, weather, news feeds) look synchronized; guards catch the
   ones that post on the hour or share a declared domain, not all.
+- `transparent_automation` reads the operator's domain off the Public Suffix List (v1.9, bundled
+  snapshot, never fetched). So `feed1.weather.im` and `feed2.weather.im` are one operator, but people
+  with their own `name.com.br` or `name.co.uk` handles are not. On 6,709 team-DB clusters the old
+  last-two-labels rule grouped only `co.uk` users, and it changed no status. Organic FPR is the
+  same before and after: 0/211 live, 0/84 synthetic, with identical counts. Community servers that
+  hand out handles (`swifties.social`, `dftba.social`) still count as one operator. That errs
+  toward Chill or Can't tell, never toward a false Shill.
 - Short texts (< 5 tokens) are ignored as content keys; copy-paste of one-liners isn't caught.
 - Japanese, Chinese, Thai and other unspaced scripts get content keys since v1.8 (about one word
   per two characters; near-duplicates on character 3-grams). Like word 3-grams for English, this

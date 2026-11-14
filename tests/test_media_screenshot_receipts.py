@@ -222,6 +222,70 @@ def test_failed_recheck_keeps_the_earlier_answer(find):
     assert fresh[0]["summary"].endswith("not checked: the check failed.")
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "receipt_field"),
+    [
+        ("display_name", "Corrected Name", "display_name"),
+        ("counts", {"likes": 12, "reposts": 3}, "shown_counts"),
+        ("ui_oddities", ["Misaligned text"], "ui_oddities"),
+        ("confidence", 0.4, "read_confidence"),
+        ("model", "new-reader-model", "read_model"),
+    ],
+)
+def test_corrected_screenshot_fields_invalidate_a_fresh_receipt(find, field, value, receipt_field):
+    calls = []
+
+    def check(shot, deps, budget):
+        calls.append(shot)
+        return lookup_receipts.judge(shot, [], deps.anchor)
+
+    find(check)
+    finding = _finding()
+    row = sr.receipt_rows([finding], _deps, now=lambda: NOW)[0]
+    key = row["detail"]["media_hash"]
+    stored = {key: _stored(row, checked_at=NOW)}
+
+    finding.shot = {**finding.shot, field: value}
+    updated = sr.receipt_rows([finding], _deps, existing=stored, now=lambda: NOW)[0]
+
+    assert len(calls) == 2
+    assert updated["detail"]["receipt"][receipt_field] == value
+
+
+def test_failed_recheck_cannot_restore_evidence_from_a_superseded_read(find):
+    find(Recorder("matches"))
+    finding = _finding()
+    row = sr.receipt_rows([finding], _deps, now=lambda: NOW)[0]
+    key = row["detail"]["media_hash"]
+    stored = {key: _stored(row, checked_at=NOW - timedelta(days=3))}
+    finding.shot = {**finding.shot, "ui_oddities": ["Misaligned text"]}
+
+    def boom(shot, deps, budget):
+        raise RuntimeError("network down")
+
+    find(boom)
+    updated = sr.receipt_rows([finding], _deps, existing=stored, now=lambda: NOW)[0]
+    assert updated["detail"]["receipt"]["label"] == "unchecked"
+    assert updated["detail"]["receipt"]["ui_oddities"] == ["Misaligned text"]
+
+
+def test_latency_and_count_key_order_do_not_invalidate_a_receipt(find):
+    fake = find(Recorder())
+    finding = _finding()
+    row = sr.receipt_rows([finding], _deps, now=lambda: NOW)[0]
+    key = row["detail"]["media_hash"]
+    stored = {key: _stored(row, checked_at=NOW)}
+    finding.shot = {
+        **finding.shot,
+        "latency_ms": 1,
+        "counts": dict(reversed(list(finding.shot["counts"].items()))),
+    }
+
+    updated = sr.receipt_rows([finding], _deps, existing=stored, now=lambda: NOW)[0]
+    assert fake.calls == ["bafyshot"]
+    assert updated["detail"] is stored[key]["detail"]
+
+
 def test_checks_run_in_parallel_within_the_budget(find):
     fake = find(Recorder(delay=0.3))
     started = time.monotonic()
@@ -370,3 +434,13 @@ def test_a_reused_answer_lists_new_carrier_posts(find):
     assert d["n_posts"] == 2 and len(d["post_uris"]) == 2  # ...on every post carrying it
     assert d["receipt"] == stored[key]["detail"]["receipt"]
     assert d["checked_at"] == stored[key]["detail"]["checked_at"]
+
+
+def test_timed_out_check_keeps_the_counts_note_like_find_original(find, monkeypatch):
+    monkeypatch.setattr(sr, "GRACE_S", 0.05)
+    find(Recorder(delay=0.5))
+    row = sr.receipt_rows([_finding()], _deps, existing={}, budget_s=0.05)[0]
+    receipt = row["detail"]["receipt"]
+    assert receipt["label"] == "unchecked" and receipt["reason"] == "time budget used up"
+    assert receipt["counts_note"] == lookup_receipts.COUNTS_NOTE  # the shot shows counts
+    assert receipt["media_url"] == "https://cdn.bsky.app/img/bafyshot@jpeg"

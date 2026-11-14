@@ -11,6 +11,150 @@ Kind = Literal["x_post", "x_profile", "bsky_post", "bsky_profile", "web", "text"
 StepState = Literal["pending", "running", "done", "failed", "skipped"]
 
 
+class ImageMatch(BaseModel):
+    id: str
+    image_url: str
+    thumb_url: str | None = None
+    page_url: str | None = None
+    domain: str | None = None
+    # x_replies: a picture in an X reply thread (lookup/threadvariants.py), not a search engine
+    engine: Literal["tineye", "yandex", "x_replies"]
+    first_seen: datetime | None = None
+    time_source: Literal["crawl_date", "page", "snowflake"] | None = None
+    width: int | None = None
+    height: int | None = None
+    # template: the same page, app screen or meme template with other content (another name,
+    # caption or numbers): a picture of the same kind, never a copy of this one
+    relation: Literal[
+        "same", "resized", "cropped", "edited", "template", "different", "unknown"
+    ] = "unknown"
+    distance: float | None = None
+    # (left, top, right, bottom) fractions 0..1 of the uploaded image (relate()'s base);
+    # crop_box is None when the match is larger than the upload
+    crop_box: tuple[float, float, float, float] | None = None
+    edited_region: tuple[float, float, float, float] | None = None
+    relation_note: str = ""
+    changes: list[str] = Field(default_factory=list)
+    change_kinds: list[
+        Literal[
+            "caption_changed",
+            "text_added",
+            "text_removed",
+            "element_added",
+            "element_removed",
+            "face_changed",
+            "cropped",
+            "recolored",
+            "watermark",
+            "other",
+        ]
+    ] = Field(default_factory=list)
+    # which side `changes` start from: "match" = the changes turn this copy into the upload (the
+    # copy is the earlier one), "upload" = they turn the upload into this copy
+    changes_from: Literal["match", "upload"] | None = None
+    # a description existed but was withdrawn (a later date flipped its direction): the empty
+    # `changes` then says nothing about whether the content changed
+    changes_withdrawn: bool = False
+    receipt_id: int | None = None
+
+
+class FamilyText(BaseModel):
+    text: str
+    where: Literal["top", "bottom", "on_picture", "below_frame", "watermark"]
+
+
+FamilyBranch = Literal["caption", "label", "poster", "face_swap", "edit", "screenshot"]
+
+
+class FamilyMember(BaseModel):
+    """One image in the family: a reverse-image match that feature matching (media.align)
+    confirmed contains the same photograph as the submitted picture, or the submission itself
+    (id "submitted"). Its text and frame are a Nemotron read (media.memeread)."""
+
+    id: str  # the ImageMatch id, or "submitted"
+    image_url: str | None = None
+    thumb_url: str | None = None
+    page_url: str | None = None
+    domain: str | None = None
+    engine: str | None = None
+    first_seen: datetime | None = None
+    # crawl_date: when a search engine first saw it (an upper bound); wayback: the Internet
+    # Archive's earliest capture of the page or image (also an upper bound); page / snowflake
+    # as on ImageMatch
+    time_source: Literal["crawl_date", "page", "snowflake", "wayback"] | None = None
+    archived_url: str | None = None
+    # the proof it is the same photograph: geometrically consistent keypoints (media.align)
+    inliers: int | None = None
+    coverage: float | None = None
+    relation: str | None = None  # the ImageMatch relation to the submission ("different" kept)
+    text: list[FamilyText] = Field(default_factory=list)
+    frame: Literal["none", "poster", "panel", "screenshot"] = "none"
+    aimed_at: str = ""
+    # visible edits to the photograph against the source photo (face replaced, element added)
+    edits: list[str] = Field(default_factory=list)
+    kind: Literal["source", "copy", "caption", "label", "poster", "face_swap", "edit", "screenshot"]
+    # the copy is a small thumbnail (under 300 px): its text was read from very few pixels
+    small: bool = False
+    # this server's copy of the picture, as downloaded and matched: /api/lookup/{id}/family/{id}
+    picture: str | None = None
+    receipt_id: int | None = None
+
+
+class FamilyQuote(BaseModel):
+    source: str  # "Know Your Meme" | "Wikipedia"
+    text: str  # one sentence, verbatim
+    url: str
+    cites: list[str] = Field(default_factory=list)
+
+
+class FamilyNode(BaseModel):
+    """A node of the family tree. Edges run parent -> child; `change` says what the child adds
+    to its parent. The tree is by shared photograph and visible change, never a claim of who
+    copied whom: sibling order follows dates only."""
+
+    id: str
+    parent: str | None = None
+    kind: Literal["milestone", "source", "branch", "variant", "submitted"]
+    branch: FamilyBranch | None = None
+    label: str
+    caption: str | None = None
+    members: list[str] = Field(default_factory=list)  # FamilyMember ids, earliest first
+    date: str | None = None  # ISO, as precise as known ("2007-01-02", "2005-01", "2005")
+    time_source: str | None = None  # a member's time_source, or "source" for a milestone
+    aimed_at: str | None = None
+    change: str | None = None
+    # the submission's caption or edit was on no copy found: it is a new branch tip
+    new: bool = False
+    quotes: list[FamilyQuote] = Field(default_factory=list)  # milestones
+    receipt_id: int | None = None
+
+
+class FamilySource(BaseModel):
+    """A meme encyclopedia entry for the template, kept only when its own picture matched the
+    same photograph (verified) or our image search found the entry's pages."""
+
+    source: str
+    name: str
+    url: str
+    image_url: str | None = None
+    summary: str = ""
+    added: str | None = None
+    inliers: int | None = None
+    receipt_id: int | None = None
+
+
+class Family(BaseModel):
+    template: str | None = None  # the template's common name, from a verified source
+    sources: list[FamilySource] = Field(default_factory=list)
+    members: list[FamilyMember] = Field(default_factory=list)
+    nodes: list[FamilyNode] = Field(default_factory=list)
+    # node ids from the first milestone (or the source photo) down to the submission
+    lineage: list[str] = Field(default_factory=list)
+    # milestones after the source photo's own date: shown on the timeline, not as ancestors
+    events: list[FamilyNode] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class Card(BaseModel):
     title: str | None = None
     domain: str | None = None
@@ -53,6 +197,9 @@ class Post(BaseModel):
     media_urls: list[str] = Field(default_factory=list)
     receipt_id: int | None = None
     verified: bool = False  # True when the post's own page/API was read (not only a search snippet)
+    # an uploaded image's lookup: the parts of `text` that repeat 3+ words in a row of the
+    # image's caption (as written in `text`, for highlighting)
+    caption_match: list[str] = Field(default_factory=list)
 
 
 class Account(BaseModel):
@@ -89,6 +236,9 @@ class Page(BaseModel):
     # the true time lies in [time, time + time_uncertainty_s]; None when unknown
     time_uncertainty_s: float | None = None
     receipt_id: int | None = None
+    # an uploaded image's lookup: the parts of `headline` or `snippet` that repeat 3+ words in a
+    # row of the image's caption
+    caption_match: list[str] = Field(default_factory=list)
 
 
 class MediaFinding(BaseModel):
@@ -107,9 +257,13 @@ class MediaFinding(BaseModel):
 class Edge(BaseModel):
     from_: str = Field(alias="from", serialization_alias="from")
     to: str
-    rel: Literal["repost", "quote", "copy", "media", "link", "reply", "cites", "screenshot_of"]
+    rel: Literal[
+        "repost", "quote", "copy", "media", "link", "reply", "cites", "screenshot_of", "variant"
+    ]
     sim: float | None = None
-    tool: Literal["oxylabs", "nemotron", "gemini", "detector", "bluesky"] = "oxylabs"
+    tool: Literal["oxylabs", "nemotron", "gemini", "detector", "bluesky", "tineye", "yandex"] = (
+        "oxylabs"
+    )
     note: str | None = None
 
     model_config = {"populate_by_name": True}
@@ -129,7 +283,18 @@ class Spread(BaseModel):
 
 class Receipt(BaseModel):
     id: int
-    tool: Literal["oxylabs", "nemotron", "gemini", "bluesky", "detector", "x-id"]
+    tool: Literal[
+        "oxylabs",
+        "nemotron",
+        "gemini",
+        "bluesky",
+        "detector",
+        "x-id",
+        "tineye",
+        "yandex",
+        "fetch",
+        "fxtwitter",
+    ]
     endpoint: str
     summary: str
     source_url: str | None = None
@@ -279,3 +444,7 @@ class LookupResult(BaseModel):
     # why the submitted post couldn't be read ("Account suspended"); the UI shows it in place of
     # "Not enough evidence", since there was nothing to judge
     unreadable: str | None = None
+    image_matches: list[ImageMatch] = Field(default_factory=list)
+    image_origin_id: str | None = None
+    # the picture's family tree (lookup/family.py): None when no family step ran
+    family: Family | None = None

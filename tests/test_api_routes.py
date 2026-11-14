@@ -365,6 +365,26 @@ def test_bsky_target_forms():
     assert bsky_target("https://example.com/profile/x/post/y") is None
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://bsky.app/profile/bot%00.bsky.social",
+        "https://bsky.app/profile/bot%00.bsky.social/post/rk",
+        "at://did:plc:bot%00",
+        "at://did:plc:bot%00/app.bsky.feed.post/rk",
+    ],
+)
+def test_analyze_rejects_percent_encoded_nul_in_bsky_author(client, url):
+    c, store = client
+    response = c.post("/api/analyze", json={"url": url})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "insufficient"
+    assert any("not looked up" in note for note in body["notes"])
+    # Request validation runs before URL decoding: never send decoded NUL to PostgreSQL.
+    assert not [call for call in store.calls if call[0] in ("handle", "post", "check")]
+
+
 def test_bsky_post_url():
     assert (
         bsky_post_url("at://did:plc:x/app.bsky.feed.post/abc")
@@ -384,3 +404,28 @@ def test_analyze_matches_twitter_stored_link(client, monkeypatch, host):
     body = c.post("/api/analyze", json={"url": f"https://{host}/a/status/1"}).json()
     assert body["status"] == "matched"
     assert [cluster["id"] for cluster in body["clusters"]] == [47]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"text": "\\ud800 one two three four five"}',
+        b'{"url": "https://example.com/\\udfff"}',
+        b'{"text": "one two\\u0000 three four five"}',
+    ],
+)
+def test_lookup_unencodable_input_is_a_400_and_starts_no_job(body):
+    from api.routes import lookup as lookup_route
+
+    class Jobs:
+        def start(self, inp, client):  # its snapshot could not be serialized: never reached
+            raise AssertionError("job started")
+
+    app.dependency_overrides[lookup_route.get_jobs] = lambda: Jobs()
+    try:
+        res = TestClient(app).post(
+            "/api/lookup", content=body, headers={"Content-Type": "application/json"}
+        )
+    finally:
+        app.dependency_overrides.pop(lookup_route.get_jobs, None)
+    assert res.status_code == 400

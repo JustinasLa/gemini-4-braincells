@@ -46,9 +46,12 @@ Rules the code enforces:
   tools stored in this run (`guard.enforce`). Every web fact in a verdict has a clickable URL.
 - **Budget per cluster** (env): `ANALYST_MAX_TOOL_CALLS=6`, `ANALYST_MAX_WEB_CALLS=4` (live
   Oxylabs requests; cache hits are free), `ANALYST_TIME_BUDGET_S=120`. Calls past a limit get an
-  error result telling Gemini to write the verdict; the next turn has function calling off.
+  error result telling Gemini to write the verdict; once the tool-call or time budget is used up,
+  the next turn has function calling off (past the web limit, DB lookups stay available).
 - **Cache.** One process-wide cache by URL and query (6 h; failures 30 min, never retried in a
-  run). A page the `sources` worker already scraped for the cluster (`detail.key = page:<url>`) is
+  run), capped at 1,024 entries with oldest entries evicted first. Expired entries are released
+  on access or insertion. A page the `sources` worker already scraped for the cluster
+  (`detail.key = page:<url>`) is
   reused from the DB without a new request.
 - **Fetch allowlist.** `scrape_url` only accepts URLs already in the cluster's posts or evidence,
   or returned by an earlier search in the same run. Text in posts and pages is data, not
@@ -141,7 +144,7 @@ downgraded `status` and no `llm_assessment`.
 uv run python -m analyst cluster 900 --dry-run     # agent verdict, prints JSON, writes nothing
 uv run python -m analyst cluster 900 --no-tools    # single-shot verdict
 uv run python -m analyst worker                    # keep verdicts fresh (tools on by default)
-uv run pytest tests/test_analyst.py tests/test_analyst_agent.py
+uv run pytest tests/test_analyst.py tests/test_analyst_agent.py tests/test_analyst_gate.py
 ```
 
 `--dry-run` keeps tool evidence in memory (ids from 900000000 up), so nothing is written.

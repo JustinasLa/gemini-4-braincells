@@ -14,6 +14,37 @@ const { factualFindings, coordinationNote } = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
+const { outputFiles: apiFiles } = await build({
+  entryPoints: [fileURLToPath(new URL("../web/trackdown/src/data/api.ts", import.meta.url))],
+  bundle: true,
+  write: false,
+  platform: "node",
+  format: "esm",
+});
+const { clusterCase } = await import(
+  `data:text/javascript;base64,${Buffer.from(apiFiles[0].text).toString("base64")}`
+);
+
+test("live clusters never substitute score or analyst confidence for detector confidence", () => {
+  const cluster = {
+    id: 1, status: "coordinated", score: 0.97, synthetic: false,
+    members: [], posts: [], evidence: [],
+  };
+  for (const analyst of [undefined, { confidence: 0.92 }]) {
+    for (const confidence of [undefined, null]) {
+      const trace = clusterCase({ ...cluster, analyst, confidence });
+      assert.equal(trace.status, "coordinated");
+      assert.equal(trace.scored, false);
+      assert.equal(trace.confidence, 0);
+    }
+  }
+  for (const confidence of [0, 0.63]) {
+    const trace = clusterCase({ ...cluster, analyst: { confidence: 0.92 }, confidence });
+    assert.equal(trace.scored, true);
+    assert.equal(trace.confidence, confidence);
+  }
+});
+
 function result() {
   return {
     status: "insufficient",
@@ -42,9 +73,9 @@ test("source leads distinguish text copies and linked pages from coverage", () =
     { url: "https://example.org/report", role: "coverage" },
   ];
   const html = factualFindings(lookup);
-  assert.match(html, /Text-copy candidate · Search lead/);
-  assert.match(html, /Linked page · Search lead/);
-  assert.match(html, /Coverage candidate · Search lead/);
+  assert.match(html, /Text copy · search lead/);
+  assert.match(html, /Linked page · search lead/);
+  assert.match(html, /Coverage · search lead/);
 });
 
 test("supported facts remain visible when coordination is insufficient", () => {
@@ -94,9 +125,8 @@ test("image-only inputs and legacy media readings retain a provenance warning", 
   const lookup = result();
   lookup.posts = [{ id: "post:1", media_urls: ["https://image.example/photo.jpg"] }];
   const html = factualFindings(lookup);
-  assert.match(html, /Source discovery and exact-image verification are separate/);
-  assert.match(html, /OCR alone do not authenticate/);
-  assert.match(html, /not necessarily the original source/);
+  assert.match(html, /Finding a source is not verifying the image/);
+  assert.match(html, /not proof of the original/);
 });
 
 test("all factual finding labels are distinct from coordination", () => {
@@ -112,7 +142,7 @@ test("all factual finding labels are distinct from coordination", () => {
   }
 });
 
-test("both models retain their attributed claim-level findings", () => {
+test("both models' claim-level findings are shown", () => {
   const lookup = result();
   lookup.readings = [lookup.assessment, {
     model: "second-model",
@@ -124,8 +154,8 @@ test("both models retain their attributed claim-level findings", () => {
     }],
   }];
   const html = factualFindings(lookup);
-  assert.match(html, /Model assessment · test-model/);
-  assert.match(html, /Model assessment · second-model/);
+  assert.match(html, /The amendment was defeated 99–1\./);
+  assert.match(html, /The second reading distinguishes the proposed saving from a result\./);
   assert.match(html, /Supported by cited sources/);
   assert.match(html, /Partly supported \/ needs context/);
   assert.match(html, /The source reports an estimate/);
@@ -142,14 +172,14 @@ test("source articles remain visible when the model times out", () => {
   }];
   let html = factualFindings(lookup);
   assert.match(html, /Contemporary photo coverage/);
-  assert.match(html, /Search lead · page not read/);
-  assert.match(html, /Search date hint: 2022-08-08/);
+  assert.match(html, /· search lead/);
+  assert.match(html, /· ~2022-08-08/);
   assert.doesNotMatch(html, /No claim-level factual assessment/);
   lookup.receipts[0].endpoint = "/scrape";
   lookup.pages[0].published_at = "2022-08-08";
   html = factualFindings(lookup);
-  assert.match(html, /Source page read · not automatic verification/);
-  assert.match(html, /Published: 2022-08-08/);
+  assert.match(html, /· page read/);
+  assert.match(html, /· 2022-08-08/);
 });
 
 test("source attribution is shown with its receipt rather than a blanket denial", () => {

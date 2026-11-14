@@ -30,7 +30,6 @@ X_RESERVED = {"i", "home", "explore", "search", "settings", "notifications", "me
 X_STATUS_RE = re.compile(
     r"https?://(?:www\.|mobile\.)?(?:x|twitter)\.com/([A-Za-z0-9_]{1,15})/status(?:es)?/(\d{5,20})"
 )
-BSKY_POST_RE = re.compile(r"https?://(?:www\.)?bsky\.app/profile/([^/\s?#]+)/post/([a-z0-9]+)")
 
 
 @dataclass(frozen=True)
@@ -42,14 +41,14 @@ class Target:
 
 
 def snowflake_time(status_id: str | int) -> datetime | None:
-    """Creation time encoded in an X post id, or None for pre-2010 (non-snowflake) ids."""
+    """Creation time encoded in an X post id, or None for invalid/pre-snowflake ids."""
     try:
         n = int(status_id)
-    except (TypeError, ValueError):
+        if n < MIN_SNOWFLAKE:
+            return None
+        return datetime.fromtimestamp(((n >> 22) + TWITTER_EPOCH_MS) / 1000, UTC)
+    except (TypeError, ValueError, OverflowError, OSError):
         return None
-    if n < MIN_SNOWFLAKE:
-        return None
-    return datetime.fromtimestamp(((n >> 22) + TWITTER_EPOCH_MS) / 1000, UTC)
 
 
 def x_post_url(handle: str, status_id: str) -> str:
@@ -57,20 +56,25 @@ def x_post_url(handle: str, status_id: str) -> str:
 
 
 def classify(raw: str) -> Target | None:
-    """None when `raw` is not an http(s) URL."""
+    """None when `raw` is not a parseable http(s) URL."""
     raw = raw.strip()
     if not re.match(r"^https?://", raw, re.I):
         return None
-    parts = urlsplit(raw)
-    host = (parts.hostname or "").lower()
+    try:
+        parts = urlsplit(raw)
+        host = (parts.hostname or "").lower()
+    except ValueError:  # malformed brackets or an invalid Unicode authority
+        return None
     if not host or "." not in host:
         return None
     segs = [s for s in parts.path.split("/") if s]
     if host in X_HOSTS:
-        if len(segs) >= 3 and segs[1] in ("status", "statuses") and segs[2].isdigit():
-            return Target("x_post", x_post_url(segs[0], segs[2]), segs[0], segs[2])
         if len(segs) >= 4 and segs[0] == "i" and segs[1] == "web" and segs[3].isdigit():
             return Target("x_post", f"https://x.com/i/web/status/{segs[3]}", None, segs[3])
+        if len(segs) >= 3 and segs[1] in ("status", "statuses") and segs[2].isdigit():
+            if segs[0].lower() == "i":  # x.com/i/status/<id>: no handle in the link
+                return Target("x_post", f"https://x.com/i/web/status/{segs[2]}", None, segs[2])
+            return Target("x_post", x_post_url(segs[0], segs[2]), segs[0], segs[2])
         if len(segs) == 1 and segs[0].lower() not in X_RESERVED:
             return Target("x_profile", f"https://x.com/{segs[0]}", segs[0])
     if host in BSKY_HOSTS and len(segs) >= 2 and segs[0] == "profile":
@@ -86,5 +90,8 @@ def classify(raw: str) -> Target | None:
 def domain(url: str | None) -> str | None:
     if not url:
         return None
-    host = (urlsplit(url).hostname or "").lower()
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return None
     return host.removeprefix("www.") or None

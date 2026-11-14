@@ -14,6 +14,7 @@ already appear in this cluster's posts or evidence, or in an earlier tool result
 """
 
 import logging
+import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -142,24 +143,43 @@ def _item(eid: int, r: dict) -> EvidenceItem:
 class WebCache:
     """Process-wide cache of Oxylabs results by URL/query, shared across clusters and runs.
 
-    Holds the evidence *content*; each cluster still gets its own evidence row. Failures are
-    cached for a shorter time so a broken page is not retried on every cluster.
+    Holds the raw result (search hits, page facts); each cluster builds its own evidence row
+    from it (a page's summary counts that cluster's accounts). Failures are cached for a shorter
+    time so a broken page is not retried on every cluster. Expired entries are released on
+    access or insertion; a capacity limit also bounds retention between expirations.
     """
 
-    def __init__(self, ttl_s: float = 6 * 3600, failure_ttl_s: float = 1800):
+    def __init__(
+        self, ttl_s: float = 6 * 3600, failure_ttl_s: float = 1800, *, max_entries: int = 1024
+    ):
+        if max_entries < 1:
+            raise ValueError("max_entries must be positive")
         self._ttl = ttl_s
         self._failure_ttl = failure_ttl_s
-        self._data: dict[str, tuple[float, SourceEvidence | None]] = {}
+        self._max_entries = max_entries
+        self._data: dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
 
-    def get(self, key: str) -> tuple[bool, SourceEvidence | None]:
-        hit = self._data.get(key)
-        if hit and time.monotonic() < hit[0]:
-            return True, hit[1]
-        return False, None
+    def get(self, key: str) -> tuple[bool, Any]:
+        with self._lock:
+            hit = self._data.get(key)
+            if hit:
+                if time.monotonic() < hit[0]:
+                    return True, hit[1]
+                del self._data[key]
+            return False, None
 
-    def put(self, key: str, value: SourceEvidence | None) -> None:
-        ttl = self._ttl if value is not None else self._failure_ttl
-        self._data[key] = (time.monotonic() + ttl, value)
+    def put(self, key: str, value: Any) -> None:
+        with self._lock:
+            now = time.monotonic()
+            expired = [k for k, (expires, _) in self._data.items() if expires <= now]
+            for k in expired:
+                del self._data[k]
+            self._data.pop(key, None)  # replacing a key refreshes its insertion order
+            if len(self._data) >= self._max_entries:
+                del self._data[next(iter(self._data))]  # oldest insertion first
+            ttl = self._ttl if value is not None else self._failure_ttl
+            self._data[key] = (now + ttl, value)
 
 
 # --- declarations the model sees (JSON schema, Gemini function calling) ---
@@ -294,9 +314,6 @@ class ToolBox:
             names |= WEB_TOOLS
         return [d for d in DECLARATIONS if d["name"] in names]
 
-    def allow_urls(self, urls: Iterable[str]) -> None:
-        self._allow(urls)
-
     def _allow(self, urls: Iterable[str]) -> None:
         for u in urls:
             if isinstance(u, str) and u.startswith(("http://", "https://")):
@@ -363,17 +380,21 @@ class ToolBox:
     # --- web tools ---
 
     def _web_evidence(
-        self, key: str, rec: ToolCallRecord, fetch: Callable[[], SourceEvidence]
+        self,
+        key: str,
+        rec: ToolCallRecord,
+        fetch: Callable[[], Any],
+        build: Callable[[Any], SourceEvidence],
     ) -> EvidenceItem | None:
-        """Stored row for `key` -> cached content -> live Oxylabs call (counted in the budget)."""
+        """Stored row for `key` -> cached result -> live Oxylabs call (counted in the budget)."""
         stored = self._sink.existing(key)
         if stored is not None:
             rec.cached = True
             return stored
-        hit, ev = self._cache.get(key)
+        hit, raw = self._cache.get(key)
         if hit:
             rec.cached = True
-            if ev is None:
+            if raw is None:
                 return None
         else:
             refusal = self.budget.web_refusal()
@@ -381,12 +402,13 @@ class ToolBox:
                 raise BudgetRefused(refusal)
             self.budget.web_calls += 1
             try:
-                ev = fetch()
+                raw = fetch()
             except OxylabsError as exc:
                 log.warning("analyst web tool failed (%s): %s", key, exc)
                 self._cache.put(key, None)
                 return None
-            self._cache.put(key, ev)
+            self._cache.put(key, raw)
+        ev = build(raw)
         detail = {**ev.detail, "requested_by": self._requested_by, "why": rec.why}
         return self._sink.save(ev.model_copy(update={"detail": detail}))
 
@@ -399,7 +421,8 @@ class ToolBox:
         item = self._web_evidence(
             key,
             rec,
-            lambda: _agent_search_evidence(key, query, self._web.search(query, MAX_SEARCH_HITS)),
+            lambda: self._web.search(query, MAX_SEARCH_HITS),
+            lambda hits: _agent_search_evidence(key, query, hits),
         )
         if item is None:
             return {"error": "search failed; do not retry it"}
@@ -429,7 +452,8 @@ class ToolBox:
         item = self._web_evidence(
             key,
             rec,
-            lambda: _page_evidence(key, self._web.scrape_facts(url), *self._sharing(url)),
+            lambda: self._web.scrape_facts(url),
+            lambda facts: _page_evidence(key, facts, *self._sharing(url)),
         )
         if item is None:
             return {"error": "page could not be fetched; do not retry it"}

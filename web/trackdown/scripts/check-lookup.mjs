@@ -19,13 +19,79 @@ try {
   const { lookupCase } = await server.ssrLoadModule("/src/data/lookup.ts");
   const { mockLookupResult } = await server.ssrLoadModule("/src/data/mockLookup.ts");
   const { cardHtml } = await server.ssrLoadModule("/src/ui/card.ts");
-  const { isLineageEdge } = await server.ssrLoadModule("/src/ui/format.ts");
+  const formatMod = await server.ssrLoadModule("/src/ui/format.ts");
+  const { isLineageEdge } = formatMod;
   const { clusterCase } = await server.ssrLoadModule("/src/data/api.ts");
+  const { sharedTextHtml } = await server.ssrLoadModule("/src/ui/sharedText.ts");
+  const { Panel } = await server.ssrLoadModule("/src/ui/panel.ts");
   const dump = process.argv.indexOf("--dump");
   if (dump > 0) writeFileSync(process.argv[dump + 1], JSON.stringify(mockLookupResult));
 
   const renderAll = (trace) => trace.nodes.map((node, i) => cardHtml(node, false, i + 1) + cardHtml(node, true, i + 1)).join("\n");
   const fixture = () => structuredClone(mockLookupResult);
+
+  const textNode = (id, text, textMatch) => ({ id, text, textMatch, author: { name: id, handle: id }, role: "source", platform: "web", t: 0 });
+  check("underlined phrases link to posts containing that phrase, preferring the submission", () => {
+    const current = textNode("current", "Colette Kress was ‘a deer in the headlights,’ they couldn’t afford its chips.", ["Colette Kress was", "‘a deer in the headlights,’", "afford its chips."]);
+    const other = textNode("other", 'Colette Kress was "a deer in the headlights," according to the report.');
+    const submitted = textNode("submitted", "COLETTE KRESS WAS surprised. They could not afford its chips!");
+    const html = sharedTextHtml(current, { nodes: [current, other, submitted], submittedId: submitted.id });
+    assert.match(html, /data-go="submitted"[^>]*>Colette Kress was<\/a>/);
+    assert.match(html, /data-go="other"[^>]*>‘a deer in the headlights,’<\/a>/);
+    assert.match(html, /data-go="submitted"[^>]*>afford its chips\.<\/a>/);
+    assert.doesNotMatch(html, /data-go="current"/);
+  });
+
+  check("unmatched highlights stay visible and matching text and attributes stay escaped", () => {
+    const current = textNode("current", "<b>shared phrase here</b> & another unmatched phrase", ["<b>shared phrase here</b>", "another unmatched phrase"]);
+    const target = textNode('target"<', current.text.split(" & ")[0]);
+    const html = sharedTextHtml(current, { nodes: [current, target] });
+    assert.match(html, /data-go="target&quot;&lt;"/);
+    assert.match(html, /&lt;b&gt;shared phrase here&lt;\/b&gt;<\/a> &amp;/);
+    assert.match(html, /<mark class="caption-hit">another unmatched phrase<\/mark>/);
+    assert.doesNotMatch(html, /<b>|data-go="current"/);
+    assert.equal(sharedTextHtml(current, { nodes: [current] }), formatMod.markRuns(current.text, current.textMatch));
+  });
+
+  check("clicking underlined text opens the matching post and focuses it on the canvas", () => {
+    const listeners = new Map();
+    const el = { addEventListener: (type, fn) => listeners.set(type, fn), querySelector: () => null, innerHTML: "" };
+    const source = textNode("source", "Find another matching passage here.", ["another matching passage"]);
+    const target = textNode("target", "Another matching passage appears elsewhere.");
+    const focused = [];
+    const g = { selId: source.id, k: 0.5, pathToOrigin: () => [], focus: (...args) => focused.push(args) };
+    const panel = new Panel(el, g);
+    // Exercise the detail renderer and real delegated click listener without mounting the meme UI.
+    panel.render = () => { el.innerHTML = panel.detail(panel.c.nodes.find((n) => n.id === g.selId)); };
+    g.select = (id) => { g.selId = id; panel.showFolio(true); };
+    panel.tab = "folio";
+    panel.set({ id: "test", nodes: [source, target], edges: [], receipts: [], submittedId: source.id }, false);
+    assert.match(el.innerHTML, /class="caption-hit" href="#" data-go="target"/);
+    let prevented = false;
+    listeners.get("click")({ preventDefault: () => { prevented = true; }, target: { closest: () => ({ dataset: { go: target.id } }) } });
+    assert.equal(prevented, true);
+    assert.equal(g.selId, target.id);
+    assert.equal(panel.tab, "folio");
+    assert.match(el.innerHTML, /Another matching passage/);
+    assert.deepEqual(focused, [[target.id, 0.95]]);
+  });
+
+  check("post details keep timestamp labels and receipts without the layout disclaimer", () => {
+    const panel = new Panel({ addEventListener() {} }, {});
+    for (const timeUnknown of [true, false]) {
+      const node = { ...textNode("post", "A post with evidence"), timeUnknown,
+        realData: [{ label: "Post data", facts: [{ label: "Text", value: "Evidence retained" }], receiptId: 42, url: "https://example.com/post" }] };
+      panel.c = { nodes: [node], edges: [], receipts: [] };
+      const html = panel.detail(node);
+      assert.match(html, /Real data/);
+      assert.match(html, /Evidence retained/);
+      assert.match(html, /Receipt #42/);
+      assert.match(html, /href="https:\/\/example.com\/post"/);
+      assert.match(html, /Posted/);
+      assert.equal(html.includes('class="v2">Time unknown</div>'), timeUnknown);
+      assert.doesNotMatch(html, /Time unknown:|positioned at the submitted|publication timestamp/);
+    }
+  });
 
   check("fixture has a screenshotted post, a screenshot_of edge and screenshot receipts", () => {
     const r = fixture();
@@ -117,6 +183,64 @@ try {
     r.edges = r.edges.filter((e) => e.rel !== "screenshot_of");
     renderAll(lookupCase(r));
     renderAll(lookupCase({ ...fixture(), state: "running", posts: [], edges: [], screenshots: [], pages: [], media: [] }));
+  });
+
+  const { memeFixture } = await server.ssrLoadModule("/src/data/mockMeme.ts");
+  check("meme trace: image matches render as cards; an image with no text-search hits stays readable", () => {
+    const trace = lookupCase(memeFixture());
+    const html = renderAll(trace);
+    assert.match(html, /ORIGINAL · EARLIEST MATCH FOUND/);
+    assert.match(html, /first seen by TinEye on 2026-11-12 · upper bound, not a publish date/);
+    assert.doesNotMatch(html, /\b(fake|deepfake)\b/i);
+    // variant links are visual relationships, never copy lineage
+    assert.ok(trace.edges.some((e) => e.rel === "variant"));
+    assert.ok(!trace.edges.some((e) => e.rel === "variant" && isLineageEdge(e, trace.nodes.find((n) => n.id === e.from), trace.nodes.find((n) => n.id === e.to))));
+    renderAll(lookupCase({ ...memeFixture("meme-blocked"), image_matches: [{ id: "img:bare" }], image_origin_id: "img:bare" }));
+  });
+
+  check("panel: a cluster's non-http source URLs never become links", () => {
+    const bad = "javascript:alert(1)";
+    const trace = clusterCase({ id: 8, status: "insufficient", score: 0.2, confidence: 0.2, synthetic: false, signals: [], analyst: null, members: [],
+      posts: [{ uri: "at://did:plc:fictional2/app.bsky.feed.post/1", did: "did:plc:fictional2", text: "a post", created_at: "2026-11-13T10:00:00Z", embed_urls: [], media_hashes: [], url: bad }],
+      evidence: [{ id: 2, kind: "source", summary: "a page", detail: {}, source_url: bad }] });
+    // the private render methods need only the case and a selection, not a DOM
+    const panel = Object.assign(Object.create(Panel.prototype), { c: trace, g: { selId: null } });
+    const html = trace.nodes.map((n) => panel.detail(n)).join("");
+    assert.ok(trace.nodes.some((n) => n.url === bad), "fixture carries the unsafe URL");
+    assert.doesNotMatch(html, /href="javascript:/i);
+  });
+
+  check("a known live verdict with missing confidence does not claim there is no call", () => {
+    const trace = clusterCase({ id: 8, status: "coordinated", score: 0.97, confidence: null,
+      synthetic: false, members: [], posts: [], evidence: [] });
+    const panel = Object.assign(Object.create(Panel.prototype), { c: trace, g: { selId: null } });
+    const html = panel.verdict(trace);
+    assert.equal(trace.status, "coordinated");
+    assert.match(html, /Not recorded/);
+    assert.doesNotMatch(html, /No call|doesn't settle/);
+  });
+
+  const { fmtDur, fmtNum } = await server.ssrLoadModule("/src/ui/format.ts");
+  check("format: rounding never shows 60 s, 60 min or 1000k", () => {
+    assert.equal(fmtDur(59_700), "1 min");
+    assert.equal(fmtDur(59.7 * 60_000), "1 h");
+    assert.equal(fmtNum(999_700), "1M");
+    assert.equal(fmtNum(9_400), "9.4k");
+    assert.equal(fmtNum(42_000), "42k");
+  });
+
+  check("an upload's text hits highlight the 3+ caption words they share", () => {
+    const { markRuns } = formatMod;
+    assert.equal(markRuns("a <b> & c"), "a &lt;b&gt; &amp; c");
+    assert.equal(markRuns("so this is fine, this is fine", ["this is fine"]), 'so <mark class="caption-hit">this is fine</mark>, <mark class="caption-hit">this is fine</mark>');
+    assert.equal(markRuns("when the comets land", ["when the comets", "the comets land"]), '<mark class="caption-hit">when the comets</mark><mark class="caption-hit"> land</mark>');
+    const lookup = fixture();
+    const post = lookup.posts.find((p) => p.role !== "submitted");
+    post.text = "Look <here>: when the comets land, nobody tells you";
+    post.caption_match = ["when the comets land", "nobody tells you"];
+    const node = lookupCase(lookup).nodes.find((n) => n.id === post.id);
+    const html = cardHtml(node, false, 1);
+    assert.match(html, /Look &lt;here&gt;: <mark class="caption-hit">when the comets land<\/mark>, <mark class="caption-hit">nobody tells you<\/mark>/);
   });
 } finally {
   await server.close();

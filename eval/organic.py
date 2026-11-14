@@ -14,8 +14,8 @@ Two datasets, reported separately (rows in `eval_runs`, split `heldout` by defau
 The detector runs through its own entry point (`signals.detect.detect`) on a `WindowData` built
 in memory from recorded Jetstream files with the ingest normaliser, mirroring
 `signals.window.load_window` (no database). A case's outcome is the "worst" status among the
-clusters that contain >= 2 of its accounts: coordinated (a false positive) > likely_organic >
-insufficient (abstained) > no_cluster (never grouped, so never shown).
+clusters where its accounts are >= 2 members and >= 50% of the cluster: coordinated (a false
+positive) > likely_organic > insufficient (abstained) > no_cluster (never grouped, so never shown).
 
     uv run python -m eval.organic select   # pick live cases -> eval/fixtures/organic_live.json
     uv run python -m eval.organic run      # both datasets; prints a report, writes nothing
@@ -35,9 +35,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
-
-from eval.recall import _git_sha, load_base_rates  # shared with the recall eval
+from eval.recall import _git_sha, load_base_rates, wilson  # shared with the recall eval
 from ingest.normalize import Action, Delete, Post, normalize
 from ingest.recorder import read_events, recorded_files
 from signals.baseline import BaseRates
@@ -90,10 +88,9 @@ class HourData:
 
 def read_rows(paths: Iterable[Path]) -> HourData:
     data = HourData()
+    seen: set[str] = set()  # first copy wins across windows, like the writer and slices.py
     for _raw, event in read_events(list(paths)):
         row = normalize(event)
-        if row is None:
-            continue
         if not isinstance(row, Post | Action | Delete):
             continue
         t = row.seen_at.timestamp()
@@ -102,27 +99,29 @@ def read_rows(paths: Iterable[Path]) -> HourData:
             continue
         w = int(t // WINDOW_S) * WINDOW_S
         data.seconds[w].add(int(t))
+        if row.uri in seen:
+            continue
+        seen.add(row.uri)
         if isinstance(row, Post):
-            if row.uri not in data.posts[w]:
-                data.posts[w][row.uri] = WPost(
-                    uri=row.uri,
-                    did=row.did,
-                    t=t,
-                    text=row.text,
-                    text_hash=row.text_hash,
-                    embed_urls=row.embed_urls,
-                    media_hashes=row.media_hashes,
-                    reply_to=row.reply_to,
-                    reply_root=row.reply_root,
-                    quote_uri=row.quote_uri,
-                    created_t=row.created_at.timestamp() if row.created_at else None,
-                    langs=row.langs or [],
-                )
-                if row.tags:
-                    data.tags[row.uri] = row.tags
+            data.posts[w][row.uri] = WPost(
+                uri=row.uri,
+                did=row.did,
+                t=t,
+                text=row.text,
+                text_hash=row.text_hash,
+                embed_urls=row.embed_urls,
+                media_hashes=row.media_hashes,
+                reply_to=row.reply_to,
+                reply_root=row.reply_root,
+                quote_uri=row.quote_uri,
+                created_t=row.created_at.timestamp() if row.created_at else None,
+                langs=row.langs or [],
+            )
+            if row.tags:
+                data.tags[row.uri] = row.tags
         else:
             subject = row.subject_uri if row.table != "follows" else row.subject_did
-            data.actions[w][row.table].setdefault(row.uri, (row.did, t, subject, row.subject_did))
+            data.actions[w][row.table][row.uri] = (row.did, t, subject, row.subject_did)
     return data
 
 
@@ -574,7 +573,7 @@ def summarize(results: list[CaseResult]) -> dict:
     return {
         "n": n,
         "fpr": round(counts.get("coordinated", 0) / n, 4) if n else None,
-        "fpr_ci95": _wilson(counts.get("coordinated", 0), n),
+        "fpr_ci95": wilson(counts.get("coordinated", 0), n),
         "counts": {o: counts.get(o, 0) for o in OUTCOMES},
         # The harder number: among cases the detector did group into a cluster, how many it
         # called coordinated (no_cluster cases are easy wins that inflate n).
@@ -585,16 +584,6 @@ def summarize(results: list[CaseResult]) -> dict:
         "by_type": by_type,
         "false_positives": fps,
     }
-
-
-def _wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
-    if not n:
-        return None
-    p = k / n
-    d = 1 + z * z / n
-    c = (p + z * z / (2 * n)) / d
-    h = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return [round(float(max(0.0, c - h)), 4), round(float(min(1.0, c + h)), 4)]
 
 
 # ------------------------------------------------------------------ runner -------------------
@@ -620,6 +609,9 @@ def _job(w: int, kind: str | None, seed: int | None, live: list[dict]) -> tuple:
             dids, _uris = case_accounts(data, w, c["type"], c["key"])
             if len(dids) != c["accounts"]:
                 log.warning("%s: %d accounts now, %d in fixture", c["id"], len(dids), c["accounts"])
+                # This is no longer the selected case. In particular, missing accounts must
+                # not turn into a no_cluster success and lower the reported false-positive rate.
+                continue
             outcome, hits = case_outcome(res.clusters, dids)
             results.append(
                 CaseResult(c["id"], "organic_live", c["type"], w, len(dids), outcome, hits)
@@ -837,12 +829,12 @@ def main_args(a: argparse.Namespace) -> int:
         max_windows=a.max_windows,
         base_rates=rates,
     )
-    # A fixture case whose window is no longer complete on disk (pruned, cut by --max-windows)
-    # is not scored; say so instead of reporting the FPR on fewer cases.
+    # Cases with incomplete windows or changed account counts cannot be scored as selected.
+    # Keep their IDs visible alongside the denominator of the cases actually evaluated.
     scored = {r.case_id for r in results if r.dataset == "organic_live"}
     missing = sorted(c["id"] for c in live if c["id"] not in scored)
     if missing:
-        print(f"warning: {len(missing)} of {len(live)} live cases have no complete window")
+        print(f"warning: {len(missing)} of {len(live)} live cases could not be scored as selected")
     rows = []
     for dataset, extra in (
         ("organic_synth", {"kinds": list(SYNTH_KINDS), "seeds": seeds}),

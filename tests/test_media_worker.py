@@ -1,5 +1,6 @@
 import dataclasses
 import re
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -180,10 +181,85 @@ def test_stored_analysis_is_reused_without_fetch_or_model_call():
     assert run.findings[0].cached and run.findings[0].analysis.description == "A poster"
 
 
+class CarrierFetcher(FakeFetcher):
+    def __init__(self, missing_dids):
+        super().__init__()
+        self.missing_dids = set(missing_dids)
+
+    def fetch(self, *, did, cid, pds_host=None, embed_kind=None):
+        self.calls.append((did, cid, pds_host, embed_kind))
+        if did in self.missing_dids:
+            raise BlobFetchError("carrier no longer serves this blob")
+        return SimpleNamespace(
+            data=b"img", mime_type="image/jpeg", url=f"https://cdn/{did}/{cid}"
+        )
+
+
+@pytest.mark.parametrize("cached_screenshot", [False, True])
+def test_shared_blob_uses_another_carrier_when_the_first_is_unavailable(cached_screenshot):
+    posts = [_post(1, "did:a", "same"), _post(2, "did:b", "same")]
+    fetcher = CarrierFetcher(missing_dids={"did:a"})
+    client = ScreenshotClient()
+    stored = _stored(ScreenshotClient(), screenshot_status="failed") if cached_screenshot else None
+    if stored is not None:
+        stored["media_hash"] = "same"
+    run = process_cluster_media(posts, client, fetcher, cache_lookup=lambda _: stored)
+
+    assert run.failures == [] and run.screenshot_failures == 0
+    assert [call[0] for call in fetcher.calls] == ["did:a", "did:b"]
+    assert client.calls == ([] if cached_screenshot else ["same"])
+    assert client.shot_calls == ["same"]
+    assert run.findings[0].group.dids == ["did:a", "did:b"]
+    if not cached_screenshot:
+        assert run.findings[0].media_url == "https://cdn/did:b/same"
+
+
+def test_shared_blob_tries_each_source_once_before_recording_failure():
+    posts = [
+        _post(1, "did:a", "same"),
+        _post(2, "did:a", "same"),
+        _post(3, "did:b", "same"),
+    ]
+    fetcher = CarrierFetcher(missing_dids={"did:a", "did:b"})
+    client = FakeClient()
+    run = process_cluster_media(posts, client, fetcher)
+
+    assert [call[0] for call in fetcher.calls] == ["did:a", "did:b"]
+    assert client.calls == [] and run.findings == []
+    assert len(run.failures) == 1
+    assert run.failures[0].stage == "fetch"
+    assert run.failures[0].dids == ("did:a", "did:b")
+
+
+def test_dead_blob_in_a_large_cluster_has_bounded_carrier_attempts():
+    posts = [_post(i, f"did:{i}", "same") for i in range(50)]
+    fetcher = CarrierFetcher(missing_dids={p.did for p in posts})
+    run = process_cluster_media(posts, FakeClient(), fetcher)
+    assert len(fetcher.calls) == 4
+    assert len(run.failures) == 1 and run.failures[0].stage == "fetch"
+
+
 def test_non_vl_error_is_not_swallowed():
     client = FakeClient(error=NotVisionModelError("text model"))
     with pytest.raises(NotVisionModelError):
         process_cluster_media([_post(1, "did:a", "x")], client, FakeFetcher())
+
+
+def test_bounded_carrier_retries_can_reach_accounts_beyond_the_initial_prefix(monkeypatch):
+    posts = [_post(i, f"did:{i}", "same") for i in range(50)]
+    fetcher = CarrierFetcher(missing_dids={f"did:{i}" for i in range(49)})
+    calls = []
+
+    def choose(sources, count):
+        calls.append(True)
+        return sources[:count] if len(calls) == 1 else sources[-count:]
+
+    monkeypatch.setattr("media.worker.sample", choose)
+    first = process_cluster_media(posts, FakeClient(), fetcher)
+    second = process_cluster_media(posts, FakeClient(), fetcher)
+    assert len(first.failures) == 1
+    assert second.failures == [] and len(second.findings) == 1
+    assert len(fetcher.calls) == 8
 
 
 def test_failure_backoff_defers_then_retries():
@@ -485,3 +561,92 @@ def test_comparable_ignores_screenshot_latency():
     assert _comparable(detail) == _comparable(later)
     changed = detail | {"screenshot": detail["screenshot"] | {"text": "Edited"}}
     assert _comparable(detail) != _comparable(changed)
+
+
+# --- bounded blob download and worker pass isolation -------------------------------------------
+
+
+def test_blob_fetcher_stops_reading_an_oversized_body(monkeypatch):
+    import media.blobs as blobs
+
+    monkeypatch.setattr(blobs, "MAX_BYTES", 10)
+    sent = []
+
+    def endless():  # a PDS that never ends its body
+        while True:
+            sent.append(1)
+            yield b"x" * 4
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=endless())
+
+    with BlobFetcher(client=httpx.Client(transport=httpx.MockTransport(handler))) as fetcher:
+        with pytest.raises(BlobFetchError, match="over 10 bytes"):
+            fetcher.fetch(did="did:plc:a", cid="c", embed_kind="images")
+    assert len(sent) <= 4
+
+
+def test_blob_fetcher_does_not_read_rejected_bodies():
+    read = []
+
+    def body():
+        read.append(1)
+        yield b"<html>"
+
+    def handler(request):
+        if "cdn.bsky.app" in request.url.host:
+            return httpx.Response(404, content=body())
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    with BlobFetcher(client=httpx.Client(transport=httpx.MockTransport(handler))) as fetcher:
+        with pytest.raises(BlobFetchError, match="HTTP 404, not an image"):
+            fetcher.fetch(did="did:plc:a", cid="c", embed_kind="recordWithMedia")
+    assert read == []
+
+
+def test_worker_pass_survives_a_cluster_whose_read_raises(monkeypatch):
+    import contextlib
+    from types import SimpleNamespace
+
+    import media.__main__ as cli
+    from media.worker import MediaRun
+
+    class Conn:
+        rollbacks = 0
+
+        def rollback(self):
+            Conn.rollbacks += 1
+
+    queried, reads, passes = [], [], [0]
+
+    def candidates(conn, *, statuses, min_score, limit, done):
+        queried.append(dict(done))
+        return [{"id": i, "updated_at": "t"} for i in (1, 2) if done.get(i) != "t"]
+
+    def read_cluster(conn, client, fetcher, cluster_id, **kw):
+        reads.append(cluster_id)
+        if cluster_id == 1:
+            raise RuntimeError("bad row")
+        return MediaRun()
+
+    class Stop(Exception):
+        pass
+
+    def sleep(_):
+        passes[0] += 1
+        if passes[0] == 2:
+            raise Stop
+
+    monkeypatch.setattr(cli, "connect", lambda: contextlib.nullcontext(Conn()))
+    monkeypatch.setattr(cli.store, "candidate_clusters", candidates)
+    monkeypatch.setattr(cli, "read_cluster", read_cluster)
+    monkeypatch.setattr(cli, "_receipt_clients", lambda s: contextlib.nullcontext(None))
+    monkeypatch.setattr(cli.time, "sleep", sleep)
+    settings = SimpleNamespace(
+        media_statuses="coordinated", media_min_score=0.5, media_max_per_cluster=4
+    )
+    with pytest.raises(Stop):
+        cli.run_worker(object(), settings, interval_s=0, batch=25)
+    # cluster 2 is read in the same pass; cluster 1 is held back instead of retried at once
+    assert reads == [1, 2] and Conn.rollbacks == 1
+    assert queried[1] == {1: "t", 2: "t"}

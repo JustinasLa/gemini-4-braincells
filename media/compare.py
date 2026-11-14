@@ -43,7 +43,8 @@ V1_USER = (
     "Extract legible text, identify visual reuse or near-duplicate cues, and list "
     "cautious signs of manipulation or misleading context. Do not infer political intent."
 )
-# media-v2 (0802fc5), kept verbatim. v3 = media.nemotron.SYSTEM_PROMPT + the adult-content guard.
+# media-v2 (0802fc5), kept verbatim. "v3" runs the current media.nemotron.SYSTEM_PROMPT (now
+# media-v5, not the media-v3 text measured in media/README.md) plus the adult-content guard.
 V2_SYSTEM = f"""You read one image (or one video thumbnail) attached to a Bluesky post.
 The post belongs to a cluster of accounts that a behaviour detector found posting in a
 suspiciously similar way. Your notes are shown publicly as evidence next to that detector result.
@@ -156,26 +157,29 @@ def _one(client: NemotronClient, v: dict[str, Any], item: dict[str, Any]) -> dic
         )
         return {"cid": item["cid"], "error": type(exc).__name__, "latency_ms": latency_ms}
     latency_ms = log_call_attempt(model=client.model, media_hash=item["cid"], started=t, response=r)
-    ch = r.choices[0]
+    ch = r.choices[0] if r.choices else None
+    content = ch.message.content if ch else None
     out = {
         "cid": item["cid"],
         "latency_ms": latency_ms,
         "model": r.model,
-        "finish": ch.finish_reason,
-        "null_content": not ch.message.content,
+        "finish": ch.finish_reason if ch else None,
+        "null_content": not content,
         "prompt_tokens": r.usage.prompt_tokens if r.usage else None,
         "completion_tokens": r.usage.completion_tokens if r.usage else None,
         "reasoning_tokens": getattr(
             getattr(r.usage, "completion_tokens_details", None), "reasoning_tokens", None
         ),
     }
+    if ch is None:
+        return out | {"ok": False, "error": "NoChoices"}
     try:
-        strict = json.loads(ch.message.content or "")
+        strict = json.loads(content or "")
         out["strict_ok"] = isinstance(strict, dict) and bool(strict.get("description"))
     except json.JSONDecodeError:
         out["strict_ok"] = False
     try:
-        payload = parse_content(ch.message.content)
+        payload = parse_content(content)
         desc = str(payload.get("description") or "")
         text = payload.get("extracted_text") or []
         if v.get("guard"):  # what the pipeline stores (MediaAnalysis applies the same guard)
