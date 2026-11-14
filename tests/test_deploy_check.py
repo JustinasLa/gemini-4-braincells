@@ -137,3 +137,12 @@ def test_metrics_must_name_the_deployed_detector(run_check, tmp_path, deployed, 
     assert result.returncode == 0, result.stderr
     assert ("WARN eval rows are for detector ['v9'], the site runs v10" in result.stdout) is warns
     assert ("INFO metrics rows=1 replay detector=['v9'] deployed=v9" in result.stdout) is not warns
+
+
+def test_wheel_ships_every_backend_package():
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    shipped = set(config["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"])
+    packages = {p.parent.name for p in ROOT.glob("*/__init__.py")} - {"tests"}
+    assert packages <= shipped, sorted(packages - shipped)
