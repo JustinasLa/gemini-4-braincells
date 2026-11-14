@@ -249,7 +249,6 @@ def burst_stat(
 ) -> np.ndarray:
     """Pooled synchrony: sum over keys of (max member actions within sync_seconds) / all member
     actions on those keys. shifts: (P, n_members) circular time shifts, or None for observed."""
-    num = 0.0
     den = 0.0
     p = 1 if shifts is None else shifts.shape[0]
     num = np.zeros(p)
@@ -492,7 +491,6 @@ _SHARED_HANDLE_DOMAINS = {
     "bsky.social",
     "bsky.app",
     "brid.gy",
-    "ap.brid.gy",
     "blacksky.app",
     "eurosky.social",
     "skyfeed.me",
@@ -642,7 +640,7 @@ def organic_guards(
     known = [info[d] for d in members if d in info]
     aged = [a for a in known if a.age_days is not None and a.followers is not None]
     if len(aged) >= cfg.min_cluster_size:
-        est = sorted(a.did for a in aged if a.age_days > 365 and (a.followers or 0) >= 100)
+        est = sorted(a.did for a in aged if a.age_days > 365 and a.followers >= 100)
         share = len(est) / len(aged)
         ages = np.array([a.age_days for a in aged])
         out.append(
@@ -722,6 +720,7 @@ def organic_guards(
                 )
             )
     # Scheduled posting: independent bots that post "at the top of the hour" look synchronized.
+    # The span is 90 s after to 15 s before each full or half hour (clock skew): 105 of 1800 s.
     times = [u.t for k in sk if k.family == "content" for u in k.uses]
     if len(times) >= cfg.min_cluster_size:
         aligned = sum(1 for t in times if (t % 1800) < 90 or (t % 1800) > 1800 - 15)
@@ -732,10 +731,10 @@ def organic_guards(
                     "guard",
                     "clock_aligned_posting",
                     _r(0.7 * share),
-                    f"{aligned} of {len(times)} shared posts went out within 90 s after "
-                    "a full or half hour (5% expected by chance): "
+                    f"{aligned} of {len(times)} shared posts went out between 15 s before and "
+                    "90 s after a full or half hour (6% expected by chance): "
                     "scheduled bots can look synchronized without being coordinated",
-                    {"aligned": aligned, "posts": len(times), "expected_share": 0.05},
+                    {"aligned": aligned, "posts": len(times), "expected_share": _r(105 / 1800)},
                     polarity="against",
                 )
             )
@@ -769,13 +768,13 @@ def organic_guards(
     # Members talking to each other: replies from one member to another member's post. Rings
     # that broadcast (spam, like farms, reply floods into strangers' threads) almost never do;
     # friend groups, fandoms and role-play communities do it all the time.
-    mset_c = set(members)
-    ix_c = wd.index()
+    mset = set(members)
+    ix = wd.index()
     to_members = [
         (p.did, p.reply_to)
-        for d in sorted(mset_c)
-        for p in ix_c.posts_by_did.get(d, ())
-        if p.reply_to and _uri_did(p.reply_to) in mset_c and _uri_did(p.reply_to) != p.did
+        for d in sorted(mset)
+        for p in ix.posts_by_did.get(d, ())
+        if p.reply_to and _uri_did(p.reply_to) in mset and _uri_did(p.reply_to) != p.did
     ]
     if to_members:
         replying = {a for a, _ in to_members}
@@ -796,8 +795,6 @@ def organic_guards(
             )
         )
     langs: dict[str, int] = {}
-    mset = set(members)
-    ix = wd.index()
     for p in (p for d in mset for p in ix.posts_by_did.get(d, ())):
         if p.langs:
             langs[p.langs[0]] = langs.get(p.langs[0], 0) + 1
