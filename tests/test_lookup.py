@@ -1536,6 +1536,24 @@ def test_title_of_a_reply_that_starts_with_its_own_mention():
             "@carol你好世界今天真好",
         ),
         ("@bob 你好世界今天真好啊", "你好…", "你好世界今天真好啊"),
+        # Sol review r3: a repeated handle longer than the old 12-character comparison
+        (
+            "@carol_example @carol_example is right about the ferry times",
+            "[@carol_example](/carol_example) is right Show more",
+            "@carol_example is right about the ferry times",
+        ),
+        # a link right after the body's own mention (t.co in the title, display text in the body)
+        (
+            "@bob @carol https://t.co/abc123 is the full ferry timetable for tomorrow",
+            "[@carol](/carol) [ferry.example/t](https://t.co/abc123) is the full Show more",
+            "@carol https://t.co/abc123 is the full ferry timetable for tomorrow",
+        ),
+        # not a reply: the body's own mentions are the whole run, nothing is cut
+        (
+            "@bob @carol both right about the ferry times",
+            "[@bob](/bob) [@carol](/carol) both right Show more",
+            "@bob @carol both right about the ferry times",
+        ),
     ],
 )
 def test_title_reply_prefix_cut_lines_up_with_the_body(title, body, want):

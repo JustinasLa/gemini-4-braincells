@@ -46,10 +46,10 @@ _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^)]*)\)")
 _BADGE = re.compile(r"\[!\[[^\]]*\]\([^)]*\)\]\(/[A-Za-z0-9_]{1,15}\)")
 _LINKS_ONLY = re.compile(r"^(?:\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|\[[^\]]*\]\([^)]*\))+$")
 _HEADER_LINES = 4  # name, up to two badge lines, @handle
-_LEADING_MENTIONS = re.compile(r"^(?:@[A-Za-z0-9_]{1,15}\s+)+")
-_ONE_MENTION = re.compile(r"^@[A-Za-z0-9_]{1,15}\s+")
-_HANDLE_START = re.compile(r"^@[A-Za-z0-9_]+")
-_ALIGN_CHARS = 12  # enough to tell the body's start apart; links differ after (t.co in titles)
+# leading @handles: '@bob @carol is right' -> '@bob @carol '; '@carol你好' -> '@carol'
+_MENTION_STEP = re.compile(r"@([A-Za-z0-9_]{1,15})(?![A-Za-z0-9_])\s*")
+_MENTION_RUN = re.compile(r"(?:@[A-Za-z0-9_]{1,15}(?![A-Za-z0-9_])\s*)+")
+_MENTION = re.compile(r"@([A-Za-z0-9_]{1,15})")
 # X page controls that sit inside a post's text block but are not its words
 _CHROME = frozenset(("Show more", "GIF", "Made with AI", "Quote", "00:00", "Show translation"))
 _TITLE = re.compile(r'^# (.+?) on X: "(.*)"\s*$', re.S)
@@ -338,32 +338,32 @@ class PostPage:
 
 def _title_words(full: str, body: str) -> str:
     """The title's text without the @handles a reply's title starts with. The post body (and
-    screenshots of it) show those apart from the text ("Replying to"), so they aren't its words;
-    a body may still start with a mention of its own. Mentions are cut until the title lines up
-    with the start of the body; with nothing to line up with, a body that doesn't start with a
-    mention means all of them go."""
-    rest = full
-    while True:
-        if _lines_up(rest, body):
-            return rest
-        m = _ONE_MENTION.match(rest)
-        if not m:
-            break
-        rest = rest[m.end() :]
-    return full if body.startswith("@") else _LEADING_MENTIONS.sub("", full)
+    screenshots of it) show those apart from the text ("Replying to"), so they aren't its words.
+    The title's leading @handles are that reply prefix followed by the body's own leading
+    @handles, so the extra ones in front are cut. If the body's handles aren't the end of the
+    title's run, the title is kept whole."""
+    title_run = _MENTION_RUN.match(full)
+    if title_run is None:
+        return full
+    title_handles = _MENTION.findall(title_run.group(0))
+    body_run = _MENTION_RUN.match(body)
+    body_handles = _MENTION.findall(body_run.group(0)) if body_run else []
+    extra = len(title_handles) - len(body_handles)
+    if extra <= 0 or [h.lower() for h in title_handles[extra:]] != [
+        h.lower() for h in body_handles
+    ]:
+        return full
+    return full[_nth_mention_end(full, extra) :]
 
 
-def _lines_up(title: str, body: str) -> bool:
-    """The title starts like the body: same first characters (a truncated body ends in an
-    ellipsis, so that is ignored), and the same whole first @handle when the body starts with
-    one ('@carol' is not '@caroline')."""
-    key = body.rstrip(" .…\n")[:_ALIGN_CHARS]
-    if not key or not title.startswith(key):
-        return False
-    if bm := _HANDLE_START.match(body):
-        tm = _HANDLE_START.match(title)
-        return tm is not None and tm.group(0) == bm.group(0)
-    return True
+def _nth_mention_end(text: str, n: int) -> int:
+    """Index just after the n-th leading @handle and the whitespace following it."""
+    end = 0
+    for _ in range(n):
+        m = _MENTION_STEP.match(text, end)
+        assert m is not None  # n never exceeds the run _MENTION_RUN found
+        end = m.end()
+    return end
 
 
 def parse_post_page(md: str, status_id: str) -> PostPage:
