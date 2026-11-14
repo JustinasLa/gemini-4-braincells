@@ -37,7 +37,7 @@ var On=Object.defineProperty;var Bn=(t,e,s)=>e in t?On(t,e,{enumerable:!0,config
       <figure class="st-mine"><img src="${_(t.picture)}" alt="${_(s.join(" ")||"The picture")}" referrerpolicy="no-referrer" draggable="false"></figure>
       <div class="st-say">
         ${Tn(t.report,{stack:!0})}
-        ${e?'<div class="st-actions"><button class="btn solid" type="button" data-swarm-trace>Trace it</button></div>':""}
+        ${e?'<div class="st-actions"><button class="btn solid" type="button" data-swarm-trace>Search</button></div>':""}
       </div>
     </section>
     ${n.length?`<section class="st-sec" aria-labelledby="sw-posts-h"><h2 id="sw-posts-h">Posts<span>${i}</span></h2>

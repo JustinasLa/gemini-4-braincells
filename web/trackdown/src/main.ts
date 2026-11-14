@@ -61,7 +61,7 @@ const app = $(".app");
 const story = mountStory(app);
 // the picture being traced, as a local address: the story shows it before the server has it
 let storyPreview: { url: string; lookup: string } | null = null;
-// the page of one live picture (?swarm=<id>), opened in-app (openSwarm); "Trace it" sends its
+// the page of one live picture (?swarm=<id>), opened in-app (openSwarm); "Search" sends its
 // picture down the upload path
 const swarmPage = mountSwarmPage(app, (file) => void startTrace(file, import.meta.env.DEV && new URLSearchParams(location.search).has("mockSwarm")), (id) => void openSwarm(id, true), () => {
   // opened over a screen of the app: the browser's Back restores it exactly (popstate); opened

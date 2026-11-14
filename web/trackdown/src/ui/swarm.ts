@@ -177,7 +177,7 @@ export function swarmPageHtml(detail: SwarmDetail, canTrace: boolean): string {
       <figure class="st-mine"><img src="${esc(detail.picture)}" alt="${esc(lines.join(" ") || "The picture")}" referrerpolicy="no-referrer" draggable="false"></figure>
       <div class="st-say">
         ${swarmStrip(detail.report, { stack: true })}
-        ${canTrace ? `<div class="st-actions"><button class="btn solid" type="button" data-swarm-trace>Trace it</button></div>` : ""}
+        ${canTrace ? `<div class="st-actions"><button class="btn solid" type="button" data-swarm-trace>Search</button></div>` : ""}
       </div>
     </section>
     ${posts.length ? `<section class="st-sec" aria-labelledby="sw-posts-h"><h2 id="sw-posts-h">Posts<span>${total}</span></h2>
