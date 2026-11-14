@@ -222,4 +222,7 @@ Earlier fixes from the same kind of review: weather feeds sharing a custom handl
   counts words by spaces, so they are never embedded. Thai, Lao, Myanmar and Khmer are tokenised
   on the fragments left after their vowel marks are removed. `POST /api/lookup` (Trackdown) still
   needs 5 space-separated words of text; `POST /api/analyze` accepts 10+ CJK/Thai characters.
+  Near-duplicate matching of Japanese/Chinese uses 5-character shingles (stricter than words: a
+  copy with light edits may not match), and a post that is about half CJK can pick a different
+  shingle size than its copy with one extra word, so such mixed copies can miss each other.
 - Identity signals depend on enrichment, which is limited per pass and only for suspicious groups.

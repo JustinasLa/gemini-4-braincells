@@ -115,6 +115,10 @@ def test_claim_phrase_unspaced_review_cases():
         "東京で火災が発生しました原因は調査中です"
     )
     assert claim_phrase(["ーーーーーーーーーーーーーーーー"]) is None
+    assert claim_phrase(["ー" * 32 + " 東京で火災が発生しました原因は調査中"]) == (
+        "東京で火災が発生しました原因は調査中"
+    )
+    assert claim_phrase(["草" * 12]) is None and claim_phrase(["う" + "お" * 20]) is None
 
 
 def test_check_builds_page_and_search_evidence_with_urls():

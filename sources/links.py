@@ -92,8 +92,7 @@ def _cut_chars(s: str, max_chars: int, min_chars: int) -> str:
         return out
     start = 0
     if _unspaced_chars(s[:max_chars]) < min_chars:  # leading emoji, digits or Latin: skip them
-        m = UNSPACED_RE.search(s)
-        start = m.start() if m else 0
+        start = next((i for i, c in enumerate(s) if UNSPACED_RE.match(c) and c not in _FILLER), 0)
     end = start + max_chars
     while end < len(s) and unicodedata.category(s[end]).startswith("M"):
         end += 1
@@ -127,7 +126,9 @@ def claim_phrase(
             return None
         # End punctuation differs between copies (。！ or none), so it isn't searched for.
         phrase = _cut_chars(best, max_chars, min_chars).rstrip(",;:、，。！？!?. ")
-        return phrase if _unspaced_chars(phrase) >= min_chars else None
+        # And not one character repeated ('草草草草…', 'ああああ…'): that matches any shout.
+        distinct = {c for c in UNSPACED_RE.findall(phrase) if c not in _FILLER}
+        return phrase if _unspaced_chars(phrase) >= min_chars and len(distinct) >= 4 else None
     words = best.split()
     if len(words) < min_words:
         return None
