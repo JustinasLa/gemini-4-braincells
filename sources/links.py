@@ -1,6 +1,7 @@
 """Pure helpers: which links a cluster shares, and which phrase to search the web for."""
 
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Iterable
 from urllib.parse import urlsplit
@@ -9,13 +10,21 @@ from signals.textnorm import normalize_url
 from sources.models import ClusterPost
 
 X_HOSTS = frozenset({"x.com", "twitter.com", "mobile.x.com", "mobile.twitter.com"})
+# Scripts written without spaces between words (Thai, Lao, Myanmar, Khmer, kana incl. half-width,
+# CJK ideographs), measured on the raw text: the search phrase is cut from it as written.
+UNSPACED_CHARS = (
+    "\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff\u3040-\u30ff\u31f0-\u31ff"
+    "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\U00020000-\U0003134f"
+)
+UNSPACED_RE = re.compile(f"[{UNSPACED_CHARS}]")
+
 # Links that point back into Bluesky itself say nothing about outside sources.
 SKIP_HOSTS = frozenset({"bsky.app", "go.bsky.app"})
 MEDIA_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".m3u8")
 
 _URL = re.compile(r"https?://\S+")
 _MENTION_OR_TAG = re.compile(r"(?<!\w)[@#][\w.\-]+")
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+_SENTENCE_SPLIT = re.compile(rf"(?<=[.!?])\s+|(?<=[。！？])\s*|(?<=[!?])(?=[{UNSPACED_CHARS}])|\n+")
 
 
 def url_variants(url: str) -> list[str]:
@@ -65,21 +74,82 @@ def _clean(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
+_FILLER = frozenset("ーｰ〜")  # long-vowel marks, also typed in rows as divider lines
+
+
+def _unspaced_chars(s: str) -> int:
+    """Characters of unspaced scripts in `s`, not counting combining marks (Thai vowel signs)
+    or long-vowel marks (a ーーーー divider line is not text)."""
+    return sum(
+        1
+        for c in UNSPACED_RE.findall(s)
+        if c not in _FILLER and not unicodedata.category(c).startswith("M")
+    )
+
+
+def _mostly_unspaced(s: str) -> bool:
+    """At least half of the letters are in an unspaced script: then words can't be counted.
+    A mostly-English sentence with one 東京 in it is still measured in words."""
+    letters = sum(1 for c in s if c.isalpha() and c not in _FILLER)
+    return letters > 0 and _unspaced_chars(s) * 2 >= letters
+
+
+def _size(s: str) -> float:
+    """Sentence length in words; unspaced scripts count two characters as one word."""
+    return _unspaced_chars(s) / 2 if _mostly_unspaced(s) else len(s.split())
+
+
+def _cut_chars(s: str, max_chars: int, min_chars: int) -> str:
+    """Whole space-separated chunks up to `max_chars` when they keep `min_chars` unspaced
+    characters, else a plain cut at `max_chars` (never between a character and its combining
+    marks, as in Thai). Never a single short word like the 'iPhone' of 'iPhone 15を買ったら...'."""
+    out = ""
+    for chunk in s.split():
+        joined = f"{out} {chunk}" if out else chunk
+        if len(joined) > max_chars:
+            break
+        out = joined
+    if out and _unspaced_chars(out) >= min_chars:
+        return out
+    start = 0
+    if _unspaced_chars(s[:max_chars]) < min_chars:  # leading emoji, digits or Latin: skip them
+        start = next((i for i, c in enumerate(s) if UNSPACED_RE.match(c) and c not in _FILLER), 0)
+    end = start + max_chars
+    while end < len(s) and unicodedata.category(s[end]).startswith("M"):
+        end += 1
+    return s[start:end]
+
+
 def claim_phrase(
-    texts: Iterable[str | None], *, min_words: int = 5, max_words: int = 12
+    texts: Iterable[str | None],
+    *,
+    min_words: int = 5,
+    max_words: int = 12,
+    min_chars: int = 10,
+    max_chars: int = 30,
 ) -> str | None:
     """A distinctive phrase from the cluster's most repeated text, for an exact-phrase search.
 
     Takes the longest sentence of the most common (cleaned) text and cuts it to `max_words`.
     None when no sentence has at least `min_words` words: short phrases match too much of the web.
+    Sentences in unspaced scripts (Japanese, Chinese, Thai) are measured in characters instead:
+    at least `min_chars` of them, cut to `max_chars`.
     """
     cleaned = [c for c in (_clean(t) for t in texts if t) if c]
     if not cleaned:
         return None
     common, _ = Counter(c.lower() for c in cleaned).most_common(1)[0]
     original = next(c for c in cleaned if c.lower() == common)
-    sentences = [s.strip(" \"'“”") for s in _SENTENCE_SPLIT.split(original)]
-    best = max(sentences, key=lambda s: len(s.split()), default="")
+    sentences = [s.strip(" \"'“”「」『』") for s in _SENTENCE_SPLIT.split(original)]
+    best = max(sentences, key=_size, default="")
+    if _mostly_unspaced(best):
+        if _unspaced_chars(best) < min_chars:
+            return None
+        # End punctuation differs between copies (。！ or none), so it isn't searched for.
+        phrase = _cut_chars(best, max_chars, min_chars).rstrip(",;:、，。！？!?. ")
+        # And not one character repeated ('草草草草…', 'ああああ…'): that matches any shout.
+        distinct = {c for c in UNSPACED_RE.findall(phrase) if c not in _FILLER}
+        return phrase if _unspaced_chars(phrase) >= min_chars and len(distinct) >= 4 else None
     words = best.split()
     if len(words) < min_words:
         return None

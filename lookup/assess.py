@@ -1,11 +1,17 @@
-"""Gemini reads a lookup's receipts and writes a short, cited reading. It never sets status."""
+"""A model reads a lookup's receipts and writes a short, cited reading. It never sets status.
+
+Nemotron 3.5 Super VL writes the primary reading (text-only chat on the Verda vLLM endpoint,
+a few seconds); Gemini can add a slower second reading. Both drafts go through the same
+`guard`: only receipt ids that exist are kept, and `llm_reading` is shown as the model's
+reading, never as the status (lookup/README.md).
+"""
 
 from __future__ import annotations
 
 import json
 import logging
 import time
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -104,37 +110,64 @@ def brief(r: LookupResult, max_posts: int = 30, max_pages: int = 12) -> str:
     return json.dumps(data, default=str, ensure_ascii=False)
 
 
+MAX_CALL_S = 90.0  # one reading never waits longer than this
+RETRY_MIN_S = 20.0  # a second try needs at least this much of the lookup's budget left
+RETRY_CODES = frozenset({500, 503, 504})  # Gemini-side blips and DEADLINE_EXCEEDED
+
+
 class Assessor:
-    def __init__(self, api_key: str, model: str, *, cap=None, timeout_s: float = 30.0):
+    """Gemini's reading (structured output). Slower than Nemotron: the second reading."""
+
+    provider = "gemini"
+
+    def __init__(self, api_key: str, model: str, *, cap=None):
         from google import genai
-        from google.genai import types
 
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set")
-        # bounded: the lookup keeps only a short reserve of its time budget for this call
-        self._client = genai.Client(
-            api_key=api_key, http_options=types.HttpOptions(timeout=int(timeout_s * 1000))
-        )
+        # no client-wide timeout: each call gets what is left of the lookup's budget, because
+        # google-genai also sends the timeout to Gemini as X-Server-Timeout, and Gemini answers
+        # 504 DEADLINE_EXCEEDED when its reading needs longer than that
+        self._client = genai.Client(api_key=api_key)
         if cap is not None:
             self._client = cap.wrap(self._client)
         self.model = model
 
-    def assess(self, r: LookupResult) -> Assessment:
-        from google.genai import types
+    def assess(self, r: LookupResult, *, deadline: float | None = None) -> Assessment:
+        """`deadline` is the lookup's monotonic end; without one a call may take MAX_CALL_S."""
+        from google.genai import errors, types
 
         from analyst.pricing import cost_usd
 
-        started = time.monotonic()
-        res = self._client.models.generate_content(
-            model=self.model,
-            contents=brief(r),
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM,
-                response_mime_type="application/json",
-                response_schema=_Draft,
-                temperature=0.2,
-            ),
-        )
+        prompt_text = brief(r)
+        for attempt in (1, 2):
+            left = MAX_CALL_S if deadline is None else deadline - time.monotonic()
+            timeout_s = max(5.0, min(MAX_CALL_S, left))
+            started = time.monotonic()
+            try:
+                res = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt_text,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM,
+                        response_mime_type="application/json",
+                        response_schema=_Draft,
+                        temperature=0.2,
+                        http_options=types.HttpOptions(timeout=int(timeout_s * 1000)),
+                    ),
+                )
+                break
+            except errors.ServerError as exc:
+                left = MAX_CALL_S if deadline is None else deadline - time.monotonic()
+                if attempt == 2 or exc.code not in RETRY_CODES or left < RETRY_MIN_S:
+                    raise
+                log.warning(
+                    "gemini lookup reading failed after %d ms (%s %s), one more try with %d s left",
+                    int((time.monotonic() - started) * 1000),
+                    exc.code,
+                    exc.status,
+                    int(left),
+                )
         latency = int((time.monotonic() - started) * 1000)
         usage = res.usage_metadata
         prompt = getattr(usage, "prompt_token_count", None)
@@ -153,8 +186,123 @@ class Assessor:
             if isinstance(res.parsed, _Draft)
             else _Draft.model_validate_json(res.text or "")
         )
-        return guard(draft, r, model=self.model, latency_ms=latency,
+        # the label is the version the API says answered; an alias can resolve to another one
+        returned = getattr(res, "model_version", None)
+        if not returned:
+            log.warning("gemini response carries no model_version; labelled %s (requested)",
+                        self.model)  # fmt: skip
+        return guard(draft, r, model=returned or self.model, latency_ms=latency,
                      cost=cost_usd(self.model, prompt, out))  # fmt: skip
+
+
+JSON_KEYS = (
+    "Return only one JSON object with keys: summary, origin, corroboration, spread_pattern "
+    "(strings), counter_evidence, would_change (arrays of strings), cites (array of receipt "
+    'ids, integers), llm_reading ("organic_looking", "copy_campaign_looking" or "unclear").'
+)
+
+
+class NemotronAssessor:
+    """Nemotron 3.5 Super VL writes the reading: text-only chat, same draft schema and guard.
+
+    Its own OpenAI client (not media/'s image client): one bounded attempt sized to the
+    lookup's remaining time. Every response's model id must name Nemotron Super VL, the same
+    check the image path makes; the Assessment carries the id the response returned."""
+
+    provider = "nemotron"
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str,
+        model: str,
+        reasoning: bool = False,
+        max_tokens: int = 2048,
+        timeout_s: float = 20.0,
+        structured: bool = True,
+        client: Any = None,
+    ):
+        if not api_key and client is None:
+            raise ValueError("Nemotron needs VERDA_INFERENCE_KEY or NVIDIA_API_KEY")
+        if client is None:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout_s, max_retries=0)
+        self._client = client
+        self.model = model
+        self.base_url = base_url
+        self.reasoning = reasoning
+        self.max_tokens = max_tokens
+        self.timeout_s = timeout_s
+        self.structured = structured
+
+    def assess(self, r: LookupResult, *, deadline: float | None = None) -> Assessment:
+        from media.nemotron import NotVisionModelError, is_super_vl_model, log_call_attempt
+
+        timeout = self.timeout_s
+        if deadline is not None:
+            timeout = max(1.0, min(timeout, deadline - time.monotonic()))
+        kw: dict[str, Any] = {}
+        if self.structured:  # vLLM guided decoding: the reply is the schema, nothing else
+            kw["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "reading", "schema": _Draft.model_json_schema()},
+            }
+        kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": self.reasoning}}
+        started = time.monotonic()
+        tag = f"lookup-assess:{r.id}"
+        try:
+            res = self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM + "\n\n" + JSON_KEYS},
+                    {"role": "user", "content": brief(r)},
+                ],
+                temperature=0.2,
+                max_tokens=self.max_tokens,
+                timeout=timeout,
+                **kw,
+            )
+        except Exception as exc:
+            name = type(exc).__name__
+            log_call_attempt(
+                model=self.model, media_hash=tag, started=started, outcome=name, error_type=name
+            )
+            raise
+        returned = getattr(res, "model", None)
+        ok = is_super_vl_model(returned)
+        outcome = "ok" if ok else "NotVisionModelError"
+        latency = log_call_attempt(
+            model=self.model, media_hash=tag, started=started, response=res, outcome=outcome
+        )
+        if not ok:
+            raise NotVisionModelError(
+                f"asked for {self.model!r} at {self.base_url} but the response came from "
+                f"{returned!r}, which is not a Nemotron Super VL model"
+            )
+        choice = res.choices[0] if res.choices else None
+        if choice is None:
+            raise ValueError("Nemotron returned no choices")
+        draft = parse_draft(choice.message.content, finish=getattr(choice, "finish_reason", None))
+        # self-hosted on Verda: no per-token price, so no cost estimate (None, not 0)
+        return guard(draft, r, model=returned, latency_ms=latency, cost=None)
+
+
+def parse_draft(content: Any, *, finish: str | None = None) -> _Draft:
+    """The draft from a chat reply: the first JSON object (fences, <think> and prose tolerated)."""
+    from media.nemotron import parse_content
+
+    try:
+        return _Draft.model_validate(parse_content(content))
+    except Exception as exc:
+        raise ValueError(f"no valid reading in the reply (finish_reason={finish}): {exc}") from exc
+
+
+def disagree(readings: list[Assessment]) -> bool:
+    """True when the readings' calls differ ('unclear' counts as a call: shown and counted)."""
+    calls = {a.llm_reading for a in readings}
+    return len(calls) > 1
 
 
 def guard(d: _Draft, r: LookupResult, *, model: str, latency_ms: int | None = None,

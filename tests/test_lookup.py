@@ -3,9 +3,11 @@
 Fixtures are fictional accounts in the shape Oxylabs returns for logged-out X pages.
 """
 
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +16,7 @@ from api.main import app
 from api.routes import lookup as lookup_route
 from api.schemas import ClusterSummary
 from lookup import textsim
-from lookup.assess import _Draft, guard
+from lookup.assess import MAX_CALL_S, Assessor, _Draft, guard
 from lookup.jobs import JobStore, RateLimited, cache_key
 from lookup.models import LookupInput
 from lookup.service import Deps, Lookup, StepUnavailable, _x_title, snippet_time
@@ -377,6 +379,63 @@ def test_guard_drops_unknown_citations():
     assert a.cites == [] and a.llm_reading == "unclear"
     d.cites = [1]
     assert guard(d, job.result, model="gemini-test").llm_reading == "copy_campaign_looking"
+
+
+class FakeGeminiModels:
+    """Raises the queued errors in order, then answers with a valid reading."""
+
+    def __init__(self, *errors):
+        self.errors = list(errors)
+        self.timeouts_ms = []
+
+    def generate_content(self, *, model, contents, config):
+        self.timeouts_ms.append(config.http_options.timeout)
+        if self.errors:
+            raise self.errors.pop(0)
+        draft = _Draft(summary="s", origin="o", corroboration="c", spread_pattern="p",
+                       cites=[1], llm_reading="unclear")  # fmt: skip
+        return SimpleNamespace(usage_metadata=None, parsed=draft, text=draft.model_dump_json())
+
+
+def _assessor(models):
+    a = Assessor("test-key", "gemini-test")
+    a._client = SimpleNamespace(models=models)
+    return a
+
+
+def _deadline_exceeded():
+    from google.genai import errors
+
+    body = {"error": {"code": 504, "message": "Deadline expired", "status": "DEADLINE_EXCEEDED"}}
+    return errors.ServerError(504, body)
+
+
+def test_assess_retries_once_on_deadline_exceeded():
+    job = Lookup("lk_a", LookupInput(text=TEXT), make_deps())
+    job.run()
+    models = FakeGeminiModels(_deadline_exceeded())
+    a = _assessor(models).assess(job.result, deadline=time.monotonic() + 60)
+    assert a.summary == "s" and len(models.timeouts_ms) == 2
+    # each try may use what is left of the budget (the timeout is also Gemini's server deadline)
+    assert all(50_000 < t <= 60_000 for t in models.timeouts_ms)
+
+
+def test_assess_gives_up_without_budget_or_after_second_failure():
+    from google.genai import errors
+
+    job = Lookup("lk_b", LookupInput(text=TEXT), make_deps())
+    job.run()
+    models = FakeGeminiModels(_deadline_exceeded())
+    with pytest.raises(errors.ServerError):  # 10 s left: too little for a second reading
+        _assessor(models).assess(job.result, deadline=time.monotonic() + 10)
+    assert len(models.timeouts_ms) == 1
+    models = FakeGeminiModels(_deadline_exceeded(), _deadline_exceeded())
+    with pytest.raises(errors.ServerError):
+        _assessor(models).assess(job.result, deadline=time.monotonic() + 80)
+    assert len(models.timeouts_ms) == 2
+    models = FakeGeminiModels()
+    _assessor(models).assess(job.result)  # no deadline: capped, never unbounded
+    assert models.timeouts_ms == [int(MAX_CALL_S * 1000)]
 
 
 def test_jobstore_cache_and_limits():

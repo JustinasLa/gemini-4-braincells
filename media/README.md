@@ -21,6 +21,7 @@ python -m media model                  # served model id + root, and the VL chec
 python -m media cluster 42 --dry-run   # read one cluster's media, print the findings
 python -m media worker                 # compose service `media`: keep reading candidate clusters
 python -m media.compare ...            # prompt/schema comparison (below)
+python -m media.compare_screenshot ... # screenshot read, reasoning on vs off (below)
 ```
 
 ## Pipeline
@@ -34,12 +35,24 @@ python -m media.compare ...            # prompt/schema comparison (below)
 3. **Fetch** (`blobs.BlobFetcher`, read-only): images from `cdn.bsky.app`, videos as their
    thumbnail from `video.bsky.app`, both by (did, CID); the author's PDS is an image fallback.
 4. **Read** (`nemotron.NemotronClient`): one chat call per file, image sent as a data URL.
+   Files typed `media_type=screenshot` get a second call, `read_screenshot` (`screenshot.py`,
+   `screenshot-v1`, reasoning off by default: `MEDIA_SCREENSHOT_REASONING`,
+   `MEDIA_SCREENSHOT_MAX_TOKENS`), that reads a screenshot of a social-media post as fields
+   (platform, handle, shown time, text, counts, UI oddities) so lookup/ can find the original.
+   Adult-flagged screenshots are never sent. A failed screenshot read keeps the main analysis,
+   and the cluster is retried later (backoff), re-running only the screenshot read.
 5. **Store** (`worker.persist_evidence`): one row per (cluster, media hash), upserted so ids stay
    stable for analyst citations; unchanged rows aren't touched (no verdict churn). Fetch/model failures are stored as retryable `detail.status=failed` rows (they are not used as cache hits), so the dashboard can distinguish failed media from media still pending. `model` is
    the model id the **response** returned. `source_url` is the first post on bsky.app;
    `detail` has `post_urls`, `profile_urls`, `dids`, `n_posts`, `n_accounts`, `media_url`,
    `media_kind`, `description`, `extracted_text`, `reuse_cues`, `manipulation_cues`,
    `content_flags`, `media_type`, `confidence`, `latency_ms`, `usage`, `prompt_version`.
+   Screenshot rows also have `screenshot` (the `ScreenshotPost` fields, or null),
+   `screenshot_status` (`post`, `not_post`, `failed`, `skipped_adult`),
+   `screenshot_prompt_version` and, when failed, `screenshot_error`; a post adds one sentence to the summary ("Reads as a screenshot of an X
+   post shown as from @handle."). `prompt_version` is `media-v5` (media-v3 plus the screenshot
+   read in v4, plus the 20-entry `extracted_text` cap in v5), so older rows are no longer cache
+   hits and each blob is read once more.
 6. **OCR template** (`worker.ocr_template`): different files whose in-image text is mostly the
    same (token Jaccard >= 0.5) across >= 2 accounts get one extra row,
    `detail.type='ocr_template'`, `detail.media_hash='ocr-template'`, listing the words that
@@ -107,3 +120,65 @@ What we learned:
   described bodies in 4 of them under v2; v3's rule plus the guard bring that to 0. The guard
   stays as a backstop because a prompt is not a guarantee.
 - No version called a person a bot, shill, spammer or troll (0 in every row).
+- v5 (`media-v5`, 2026-11-14): a page of text (an image of 100+ lines) made v4 transcribe
+  every line, about 2000-3000 completion tokens, while the client keeps only the first 20. With
+  reasoning on that ran into `max_tokens=4096` (2 of 3 reads of a 172-line test image failed
+  with an unterminated string; the link lookup showed "Nemotron returned invalid analysis").
+  v5 asks for at most 20 entries of at most 300 characters: 7 of 7 reads of the same two test
+  images stopped normally, at 1270-2440 completion tokens. If a reply is still cut
+  (`finish_reason=length`), `parse_content(..., truncated=True)` keeps the fields the model
+  finished, so that read is kept with `finish_reason="length"` instead of being lost. A reply cut
+  before its description is still an error.
+
+## Screenshot read (`screenshot-v1`)
+
+`NemotronClient.read_screenshot(MediaInput) -> ScreenshotPost | None` (`media/screenshot.py`)
+reads an image the main read typed `screenshot` as a social-media post: `platform` (from the UI
+look), `display_name`, `handle` (no `@`), `shown_time` (verbatim), `text` (the post's own text,
+verbatim), `counts` (replies, reposts, quotes, likes, views, bookmarks; `"2.5K"` -> 2500,
+`None` = not shown, never a guessed 0), cautious `ui_oddities`, `confidence`, `model`,
+`latency_ms`, `prompt_version`. None when the image is not a post (chat, article, chart, app
+screen) or nothing findable (handle, name, text) is legible. lookup/ uses it to find the real
+post and compare the screenshot against it. The normaliser maps platform and count aliases,
+drops UI-oddity notes that describe people (bot, shill...) or judge a date against the model's
+own knowledge ("in the future").
+
+Measured with `python -m media.compare_screenshot` on real screenshots from candidate clusters
+(the sample and results stay outside git: they point at real posts). The sampler leaves out
+adult-flagged media, and `run` skips any it is given, as the worker does. Samples: **A**, the 40
+newest distinct `media-v3` screenshots (21 clusters); **B** (`--likely-posts`), 34 screenshots
+whose OCR has an @handle or whose description mentions a post (19 clusters, 19 also in A).
+Endpoint: Verda, `nemotron-3.5-super-vl` (root
+`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`), 4 parallel calls, 2026-11-14 07:25 UTC,
+final prompt. "Legible" counts are among items read as posts; grounding = share of the read
+text's words that the media-v3 OCR also found (a hallucination check).
+
+| Sample | Reasoning | Valid JSON | Cut off | Posts | Handle legible | Text legible | Text grounding (median, <0.5) | p50 latency | p90 latency | Mean completion (reasoning) tokens |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A (40) | on, `max_tokens=4096` | 40/40 | 0 | 1 | 1/1 | 1/1 | 1.0, 0 | 1.67 s | 2.23 s | 720 (607) |
+| A (40) | **off**, `max_tokens=1536` | 40/40 | 0 | 1 | 1/1 | 1/1 | 1.0, 0 | 0.27 s | 0.35 s | 112 (0) |
+| B (34) | on, `max_tokens=4096` | 34/34 | 0 | 7 | 7/7 | 6/7 | 1.0, 0 | 1.66 s | 3.85 s | 855 (731) |
+| B (34) | **off**, `max_tokens=1536` | 34/34 | 0 | 7 | 7/7 | 6/7 | 1.0, 0 | 0.26 s | 0.41 s | 121 (0) |
+
+Agreement, on vs off: same is_post on 74/74, same handle on 7/8 posts, text Jaccard median 1.0.
+Two reasoning-off runs agreed on every field (off #2: p50 0.24-0.25 s). Earlier runs on two
+similar samples gave the same picture.
+
+What we learned:
+- **Reasoning stays off for this read** (`MEDIA_SCREENSHOT_REASONING=false`): 6x faster, a
+  much tighter worst case, no format or cut-off failures, and the same posts and text. Unlike
+  the main read (v2 reasoning off looped once), this output is short (about 120 tokens), and
+  the 1536 budget caps a loop.
+- Where on and off differed, reasoning on was wrong: it "corrected" a shown handle to the
+  account's web domain (off read it as shown), and in an earlier run invented a repost count
+  and a time on a non-English post and flagged "the date is in the future" (the model judges
+  dates against its training cutoff). The prompt now forbids date judgements and the
+  normaliser drops them.
+- Most prod "screenshots" are not posts: charts, radar maps, flight trackers, headlines, court
+  filings, TV grabs. is_post was right on every image checked by eye (74, earlier samples): no
+  false posts, no missed posts. Only 8 post reads are in the samples (7 in B, 1 in A), so
+  field accuracy rests on a handful of posts; re-measure as more reach prod.
+- Known limit: with reasoning off, a Truth Social post still reads as `x` (reasoning on says
+  `other`, after the "not in the list is other, never x" rule). On a cut-off Bluesky post the
+  model read the next, fully legible post of the thread (both settings).
+- No count was ever written as 0 when not shown; no UI-oddity note described a person.

@@ -72,16 +72,25 @@ def stored_media(conn: psycopg.Connection, cluster_id: int) -> dict[str, dict[st
         "SELECT id, detail FROM evidence WHERE cluster_id = %s AND kind = 'media'",
         (cluster_id,),
     ).fetchall()
-    return {r["detail"]["media_hash"]: r for r in rows if r["detail"].get("media_hash")}
+    stored = {}
+    for row in rows:
+        detail = row.get("detail")
+        media_hash = detail.get("media_hash") if isinstance(detail, dict) else None
+        if isinstance(media_hash, str) and media_hash.strip():
+            stored[media_hash] = row
+    return stored
 
 
 def cached_analysis(conn: psycopg.Connection, media_hash: str) -> dict[str, Any] | None:
-    """The newest stored analysis of this exact blob (any cluster) from the current prompt."""
+    """The newest stored analysis of this exact blob (any cluster) from the current prompt.
+
+    A row whose screenshot read failed comes last: rows are updated in place (ids don't move), so
+    a newer-id failure must not hide an older row that has since been read."""
     row = conn.execute(
         """
         SELECT detail FROM evidence
         WHERE kind = 'media' AND detail->>'media_hash' = %s AND detail->>'prompt_version' = %s
-        ORDER BY id DESC LIMIT 1
+        ORDER BY coalesce(detail->>'screenshot_status', '') = 'failed', id DESC LIMIT 1
         """,
         (media_hash, PROMPT_VERSION),
     ).fetchone()
@@ -127,4 +136,7 @@ def save_media_evidence(
 def _comparable(detail: dict[str, Any]) -> dict[str, Any]:
     """Detail minus fields that differ between a fresh call and a cache hit."""
     skip = {"latency_ms", "usage", "cached", "analyzed_at", "finish_reason", "source_uri"}
-    return {k: v for k, v in detail.items() if k not in skip}
+    out = {k: v for k, v in detail.items() if k not in skip}
+    if isinstance(out.get("screenshot"), dict):
+        out["screenshot"] = {k: v for k, v in out["screenshot"].items() if k != "latency_ms"}
+    return out

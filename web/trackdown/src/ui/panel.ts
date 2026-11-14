@@ -1,4 +1,5 @@
 // Right-hand window: tabs for the verdict, the provenance chain, the receipts and the selected folio.
+import { modelTool, readingsDisagree, readingsOf, type LookupAssessment } from "../data/lookup";
 import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
@@ -7,6 +8,7 @@ import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 
+const LEAN: Record<string, string> = { organic_looking: "looks organic", copy_campaign_looking: "looks like a copy campaign", unclear: "unclear" };
 const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" height="${n}"`);
 type Tab = "verdict" | "provenance" | "receipts" | "folio";
 
@@ -16,6 +18,7 @@ export class Panel {
   c: TraceCase | null = null;
   pending = false;
   tab: Tab = "verdict";
+  private shown = ""; // case + tab + pending of the last render: re-rendering the same view skips the entry animation
   onReplay: () => void = () => {};
   onCloseSheet: () => void = () => {};
   constructor(el: HTMLElement, g: Graph) {
@@ -89,12 +92,17 @@ export class Panel {
       ["receipts", "Evidence", String(c.receipts.length)],
       ...(sel ? [["folio", "Post", ""]] : []),
     ] as [Tab, string, string][];
+    const view = `${c.id}|${this.tab}|${this.pending}|${this.tab === "folio" ? sel?.id : ""}`;
+    const quiet = view === this.shown;
+    this.shown = view;
+    const width = `${Math.round(c.confidence * 100)}%`;
     const body = this.pending && this.tab === "verdict" ? this.pendingHtml() : this.tab === "verdict" ? this.verdict(c) : this.tab === "provenance" ? this.provenance(c) : this.tab === "receipts" ? this.receipts(c) : this.detail(sel!);
-    this.el.innerHTML = `<div class="panel-inner"><div class="win-head"><div class="tabs" role="tablist" aria-label="Result">${tabs
+    this.el.innerHTML = `<div class="panel-inner${quiet ? " quiet still" : ""}"><div class="win-head"><div class="tabs" role="tablist" aria-label="Result">${tabs
       .map(([id, label, n]) => `<button role="tab" id="tab-${id}" aria-controls="tabpanel" data-tab="${id}" aria-selected="${this.tab === id}" tabindex="${this.tab === id ? 0 : -1}" class="${this.tab === id ? "on" : ""}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`)
       .join("")}</div><button class="sheet-close mobile-only" data-act="sheet-close" aria-label="Close">${sm(icon.close, 14)}</button></div><div class="pane" role="tabpanel" id="tabpanel" aria-labelledby="tab-${this.tab}">${body}</div></div>`;
     const bar = this.el.querySelector<HTMLElement>(".conf .bar i");
-    if (bar) requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = `${Math.round(c.confidence * 100)}%`)));
+    if (bar && quiet) bar.style.width = width; // no new fill animation on a live update
+    else if (bar) requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = width)));
   }
 
   coinTarget(): HTMLElement | null {
@@ -136,14 +144,32 @@ export class Panel {
       <section class="verdict" style="--vc:${v.css}">
         <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : v.tag}${c.live ? " · live" : ""}</div></div></div>
         <p class="vs">${esc(c.summary)}</p>
+        ${this.readings(c)}
         ${c.lookup ? `<p class="lookup-message">${c.lookup.status === "matched" && c.lookup.clusters.length ? "Coordination status belongs to the matched monitored cluster, not to an individual account." : "Coordination: Can't tell. Copies and engagement are observations, not proof of coordination."}</p>` : ""}
         <div class="conf${scored ? "" : " abstain"}"><div class="row"><span class="label">Confidence</span><b>${scored ? Math.round(c.confidence * 100) + "%" : unscored}</b></div><div class="bar"><i></i></div>${scored ? "" : `<div class="conf-note">${unscoredNote}</div>`}</div>
         ${notice}
       </section>
       ${stats}
       ${replay}
-      ${this.spread(c)}
-      <p class="colophon">We judge behaviour (timing, copies, account age), never people or opinions. “Shill” names a cluster's spread, not any account in it.</p>`;
+      ${this.spread(c)}`;
+  }
+
+  /** model readings of the receipts. They are inferences: the status always comes from `status`. */
+  private readings(c: TraceCase) {
+    const lookup = c.lookup;
+    if (!lookup) return "";
+    const readings = readingsOf(lookup);
+    const second = lookup.steps.find((step) => step.id === "second_reading");
+    const waiting = second && (second.state === "running" || second.state === "pending") && readings.length < 2
+      ? `<p class="receipt-meta">${esc(second.label || "Second reading")}: still running. It is added here when it arrives.</p>` : "";
+    if (!readings.length) return waiting;
+    const block = (r: LookupAssessment, i: number, lean: boolean) => {
+      const tool = modelTool(r.model);
+      return `<div class="ev t-${tool}"><div class="by t-${tool}">${i ? "Second reading" : "Reading"} · ${esc(r.model)}</div><p>${esc(r.summary)}</p><div class="receipt-meta">${lean ? `Model's lean: ${esc(LEAN[r.llm_reading] ?? String(r.llm_reading))} · a model inference, not the status` : "Agrees with the first reading · a model inference, not the status"}</div></div>`;
+    };
+    if (readings.length > 1 && readingsDisagree(lookup)) return `<div class="notice">The two readings differ. Both are shown; neither sets the status.</div>${readings.map((r, i) => block(r, i, true)).join("")}${waiting}`;
+    // the primary reading's summary is the lead paragraph above
+    return `<div class="receipt-meta">Model reading by ${esc(readings[0].model)} · not a verdict</div>${readings.slice(1).map((r, i) => block(r, i + 1, false)).join("")}${waiting}`;
   }
 
   private provenance(c: TraceCase) {
@@ -180,8 +206,9 @@ export class Panel {
     // an abstention has nothing to "support": its evidence is what was weighed
     const proTitle = c.findingsOnly || c.lookup ? "What we found" : c.status === "insufficient" ? "Evidence considered" : "Supports the verdict";
     const selected = c.nodes.find((node) => node.id === this.g.selId);
-    const assessment = c.lookup?.assessment;
-    const head = `${selected ? this.realData(selected) : c.lookup ? '<p class="lookup-message">Select a card to inspect its real data and source receipts.</p>' : ""}${this.spread(c)}${assessment ? `<div class="sect label">Cited model reading · not a verdict</div><p class="lookup-message">${esc([assessment.origin, assessment.corroboration, assessment.spread_pattern].filter(Boolean).join("\n"))}</p><div class="receipt-meta">${esc(assessment.model)} · ${assessment.cites.map((id) => `#${id}`).join(", ")}</div>` : ""}`;
+    const readings = c.lookup ? readingsOf(c.lookup) : [];
+    const cited = (r: LookupAssessment) => `<div class="sect label">Cited model reading${readings.length > 1 ? ` · ${esc(r.model)}` : ""} · not a verdict</div><p class="lookup-message">${esc([r.origin, r.corroboration, r.spread_pattern].filter(Boolean).join("\n"))}</p><div class="receipt-meta">${esc(r.model)} · ${(r.cites ?? []).map((id) => `#${id}`).join(", ")}</div>`;
+    const head = `${selected ? this.realData(selected) : c.lookup ? '<p class="lookup-message">Select a card to inspect its real data and source receipts.</p>' : ""}${this.spread(c)}${readings.map(cited).join("")}`;
     const first = !head.trim();
     return `${head}${pro.length ? `<div class="sect label"${first ? ' style="margin-top:0"' : ""}>${proTitle} <span>${pro.length}</span></div>${pro.map(ev).join("")}` : ""}
       ${con.length ? `<div class="sect label"${pro.length || !first ? "" : ' style="margin-top:0"'}>${conTitle} <span>${con.length}</span></div>${con.map((r, i) => ev(r, i + pro.length)).join("")}` : ""}
@@ -196,8 +223,7 @@ export class Panel {
   private spread(c: TraceCase) {
     if (!c.lookup) return "";
     const spread = c.lookup.spread;
-    const notes = [...new Set([...(spread?.note ? [spread.note] : []), ...c.lookup.notes])];
-    return `${spread ? `<div class="sect label">Spread · observed sample, not a verdict</div><section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd><dt>Smallest inter-account copy gap</dt><dd>${spread.min_gap_s == null ? "Unknown" : `${spread.min_gap_s} s`}</dd></dl></section>` : ""}${notes.map((note) => `<div class="notice">${esc(note)}</div>`).join("")}`;
+    return `${spread ? `<div class="sect label">Spread · observed sample, not a verdict</div><section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd><dt>Smallest inter-account copy gap</dt><dd>${spread.min_gap_s == null ? "Unknown" : `${spread.min_gap_s} s`}</dd></dl></section>` : ""}`;
   }
 
   private detail(n: TraceNode) {

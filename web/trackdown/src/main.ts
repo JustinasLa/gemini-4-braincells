@@ -4,7 +4,7 @@ import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
 import { analyze, listLive, liveCase, type ClusterSummary } from "./data/api";
 import { simulatedCases } from "./data/cases";
-import { LookupError, lookupCase, startLookup, type LookupResult } from "./data/lookup";
+import { LookupError, lookupCase, readingReady, startLookup, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
 import { Graph, type Mode } from "./engine/graph";
 import type { TraceCase } from "./types";
@@ -23,7 +23,7 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <a class="wordmark" href="/monitor/" title="Back to the live monitor" aria-label="Noise Radar: back to the live monitor">NOISE RADAR</a>
+    <a class="wordmark" href="/monitor/" title="Back to the live monitor" aria-label="Shill or Chill: back to the live monitor">SHILL OR CHILL</a>
     <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
@@ -133,7 +133,7 @@ function setInsets() {
 function renderResources(c: TraceCase) {
   const v = STATUS[c.status];
   $("#title").textContent = c.title;
-  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
+  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
   $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
@@ -146,7 +146,7 @@ function renderResources(c: TraceCase) {
   if (c.findingsOnly) app.dataset.notime = "";
   else delete app.dataset.notime;
   $("#empty").hidden = !empty;
-  document.title = `${c.title} · Trackdown · Noise Radar`;
+  document.title = `${c.title} · Trackdown · Shill or Chill`;
 }
 
 // ---------------------------------------------------------------- outliner
@@ -284,7 +284,7 @@ g.onSelect = (id) => {
   $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
 };
 g.onHover = (id) => {
-  if (tracing) return;
+  if (tracing && app.dataset.phase !== "done") return; // a settled lookup may still be adding a second reading
   g.setHighlight(id ? g.lineage(id) : g.selId ? g.lineage(g.selId) : null);
 };
 g.onFrame = () => {
@@ -568,7 +568,6 @@ function showHome() {
   homeEl.innerHTML = `<canvas></canvas>
     <a class="home-back" href="/monitor/">← Live monitor</a>
     <div class="home-c">
-      <div class="home-eyebrow label">Noise Radar · Trackdown</div>
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
       <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
@@ -579,7 +578,7 @@ function showHome() {
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-back, .home-eyebrow, .home-wm, .home-tag, .home-form, .home-ex, .credit")] });
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-back, .home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
   $("form", homeEl).addEventListener("submit", (e) => {
@@ -622,8 +621,30 @@ async function startTrace(raw: string, mock = false) {
   consoleEl.classList.remove("hidden");
   dock.pause();
   dock.u = 1;
+  consoleEl.innerHTML = ""; // rows of an earlier lookup must not count as already shown
   let graphSignature = "";
+  // Each poll re-renders the console; only steps not shown before slide in, so it does not flash.
+  const shownSteps = new Set<string>();
+  let settled = false;
   const latest: { result: LookupResult | null } = { result: null };
+  const remember = (trace: TraceCase) => {
+    if (mock) return;
+    const existing = userCases.findIndex((item) => item.id === trace.id);
+    if (existing >= 0) userCases.splice(existing, 1);
+    userCases.unshift(trace);
+    saveUserCases();
+  };
+  // The primary reading is in: show the finished trace now. A second reading that is still
+  // running is added later by update() without re-running this reveal or refitting the graph.
+  const settle = (trace: TraceCase) => {
+    if (settled) return;
+    settled = true;
+    remember(trace);
+    renderRail();
+    setStatus(null, "");
+    setPhase("done");
+    void showEvent(trace, run);
+  };
   const update = (result: LookupResult) => {
     if (controller.signal.aborted || run !== tracing) return;
     latest.result = result;
@@ -646,13 +667,21 @@ async function startTrace(raw: string, mock = false) {
       graphSignature = signature;
     } else g.case = trace;
     renderResources(trace);
-    panel.set(trace, result.state !== "done");
-    const rows = trace.steps.map((step) => `<div class="line ${step.state === "running" ? "active" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"><b>${esc(step.text)}</b>${step.detail ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${esc(step.state ?? "pending")}${step.found?.length ? ` · ${step.found.length}` : ""}</span></div>`).join("");
+    // a failed job still shows a primary reading that arrived before the failure
+    const ready = readingReady(result) && (result.state !== "failed" || !!result.assessment);
+    panel.set(trace, !ready);
+    const stepKey = (step: (typeof trace.steps)[0], i: number) => step.id ?? `#${i}`;
+    const rows = trace.steps.map((step, i) => `<div class="line${step.state === "running" ? " active" : ""}${shownSteps.has(stepKey(step, i)) ? " seen" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"${step.detail && step.state !== "failed" ? ` title="${esc(step.detail)}"` : ""}><b>${esc(step.text)}</b>${step.detail && step.state === "failed" ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${step.state === "done" ? (step.found?.length ? String(step.found.length) : "") : esc(step.state ?? "pending")}</span></div>`).join(""); // one short line per step, readable as it streams in; details are a hover away, failures show theirs
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
-    consoleEl.innerHTML = `<div class="term-head"><span class="d g"></span><span class="file">${mock ? "MOCK · fictional data" : "Live lookup"} · ${esc(result.state)}</span><button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
+    const dot = result.state === "failed" ? "r" : result.state === "running" ? "g live" : "g";
+    consoleEl.innerHTML = `<div class="term-head"><span class="d ${dot}" title="Lookup ${esc(result.state)}"></span>${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
-    const running = trace.steps.find((step) => step.state === "running");
-    setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
+    trace.steps.forEach((step, i) => shownSteps.add(stepKey(step, i)));
+    if (ready && result.state === "running") settle(trace);
+    if (!settled) {
+      const running = trace.steps.find((step) => step.state === "running");
+      setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
+    }
   };
   update({ id: "lookup-pending", state: "running", error: null, input: { url: /^https?:\/\//i.test(text) ? text : null, text: /^https?:\/\//i.test(text) ? null : text }, kind: "text", started_at: new Date().toISOString(), finished_at: null, status: "insufficient", subject_id: null, origin_id: null, posts: [], accounts: [], pages: [], media: [], edges: [], clusters: [], spread: null, receipts: [], assessment: null, steps: [{ id: "input", tool: "you", label: "Start lookup", state: "running", detail: "Requesting live data; no coordination verdict yet.", found: [], started_at: null, ended_at: null }], notes: [] });
   try {
@@ -662,24 +691,21 @@ async function startTrace(raw: string, mock = false) {
     if (controller.signal.aborted || run !== tracing) return;
     const trace = current!;
     if (result.state === "failed") {
-      setPhase("done");
+      if (!settled) setPhase("done");
       toast(result.error || "Lookup failed. Partial receipts remain available; no verdict was issued.");
       return;
     }
-    if (!mock) {
-      const existing = userCases.findIndex((item) => item.id === trace.id);
-      if (existing >= 0) userCases.splice(existing, 1);
-      userCases.unshift(trace);
-      saveUserCases();
+    if (settled) {
+      remember(trace); // replace the saved copy with the one that has every reading
+      renderRail();
+      return;
     }
-    renderRail();
-    panel.set(trace, false);
-    setPhase("done");
-    await showEvent(trace, run);
+    settle(trace);
   } catch (error) {
     if (controller.signal.aborted || run !== tracing) return;
     const message = error instanceof Error ? error.message : "Lookup failed. Please try again later.";
-    if (error instanceof LookupError && error.unavailable) {
+    // once the primary reading is shown, a late failure keeps that trace instead of starting over
+    if (error instanceof LookupError && error.unavailable && !settled) {
       setStatus(null, "Lookup unavailable; trying the legacy web analysis…");
       toast(`${message} Trying web analysis instead.`);
       let trace: TraceCase | null = null;
@@ -694,8 +720,8 @@ async function startTrace(raw: string, mock = false) {
       runTrace(trace);
     } else {
       if (latest.result) update({ ...latest.result, state: "failed", error: message, steps: latest.result.steps.map((step) => step.state === "running" ? { ...step, state: "failed", detail: message } : step.state === "pending" ? { ...step, state: "skipped" } : step) });
-      setPhase("done");
-      toast(message);
+      if (!settled) setPhase("done");
+      toast(settled ? `${message} The readings received so far stay on screen.` : message);
     }
   } finally {
     if (lookupController === controller) {

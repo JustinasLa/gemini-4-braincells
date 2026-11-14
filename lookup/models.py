@@ -182,6 +182,11 @@ class LookupResult(BaseModel):
     clusters: list[dict[str, Any]] = Field(default_factory=list)
     spread: Spread | None = None
     receipts: list[Receipt] = Field(default_factory=list)
+    # the primary reading (Nemotron's; Gemini's when Nemotron gave none)
     assessment: Assessment | None = None
+    # every reading in arrival order; a second one (Gemini) can arrive while state is running
+    readings: list[Assessment] = Field(default_factory=list)
+    # the readings' llm_reading differ: both are shown, neither sets the status
+    readings_disagree: bool = False
     steps: list[Step] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -47,8 +48,13 @@ class BlueskyClient:
             transport=transport,
             headers={"user-agent": "shill-or-chill-lookup/1.0"},
         )
-        self.last_call: dict[str, Any] = {}
+        self._local = threading.local()  # one lookup calls from several threads at once
         self._timeout_s = timeout_s
+
+    @property
+    def last_call(self) -> dict[str, Any]:
+        """This thread's last request (endpoint, status, latency)."""
+        return getattr(self._local, "last_call", {})
 
     def close(self) -> None:
         self._http.close()
@@ -71,7 +77,7 @@ class BlueskyClient:
         if res.status_code in (502, 503, 504):  # the public AppView blips now and then: once more
             time.sleep(0.5)
             res = attempt()
-        self.last_call = {
+        self._local.last_call = {
             "endpoint": method,
             "status": res.status_code,
             "latency_ms": int((time.monotonic() - started) * 1000),

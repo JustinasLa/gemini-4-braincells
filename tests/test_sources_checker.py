@@ -81,6 +81,50 @@ def test_claim_phrase_picks_longest_sentence_of_most_common_text():
     assert claim_phrase([None, ""]) is None
 
 
+def test_claim_phrase_for_unspaced_scripts():
+    ja = "今日は東京で大雨が降っていて電車が止まっています。みんな気をつけてください。"
+    assert (
+        claim_phrase([ja]) == "今日は東京で大雨が降っていて電車が止まっています"
+    )  # no 。: copies differ
+    assert claim_phrase(["おはようございます！"]) is None
+    th = "วันนี้ฝนตกหนักมากที่กรุงเทพ รถติดทุกถนน ทุกคนระวังด้วยนะ"
+    assert claim_phrase([th]) == "วันนี้ฝนตกหนักมากที่กรุงเทพ"
+    assert claim_phrase(["สวัสดีครับ"]) is None
+    long_ja = "あいうえお" * 10
+    assert claim_phrase([long_ja]) == "あいうえお" * 6
+
+
+def test_claim_phrase_unspaced_review_cases():
+    # Never one short Latin word as the whole phrase (it would match unrelated clusters).
+    phrase = claim_phrase(["iPhone 15を買ったら画面がすぐ割れてしまって本当にショックでした"])
+    assert phrase.startswith("iPhone 15を買ったら") and len(phrase) == 30
+    th = claim_phrase(["วันนี้ ฝนตกหนักมากที่กรุงเทพรถติดทุกถนนทุกคนระวังด้วยนะ"])
+    assert th.startswith("วันนี้ ฝนตก") and len(th) >= 10
+    # A mostly-English sentence with a CJK word is still measured in words (was None).
+    mixed = "Officials in Tokyo (東京) say the dam failed and residents must evacuate now"
+    assert claim_phrase([mixed]) == (
+        "Officials in Tokyo (東京) say the dam failed and residents must evacuate"
+    )
+    # Half-width ! splits sentences; half-width katakana counts as unspaced.
+    assert claim_phrase(["你好!我们今天在北京看到了很多人在街上抗议政府的新政策"]).startswith(
+        "我们"
+    )
+    assert claim_phrase(["ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ"]) == "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ"
+    # Filler is never the phrase: divider lines, leading emoji or digits.
+    notice = (
+        "【お知らせ】\nーーーーーーーーーーーーーーーーーーーー\n明日のライブは中止になりました。"
+    )
+    assert claim_phrase([notice]) == "明日のライブは中止になりました"
+    assert claim_phrase(["🔥" * 40 + " 東京で火災が発生しました原因は調査中です"]) == (
+        "東京で火災が発生しました原因は調査中です"
+    )
+    assert claim_phrase(["ーーーーーーーーーーーーーーーー"]) is None
+    assert claim_phrase(["ー" * 32 + " 東京で火災が発生しました原因は調査中"]) == (
+        "東京で火災が発生しました原因は調査中"
+    )
+    assert claim_phrase(["草" * 12]) is None and claim_phrase(["う" + "お" * 20]) is None
+
+
 def test_check_builds_page_and_search_evidence_with_urls():
     client = FakeClient()
     items = SourceChecker(client).check(posts())

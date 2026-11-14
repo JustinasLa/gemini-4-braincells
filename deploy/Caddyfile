@@ -10,17 +10,27 @@
 }
 
 {$PUBLIC_DOMAIN} {
-	encode gzip
+	# The live lookup stream (server-sent events, api/routes/lookup.py): never compressed or
+	# buffered, each snapshot is flushed as the API writes it.
+	@lookup_events path_regexp ^/api/lookup/[^/]+/events$
+	handle @lookup_events {
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
+	}
 	handle /api/* {
+		encode gzip
 		reverse_proxy api:8000
 	}
 	handle /version.txt {
+		encode gzip
 		root * /srv/web
 		file_server
 	}
 	# The live monitor (dashboard) lives under /monitor/; Trackdown (Shill or Chill) is the home page.
 	redir /monitor /monitor/ 308
 	handle /monitor/* {
+		encode gzip
 		root * /srv/web
 		try_files {path} /monitor/index.html
 		file_server
@@ -28,11 +38,13 @@
 	# Old Trackdown links (/trackdown/?lookup=...) keep working.
 	redir /trackdown /trackdown/ 308
 	handle /trackdown/* {
+		encode gzip
 		root * /srv/web
 		try_files {path} /trackdown/index.html
 		file_server
 	}
 	handle {
+		encode gzip
 		root * /srv/web/trackdown
 		try_files {path} /index.html
 		file_server

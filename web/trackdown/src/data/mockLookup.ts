@@ -1,4 +1,4 @@
-import type { LookupPost, LookupResult } from "./lookup";
+import type { LookupAssessment, LookupPost, LookupResult } from "./lookup";
 
 const started = "2026-11-13T12:20:00Z";
 const post = (id: string, role: LookupPost["role"], createdAt: string | null, handle: string): LookupPost => ({
@@ -27,30 +27,43 @@ export const mockLookupResult: LookupResult = {
     { id: 5, tool: "x-id", endpoint: "snowflake", summary: "Mock post-ID timestamp.", source_url: "https://social.example/newsroom/status/100", query: null, request_id: null, latency_ms: 0, cached: false, at: started },
     { id: 6, tool: "bluesky", endpoint: "searchPosts", summary: "Mock Bluesky search with no matches.", source_url: "https://bsky.example/search", query: "fictional observatory", request_id: null, latency_ms: 100, cached: false, at: started },
   ],
-  assessment: { model: "mock-gemini", summary: "MOCK: three accounts repeat fictional text. This is a copy sample, not a coordination verdict.", origin: "The earliest mock copy predates the submitted post.", corroboration: "Only a fictional article is linked.", spread_pattern: "Three same-text matches across 14 minutes.", counter_evidence: ["Independent people can quote the same news."], would_change: ["A match to a monitored cluster with measured behavioural evidence."], cites: [1, 3, 4], llm_reading: "unclear", latency_ms: 10, cost_usd: 0 },
+  assessment: null, // set below: the primary (Nemotron) reading
+  readings: [],
+  readings_disagree: true,
   steps: [
     { id: "post", tool: "oxylabs", label: "Read the mock post", state: "done", detail: "2.9M fictional views", found: ["x:100"], started_at: started, ended_at: started },
     { id: "copies_x", tool: "oxylabs", label: "Find mock copies", state: "done", detail: "Three same-text matches; one quote", found: ["x:99", "x:101", "x:102"], started_at: started, ended_at: started },
-    { id: "assess", tool: "gemini", label: "Read mock receipts", state: "done", detail: "No monitored match; coordination abstains", found: [], started_at: started, ended_at: started },
+    { id: "assess", tool: "nemotron", label: "Nemotron reads the receipts", state: "done", detail: "No monitored match; coordination abstains", found: [], started_at: started, ended_at: started },
+    { id: "second_reading", tool: "gemini", label: "Gemini's second reading", state: "done", detail: "Mock second reading", found: [], started_at: started, ended_at: started },
   ],
   notes: ["DEVELOPMENT MOCK: every account, page and metric is fictional.", "Unknown times are positioned for layout only; no exact timestamp is inferred from a date hint."],
 };
 
+const primary: LookupAssessment = { model: "mock-nemotron-3.5-super-vl", summary: "MOCK: three accounts repeat fictional text. This is a copy sample, not a coordination verdict.", origin: "The earliest mock copy predates the submitted post.", corroboration: "Only a fictional article is linked.", spread_pattern: "Three same-text matches across 14 minutes.", counter_evidence: ["Independent people can quote the same news."], would_change: ["A match to a monitored cluster with measured behavioural evidence."], cites: [1, 3, 4], llm_reading: "unclear", latency_ms: 10, cost_usd: 0 };
+const second: LookupAssessment = { ...primary, model: "mock-gemini-4-hydrogen", summary: "MOCK second reading: the same-text copies within minutes look like a copy campaign; still no monitored match.", llm_reading: "copy_campaign_looking", counter_evidence: [], cites: [1, 3] };
+mockLookupResult.assessment = primary;
+mockLookupResult.readings = [primary, second];
+
+/** Development mock of the live job: collect, primary reading, then a later second reading that disagrees. */
 export async function runMockLookup(onUpdate: (result: LookupResult) => void, signal: AbortSignal): Promise<LookupResult> {
-  for (let phase = 0; phase < 4; phase++) {
+  const last = mockLookupResult.steps.length; // phase `last` is the finished job
+  for (let phase = 0; phase <= last; phase++) {
     if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
     const result = structuredClone(mockLookupResult);
-    if (phase < 3) {
+    if (phase < last) {
       result.state = "running";
       result.finished_at = null;
-      result.assessment = null;
+      result.readings_disagree = false;
+      // the primary reading lands with the assess step; the second one only with the finished job
+      result.readings = phase === last - 1 ? [primary] : [];
+      result.assessment = phase === last - 1 ? primary : null;
       result.posts = phase === 0 ? [] : phase === 1 ? result.posts.slice(0, 1) : result.posts;
       if (phase < 2) { result.accounts = []; result.pages = []; result.media = []; result.edges = []; result.spread = null; result.receipts = phase ? result.receipts.slice(0, 1) : []; }
       result.steps = result.steps.map((step, index) => ({ ...step, state: index < phase ? "done" : index === phase ? "running" : "pending", detail: index < phase ? step.detail : null, found: index < phase ? step.found : [] }));
     }
     onUpdate(result);
-    if (phase === 3) return result;
-    await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+    if (phase === last) return result;
+    await new Promise<void>((resolve) => setTimeout(resolve, phase === last - 1 ? 2500 : 700));
   }
   return mockLookupResult;
 }

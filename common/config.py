@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     media_rpm: float = 30
     media_max_tokens: int = 4096  # reasoning tokens count against this; too small => null content
     media_reasoning: bool = True
+    # Screenshot read (media/screenshot.py): a narrow extraction, reasoning off is about 3x faster
+    media_screenshot_reasoning: bool = False
+    media_screenshot_max_tokens: int = 1536
 
     oxylabs_web_api_key: str = ""
     context_dev_api_key: str = ""
@@ -43,9 +46,20 @@ class Settings(BaseSettings):
     lookup_job_ttl_s: float = 3600
     lookup_verify_max: int = 8  # candidate X copies whose own page is read
     lookup_profiles_max: int = 4  # copier profiles read (account age, followers)
-    lookup_time_budget_s: float = 150
+    lookup_time_budget_s: float = 60  # searches + page reads; the last 10 s are the reading's
     lookup_media: bool = True  # Nemotron reads the post's images
-    lookup_gemini: bool = True  # Gemini writes the cited reading
+    # The cited reading (lookup/assess.py, lookup/README.md has the measurement): Nemotron 3.5
+    # Super VL writes it (~1.5 s, reasoning off: reasoning on took 7-15 s and once ran out of
+    # tokens); Gemini adds a slower second reading on the same stream (~15 s), shown beside it.
+    lookup_nemotron_reading: bool = True
+    lookup_reading_reasoning: bool = False
+    lookup_reading_max_tokens: int = 2048
+    lookup_reading_timeout_s: float = 15
+    lookup_gemini: bool = True  # Gemini's second reading
+    # its own bound; it never delays the first reading. Gemini answers 504 when a reading needs
+    # longer than the timeout it is sent (#60), and big readings pass 30 s.
+    lookup_second_reading_s: float = 45
+    lookup_provider_cache_ttl_s: float = 600  # same Oxylabs search/page within 10 min: cached
 
     jetstream_url: str = "wss://jetstream2.us-east.bsky.network/subscribe"
 
