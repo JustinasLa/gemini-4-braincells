@@ -46,19 +46,23 @@ export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", 
 
 /** `text` escaped, with every occurrence of each of `runs` (exact parts of it, such as the
  *  words an uploaded image's caption shares with this post) wrapped in a highlight. */
-export function markRuns(text: string, runs?: string[]): string {
-  const spans: [number, number][] = [];
+export function markRuns(text: string, runs?: string[], target?: (run: string) => { id: string; name: string } | undefined): string {
+  const spans: [number, number, string][] = [];
   for (const run of runs ?? []) {
     if (!run) continue;
-    for (let i = text.indexOf(run); i >= 0; i = text.indexOf(run, i + run.length)) spans.push([i, i + run.length]);
+    for (let i = text.indexOf(run); i >= 0; i = text.indexOf(run, i + run.length)) spans.push([i, i + run.length, run]);
   }
   if (!spans.length) return esc(text);
   spans.sort((a, b) => a[0] - b[0]);
   let out = "", at = 0;
-  for (const [start, end] of spans) {
+  for (const [start, end, run] of spans) {
     if (end <= at) continue;
     const from = Math.max(start, at);
-    out += esc(text.slice(at, from)) + `<mark class="caption-hit">${esc(text.slice(from, end))}</mark>`;
+    const peer = target?.(run);
+    const hit = esc(text.slice(from, end));
+    out += esc(text.slice(at, from)) + (peer
+      ? `<a class="caption-hit" href="#" data-go="${esc(peer.id)}" title="${esc(`View matching text in post by ${peer.name}`)}">${hit}</a>`
+      : `<mark class="caption-hit">${hit}</mark>`);
     at = end;
   }
   return out + esc(text.slice(at));
