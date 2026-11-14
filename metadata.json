@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7BQZBAE6Q1P99FGHP8FXZFM",
+  "strategy": "manual-commit",
+  "branch": "dev/nemotron-core",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "analyst/compare.py",
+    "analyst/prompt.py",
+    "analyst/service.py",
+    "analyst/tools.py",
+    "tests/test_analyst.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 9053,
+    "cache_read_tokens": 2800697,
+    "output_tokens": 4827,
+    "api_call_count": 6
+  },
+  "redaction": {
+    "replacements": 41,
+    "layers": {
+      "betterleaks": 2,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 10,
+      "credentialed_uri": 2,
+      "entropy": 20,
+      "key_context": 9,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
