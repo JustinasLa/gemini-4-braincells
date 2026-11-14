@@ -1017,8 +1017,14 @@ export class Graph {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
         // a score tag half under a card reads as a glitch: skip it
-        const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + 40 && Math.abs(n.y - my) < n.h / 2 + 12);
-        if (!covered) this.pill(c, mx, my, e.e.sim != null ? e.e.sim.toFixed(2) : "CITES", e.e.sim != null ? C.cv : "#5b8fe6", e.e.sim != null ? REL[e.e.rel].label.toUpperCase() : "");
+        const text = e.e.sim != null ? e.e.sim.toFixed(2) : "CITES";
+        const cap = e.e.sim != null ? REL[e.e.rel].label.toUpperCase() : "";
+        const fs = 10.5 / Math.max(k, 0.65);
+        c.font = `600 ${fs}px "JetBrains Mono", monospace`;
+        const pw = c.measureText(text + cap).width + fs * 2;
+        const ph = fs * 1.7;
+        const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + pw / 2 && Math.abs(n.y - my) < n.h / 2 + ph / 2);
+        if (!covered) this.pill(c, mx, my, text, e.e.sim != null ? C.cv : "#5b8fe6", cap);
       }
     }
     // far zoom: cities on the map

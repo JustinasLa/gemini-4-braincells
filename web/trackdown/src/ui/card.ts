@@ -31,7 +31,7 @@ function mediaHtml(m: Media, seed: string, score?: number): string {
   switch (m.kind) {
     case "link":
       // a bare URL is implementation detail: show the domain and a plain label instead
-      const bare = !/\s/.test(m.title) && m.title.includes("/");
+      const bare = /^(https?:\/\/|[\w-]+(\.[\w-]+)+\/)\S*$/i.test(m.title);
       return `<div class="media link"><div class="thumb"></div><div class="lk"><div class="dom">${esc(m.domain ?? "link")}</div><div class="lt${bare ? " bare" : ""}">${bare ? "Shared link" : esc(m.title)}</div></div></div>${note}`;
     case "screenshot": {
       const cropped = /crop/i.test(m.note ?? "") || m.domain === "screenshot";

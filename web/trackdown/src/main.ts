@@ -58,7 +58,7 @@ const syncDrawers = () => {
   const pnl = $("#panel");
   rail.inert = !app.classList.contains("rail-open");
   const sheet = phone && app.classList.contains("sheet-open");
-  pnl.inert = phone ? !sheet : !app.classList.contains("panel-open");
+  pnl.inert = phone ? !sheet : !(app.classList.contains("panel-open") || app.classList.contains("lookup-active"));
   if (sheet) {
     pnl.setAttribute("role", "dialog");
     pnl.setAttribute("aria-modal", "true");
@@ -73,6 +73,7 @@ const syncDrawers = () => {
 };
 new MutationObserver(syncDrawers).observe(app, { attributes: true, attributeFilter: ["class"] });
 phoneMq.addEventListener("change", () => {
+  if (!phoneMq.matches) app.classList.remove("sheet-open");
   syncDrawers();
   setInsets();
   if (current) setTimeout(() => (g.selId ? g.focus(g.selId, Math.max(g.k, 0.9), 600) : g.fit(undefined, 600)), 500);
@@ -280,7 +281,7 @@ g.onSelect = (id) => {
     if (fromKeyboard) $("#panel").querySelector<HTMLElement>('[data-tab="folio"]')?.focus();
   }
   const n = id ? current?.nodes.find((x) => x.id === id) : null;
-  $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated ? "" : `, ${fmtDate(n.t)}`}` : "";
+  $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
 };
 g.onHover = (id) => {
   if (tracing) return;

@@ -184,6 +184,8 @@ export class Dock {
     c.textBaseline = "top";
     const first = g.timeMap[0]?.[0];
     const last = g.timeMap[g.timeMap.length - 1]?.[0];
+    let lw = 0; // left end label width actually drawn
+    let rw = 0;
     if (first != null) {
       // under a day the dates would be identical: show clock times instead
       const short = last - first < 86400000;
@@ -194,19 +196,20 @@ export class Dock {
       const fits = c.measureText(a).width + c.measureText(b).width + 16 < R - L;
       c.textAlign = "right";
       c.fillText(b, R, base + 4);
+      rw = c.measureText(b).width;
       if (fits) {
         c.textAlign = "left";
         c.fillText(a, L, base + 4);
+        lw = c.measureText(a).width;
       }
     }
     c.textAlign = "center";
     let lastB = -1e9;
-    const lw = first != null ? c.measureText(fmtShort(first)).width : 0;
     for (const b of g.timeBreaks) {
       const x = ux(b.x);
       const hw = c.measureText(`${fmtDur(b.gap)} gap`).width / 2;
       // keep clear of the end labels and of each other
-      if (x - hw < L + lw + 10 || x + hw > R - lw - 10 || x - lastB < hw * 2 + 16) continue;
+      if (x - hw < L + lw + 10 || x + hw > R - rw - 10 || x - lastB < hw * 2 + 16) continue;
       lastB = x;
       c.fillStyle = "#e4b36a";
       c.fillText(`${fmtDur(b.gap)} gap`, x, base + 4);
@@ -294,11 +297,11 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   c.textAlign = "center";
   let lastPill = -1e9;
   let prevBreak = -1e9;
-  for (const b of g.timeBreaks) {
+  for (let bi = 0; bi < g.timeBreaks.length; bi++) {
+    const b = g.timeBreaks[bi];
     const s = g.toScreen(b.x, 0);
     const from = prevBreak;
     prevBreak = s.x;
-    const bi = g.timeBreaks.indexOf(b);
     const next = bi + 1 < g.timeBreaks.length ? g.toScreen(g.timeBreaks[bi + 1].x, 0).x : 1e9;
     // a gap pill only reads right between two visible dates
     if (!drawn.some(([a]) => a > from && a < s.x) || !drawn.some(([a]) => a > s.x && a < next)) continue;

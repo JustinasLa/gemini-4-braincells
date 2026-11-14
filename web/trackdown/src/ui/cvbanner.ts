@@ -39,6 +39,11 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
   const order = pts0.map((_, i) => i).sort((a, b) => pts0[a].x - pts0[b].x);
   const rank = new Map(order.map((i, r) => [i, r]));
 
+  // keep detections off the text: zones are measured a few times a second, not every frame
+  const hidden = new Set<number>();
+  const offLinks = new Set<number>();
+  const avoidDone = new Set<string>();
+  let avoidKey = "";
   const draw = (now: number) => {
     if (stopped || !canvas.isConnected) return;
     const r = canvas.getBoundingClientRect();
@@ -75,9 +80,15 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
     if (!opts.src || opts.cv) {
       const P = pts0.map((p) => ({ x: ix + p.x * iw, y: iy + p.y * ih, s: p.s * iw, score: p.score }));
       // no boxes or lines over the text this banner sits behind
-      const hidden = new Set<number>();
-      const offLinks = new Set<number>();
-      if (opts.avoid) {
+      const key = `${W}x${H}:${Math.floor(t / 250)}`;
+      if (key !== avoidKey) {
+        avoidKey = key;
+        hidden.clear();
+        offLinks.clear();
+      }
+      if (opts.avoid && !avoidDone.has(key)) {
+        avoidDone.clear();
+        avoidDone.add(key);
         const pad = 14;
         const zones = opts.avoid()
           .filter((el): el is Element => !!el)

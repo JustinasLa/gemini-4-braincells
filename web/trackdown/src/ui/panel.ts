@@ -129,9 +129,9 @@ export class Panel {
         <div class="stat" data-tip="${esc(`<h4>Copies back</h4>Hops from the submitted post to the earliest copy we found.`)}"><div class="n">${hops}</div><div class="l">${hops === 1 ? "Copy back" : "Copies back"}</div></div>
         <div class="stat" data-tip="${esc(`<h4>Age of the claim</h4><div class='row'><span>Earliest</span><b>${ori ? fmtDate(ori.t, false) : "–"}</b></div><div class='row'><span>Submitted</span><b>${sub ? fmtDate(sub.t, false) : "–"}</b></div>`)}"><div class="n">${sub && ori ? fmtDur(sub.t - ori.t) : "–"}</div><div class="l">Earliest → submitted</div></div>
         <div class="stat" data-tip="${esc(`<h4>${c.historical ? "Hands" : "Accounts"}</h4><div class='row'><span>Distinct</span><b>${accounts}</b></div><div class='row'><span>Under 30 days old</span><b class='${fresh ? "neg" : ""}'>${fresh}</b></div>`)}"><div class="n">${accounts}</div><div class="l">${c.historical ? "Hands" : accounts === 1 ? "Account in trace" : "Accounts in trace"}</div></div>
-      </div>
-      <div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>`
+      </div>`
       : "";
+    const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>` : "";
     return `
       <section class="verdict" style="--vc:${v.css}">
         <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : v.tag}${c.live ? " · live" : ""}</div></div></div>
@@ -141,6 +141,7 @@ export class Panel {
         ${notice}
       </section>
       ${stats}
+      ${replay}
       ${this.spread(c)}
       <p class="colophon">We judge behaviour (timing, copies, account age), never people or opinions. “Shill” names a cluster's spread, not any account in it.</p>`;
   }

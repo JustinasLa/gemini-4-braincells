@@ -547,7 +547,7 @@ input:focus-visible { outline: none; }
 .empty-stage p { margin: 8px 0 0; font: 400 14px/1.5 var(--sans); color: var(--text-2); }
 .empty-stage[hidden] { display: none; }
 .app[data-empty] .dock, .app[data-empty] .hud, .app[data-empty] .ruler, .app[data-empty] .seg { display: none !important; }
-.app[data-notime] .dock, .app[data-notime] .ruler, .app[data-notime] .seg { display: none !important; }
+.app[data-notime] .dock, .app[data-notime] .ruler, .app[data-notime] .seg, .app[data-notime] .zoom .mode-btn { display: none !important; }
 
 /* ---------- phone: the verdict stays on screen as a bar that opens the sheet ---------- */
 .peek { display: none; }
