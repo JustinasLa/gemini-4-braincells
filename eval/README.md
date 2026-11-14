@@ -393,7 +393,10 @@ moderation misses many bad accounts (a lower bound) and acts for reasons other t
   first flag time = the first such cluster's `created_at`; synthetic clusters excluded), the live
   random sample `baseline_accounts`, and `random_active`: per UTC hour since ingest began, 300
   accounts drawn by hash from everyone who posted, liked or reposted in that hour (retroactive, so
-  it covers the same hours as our flags).
+  it covers the same hours as our flags). Also `insufficient_p_only`: members of `insufficient`
+  clusters that met every other `coordinated` condition (families, score, organic guard, using
+  today's thresholds) and were held back only by the p-value. These accounts also count in
+  `insufficient`.
 - Outcome: a Jetstream `account` event with status `takendown` or `suspended`; `deleted` and
   `throttled` are reported separately; `deactivated` (voluntary) is ignored.
 - Same time at risk for everyone: an account counts only if flagged at least `horizon_h` ago, and

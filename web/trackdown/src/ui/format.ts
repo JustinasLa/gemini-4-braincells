@@ -73,7 +73,11 @@ export const ROLE: Record<Role, { label: string; color: string; mark?: string }>
   organic: { label: "Independent", color: "#5fc9a8" },
   submitted: { label: "Submitted", color: "#f2efe9" },
   source: { label: "Found by search", color: "#7aa2f0", mark: "Found by search" },
+  screenshotted: { label: "Real post in the screenshot", color: "#b9a6e3", mark: "Real post in the screenshot" },
 };
+/** Role style that never throws: an unknown role (e.g. from a newer API) renders as a neutral reshare-grey card. */
+export const roleOf = (role: string | undefined): (typeof ROLE)[Role] =>
+  (role && Object.prototype.hasOwnProperty.call(ROLE, role) ? ROLE[role as Role] : undefined) ?? { label: "Post", color: "#8f8b84" };
 
 export const REL: Record<Relation, { label: string; dash: number[] }> = {
   repost: { label: "reposted", dash: [] },
@@ -83,6 +87,34 @@ export const REL: Record<Relation, { label: string; dash: number[] }> = {
   link: { label: "shared link", dash: [] },
   reply: { label: "replied", dash: [] },
   cites: { label: "cites", dash: [10, 5] },
+  screenshot_of: { label: "screenshot of", dash: [2, 5] },
+};
+/** Relation style that never throws: an unknown rel renders as a plain "related" line. */
+export const relOf = (rel: string | undefined): (typeof REL)[Relation] =>
+  (rel && Object.prototype.hasOwnProperty.call(REL, rel) ? REL[rel as Relation] : undefined) ?? { label: "related", dash: [] };
+/** Relations that say "this is a copy of that" (text or image match). A screenshot link is not one. */
+export const isMatchRel = (rel: string | undefined) => rel === "copy" || rel === "media";
+/** Relations that form the copy/spread tree (parent -> child). A screenshot link, or a rel this
+ *  app does not know yet, is drawn but kept out of the chain, the path to the earliest copy and lineage. */
+const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites"]);
+export const isLineageRel = (rel: string | undefined) => rel != null && LINEAGE_RELS.has(rel);
+/** A lineage edge: a lineage rel between two posts that are both in the copy/spread tree. A post
+ *  shown in a screenshot ("screenshotted") is never in it, even when another edge (a reply to it,
+ *  say) would make it a parent: its relationship is the screenshot link, shown on its own. */
+export const isLineageEdge = (
+  e: { rel?: string },
+  from?: { role?: string } | null,
+  to?: { role?: string } | null,
+) => isLineageRel(e.rel) && from?.role !== "screenshotted" && to?.role !== "screenshotted";
+
+/** Wording for a screenshot receipt's label. It describes the screenshot, never a person. */
+export const shotLabel = (label: string | null | undefined, reason?: string | null): string => {
+  switch (label) {
+    case "matches": return "Matches the real post";
+    case "differs": return "Differs from the real post";
+    case "not_found": return "No matching post found: it may be deleted, private or never posted";
+    default: return `Not checked${reason ? `: ${reason}` : ""}`;
+  }
 };
 
 export const TOOL: Record<Tool, { label: string; long: string }> = {

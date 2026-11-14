@@ -9,6 +9,11 @@ other than coordination (spam, harassment, impersonation...).
 Groups (accounts, not clusters; synthetic clusters excluded):
   coordinated / insufficient / likely_organic   members of a stored cluster with that status,
                                                 flagged at the first such cluster's created_at
+  insufficient_p_only                           the subset of `insufficient` clusters that met
+                                                every other `coordinated` condition (families,
+                                                score, organic guard) and were held back only
+                                                by the p-value: are our strongest abstentions
+                                                real? (accounts also count in `insufficient`)
   baseline                                      random active accounts (signals.baseline), flagged
                                                 at their sampling time (sampling began later)
   random_active                                 per UTC hour since ingest began, up to 300 accounts
@@ -38,8 +43,16 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 
 from common.config import get_settings
+from signals.config import DEFAULT
 
-GROUPS = ("coordinated", "insufficient", "likely_organic", "baseline", "random_active")
+GROUPS = (
+    "coordinated",
+    "insufficient",
+    "insufficient_p_only",
+    "likely_organic",
+    "baseline",
+    "random_active",
+)
 OUTCOMES = {
     "moderation": ("takendown", "suspended"),
     "deleted": ("deleted",),
@@ -117,8 +130,20 @@ def load(conn: psycopg.Connection) -> tuple[list[Flag], dict]:
             FROM clusters c JOIN cluster_members m ON m.cluster_id = c.id
             WHERE NOT c.synthetic GROUP BY 1, 2
             UNION ALL
+            SELECT m.did, 'insufficient_p_only', min(c.created_at)
+            FROM clusters c JOIN cluster_members m ON m.cluster_id = c.id
+            WHERE NOT c.synthetic AND c.status = 'insufficient'
+              AND c.families_fired >= %(families)s AND c.score >= %(score)s
+              AND coalesce((c.signals->>'organic_guard_score')::float, 0) < %(guard)s
+            GROUP BY 1
+            UNION ALL
             SELECT did, 'baseline', sampled_at FROM baseline_accounts
-            """
+            """,
+            {
+                "families": DEFAULT.min_families_coordinated,
+                "score": DEFAULT.min_score_coordinated,
+                "guard": DEFAULT.organic_guard_strong,
+            },
         )
     ]
     flags += random_active(conn)
@@ -253,7 +278,7 @@ def main_args(args: argparse.Namespace) -> int:
         m = row["moderation"]
         rate = f"{m['rate']:.2%}" if m["rate"] is not None else "-"
         print(
-            f"{g:15} accounts={row['accounts']:6}  moderated={m['k']:4} ({rate}, "
+            f"{g:19} accounts={row['accounts']:6}  moderated={m['k']:4} ({rate}, "
             f"95% CI {m['ci95'][0]:.2%}-{m['ci95'][1]:.2%})  deleted={row['deleted']['k']}  "
             f"throttled={row['throttled']['k']}  (too recent: {row['excluded_too_recent']}, "
             f"already actioned: {row['excluded_already_actioned']})"

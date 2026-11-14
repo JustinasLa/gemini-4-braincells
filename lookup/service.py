@@ -37,7 +37,15 @@ from lookup.models import (
     Spread,
     Step,
 )
-from lookup.urls import X_STATUS_RE, Target, classify, domain, snowflake_time, x_post_url
+from lookup.urls import (
+    BSKY_HOSTS,
+    X_STATUS_RE,
+    Target,
+    classify,
+    domain,
+    snowflake_time,
+    x_post_url,
+)
 from lookup.xpage import (
     PostPage,
     XItem,
@@ -63,7 +71,8 @@ STEPS = [
     ("copies_bsky", "bluesky", "Find the same text on Bluesky"),
     ("coverage", "oxylabs", "Find coverage of the story"),
     ("media", "nemotron", "Read the images with Nemotron VL"),
-    ("verify", "oxylabs", "Read candidate copies on their own pages"),
+    ("screenshot", "nemotron", "Find the real post a screenshot shows"),
+    ("verify", "oxylabs", "Read source pages and candidate copies on their own pages"),
     ("monitor", "detector", "Check the clusters we monitor"),
     ("assess", "nemotron", "Nemotron reads the receipts"),
     ("second_reading", "gemini", "Gemini's second reading"),
@@ -73,6 +82,22 @@ COPY_MIN = 0.5
 ASSESS_RESERVE_S = 10.0  # the last seconds of the budget are the primary (Nemotron) reading's
 X_MIN_SIM = 0.35  # an X search hit sharing fewer words with the text is not about it
 OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message worth searching
+REPOST_HOSTS = (
+    X_HOSTS
+    | BSKY_HOSTS
+    | {
+        "reddit.com",
+        "youtube.com",
+        "youtu.be",
+        "instagram.com",
+        "tiktok.com",
+        "facebook.com",
+        "threads.com",
+        "threads.net",
+        "ifunny.co",
+        "ifunnyx.co",
+    }
+)
 UPLOAD = "upload:"  # media_urls entry of an uploaded image: its bytes are in the job, not a CDN
 # an uploaded image's own step labels: there is no post, the image is the input
 IMAGE_LABELS = {
@@ -81,7 +106,7 @@ IMAGE_LABELS = {
     "copies_x": "Search X for the text in the image",
     "copies_bsky": "Find the text in the image on Bluesky",
     "coverage": "Find pages about the image (meme pages, coverage)",
-    "verify": "Read candidate copies on their own pages",
+    "verify": "Read source pages and candidate copies",
 }
 # Per-call caps (s) on Oxylabs, from the 2026-11-14 measurement (lookup/README.md): /scrape p50
 # 3.6 s, p90 7.2 s, one hang of 34 s; AI fact extraction up to 11.6 s; /search p90 2.6 s. A call
@@ -195,6 +220,7 @@ class Deps:
     media_cache: Any = None  # image hash -> MediaAnalysis, shared across lookups (lookup/cache.py)
     media_urls: Any = None  # image URL -> hash, so a known image is not downloaded again
     verify_max: int = 8
+    source_pages_max: int = 3
     profiles_max: int = 4
     replies_max: int = 8
     media_max: int = 2
@@ -238,6 +264,7 @@ class Lookup:
         # an uploaded image with too little text for an exact search: what to look for instead
         self._image_query: str | None = None
         self._upload_meme = False  # Nemotron typed the uploaded image a meme
+        self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
         self._unreadable = False  # the submitted post or page is an X tombstone
@@ -382,7 +409,8 @@ class Lookup:
                         old.role = "linked"
                     # a "linked" page always comes from /scrape (_linked): it was read
                     if (
-                        pg.time_source == "page"
+                        pg.claims
+                        or pg.time_source == "page"
                         or pg.role == "linked"
                         or (pg.receipt_id and not old.publisher and pg.publisher)
                     ):
@@ -550,25 +578,35 @@ class Lookup:
         if kind in ("x_profile", "bsky_profile"):
             for sid in ("linked", "copies_web", "copies_x", "copies_bsky", "coverage", "media"):
                 self.skip(sid, "profile lookup")
+            self.skip("screenshot", "profile lookup")
             wait(side, timeout=self._left())
             self.skip("verify", "profile lookup")
             self._monitor()
             return
-        if not textsim.phrase(self._subject_text) and self._media_urls:
+        media_first = not textsim.phrase(self._subject_text) and self._media_urls
+        if media_first:
             # image-only post (or an uploaded image): read the image first, then search its text
             self._media(ocr_as_text=True)
         x_searches = [pool.submit(self._copies_web), pool.submit(self._copies_x)]
-        rest = [pool.submit(self._copies_bsky), pool.submit(self._coverage)]
+        rest = [
+            pool.submit(self._copies_bsky),
+            pool.submit(lambda: (self._coverage(), self._queue_older_pages())),
+        ]
+        if media_first:
+            rest.append(pool.submit(self._screenshot))  # alongside the searches
         if kind != "web":
             if self._card_url:
                 rest.append(pool.submit(self._linked, self._card_url, False))
             else:
                 self.skip("linked", "the post links no page")
         if self._step("media").state == "pending":
-            rest.append(pool.submit(self._media))
+            # same worker: the screenshot step needs the images media has read
+            rest.append(pool.submit(lambda: (self._media(), self._screenshot())))
+        elif not media_first:
+            self._screenshot()  # media was skipped: the step says why
         wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
-        self._queue_older_pages()  # web hits dated before the post: read their own date
+        self._queue_older_pages(n=min(1, self.deps.source_pages_max - 1), older_only=True)
         wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # candidates the search for the image's text found
         self._queue_older_pages()
@@ -1062,6 +1100,8 @@ class Lookup:
                 st.found = [pid]
                 st.detail = detail
                 return
+            if facts.http_status is not None and facts.http_status >= 400:
+                raise ValueError(f"source page returned HTTP {facts.http_status}")
             pub = facts.published_at
             ptime, punc = _page_time(pub)
             # one critical section: the quick read may already have found X's tombstone notice
@@ -1314,14 +1354,49 @@ class Lookup:
         for p in cands:
             self._submit_verify(lambda p=p: self._safe_verify(p, ref))
 
-    def _queue_older_pages(self, n: int = 2) -> None:
-        """Up to `n` older-looking pages for the whole run (see _older_page_candidates)."""
+    def _source_page_candidates(self) -> list[Page]:
+        with self.lock:
+            read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
+            candidates = [
+                pg
+                for pg in self.result.pages
+                if pg.receipt_id not in read_ids
+                and pg.id != self.result.subject_id
+                and pg.id not in self._v_pages
+            ]
+        older_ids = {page.id for page in self._older_page_candidates(n=1)}
+
+        def priority(page: Page) -> tuple:
+            host = domain(page.url)
+            return (
+                page.id not in older_ids,
+                any(host == repost or host.endswith("." + repost) for repost in REPOST_HOSTS),
+                not host.endswith((".gov", ".edu", ".ac.uk", ".gov.uk")),
+                page.time or datetime.max.replace(tzinfo=UTC),
+            )
+
+        candidates.sort(key=priority)
+        selected = []
+        hosts = set()
+        for page in candidates:
+            host = domain(page.url)
+            if host not in hosts:
+                selected.append(page)
+                hosts.add(host)
+        selected.extend(page for page in candidates if page not in selected)
+        return selected[: max(0, self.deps.source_pages_max - len(self._v_pages))]
+
+    def _queue_older_pages(self, n: int | None = None, *, older_only: bool = False) -> None:
+        """Queue bounded source reads, prioritizing original records and older copies."""
         if not (self._subject_text or self._phrase()):
             return
         with self.lock:
-            pages = [pg for pg in self._older_page_candidates(n + len(self._v_pages))
-                     if pg.id not in self._v_pages]  # fmt: skip
-            pages = pages[: max(0, n - len(self._v_pages))]
+            pages = self._source_page_candidates()
+            if older_only:
+                older_ids = {page.id for page in self._older_page_candidates(n=1)}
+                pages = [page for page in pages if page.id in older_ids]
+            if n is not None:
+                pages = pages[: max(0, n - len(self._v_pages))]
             self._v_pages += [pg.id for pg in pages]
         for pg in pages:
             self._submit_verify(lambda pg=pg: self._safe_verify_page(pg))
@@ -1363,7 +1438,7 @@ class Lookup:
         with self.lock:
             st = self._step("verify")
             if st.state == "pending":
-                st.state, st.detail = "skipped", "no candidate copies to read"
+                st.state, st.detail = "skipped", "no source pages or candidate copies to read"
                 return
             ids = list(self._v_posts)
             by_id = {p.id: p for p in self.result.posts}
@@ -1378,11 +1453,18 @@ class Lookup:
                 and p.id not in queued
             )
             read = self._v_read  # pages that came back; a timed-out or failed read isn't one
-            st.found = [i for i in ids if i in by_id]
+            read_ids = {r.id for r in self.result.receipts if r.ok and r.endpoint == "/scrape"}
+            read_pages = [
+                pg.id
+                for pg in self.result.pages
+                if pg.id in self._v_pages and pg.receipt_id in read_ids
+            ]
+            st.found = [i for i in ids if i in by_id] + read_pages
             st.detail = (
                 (f"{read} read" if read == len(ids) else f"{read} of {len(ids)} read")
                 + f": {kinds.count('copy') + kinds.count('origin')} copies"
                 f" · {kinds.count('quote')} quotes · {kinds.count('reply')} replies"
+                + f" · {len(read_pages)}/{len(self._v_pages)} source pages read"
                 + (f" · {unread} more candidates not read" if unread else "")
                 + (" · time budget used up" if out_of_time else "")
             )
@@ -1419,14 +1501,24 @@ class Lookup:
                 pg.url, deadline=self._provider_deadline(min(FACTS_CAP_S, self.deps.verify_read_s))
             )
             call = dict(self.deps.oxylabs.last_call)
+            if facts.unavailable:
+                raise ValueError(f"source page unavailable: {facts.unavailable}")
+            if facts.http_status is not None and facts.http_status >= 400:
+                raise ValueError(f"source page returned HTTP {facts.http_status}")
+        except BudgetExceeded:
+            self.note("Some source pages were not read because the time budget was used up.")
+            return
         except Exception as exc:
             log.info("verify page %s failed: %s", pg.url, exc)
+            self.note(
+                f"Source page could not be read: {pg.url}. Its search snippet is not verification."
+            )
             return
         t, unc = _page_time(facts.published_at)
         rid = self.receipt(
             "oxylabs",
             "/scrape",
-            f"Older page read: {facts.publisher or domain(facts.final_url)}"
+            f"Source page read: {facts.publisher or domain(facts.final_url)}"
             + (f", published {facts.published_at}" if facts.published_at else ", no date found"),
             source_url=facts.final_url or pg.url,
             call=call,
@@ -1436,10 +1528,10 @@ class Lookup:
             pg.publisher = facts.publisher or pg.publisher
             pg.author = facts.author or pg.author
             pg.published_at = facts.published_at
-            pg.claims = facts.claims or pg.claims
+            pg.headline = facts.headline or pg.headline
+            pg.claims = facts.claims
             pg.receipt_id = rid
-            if t is not None:
-                pg.time, pg.time_source, pg.time_uncertainty_s = t, "page", unc
+            pg.time, pg.time_source, pg.time_uncertainty_s = t, "page" if t else None, unc
 
     def _safe_verify(self, p: Post, reference: str) -> None:
         try:
@@ -1589,29 +1681,69 @@ class Lookup:
         if image and not about and self._upload_meme:
             q += " meme"  # meme pages (template, first use, variants) over unrelated matches
         with self.step("coverage") as st:
-            q = q.replace('"', "")
-            hits, call = self._search(q, 10)
-            at = call.get("fetched_at") or _now()  # "3 hours ago" of that read
-            what = "Search for pages about the uploaded image" if image else "Coverage search"
-            rid = self.receipt(
-                "oxylabs",
-                "/search",
-                f"{what}: {len(hits)} results" + (" (by its text or description)" if about else ""),
-                query=q,
-                call=call,
-            )
-            ref = self._subject_text or q
+            queries = [q.replace('"', "")]
+            claim_query = (textsim.phrase(self._subject_text, 40) or "").replace('"', "")
+            if not about and claim_query and claim_query not in queries:
+                queries.append(claim_query)
+            search_pool = ThreadPoolExecutor(max_workers=2)
+            futures = [search_pool.submit(self._search, query, 10) for query in queries]
             found = []
-            for h in hits:
-                if X_STATUS_RE.match(h.url) or "x.com/" in h.url or "twitter.com/" in h.url:
-                    continue
-                nid = self._classify_hit(
-                    h, rid, at, reference=ref, page_role="coverage" if about else None
+            succeeded = 0
+            errors = []
+            try:
+                done, _ = wait(
+                    futures, timeout=max(0.0, self._provider_deadline() - time.monotonic())
                 )
-                if nid and nid.startswith("page:"):
-                    found.append(nid)
+                for query, future in zip(queries, futures, strict=True):
+                    try:
+                        if future not in done:
+                            raise BudgetExceeded("coverage search time budget used up")
+                        hits, call = future.result()
+                    except Exception as exc:
+                        errors.append(exc)
+                        log.info("coverage query failed: %s", exc)
+                        self.note("A coverage search was unavailable; other source leads are kept.")
+                        continue
+                    succeeded += 1
+                    at = call.get("fetched_at") or _now()
+                    rid = self.receipt(
+                        "oxylabs",
+                        "/search",
+                        (
+                            "Search for pages about the uploaded image"
+                            if image
+                            else "Coverage search"
+                        )
+                        + (" (by its text or description)" if about else "")
+                        + f": {len(hits)} results",
+                        query=query,
+                        call=call,
+                    )
+                    for hit in hits:
+                        if X_STATUS_RE.match(hit.url) or domain(hit.url) in X_HOSTS:
+                            continue
+                        nid = self._classify_hit(
+                            hit,
+                            rid,
+                            at,
+                            reference=self._subject_text or query,
+                            page_role="coverage" if about else None,
+                        )
+                        if nid and nid.startswith("page:") and nid not in found:
+                            found.append(nid)
+            finally:
+                search_pool.shutdown(wait=False, cancel_futures=True)
+            if not succeeded:
+                raise next(
+                    (error for error in errors if not isinstance(error, BudgetExceeded)),
+                    errors[0],
+                )
             st.found = found
-            st.detail = f"{len(found)} pages " + ("about the image" if image else "on the story")
+            st.detail = (
+                f"{len(found)} pages "
+                + ("about the image" if image else "on the story")
+                + f" · {succeeded}/{len(queries)} searches completed"
+            )
 
     # ---------------------------------------------------------------- media (Nemotron)
     def _is_upload(self, url: str) -> bool:
@@ -1778,6 +1910,7 @@ class Lookup:
         the exception. A known image (same URL or bytes, same post text as context) is not
         read again: its receipt says cached and keeps the time of the original reading."""
         from media.nemotron import MediaInput, is_vl_model
+        from media.screenshot import judges_date
 
         try:
             cache, by_url = self.deps.media_cache, self.deps.media_urls
@@ -1822,6 +1955,9 @@ class Lookup:
                 "not a vision-language model."
             )
             return None
+        if a.media_type == "screenshot" and "/card_img/" not in url:
+            with self.lock:  # the "screenshot" step reads it as a post (bytes None: cached)
+                self._shots.append((url, h, mime, data))
         with self.lock:  # one critical section with `closed`: a late reading is never shown
             if closed.is_set():
                 return BudgetExceeded("the image reading came after the time budget")
@@ -1840,7 +1976,9 @@ class Lookup:
                     description=a.description,
                     extracted_text=a.extracted_text,
                     reuse_cues=a.reuse_cues,
-                    manipulation_cues=a.manipulation_cues,
+                    # "a future date suggests a mock-up" judges the date against the model's
+                    # training cutoff, not the image: dropped (media/screenshot.py)
+                    manipulation_cues=[c for c in a.manipulation_cues if not judges_date(c)],
                     confidence=a.confidence,
                     model=a.model,
                     latency_ms=a.latency_ms,
@@ -1848,6 +1986,11 @@ class Lookup:
                 )
             )
         return a
+
+    def _screenshot(self) -> None:
+        from lookup import receipts_step  # lookup/receipts_step.py
+
+        receipts_step.run(self)
 
     # ---------------------------------------------------------------- monitor
     def _monitor(self) -> None:

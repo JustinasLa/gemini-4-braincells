@@ -36,6 +36,13 @@ by a language model.
 "Can't tell" is a result, not an error. We would rather abstain than flag people who are just
 reacting to the same news.
 
+Abstaining has a cost, and we measure it. Some 🤷 clusters meet every 🚩 condition except the
+p-value. Bluesky's own moderation later takes down their accounts about as often as accounts in
+🚩 clusters (`eval takedowns`, row `insufficient_p_only`). The other 🤷 accounts, 😎 accounts and
+random active accounts are taken down far less, or never. We still show these clusters as 🤷:
+without a test that beats chance, a flag would be a guess. So we miss some real campaigns rather
+than accuse people we can't show acted together.
+
 ## Pipeline overview
 
 ```

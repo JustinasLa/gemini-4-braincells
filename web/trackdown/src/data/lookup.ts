@@ -1,5 +1,5 @@
 import type { Cluster, Relation, Role, Tool, TraceCase, TraceNode, TraceStep } from "../types";
-import { fmtDur, fmtNum, httpUrl } from "../ui/format";
+import { fmtDur, fmtNum, httpUrl, shotLabel } from "../ui/format";
 import type { ClusterSummary } from "./api";
 import { hashStr } from "./build";
 
@@ -13,7 +13,9 @@ export interface LookupPost {
   text: string;
   created_at: string | null;
   time_source: "snowflake" | "api" | "page" | "search_hint" | null;
-  role: "submitted" | "origin" | "copy" | "quote" | "reply" | "mention" | "author_recent" | "bluesky";
+  // screenshotted: the real post a screenshot inside the submitted post shows. Never a copy,
+  // never in the spread or the origin.
+  role: "submitted" | "origin" | "copy" | "quote" | "reply" | "mention" | "author_recent" | "bluesky" | "screenshotted";
   similarity: number | null;
   metrics: Partial<Record<"views" | "replies" | "reposts" | "likes" | "bookmarks" | "quotes", number | null>> | null;
   metrics_as_of: string | null;
@@ -67,6 +69,42 @@ export interface LookupMedia {
   latency_ms: number | null;
   receipt_id: number | null;
 }
+type LookupMetrics = Partial<Record<"views" | "replies" | "reposts" | "likes" | "bookmarks" | "quotes", number | null>>;
+/** A screenshot of a post found in the submitted post's images, checked against the real post
+ *  (lookup/models.py ScreenshotReceipt). The label describes the screenshot, never a person. */
+export interface LookupScreenshot {
+  media_url: string | null;
+  media_hash: string;
+  post_id: string | null; // the post whose image is the screenshot
+  platform: string;
+  handle: string | null;
+  display_name: string | null;
+  shown_time: string | null;
+  shown_text: string | null;
+  shown_counts: Record<string, number | null>;
+  ui_oddities: string[];
+  read_confidence: number | null;
+  read_model: string | null;
+  label: "matches" | "differs" | "not_found" | "unchecked";
+  reason: string;
+  original_id: string | null; // key into posts (role "screenshotted")
+  original_url: string | null;
+  original_text: string | null;
+  original_created_at: string | null;
+  original_time_source: "snowflake" | "api" | null;
+  similarity: number | null;
+  diff: { op: "same" | "shot_only" | "post_only"; text: string }[];
+  differences: string[];
+  time_check: "consistent" | "inconsistent" | "unknown";
+  shown_time_earliest: string | null;
+  shown_time_latest: string | null;
+  time_note: string | null;
+  counts_now: LookupMetrics | null;
+  counts_note: string | null;
+  candidates_checked: number;
+  receipt_ids: number[];
+  latency_ms: number | null;
+}
 export interface LookupSpread {
   n_posts: number;
   n_accounts: number;
@@ -78,9 +116,18 @@ export interface LookupSpread {
   min_gap_s: number | null;
   note: string;
 }
+export interface ClaimCheck {
+  claim: string;
+  finding: "supported" | "contradicted" | "mixed" | "unverified";
+  explanation: string;
+  cites: number[];
+}
 export interface LookupAssessment {
   model: string; summary: string; origin: string | null; corroboration: string | null; spread_pattern: string | null;
   counter_evidence: string[]; would_change: string[]; cites: number[];
+  claim_checks?: ClaimCheck[];
+  media_provenance?: string | null;
+  media_provenance_cites?: number[];
   llm_reading: "organic_looking" | "copy_campaign_looking" | "unclear";
   latency_ms: number | null; cost_usd: number | null;
 }
@@ -99,10 +146,11 @@ export interface LookupResult {
   accounts: LookupAccount[];
   pages: LookupPage[];
   media: LookupMedia[];
+  screenshots?: LookupScreenshot[]; // absent from older API versions
   edges: { from: string; to: string; rel: Relation; sim: number | null; tool: LookupTool; note: string | null }[];
   clusters: (ClusterSummary & { match?: string[]; verdict_applies?: boolean })[];
   spread: LookupSpread | null;
-  receipts: { id: number; tool: LookupTool; endpoint: string; summary: string; source_url: string | null; query: string | null; request_id: string | null; latency_ms: number | null; cached: boolean; at: string }[];
+  receipts: { id: number; tool: LookupTool; endpoint: string; summary: string; source_url: string | null; query: string | null; request_id: string | null; latency_ms: number | null; cached: boolean; ok?: boolean; at: string }[];
   /** the primary model reading (Nemotron); a model inference, never the status */
   assessment: LookupAssessment | null;
   /** every model reading in arrival order (primary first); absent on older servers */
@@ -306,6 +354,36 @@ const timeOf = (value: string | null): number | undefined => {
 const facts = (values: Record<string, string | number | null | undefined>) => Object.entries(values)
   .map(([label, value]) => ({ label, value: value == null || value === "" ? "Unknown / not returned" : String(value) }));
 const hostOf = (url: string) => { try { return new URL(url).hostname; } catch { return "Web source"; } };
+const counts = (values: Record<string, number | null | undefined> | null | undefined) => {
+  const parts = Object.entries(values ?? {}).filter(([, value]) => value != null).map(([label, value]) => `${fmtNum(value!)} ${label}`);
+  return parts.length ? parts.join(" · ") : null;
+};
+export const SHOT_FLAG: Record<string, string> = { matches: "screenshot matches the real post", differs: "screenshot differs from the real post", not_found: "screenshot: no matching post found", unchecked: "screenshot not checked" };
+const DIFF_OP: Record<string, string> = { shot_only: "only in the screenshot", post_only: "only in the real post" };
+
+/** One "Screenshot check" data group. Everything is plain text; the panel escapes it. */
+export function screenshotFacts(shot: LookupScreenshot): NonNullable<TraceNode["realData"]>[number] {
+  const out: { label: string; value: string }[] = [];
+  const add = (label: string, value: string | number | null | undefined) => { if (value != null && value !== "") out.push({ label, value: String(value) }); };
+  add("Result", shotLabel(shot.label, shot.reason));
+  if (shot.label !== "unchecked") add("Why", shot.reason);
+  add("Shown in the screenshot", [shot.platform && shot.platform !== "unknown" ? shot.platform : null, shot.handle ? `@${shot.handle.replace(/^@/, "")}` : null, shot.display_name, shot.shown_time ? `shown time: ${shot.shown_time}` : null].filter(Boolean).join(" · "));
+  add("Text in the screenshot", shot.shown_text);
+  add("Text of the real post", shot.original_text);
+  add("Real post time (UTC)", shot.original_created_at ? `${shot.original_created_at}${shot.original_time_source === "snowflake" ? " (from post id)" : ""}` : null);
+  add("Time check", shot.time_check === "unknown" && !shot.time_note ? null : [shot.time_check, shot.time_note].filter(Boolean).join(" · "));
+  add("Word similarity", shot.similarity == null ? null : shot.similarity.toFixed(2));
+  add("Differences", (shot.differences ?? []).join("\n"));
+  if (shot.diff?.some((part) => part.op !== "same")) add("Word diff", shot.diff.map((part) => DIFF_OP[part.op] ? `[${DIFF_OP[part.op]}: ${part.text}]` : part.text).join(" "));
+  add("Visible oddities in the image (cautious reading)", (shot.ui_oddities ?? []).join("\n"));
+  add("Counts in the screenshot", counts(shot.shown_counts));
+  add("Counts on the real post now", counts(shot.counts_now));
+  add("Counts", `Counts are context only${shot.counts_note ? `: ${shot.counts_note}` : "; they never decide the label."}`);
+  add("Read by (model inference)", [shot.read_model, shot.read_confidence == null ? null : `confidence ${shot.read_confidence.toFixed(2)}`].filter(Boolean).join(" · "));
+  add("Real posts compared", shot.candidates_checked);
+  add("Receipts", (shot.receipt_ids ?? []).map((id) => `#${id}`).join(", "));
+  return { label: "Screenshot check", url: httpUrl(shot.original_url) ?? httpUrl(shot.media_url), receiptId: shot.receipt_ids?.[0] ?? null, facts: out };
+}
 
 export function lookupCase(result: LookupResult): TraceCase {
   const fallbackTime = timeOf(result.posts.find((post) => post.id === result.subject_id)?.created_at ?? null)
@@ -316,7 +394,10 @@ export function lookupCase(result: LookupResult): TraceCase {
     const account = result.accounts.find((candidate) => candidate.platform === post.platform && candidate.handle.replace(/^@/, "").toLowerCase() === handle.replace(/^@/, "").toLowerCase());
     const media = result.media.filter((finding) => finding.post_id === post.id);
     const time = timeOf(post.created_at);
-    const roles: Record<LookupPost["role"], Role> = { submitted: "submitted", origin: "origin", copy: post.similarity != null && post.similarity < 0.8 ? "mutation" : "relay", quote: "mutation", reply: "organic", mention: "relay", author_recent: "relay", bluesky: "relay" };
+    const roles: Record<LookupPost["role"], Role> = { submitted: "submitted", origin: "origin", copy: post.similarity != null && post.similarity < 0.8 ? "mutation" : "relay", quote: "mutation", reply: "organic", mention: "relay", author_recent: "relay", bluesky: "relay", screenshotted: "screenshotted" };
+    // a role from a newer API version renders as a neutral reshare-grey card instead of crashing
+    const known = Object.prototype.hasOwnProperty.call(roles, post.role);
+    const role: Role = known ? roles[post.role] : "relay";
     const realData: NonNullable<TraceNode["realData"]> = [{
       label: "Platform metrics", url: httpUrl(post.url), receiptId: post.receipt_id,
       facts: facts({ Views: metrics.views, Replies: metrics.replies, Reposts: metrics.reposts, Likes: metrics.likes, Bookmarks: metrics.bookmarks, Quotes: metrics.quotes, "Metrics as of (UTC)": post.metrics_as_of, "Created at (UTC)": post.created_at, "Time source": post.time_source, "Post role": post.role, "Post page/API read": post.verified == null ? null : post.verified ? "Yes" : "No · search snippet / ID only" }),
@@ -335,7 +416,7 @@ export function lookupCase(result: LookupResult): TraceCase {
       realData: realData.slice(1),
     };
     return {
-      id: post.id, t: time ?? fallbackTime, timeUnknown: time == null, platform: post.platform, role: roles[post.role],
+      id: post.id, t: time ?? fallbackTime, timeUnknown: time == null, platform: post.platform, role,
       author: { name: post.author_name || account?.name || handle, handle, hue: hashStr(`${post.platform}:${handle}`) % 360, followers: account?.followers ?? undefined, ageDays: account?.age_days ?? undefined },
       text: post.text, url: httpUrl(post.url), likes: metrics.likes ?? undefined, reposts: metrics.reposts ?? undefined,
       media: mediaSource ? { kind: "photo", src: mediaSource, title: media[0]?.description || "Post media (source image)", note: media[0]?.description ?? undefined }
@@ -348,6 +429,8 @@ export function lookupCase(result: LookupResult): TraceCase {
         ...Object.entries(metrics).filter(([, value]) => value != null).map(([label, value]) => `${fmtNum(value!)} ${label}`),
         ...(post.verified === false ? ["search snippet / ID only"] : []),
         ...(post.role === "author_recent" ? ["author history, not necessarily a copy"] : []),
+        ...(post.role === "screenshotted" ? ["shown in a screenshot, not a copy"] : []),
+        ...(known ? [] : [`role "${String(post.role)}" not recognised by this app`]),
       ], realData,
     };
   });
@@ -373,13 +456,32 @@ export function lookupCase(result: LookupResult): TraceCase {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const aliases = new Map(result.pages.flatMap((page) => [[page.url, page.id ?? page.url], [`page:${page.url}`, page.id ?? page.url], ...(page.final_url ? [[page.final_url, page.id ?? page.url]] : [])] as [string, string][]));
   const resolve = (id: string) => aliases.get(id) ?? id;
-  const edges = result.edges.map((edge) => ({ ...edge, from: resolve(edge.from), to: resolve(edge.to), sim: edge.sim ?? undefined, tool: toolFor(edge.tool), note: edge.note ?? undefined }))
+  const edges = result.edges.map((edge) => ({ ...edge, from: resolve(edge.from), to: resolve(edge.to), sim: edge.sim ?? undefined, tool: toolFor(edge.tool),
+    // a screenshot link's note is its label: say it in words
+    note: edge.rel === "screenshot_of" && edge.note && SHOT_FLAG[edge.note] ? shotLabel(edge.note) : edge.note ?? undefined }))
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to) && edge.from !== edge.to);
+  // Screenshot receipts: on the real post (when found) and on the post carrying the screenshot,
+  // so a not_found / unchecked receipt, which has no real-post card, is still visible.
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  for (const shot of result.screenshots ?? []) {
+    if (!shot || typeof shot !== "object") continue;
+    const group = screenshotFacts(shot);
+    const flag = SHOT_FLAG[shot.label] ?? SHOT_FLAG.unchecked;
+    const carrier = byId.get(resolve(shot.post_id ?? result.subject_id ?? ""));
+    const original = shot.original_id ? byId.get(resolve(shot.original_id)) : undefined;
+    for (const node of [original, carrier]) {
+      if (!node) continue;
+      // on the real post the check is the main fact: show it first
+      node.realData = node === original ? [group, ...(node.realData ?? [])] : [...(node.realData ?? []), group];
+      if (!node.flags?.includes(flag)) node.flags = [...(node.flags ?? []), flag];
+    }
+  }
   // Only a cluster that shared this link or this text carries a verdict for it; a cluster that
   // merely contains an account seen here is context about that account.
   const matched = result.status === "matched" ? result.clusters.find((cluster) => cluster.verdict_applies) : undefined;
   const clusters: Cluster[] = result.clusters.map((cluster) => ({ id: `monitor-${cluster.id}`, label: cluster.verdict_applies ? `Monitored cluster ${cluster.id} · same ${(cluster.match ?? []).filter((m) => m !== "account").join(" + ") || "link"}` : `Monitored cluster ${cluster.id} · shares an account only, not a verdict on this link`, status: cluster.verdict_applies ? cluster.status : "insufficient", members: [], stat: `${cluster.size ?? "Unknown number of"} accounts · detector status ${cluster.status} · membership not supplied by lookup` }));
   if (result.spread && result.spread.n_accounts >= 3) {
+    // only copies of the text; a screenshotted post is never a copy, even at similarity 1
     const members = result.posts.filter((post) => ["submitted", "origin", "copy", "quote", "bluesky"].includes(post.role) && (post.similarity ?? 0) >= 0.8).map((post) => post.id);
     clusters.push({ id: "lookup-copies", label: "Observed copy sample · not a verdict", status: "insufficient", members, stat: `${result.spread.n_accounts} accounts · same text · ${result.spread.span_s == null ? "time span unknown" : fmtDur(result.spread.span_s * 1000)}` });
     nodes.filter((node) => members.includes(node.id)).forEach((node) => { node.cluster = "lookup-copies"; });
@@ -400,7 +502,7 @@ export function lookupCase(result: LookupResult): TraceCase {
     steps: result.steps.map((step) => ({ id: step.id, tool: toolFor(step.tool), text: step.label, state: step.state, detail: step.detail, found: step.found.map(resolve).filter((id) => nodeIds.has(id)) })),
     // two readings that differ are both shown in the panel; neither is put up front as the summary
     summary: readingsDisagree(result) ? `Two model readings of these receipts differ; both are shown below. ${result.posts.length} posts and ${result.pages.length} pages collected.`
-      : result.assessment?.summary || (!matched && result.unreadable ? `${result.unreadable}: the submitted post can't be read${result.input.text ? "; these results trace the text you supplied" : ", so there is nothing to trace"}. Can't tell is not a verdict on the account.` : null) || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : `Can't tell: this ${result.kind === "image" ? "image's" : "link's"} footprint does not establish coordination.`}`,
+      : result.assessment?.summary || (!matched && result.unreadable ? `${result.unreadable}: the submitted post can't be read${result.input.text ? "; these results trace the text you supplied" : ", so there is nothing to trace"}. Can't tell is not a verdict on the account.` : null) || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Coordination: insufficient evidence. This is not a finding about the accuracy of the content."}`,
     lookup: result,
   };
 }

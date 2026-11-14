@@ -516,17 +516,22 @@ class ClusterProgress:
 
     Fully read: until signals changes the cluster (new updated_at). Incomplete (failed or
     deferred media, or a failed screenshot read): held back for `retry_s`, so they can't fill
-    every batch and starve others.
+    every batch and starve others. With screenshots of posts and `recheck_s` set (screenshot
+    receipts on): held back for `recheck_s`, then read again so the receipt is re-checked even
+    if the cluster doesn't change (media/screenshot_receipts.py).
     """
 
-    def __init__(self, retry_s: float = 300, clock=time.monotonic):
-        self.retry_s, self._clock = retry_s, clock
+    def __init__(self, retry_s: float = 300, clock=time.monotonic, recheck_s: float | None = None):
+        self.retry_s, self._clock, self.recheck_s = retry_s, clock, recheck_s
         self._read: dict[int, Any] = {}
         self._incomplete: dict[int, tuple[Any, float]] = {}
 
     def record(self, cluster_id: int, updated_at: Any, run: MediaRun) -> None:
         if run.failures or run.deferred or run.screenshot_failures:
             self._incomplete[cluster_id] = (updated_at, self._clock() + self.retry_s)
+        elif self.recheck_s and any(f.screenshot is not None for f in run.findings):
+            self._incomplete[cluster_id] = (updated_at, self._clock() + self.recheck_s)
+            self._read.pop(cluster_id, None)
         else:
             self._read[cluster_id] = updated_at
             self._incomplete.pop(cluster_id, None)

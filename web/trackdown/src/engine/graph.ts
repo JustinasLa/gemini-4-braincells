@@ -2,7 +2,7 @@
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
-import { fmtDur, REL, ROLE, STATUS } from "../ui/format";
+import { fmtDur, isLineageEdge, isMatchRel, relOf, ROLE, roleOf, STATUS } from "../ui/format";
 
 
 
@@ -24,6 +24,9 @@ export interface VNode {
   compact: boolean;
   parents: VNode[];
   children: VNode[];
+  /** linked by a non-lineage relation (a screenshot of a post): drawn and highlighted, never part of the copy chain */
+  aside: VNode[];
+  asideOf: VNode | null; // for a screenshotted post, the post carrying the screenshot
   tilt: number;
   last: string;
   drag: boolean;
@@ -199,7 +202,7 @@ export class Graph {
       const compact = d.role === "amplifier" && !childCount.get(d.id);
       el.className = `card role-${d.role} plat-${d.platform}${compact ? " chip" : ""}`;
       el.dataset.id = d.id;
-      const inSim = c.edges.find((e) => e.to === d.id && e.sim != null && (e.rel === "media" || e.rel === "copy"))?.sim;
+      const inSim = c.edges.find((e) => e.to === d.id && e.sim != null && isMatchRel(e.rel))?.sim;
       el.innerHTML = cardHtml(d, compact, order.get(d.id) ?? 0, inSim);
       for (const img of el.querySelectorAll("img")) {
         const old = loaded.get(img.src)?.pop();
@@ -209,7 +212,7 @@ export class Graph {
       }
       if (inSim != null && d.media) el.classList.add("matched");
       this.world.appendChild(el);
-      const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], tilt: 0, last: "", drag: false };
+      const n: VNode = { d, x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, tx: 0, py: 0, el, vis: false, born: 0, compact, parents: [], children: [], aside: [], asideOf: null, tilt: 0, last: "", drag: false };
       this.nodes.push(n);
       this.byId.set(d.id, n);
     }
@@ -222,8 +225,14 @@ export class Graph {
       const a = this.byId.get(e.from);
       const b = this.byId.get(e.to);
       if (!a || !b) continue;
-      a.children.push(b);
-      b.parents.push(a);
+      if (isLineageEdge(e, a.d, b.d)) {
+        a.children.push(b);
+        b.parents.push(a);
+      } else {
+        a.aside.push(b);
+        b.aside.push(a);
+        b.asideOf ??= a;
+      }
       this.edges.push({ e, a, b, born: 0, seed: Math.random() });
     }
     this.layoutTime();
@@ -316,14 +325,16 @@ export class Graph {
 
   /** Tidy-tree y: leaves get consecutive slots, parents sit at their children's mean. */
   private layoutTree() {
-    const roots = this.nodes.filter((n) => !n.parents.length);
+    // a parentless aside post (the real post in a screenshot) is laid out next to the post carrying it
+    const tucked = (n: VNode) => !n.parents.length && n.asideOf != null && n.asideOf !== n;
+    const roots = this.nodes.filter((n) => !n.parents.length && !tucked(n));
     let slot = 0;
     const seen = new Set<VNode>();
     const gridTop = new Map<string, number>();
     const visit = (n: VNode): number => {
       if (seen.has(n)) return n.py;
       seen.add(n);
-      const kids = n.children.filter((c) => c.parents[0] === n).sort((a, b) => a.d.t - b.d.t);
+      const kids = [...n.children.filter((c) => c.parents[0] === n), ...n.aside.filter((c) => c.asideOf === n && tucked(c))].sort((a, b) => a.d.t - b.d.t);
       if (!kids.length) {
         const gr = this.grid.get(n);
         if (gr) {
@@ -347,6 +358,8 @@ export class Graph {
       return n.py;
     };
     roots.sort((a, b) => a.d.t - b.d.t).forEach(visit);
+    // anything not reached (e.g. aside links in a loop) still gets a slot
+    this.nodes.filter((n) => !seen.has(n)).sort((a, b) => a.d.t - b.d.t).forEach(visit);
     const mid = slot / 2;
     for (const n of this.nodes) n.py -= mid;
   }
@@ -395,7 +408,7 @@ export class Graph {
         n.born = now;
         n.el.style.display = "";
         if (!instant) {
-          const src = (from && this.byId.get(from)) || n.parents.find((p) => p.vis) || n.children.find((c) => c.vis);
+          const src = (from && this.byId.get(from)) || n.parents.find((p) => p.vis) || n.children.find((c) => c.vis) || n.aside.find((c) => c.vis);
           if (src) {
             n.x = src.x + (Math.random() - 0.5) * 30;
             n.y = src.y + (Math.random() - 0.5) * 30;
@@ -824,6 +837,9 @@ export class Graph {
       const c = down.pop()!;
       for (const k of c.children) if (!out.has(k.d.id)) (out.add(k.d.id), down.push(k));
     }
+    // aside links (a screenshot and the real post) light up one hop from the node itself only:
+    // the real post is not part of anyone else's copy lineage
+    for (const k of n.aside) out.add(k.d.id);
     return out;
   }
 
@@ -961,14 +977,16 @@ export class Graph {
       const prog = clamp((now - e.born) / 650, 0, 1);
       const on = hl ? hl.has(e.a.d.id) && hl.has(e.b.d.id) : false;
       const dim = hl && !on;
-      const match = e.e.rel === "copy" || e.e.rel === "media";
+      const match = isMatchRel(e.e.rel);
+      const shot = e.e.rel === "screenshot_of";
       const role = this.colors[e.b.d.role] ?? C.ink2;
-      const col = on ? role : match ? "rgba(245,245,245,0.9)" : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
+      const col = on ? role : match ? "rgba(245,245,245,0.9)" : shot ? ROLE.screenshotted.color : e.e.rel === "cites" ? "rgba(122,162,240,0.85)" : "rgba(242,239,233,0.55)";
       c.save();
       c.globalAlpha = dim ? 0.1 : on ? 1 : match ? 0.75 : 0.7;
       c.strokeStyle = col;
       c.lineWidth = (on ? 2.2 : match ? 1.1 : 1.3) / k;
       if (match || e.e.rel === "cites") c.setLineDash([7 / k, 6 / k]);
+      else if (shot) c.setLineDash([2 / k, 5 / k]);
       if (match) c.lineDashOffset = -now / 40 / k;
       c.beginPath();
       c.moveTo(pts[0], pts[1]);
@@ -1032,13 +1050,13 @@ export class Graph {
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
         // a score tag half under a card reads as a glitch: skip it
         const text = e.e.sim != null ? e.e.sim.toFixed(2) : "CITES";
-        const cap = e.e.sim != null ? REL[e.e.rel].label.toUpperCase() : "";
+        const cap = e.e.sim != null ? relOf(e.e.rel).label.toUpperCase() : "";
         const fs = 10.5 / Math.max(k, 0.65);
         c.font = `600 ${fs}px "JetBrains Mono", monospace`;
         const pw = c.measureText(text + cap).width + fs * 2;
         const ph = fs * 1.7;
         const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + pw / 2 && Math.abs(n.y - my) < n.h / 2 + ph / 2);
-        if (!covered) this.pill(c, mx, my, text, e.e.sim != null ? C.cv : "#5b8fe6", cap);
+        if (!covered) this.pill(c, mx, my, text, shot ? ROLE.screenshotted.color : e.e.sim != null ? C.cv : "#5b8fe6", cap);
       }
     }
     // far zoom: cities on the map
@@ -1207,7 +1225,7 @@ export class Graph {
       // label
       c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
       c.font = '600 11px "JetBrains Mono", monospace';
-      const label = ROLE[n.d.role].label.toUpperCase();
+      const label = roleOf(n.d.role).label.toUpperCase();
       const tw = c.measureText(label).width + 12;
       c.fillStyle = r.color;
       c.fillRect(sx - hw, sy - hh - 20, tw, 16);

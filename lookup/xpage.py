@@ -25,9 +25,12 @@ _STATUS_LINK = re.compile(r"\]\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)")
 _REL_TIME = re.compile(  # noqa: E501
     r"^\[(\d+[smhd]|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?)\]\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)\s*$"
 )  # noqa: E501
+# an edited post links its last edit time to its edit history instead:
+# "[Last edited 6:56 PM · Nov 13, 2026Opens edit history](/handle/status/ID/history)"
 _DATE_LINK = re.compile(
-    r"^\[(\d{1,2}:\d{2} [AP]M · [A-Z][a-z]{2} \d{1,2}, \d{4})\]"
-    r"\(/([A-Za-z0-9_]{1,15})/status/(\d+)\)"
+    r"^\[(Last edited )?(\d{1,2}:\d{2} [AP]M · [A-Z][a-z]{2} \d{1,2}, \d{4})"
+    r"(?:Opens edit history)?\]"
+    r"\(/([A-Za-z0-9_]{1,15})/status/(\d+)(?:/history)?\)"
 )  # noqa: E501
 _VIEWS_INLINE = re.compile(r"·\[([\d.,]+[KMB]?)\s*$")
 _REPLY_LINK = re.compile(r"^\[([\d.,]+[KMB]?)\]\(/compose/post\?in_reply_to=(\d+)\)\s*$")
@@ -146,6 +149,7 @@ class XItem:
     text: str
     avatar_url: str | None = None
     is_main: bool = False  # the page's own post (has the full date link)
+    edited: bool = False  # the page shows "Last edited" (the text is the latest version)
     quoted_handle: str | None = None
     quoted_id: str | None = None
     quoted_text: str | None = None
@@ -222,9 +226,10 @@ def _parse_item(lines: list[str]) -> XItem | None:
                 item.status_id = r.group(3)
             continue
         if d := _DATE_LINK.match(ln):
-            if d.group(2).lower() == handle.lower():
-                item.status_id = d.group(3)
+            if d.group(3).lower() == handle.lower():
+                item.status_id = d.group(4)
                 item.is_main = True
+                item.edited = bool(d.group(1))
                 if v := _VIEWS_INLINE.search(ln):
                     item.views = parse_count(v.group(1))
             target = None  # text is over

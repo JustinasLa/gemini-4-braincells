@@ -11,6 +11,7 @@ npm run dev                         # http://127.0.0.1:3001 (proxies /api to API
 API_ORIGIN=http://127.0.0.1:8020 npm run dev
 npm run build                       # static files in dist/ (relative paths, works under any prefix)
 npm run ship                        # build and copy to ../public/trackdown/ for Caddy
+npm run check                       # lookup rendering regression (fixture -> lookupCase -> cards)
 ```
 
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
@@ -27,8 +28,9 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 
 - The canvas sits on Botticelli's *Birth of Venus*, darkened, with its real ORB detections baked in
   (green boxes, match scores, dashed match lines), drifting slightly as you pan.
-- The nudity in `venus-full.webp` is covered by detection boxes in the same green style,
-  showing swirled fragments of the drapery (`blender/cover_venus.py`, run once on the uncovered painting).
+- The nudity in `venus-full.webp` is smudged to smooth skin (`blender/cover_venus.py`, run once on the
+  uncovered painting); on the home page, pinned detection boxes (`"pin": true` in `venus-full-cv.json`)
+  sit over those spots and show warped drapery like every other box.
 - Real computer vision, not decoration: the keypoints and descriptor-match scores come from OpenCV
   (`blender/venus_cv.py` -> `src/assets/venus-cv.json`). They animate in the splash, the trace window,
   the verdict banner and the verdict reveal. On cards, a green box shows a score only when the link
@@ -96,6 +98,15 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   snowflake timestamps are labelled "time from post id". Missing facts stay unknown; cards with
   missing times use the submitted time (or lookup start) for layout only and say "time unknown".
   Nemotron descriptions/OCR and the cited Gemini reading are model inferences, not verified facts.
+- **Screenshots of posts**: a post the lookup found because a screenshot in the submitted post shows
+  it has role `screenshotted` ("Real post in the screenshot", lilac, dashed card). Its `screenshot_of`
+  link is drawn as a dotted lilac line and kept out of the copy chain, the path to the earliest copy,
+  copy samples, spread counts and the histogram. Each `screenshots[]` receipt becomes a
+  "Screenshot check" data group (matches / differs / no matching post found / not checked, time
+  note, differences, counts as context only) on the real post and on the post carrying the
+  screenshot, plus a flag on that post, so a receipt with no real post found is still visible. The
+  wording describes the screenshot, never a person. Unknown roles or link types from a newer API
+  render as neutral cards and lines instead of failing.
 - **Samples, not a census**: copy-search results and recent profile posts are sampled. Spread
   counts, first-hour accounts, times and gaps describe only that sample; notes stay visible.
   A group of three or more accounts copying text is labelled as a copy sample with `insufficient`
@@ -103,6 +114,12 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   status. Cluster summaries do not identify memberships, so no lookup account is silently assigned
   to a monitored cluster. If several match, the first returned cluster supplies the headline status;
   all matched statuses remain visible in Provenance. Otherwise coordination says "Can't tell (yet)".
+- **Factual findings**: the lookup's Findings tab shows claim-level model assessments and
+  clickable source receipts separately from the coordination coin and its confidence. A missing
+  assessment is not treated as false content. Media descriptions do not authenticate the exact
+  image, and the earliest observed copy is not necessarily the original source. Older API
+  responses without `claim_checks` show an explicit unavailable-assessment message.
+  Run `npm test` for rendering, citation safety, legacy fallback, and verdict-separation tests.
 - **Fallbacks**: an unavailable lookup (404/503/network) tries `POST /api/analyze`; only if that
   path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
   rate limits (429), job failure and timeout show an error instead of silently inventing a trace.

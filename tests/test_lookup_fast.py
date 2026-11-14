@@ -632,13 +632,13 @@ def test_cached_oxylabs_last_call_is_per_thread():
     assert ox.last_call["cached"] is False  # this thread's own call is untouched
 
 
-def _two_cached_runs():
+def _two_cached_runs(**overrides):
     inner = FakeOxylabs()
     store = lcache.TTLCache(ttl_s=600)
     ox = lcache.CachedOxylabs(inner, store)
-    one = _run(LookupInput(url=X_URL), _deps(ox), "lk_1")
+    one = _run(LookupInput(url=X_URL), _deps(ox, **overrides), "lk_1")
     n = len(inner.calls)
-    two = _run(LookupInput(url=X_URL), _deps(ox), "lk_2")
+    two = _run(LookupInput(url=X_URL), _deps(ox, **overrides), "lk_2")
     return inner, store, one, two, inner.calls[n:]
 
 
@@ -867,7 +867,7 @@ def test_no_image_call_without_room_for_it_before_the_reading():
 
 
 def test_cached_search_dates_are_relative_to_the_original_read():
-    _inner, _store, one, two, _ = _two_cached_runs()
+    _inner, _store, one, two, _ = _two_cached_runs(source_pages_max=0)
 
     def hint_time(job):
         return next(pg.time for pg in job.result.pages if pg.url == "https://news.example/story")

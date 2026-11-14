@@ -6,12 +6,12 @@ import { analyze, liveCase } from "./data/api";
 import { simulatedCases } from "./data/cases";
 import { IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
-import { Graph, type Mode } from "./engine/graph";
+import { Graph } from "./engine/graph";
 import type { TraceCase } from "./types";
 import { flipInto, preloadCoin, wait } from "./ui/coin";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDate, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDate, fmtShort, ROLE, roleOf, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
@@ -24,7 +24,6 @@ document.querySelector("#app")!.innerHTML = `
     <a class="wordmark" href="/" aria-label="Shill or Chill: home">SHILL OR CHILL</a>
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
       <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
     </div>
   </header>
@@ -35,7 +34,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="time" class="mode-btn on" aria-pressed="true" aria-label="Timeline layout">TIME</button><button data-z="web" class="mode-btn" aria-pressed="false" aria-label="Web layout">WEB</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
@@ -90,9 +89,9 @@ initTooltips();
 // ---------------------------------------------------------------- legend
 $("#legend").innerHTML =
   `<div class="legend-title"><span class="label">Key</span></div>` +
-  (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
+  (["origin", "mutation", "submitted", "amplifier", "organic", "relay", "source", "screenshotted"] as const).map((r) => `<div class="li"><span class="sw" style="--c:${ROLE[r].color}"></span>${ROLE[r].label}</div>`).join("") +
   `<div class="li"><span class="sw member" style="--c:${ROLE.amplifier.color}"></span>Cluster member · zoom in to read</div>` +
-  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="legend-hint">Select a marker to read the post.</div>`;
+  `<div class="li"><span class="ln" style="--s:dashed;--c:#f5f5f5"></span>Match (copy, image)</div><div class="li"><span class="ln" style="--c:#b4b0a8"></span>Repost, quote</div><div class="li"><span class="ln" style="--s:dashed;--c:#7aa2f0"></span>Cites</div><div class="li"><span class="ln" style="--s:dotted;--c:${ROLE.screenshotted.color}"></span>Screenshot of a real post (checked, not a copy)</div><div class="legend-hint">Select a marker to read the post.</div>`;
 
 
 // ---------------------------------------------------------------- phases: home -> trace -> done
@@ -140,26 +139,7 @@ function renderResources(c: TraceCase) {
   document.title = `${c.title} · Trackdown · Shill or Chill`;
 }
 
-// ---------------------------------------------------------------- view mode + actions
-const seg = $("#mode");
-seg.addEventListener("click", (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>("[data-mode]");
-  if (b) setMode(b.dataset.mode as Mode);
-});
-function setMode(m: Mode) {
-  stage.querySelectorAll<HTMLElement>(".mode-btn").forEach((b) => {
-    const on = (b.dataset.z === "time") === (m === "timeline");
-    b.classList.toggle("on", on);
-    b.setAttribute("aria-pressed", String(on));
-  });
-  seg.querySelectorAll<HTMLElement>("[data-mode]").forEach((x) => {
-    x.classList.toggle("on", x.dataset.mode === m);
-    x.setAttribute("aria-pressed", String(x.dataset.mode === m));
-  });
-  g.setMode(m);
-  $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
-  setTimeout(() => g.fit(undefined, 1100), 380);
-}
+// ---------------------------------------------------------------- actions
 // An uploaded image lives on the server only while its lookup does (1 h): a saved image trace
 // reopened later says so instead of showing a broken image.
 document.addEventListener("error", (e) => {
@@ -185,8 +165,6 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
   if (z === "tools") app.classList.toggle("tools");
-  if (z === "time") setMode("timeline");
-  if (z === "web") setMode("web");
   stage.querySelector('[data-z="tools"]')!.setAttribute("aria-expanded", String(app.classList.contains("tools")));
 });
 
@@ -202,7 +180,7 @@ g.onSelect = (id) => {
     if (fromKeyboard) $("#panel").querySelector<HTMLElement>('[data-tab="folio"]')?.focus();
   }
   const n = id ? current?.nodes.find((x) => x.id === id) : null;
-  $("#announce").textContent = n ? `${n.author.name}, ${ROLE[n.role].label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
+  $("#announce").textContent = n ? `${n.author.name}, ${roleOf(n.role).label}${n.undated || n.timeUnknown ? "" : `, ${fmtDate(n.t)}`}` : "";
 };
 g.onHover = (id) => {
   if (tracing && app.dataset.phase !== "done") return; // a settled lookup may still be adding a second reading
@@ -372,7 +350,7 @@ async function runTrace(c: TraceCase) {
       }
       if (!alive()) break;
       for (const f of found) {
-        g.ring(f, ROLE[c.nodes.find((n) => n.id === f)!.role].color, 300, 1500);
+        g.ring(f, roleOf(c.nodes.find((n) => n.id === f)?.role).color, 300, 1500);
         const el = g.byId.get(f)?.el;
         if (el?.querySelector(".cvbox")) {
           el.classList.add("scanning");
@@ -488,7 +466,7 @@ function showHome() {
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
-      <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
+      <form class="home-form" aria-describedby="home-note"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
       <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
@@ -499,9 +477,46 @@ function showHome() {
   stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
+  // a pasted image sits in the search box until Trace it (or Enter) sends it
+  const q = $<HTMLElement>(".home-q", homeEl);
+  const att = $<HTMLElement>(".home-att", homeEl);
+  const placeholder = input.placeholder;
+  let attached: File | null = null;
+  let attachedUrl = "";
+  const detach = () => {
+    if (attachedUrl) URL.revokeObjectURL(attachedUrl);
+    attached = null;
+    attachedUrl = "";
+    att.hidden = true;
+    q.classList.remove("has-img");
+    input.readOnly = false;
+    input.placeholder = placeholder;
+  };
+  const attach = (f: File) => {
+    if (!IMAGE_TYPES.includes(f.type)) {
+      toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
+      return;
+    }
+    detach();
+    attached = f;
+    attachedUrl = URL.createObjectURL(f);
+    $<HTMLImageElement>("img", att).src = attachedUrl;
+    $<HTMLElement>(".nm", att).textContent = f.name && !/^image\.\w+$/.test(f.name) ? f.name : "Pasted image";
+    att.hidden = false;
+    q.classList.add("has-img");
+    input.value = "";
+    input.readOnly = true; // one thing at a time: the image, or text after removing it
+    input.placeholder = "Press Enter";
+    input.focus();
+  };
+  $<HTMLButtonElement>(".x", att).addEventListener("click", () => { detach(); input.focus(); });
+  input.addEventListener("keydown", (e) => {
+    if (attached && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); detach(); }
+  });
   $("form", homeEl).addEventListener("submit", (e) => {
     e.preventDefault();
-    startTrace(input.value);
+    if (attached) traceImage(attached);
+    else startTrace(input.value);
   });
   // an image comes in three ways: the Image button, a drop anywhere on the home, a paste
   const imageOf = (files?: FileList | null, items?: DataTransferItemList | null) =>
@@ -512,10 +527,17 @@ function showHome() {
     : toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
   const file = $<HTMLInputElement>('input[type="file"]', homeEl);
   file.addEventListener("change", () => { const f = imageOf(file.files); file.value = ""; if (f) traceImage(f); });
-  input.addEventListener("paste", (e) => {
+  // Ctrl+V / ⌘V puts a copied image into the search box: in the box, or anywhere on the home
+  // screen (focus is often elsewhere after a click on the page)
+  const pasteImage = (e: ClipboardEvent) => {
+    if (homeEl !== home) return document.removeEventListener("paste", pasteImage);
     const f = imageOf(e.clipboardData?.files, e.clipboardData?.items);
-    if (f) { e.preventDefault(); traceImage(f); }
-  });
+    if (f) { e.preventDefault(); attach(f); return; }
+    if (e.target === input || attached) return; // text into the box is the browser's own paste
+    const text = e.clipboardData?.getData("text/plain")?.trim();
+    if (text) { e.preventDefault(); input.value = text; input.focus(); }
+  };
+  document.addEventListener("paste", pasteImage);
   homeEl.addEventListener("dragover", (e) => {
     if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
     e.preventDefault();
@@ -714,7 +736,6 @@ document.addEventListener("keydown", (e) => {
     dock.toggle();
   }
   if (e.key === "f" || e.key === "F") g.fit();
-  if (e.key === "t" || e.key === "T") setMode(g.mode === "timeline" ? "web" : "timeline");
   if (e.key === "n" || e.key === "N") {
     e.preventDefault();
     showHome();
