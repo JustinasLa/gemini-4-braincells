@@ -27,8 +27,9 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 
 - The canvas sits on Botticelli's *Birth of Venus*, darkened, with its real ORB detections baked in
   (green boxes, match scores, dashed match lines), drifting slightly as you pan.
-- The nudity in `venus-full.webp` is covered by detection boxes in the same green style,
-  showing swirled fragments of the drapery (`blender/cover_venus.py`, run once on the uncovered painting).
+- The nudity in `venus-full.webp` is smudged to smooth skin (`blender/cover_venus.py`, run once on the
+  uncovered painting); on the home page, pinned detection boxes (`"pin": true` in `venus-full-cv.json`)
+  sit over those spots and show warped drapery like every other box.
 - Real computer vision, not decoration: the keypoints and descriptor-match scores come from OpenCV
   (`blender/venus_cv.py` -> `src/assets/venus-cv.json`). They animate in the splash, the trace window,
   the verdict banner and the verdict reveal. On cards, a green box shows a score only when the link
