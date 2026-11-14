@@ -1,0 +1,73 @@
+# AGENTS.md instructions for /srv/junction-espoo/gemini-4-braincells
+
+<INSTRUCTIONS>
+# TF Minecraft server (Hetzner) access
+
+This box can SSH to the TF game server as `justin`: `ssh -o BatchMode=yes tf-server "<Linux command>"`.
+The key `~/.ssh/tf_hetzner_ed25519` exists only for this box. Never display, copy or commit it. Keep host key checking on.
+
+- sudo allows only `(amp) ALL` and `(tfmc) /usr/local/sbin/ps-compose`. There is no root and no tfmc shell.
+- AMP: `sudo -n -u amp /usr/local/sbin/amp-ctl <status|log|...> <TFMCDev01|TFMCMain01>`.
+- Main instance files: `/home/amp/.ampdata/instances/TFMCMain01/Minecraft/` (read with `sudo -n -u amp`).
+- Default to read-only. Before any change to TFMCMain01, read the server runbooks (`~/runbooks/*.md` on tf-server, STAFF-NOTES.md first). Describe the change, mark it routine, critical or flash, and wait for the user to agree. The user types every console command.
+
+## Thalendor investment panel (guild-sim dashboard)
+
+"Update/refresh the Thalendor investment panel" means: `cd ~/projects/TF-Server/output/guild-sim && .venv/bin/python -X utf8 refresh.py </dev/null` (about 3-5 min, read-only on the server). It downloads fresh saves from Main, rebuilds everything, restarts the dashboard and runs the QA checks; it ends with a `DONE {...}` summary (also in `refresh-last.json`). Report its flags, income now, day-30 projection and next round of buys.
+- The dashboard is the systemd user unit `thalendor-dashboard.service` on 127.0.0.1:8765 (`systemctl --user status thalendor-dashboard`). The user views it on the PC at http://127.0.0.1:8765/ (or the Tailscale URL https://justinas-pc.taild990b0.ts.net:8765/) through an SSH tunnel the PC opens at logon. Don't expose it publicly: it shows member money.
+- Details and history: `README.md` in that folder. The desktop keeps its own separate copy at `D:\TF-Server\output\guild-sim`.
+
+--- project-doc ---
+
+<!-- entire-agent:begin -->
+Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
+@.entire/agent-guide.md
+<!-- entire-agent:end -->
+
+## Workflow with Entire
+
+- One Trail per feature: from your feature branch run `entire trail create --title "<what and why>" --type feature`. Commits pushed to that branch, and the agent sessions behind them, attach to the Trail.
+- Commit agent work with the agent running, so Entire links the commit to its session (`Entire-Checkpoint:` trailer). Don't amend or rebase away those trailers.
+- Before merging, run `entire review general`. It reviews locally with Claude Code (no Entire credit; Codex-only users ask a teammate to run it) and posts the verdict to the Trail. Fix or dismiss each finding, then open the PR with `entire trail ci-pr`, undraft it with `entire trail ready`, and squash-merge it while keeping the checkpoint trailers in the squash commit:
+
+  ```bash
+  gh pr merge <n> --squash --body "$(git log --format='%(trailers:key=Entire-Checkpoint)' origin/main..HEAD | grep . | sort -u)"
+  ```
+
+  A squash without those trailers loses the link between the commit on `main` and its agent sessions.
+- Don't run `entire trail rerun-review` or enable project Agents on entire.com: those run paid cloud agents. Ask the repo owner first.
+- Never paste keys or `.env` contents into a prompt: transcripts are stored in checkpoints.
+
+</INSTRUCTIONS>
+
+---
+
+<environment_context>
+  <cwd>/srv/junction-espoo/gemini-4-braincells</cwd>
+  <shell>bash</shell>
+  <current_date>2026-11-14</current_date>
+  <timezone>Europe/Vilnius</timezone>
+  <filesystem><workspace_roots><root>/srv/junction-espoo/gemini-4-braincells</root></workspace_roots><permission_profile type="disabled"><file_system type="unrestricted" /></permission_profile></filesystem>
+</environment_context>
+
+---
+
+Act as the implementation sub-agent for this task.
+
+Implement sources/reverse_image.py and its tests in the git clone at /home/dev/work/meme-reverse (branch feat/meme-reverse, already checked out). Work ONLY in that directory (not /srv/...). Do not touch any other source file. Read AGENTS.md and .entire/agent-guide.md there first and follow them (Entire brain brief + graph query before coding).
+
+Context: "Shill or Chill" lookup (lookup/service.py) will do reverse image search of an uploaded meme / a post image through the Oxylabs Web API /scrape (sources/oxylabs.py, OxylabsClient.scrape_markdown(url, deadline=...) -> (markdown, metadata); client.last_call holds {endpoint,status,latency_ms,request_id}). The file sources/reverse_image.py already holds the INTERFACE (dataclasses ImageHit, ReverseResult, ReverseImageError, function signatures raising NotImplementedError). Keep that interface exactly (another agent codes against it in parallel); you may add private helpers and optional fields with defaults, nothing breaking.
+
+Real responses (captured 2026-11-14 from prod) are in tests/fixtures/reverse_image/ (see its README.md): tineye_{disaster,imgflip}.json, yandex_{disaster,imgflip}.md, yandex_sites_{disaster,imgflip}.md.
+
+Requirements:
+- tineye_url(img) = https://tineye.com/api/v1/result_json/?url=<quote(img, safe='')>&sort=crawl_date&order=asc. yandex_url(img, sites=False) = https://yandex.com/images/search?rpt=imageview&url=<enc> (+ &cbir_page=sites).
+- parse_tineye: the markdown IS raw JSON (it may be wrapped in a code fence or have whitespace; be tolerant). One ImageHit per matches[] item: image_url = the earliest backlink's `url` (the copy on its own site), thumb_url = match image_url (img.tineye.com), page_url = that backlink's `backlink`, domain via sources.links.domain(page_url or image_url), first_seen = min crawl_date over its backlinks as tz-aware UTC datetime (time_source "crawl_date"), width/height, title=image_name, rank = index. NOTE TinEye's order is not strictly by date (a "promoted" 2022 Wikipedia match comes first): never assume order; min per match. total=num_matches, earliest=first_crawl_date. Raise ReverseImageError if not JSON or no matches key (an empty matches list is a valid empty result).
+- parse_yandex: the imageview markdown has "## In other sizes" (links like [2560×1920](https://...jpg)) and "## [Similar images](...)" sections. Extract hits from both (view other_sizes / similar), with width/height from the "W×H" label where present, thumb from avatars.mds.yandex.net where present, absolute http(s) URLs only (resolve //host and /path relative links to https://yandex.com only for navigation, but navigation links like /images/search?... are NOT hits: skip yandex.* navigation, passport, tabbar, the query's own avatars cbir images). Dedupe by image_url. Raise ReverseImageError when the page has none of the expected sections (e.g. a captcha/"robot" page).
+- parse_yandex_sites: the "## Sites containing information about the image" list: each item gives a thumb (avatars.mds.yandex.net i?id=... thumbnail, '//' -> 'https:'), the image link with W×H, the page title + page_url (strip the utm_medium/utm_source=yandexsmartcamera params), domain. view "sites".
+- search_tineye / search_yandex: call client.scrape_markdown(request_url, deadline=deadline), parse, fill request_url, query_image_url and call=dict(client.last_call). Let OxylabsError propagate.
+- No dates for Yandex (first_seen None, time_source None).
+
+Tests: tests/test_reverse_image.py using the real fixtures (assert concrete values you read from them: counts, earliest TinEye backlink date 2008-04-22 for the zooomr match, first match being the 2022 wikipedia one, Yandex other-sizes count and a known URL like https://i.imgflip.com/233stg.jpg, sites page_url utm-stripped), plus edge cases: fenced JSON, garbage -> ReverseImageError, empty matches, a fake client for search_* (no network). Add a short trimmed captcha-like md inline in the test for the error path.
+
+Verify: `uv run pytest tests/test_reverse_image.py -q`, then full `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .` all green. Commit with the agent running (Entire checkpoint trailer), message like "sources: TinEye + Yandex reverse image parsers on real fixtures", ending with a line "Co-Authored-By: gpt-6-astra <noreply@openai.com>". Push to origin feat/meme-reverse (only that branch). Do not merge, do not open a PR. Reply with the commit sha, test counts and any format surprises you found in the fixtures.
