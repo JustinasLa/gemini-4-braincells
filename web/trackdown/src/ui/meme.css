@@ -90,3 +90,4 @@
 .meme-finding .label { margin-bottom: 6px; }
 .meme-finding-word { font: 400 26px/1.1 var(--wide); letter-spacing: 0.2em; color: var(--vc); }
 .meme-finding p { margin: 8px 0 0; }
+.meme-changes h3 .meme-direction { display: block; margin-top: 4px; color: #a2ffb5; font: 11px/1.5 "JetBrains Mono", monospace; font-weight: normal; }
