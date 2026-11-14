@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     public_host: str = ""
     lookup_public_base_url: str = ""
     lookup_reverse_image: bool = True
+    # the family tree (lookup/family.py) reads Wikipedia and the Wayback Machine directly
+    lookup_family_web: bool = True
 
     # Link lookup (lookup/README.md): every lookup spends live Oxylabs, Nemotron and Gemini calls.
     lookup_max_per_hour: int = 60  # all clients together; 0 = no cap

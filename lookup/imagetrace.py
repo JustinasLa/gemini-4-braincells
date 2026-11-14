@@ -69,6 +69,12 @@ def _media_id(url: str) -> str:
     return f"{host}{re.sub(r'\.[A-Za-z0-9]{2,5}$', '', path)}".lower()
 
 
+def _family_copy(data: bytes) -> bytes:
+    from lookup.family import _shrink
+
+    return _shrink(data)
+
+
 def _bound(item):
     """Latest moment the picture is known to have existed (a day-only crawl ends at midnight)."""
     return item.first_seen + timedelta(days=item.time_source == "crawl_date")
@@ -159,6 +165,10 @@ class Trace:
         self.compared: set[str] = set()  # comparisons published (incl. "different", dropped)
         self.tineye_settled = False  # TinEye answered or failed: its reserve is open to Yandex
         self.overflow: list[tuple] = []  # (hit, rid) Yandex hits held back for the reserve
+        # every downloaded copy, "different" ones included, and the submitted picture: the
+        # family step (lookup/family.py) matches the photograph inside them
+        self.images: dict[str, bytes] = {}
+        self.base: bytes | None = job._upload
 
     def _active(self) -> bool:
         return (
@@ -489,6 +499,8 @@ class Trace:
             if fetched is None:
                 continue
             data, rid = fetched
+            with self.job.lock:
+                self.images[match.id] = _family_copy(data)
             try:
                 relation = relate(base, data)
                 compared = match.model_copy(deep=True)
@@ -706,6 +718,7 @@ class Trace:
                             )
                         else:
                             base, _rid = value
+                            self.base = base
                     elif stage == "compare" and value is not None:
                         match, data = value
                         if (

@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 import httpx
 
-from lookup import imagetrace, textsim
+from lookup import family, imagetrace, textsim
 from lookup.bsky import BlueskyClient, BlueskyTimeUp, parse_time, post_url
 from lookup.models import (
     Account,
@@ -72,6 +72,7 @@ STEPS = [
     ("coverage", "oxylabs", "Coverage searched"),
     ("reverse_image", "oxylabs", "Web searched for the picture"),
     ("variations", "nemotron", "Copies compared"),
+    ("family", "nemotron", "Family tree built"),
     ("media", "nemotron", "Images read"),
     ("screenshot", "nemotron", "Screenshot's post traced"),
     ("verify", "oxylabs", "Source pages read"),
@@ -237,6 +238,9 @@ class Deps:
     search_tineye: Callable | None = None
     search_yandex: Callable | None = None
     image_transport: httpx.BaseTransport | None = None
+    # family tree sources read directly (not through Oxylabs): off in tests
+    wikipedia: bool = False
+    wayback: bool = False
 
 
 class Lookup:
@@ -648,6 +652,7 @@ class Lookup:
         self._queue_verify()  # the X candidates from both searches, best match first
         self._queue_older_pages(n=min(1, self.deps.source_pages_max - 1), older_only=True)
         rest.append(trace.future)
+        rest.append(family.start(self, trace, pool))
         wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # candidates the search for the image's text found
         self._queue_older_pages()

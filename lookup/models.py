@@ -53,6 +53,101 @@ class ImageMatch(BaseModel):
     receipt_id: int | None = None
 
 
+class FamilyText(BaseModel):
+    text: str
+    where: Literal["top", "bottom", "on_picture", "below_frame", "watermark"]
+
+
+FamilyBranch = Literal["caption", "label", "poster", "face_swap", "edit", "screenshot"]
+
+
+class FamilyMember(BaseModel):
+    """One image in the family: a reverse-image match that feature matching (media.align)
+    confirmed contains the same photograph as the submitted picture, or the submission itself
+    (id "submitted"). Its text and frame are a Nemotron read (media.memeread)."""
+
+    id: str  # the ImageMatch id, or "submitted"
+    image_url: str | None = None
+    thumb_url: str | None = None
+    page_url: str | None = None
+    domain: str | None = None
+    engine: str | None = None
+    first_seen: datetime | None = None
+    # crawl_date: when a search engine first saw it (an upper bound); wayback: the Internet
+    # Archive's earliest capture of the page or image (also an upper bound); page / snowflake
+    # as on ImageMatch
+    time_source: Literal["crawl_date", "page", "snowflake", "wayback"] | None = None
+    archived_url: str | None = None
+    # the proof it is the same photograph: geometrically consistent keypoints (media.align)
+    inliers: int | None = None
+    coverage: float | None = None
+    relation: str | None = None  # the ImageMatch relation to the submission ("different" kept)
+    text: list[FamilyText] = Field(default_factory=list)
+    frame: Literal["none", "poster", "panel", "screenshot"] = "none"
+    aimed_at: str = ""
+    # visible edits to the photograph against the source photo (face replaced, element added)
+    edits: list[str] = Field(default_factory=list)
+    kind: Literal["source", "copy", "caption", "label", "poster", "face_swap", "edit", "screenshot"]
+    # the copy is a small thumbnail (under 300 px): its text was read from very few pixels
+    small: bool = False
+    receipt_id: int | None = None
+
+
+class FamilyQuote(BaseModel):
+    source: str  # "Know Your Meme" | "Wikipedia"
+    text: str  # one sentence, verbatim
+    url: str
+    cites: list[str] = Field(default_factory=list)
+
+
+class FamilyNode(BaseModel):
+    """A node of the family tree. Edges run parent -> child; `change` says what the child adds
+    to its parent. The tree is by shared photograph and visible change, never a claim of who
+    copied whom: sibling order follows dates only."""
+
+    id: str
+    parent: str | None = None
+    kind: Literal["milestone", "source", "branch", "variant", "submitted"]
+    branch: FamilyBranch | None = None
+    label: str
+    caption: str | None = None
+    members: list[str] = Field(default_factory=list)  # FamilyMember ids, earliest first
+    date: str | None = None  # ISO, as precise as known ("2007-01-02", "2005-01", "2005")
+    time_source: str | None = None  # a member's time_source, or "source" for a milestone
+    aimed_at: str | None = None
+    change: str | None = None
+    # the submission's caption or edit was on no copy found: it is a new branch tip
+    new: bool = False
+    quotes: list[FamilyQuote] = Field(default_factory=list)  # milestones
+    receipt_id: int | None = None
+
+
+class FamilySource(BaseModel):
+    """A meme encyclopedia entry for the template, kept only when its own picture matched the
+    same photograph (verified) or our image search found the entry's pages."""
+
+    source: str
+    name: str
+    url: str
+    image_url: str | None = None
+    summary: str = ""
+    added: str | None = None
+    inliers: int | None = None
+    receipt_id: int | None = None
+
+
+class Family(BaseModel):
+    template: str | None = None  # the template's common name, from a verified source
+    sources: list[FamilySource] = Field(default_factory=list)
+    members: list[FamilyMember] = Field(default_factory=list)
+    nodes: list[FamilyNode] = Field(default_factory=list)
+    # node ids from the first milestone (or the source photo) down to the submission
+    lineage: list[str] = Field(default_factory=list)
+    # milestones after the source photo's own date: shown on the timeline, not as ancestors
+    events: list[FamilyNode] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class Card(BaseModel):
     title: str | None = None
     domain: str | None = None
@@ -335,3 +430,5 @@ class LookupResult(BaseModel):
     unreadable: str | None = None
     image_matches: list[ImageMatch] = Field(default_factory=list)
     image_origin_id: str | None = None
+    # the picture's family tree (lookup/family.py): None when no family step ran
+    family: Family | None = None
