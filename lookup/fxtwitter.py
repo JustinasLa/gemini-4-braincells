@@ -26,7 +26,7 @@ from lookup.xpage import XItem
 
 BASE_URL = "https://api.fxtwitter.com"
 UA = "Mozilla/5.0 (compatible; shill-or-chill-lookup/1.0)"
-OP_TIMEOUT_S = 2.0  # longest single network wait (connect, first byte, next chunk)
+OP_TIMEOUT_S = 2.0  # longest single network wait, so a worker left behind ends soon too
 MAX_BYTES = 4 * 1024 * 1024  # a conversation page is ~100 KB
 
 
@@ -123,19 +123,23 @@ def to_item(st: Any) -> XItem:
 
 
 class FxTwitterClient:
-    """`last_call` mirrors sources.oxylabs.OxylabsClient's, for the receipts."""
+    """`last_call` mirrors sources.oxylabs.OxylabsClient's, for the receipts.
+
+    Every read has its own connection and runs in a worker thread: at its bound the caller
+    stops waiting and closes that connection, so no part of the exchange (connecting, the
+    headers, a redirect, the body) can hold the lookup past it, however slowly a server
+    trickles bytes. httpx's own timeout is per network operation, not per request."""
 
     def __init__(
         self,
-        http: httpx.Client | None = None,
         *,
         base_url: str = BASE_URL,
         timeout_s: float = 8.0,
+        transport: httpx.BaseTransport | None = None,
     ):
-        self._own = http is None
-        self._http = http or httpx.Client(headers={"User-Agent": UA}, follow_redirects=True)
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
+        self._transport = transport  # tests: httpx.MockTransport
         self._local = threading.local()
 
     @property
@@ -145,43 +149,58 @@ class FxTwitterClient:
         return getattr(self._local, "last_call", {})
 
     def close(self) -> None:
-        if self._own:
-            self._http.close()
+        """Nothing to close: each read opens and closes its own connection."""
 
     def _get(self, path: str, params: dict | None, deadline: float | None) -> dict:
-        """One GET, ended by `deadline` as a whole: the body is read in chunks with the clock
-        checked between them, and no single network wait may be longer than OP_TIMEOUT_S, so
-        a server trickling bytes can't hold the read past its bound (by more than that)."""
+        """One GET that ends by `deadline` (and timeout_s) as a whole."""
         end = time.monotonic() + self.timeout_s
         if deadline is not None:
             end = min(end, deadline)
-        if end - time.monotonic() <= 0.2:
-            raise FxTwitterError("no time left for FxTwitter")
         t0 = time.monotonic()
-        url = f"{self.base_url}{path}"
-        status = None
+        if end - t0 <= 0.2:
+            raise FxTwitterError("no time left for FxTwitter")
+        http = httpx.Client(
+            headers={"User-Agent": UA},
+            follow_redirects=True,
+            transport=self._transport,
+            timeout=min(OP_TIMEOUT_S, end - t0),
+        )
+        out: dict = {}
+
+        def fetch() -> None:
+            try:
+                with http.stream("GET", f"{self.base_url}{path}", params=params) as r:
+                    out["status"] = r.status_code
+                    body = bytearray()
+                    for chunk in r.iter_bytes():
+                        body += chunk
+                        if len(body) > MAX_BYTES:
+                            raise FxTwitterError("FxTwitter answer too large")
+                    out["body"] = bytes(body)
+            except BaseException as exc:  # handed to the caller
+                out["error"] = exc
+
+        worker = threading.Thread(target=fetch, name="fxtwitter-read", daemon=True)
+        worker.start()
+        worker.join(max(0.0, end - time.monotonic()))
+        late = worker.is_alive()
+        http.close()  # late: this ends the worker's blocked read on that connection
+        status = out.get("status")
+        self._local.last_call = {
+            "endpoint": path.rsplit("/", 1)[0],
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+            "fetched_at": _now(),
+            "http_status": status,
+        }
+        if late:
+            raise FxTwitterError("FxTwitter answer not complete in time")
+        err = out.get("error")
+        if isinstance(err, FxTwitterError):
+            raise err
+        if err is not None:
+            raise FxTwitterError(f"FxTwitter request failed: {type(err).__name__}") from err
         try:
-            op = min(OP_TIMEOUT_S, end - t0)
-            with self._http.stream("GET", url, params=params, timeout=op) as r:
-                status = r.status_code
-                body = bytearray()
-                for chunk in r.iter_bytes():
-                    body += chunk
-                    if time.monotonic() > end:
-                        raise FxTwitterError("FxTwitter answer not complete in time")
-                    if len(body) > MAX_BYTES:
-                        raise FxTwitterError("FxTwitter answer too large")
-        except httpx.HTTPError as exc:
-            raise FxTwitterError(f"FxTwitter request failed: {type(exc).__name__}") from exc
-        finally:
-            self._local.last_call = {
-                "endpoint": path.rsplit("/", 1)[0],
-                "latency_ms": int((time.monotonic() - t0) * 1000),
-                "fetched_at": _now(),
-                "http_status": status,
-            }
-        try:
-            data = json.loads(bytes(body))
+            data = json.loads(out["body"])
         except ValueError as exc:
             raise FxTwitterError(f"FxTwitter answered HTTP {status}, not JSON") from exc
         if not isinstance(data, dict):

@@ -27,7 +27,7 @@ SENSITIVE_MD = (FIX / "xpages" / f"post_sensitive_visegrad24_{VG_ID}.md").read_t
 
 
 def _client(handler) -> FxTwitterClient:
-    return FxTwitterClient(httpx.Client(transport=httpx.MockTransport(handler)))
+    return FxTwitterClient(transport=httpx.MockTransport(handler))
 
 
 # ---------------------------------------------------------------- parsing
@@ -359,3 +359,39 @@ def test_candidate_falls_back_to_its_page_when_fxtwitter_answers_without_status(
     cand = Post(id=f"x:{COPY}", platform="x", url=f"https://x.com/cy_example/status/{COPY}")
     job._verify_x(cand, TEXT)
     assert ("scrape", cand.url) in ox.calls
+
+
+def test_slow_header_server_cannot_hold_a_read_past_its_bound():
+    """A real socket that trickles header bytes faster than any per-operation timeout."""
+    import socket
+    import threading
+    import time as _time
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    stop = threading.Event()
+
+    def serve():
+        conn, _ = srv.accept()
+        try:
+            conn.recv(4096)
+            conn.sendall(b"HTTP/1.1 200 OK\r\n")
+            while not stop.is_set():
+                conn.sendall(b"X-Slow: a\r\n")
+                _time.sleep(0.3)
+        except OSError:
+            pass  # the client closed the connection: what we want
+        finally:
+            conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    c = FxTwitterClient(base_url=f"http://127.0.0.1:{srv.getsockname()[1]}")
+    t0 = _time.monotonic()
+    try:
+        with pytest.raises(FxTwitterError, match="not complete in time"):
+            c.status(VG_ID, deadline=_time.monotonic() + 0.5)
+        assert _time.monotonic() - t0 < 0.9
+    finally:
+        stop.set()
+        srv.close()
