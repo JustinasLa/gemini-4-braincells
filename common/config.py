@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     media_rpm: float = 30
     media_max_tokens: int = 4096  # reasoning tokens count against this; too small => null content
     media_reasoning: bool = True
+    # Screenshot read (media/screenshot.py): a narrow extraction, reasoning off is about 3x faster
+    media_screenshot_reasoning: bool = False
+    media_screenshot_max_tokens: int = 1536
 
     oxylabs_web_api_key: str = ""
     context_dev_api_key: str = ""

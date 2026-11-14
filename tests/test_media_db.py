@@ -169,3 +169,26 @@ def test_done_clusters_do_not_use_up_the_batch(conn):
     conn.execute("UPDATE clusters SET updated_at = now() WHERE id = %s", (first["id"],))
     again = store.candidate_clusters(conn, statuses=statuses, min_score=0.5, limit=1, done=done)
     assert again[0]["id"] == first["id"]
+
+
+def test_cached_analysis_prefers_a_read_screenshot_over_a_newer_failed_one(conn):
+    def row(cluster_id, status):
+        detail = {
+            "media_hash": "shot1",
+            "prompt_version": PROMPT_VERSION,
+            "media_type": "screenshot",
+            "screenshot_status": status,
+        }
+        conn.execute(
+            "INSERT INTO evidence (cluster_id, kind, summary, detail)"
+            " VALUES (%s, 'media', 's', %s)",
+            (cluster_id, Jsonb(detail)),
+        )
+
+    a = _cluster(conn, "coordinated", 0.9, [("did:sa", ["shot1"], False)])
+    b = _cluster(conn, "coordinated", 0.9, [("did:sb", ["shot1"], False)])
+    row(a, "post")  # lower id: failed first, then read on a retry (updated in place)
+    row(b, "failed")
+    assert store.cached_analysis(conn, "shot1")["screenshot_status"] == "post"
+    row(b, "not_post")  # a newer final read still wins over the older one
+    assert store.cached_analysis(conn, "shot1")["screenshot_status"] == "not_post"
