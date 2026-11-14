@@ -33,6 +33,7 @@ export class Panel {
       if (t.dataset.go) {
         this.g.select(t.dataset.go);
         this.g.focus(t.dataset.go, Math.max(this.g.k, 0.95));
+        this.el.querySelector<HTMLElement>('[data-tab="folio"]')?.focus(); // the panel re-rendered: keep focus in it
       }
       if (t.dataset.act === "close") {
         this.tab = "verdict";
@@ -147,7 +148,7 @@ export class Panel {
         const n = nodes.get(id)!;
         const prev = i ? nodes.get(path[i - 1]) : null;
         const e = prev ? c.edges.find((x) => x.from === prev.id && x.to === id) : null;
-        return `<button class="hop" data-go="${id}" style="--c:${ROLE[n.role].color}"><span class="rn">${i + 1}</span><span style="min-width:0"><div class="h-t">${esc(n.author.name)}</div><div class="h-s">${esc(ROLE[n.role].label)} · ${fmtDate(n.t, false)}</div></span><span class="h-gap">${prev ? `<b>+${fmtDur(n.t - prev.t)}</b>${e ? REL[e.rel].label : ""}${e?.sim != null ? ` · ${e.sim.toFixed(2)}` : ""}` : "<b>Earliest</b>"}</span></button>`;
+        return `<button class="hop" data-go="${id}" style="--c:${ROLE[n.role].color}"><span class="rn">${i + 1}</span><span style="min-width:0"><div class="h-t">${esc(n.author.name)}</div><div class="h-s">${esc(ROLE[n.role].label)} · ${fmtDate(n.t, false)}</div></span><span class="h-gap">${prev ? `<b>+${fmtDur(n.t - prev.t)}</b>${e ? REL[e.rel].label : ""}${e?.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}` : "<b>Earliest</b>"}</span></button>`;
       })
       .join("")}
       ${c.clusters.length ? `<div class="sect label">Detected clusters <span>${c.clusters.length}</span></div>${c.clusters.map((cl) => `<div class="ev" style="--tc:${STATUS[cl.status].color}"><div class="by">${STATUS[cl.status].short} · ${esc(cl.label)}</div><p>${esc(cl.stat)}</p></div>`).join("")}` : ""}`;
@@ -193,7 +194,7 @@ export class Panel {
     return `<section class="detail">
       <button class="close" data-act="close" aria-label="Close">${sm(icon.close, 13)}</button>
       <div class="label" style="color:${ROLE[n.role].color}">${esc(ROLE[n.role].label)}</div>
-      <div class="d-who">${cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: 42 })}<div class="who"><b>${esc(a.name)}</b><span>${esc(a.handle)}</span></div></div>
+      <div class="d-who">${cropHtml(a.handle, { templated: a.templated, blank: fresh && !a.templated, size: 42 })}<div class="who"><b>${esc(a.name)}</b>${a.handle !== a.name ? `<span>${esc(a.handle)}</span>` : ""}</div></div>
       <p class="d-txt">${esc(n.text)}</p>
       ${n.media?.note ? `<div class="media-note">${esc(n.media.note)}</div>` : ""}
       <div class="kv">

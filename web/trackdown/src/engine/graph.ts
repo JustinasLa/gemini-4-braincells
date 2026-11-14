@@ -557,9 +557,10 @@ export class Graph {
     }
     const { top, bottom, left, right } = this.insets;
     // labels (~70px each side) and cluster tabs (~26px on top) are drawn in screen space around the boxes
-    const aw = this.W - left - right - 40 - Math.min(140, this.W * 0.16);
+    const aw = this.W - left - right - (this.W < 600 ? 12 : 40) - Math.min(160, this.W * 0.16 + 32);
     const ah = this.H - top - bottom - 40 - 40;
-    const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.08, maxK);
+    // markers and labels are screen-size, so a wide timeline may zoom out further than cards could
+    const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.03, maxK);
     // shift centre so the box sits in the inset area
     const offX = (left - right) / 2 / k;
     const offY = (top + 26 - bottom) / 2 / k; // room for cluster tabs above the content
@@ -1070,7 +1071,10 @@ export class Graph {
         const must = rank(l.n) <= 3; // selected, hovered, submitted and earliest always get a label
         const hitsLabel = (b: { x0: number; x1: number; y0: number; y1: number }) => placed.some((p) => over(b, p));
         const hits = (b: { x0: number; x1: number; y0: number; y1: number }) => hitsLabel(b) || markers.some((m) => m.id !== l.n.d.id && over(b, m));
-        const at = (y: number) => ({ y, x0: l.n.x - w / 2 - 3 / k, x1: l.n.x + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
+        const vl = (0 - this.W / 2) / k + this.cx + w / 2 + 6 / k;
+        const vr = (this.W - this.W / 2) / k + this.cx - w / 2 - 6 / k;
+        const lx = vl < vr ? clamp(l.n.x, vl, vr) : l.n.x; // slide back inside the view, never clip
+        const at = (y: number) => ({ y, x0: lx - w / 2 - 3 / k, x1: lx + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
         let box = at(l.n.y - l.r * 1.3 - 6 / k);
         if (hits(box)) {
           const below = at(l.n.y + l.r * 1.3 + h + 2 / k);
@@ -1083,9 +1087,9 @@ export class Graph {
         c.globalAlpha = hl && !hl.has(l.n.d.id) ? 0.35 : clamp(1 - op * 1.7, 0, 1);
         c.strokeStyle = "rgba(5,5,6,0.9)";
         c.lineWidth = 4 / k;
-        c.strokeText(l.text, l.n.x, y);
+        c.strokeText(l.text, lx, y);
         c.fillStyle = "#f2efe9";
-        c.fillText(l.text, l.n.x, y);
+        c.fillText(l.text, lx, y);
       }
       c.globalAlpha = 1;
     }

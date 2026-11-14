@@ -37,7 +37,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
-      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
+      <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="mode" class="mode-btn" aria-label="Switch to Web layout">WEB</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
@@ -66,6 +66,7 @@ const syncDrawers = () => {
   // an open sheet covers the page: nothing behind it may take focus
   $(".topbar").inert = sheet;
   stage.inert = sheet;
+  if (sheet) rail.inert = true;
   document.querySelector('[data-act="rail"]')?.setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
   document.querySelector("#peek")?.setAttribute("aria-expanded", String(app.classList.contains("sheet-open")));
 };
@@ -120,7 +121,8 @@ function setInsets() {
   const dock = $("#dock").getBoundingClientRect();
   const st = stage.getBoundingClientRect();
   g.insets.bottom = app.dataset.phase === "done" && dock.height ? Math.max(64, st.bottom - dock.top + 12) : 64;
-  g.insets.right = phone ? 24 : 72;
+  g.insets.right = phone ? 12 : 72;
+  g.insets.left = phone ? 12 : 24;
 }
 
 // ---------------------------------------------------------------- header
@@ -152,8 +154,18 @@ function railItem(c: TraceCase) {
     <span class="thumb" style="${th.style}" data-score="${th.score}"></span>
     <span class="vd">${STATUS[c.status].short} · ${esc(c.kicker)}</span>
     <span class="ttl">${esc(c.title)}</span>
-    <span class="meta"><span class="nw">${ori ? fmtShort(ori.t) : ""} → ${sub ? fmtShort(sub.t) : ""}</span>${sub && ori ? ` <span class="nw">· ${fmtDur(sub.t - ori.t)}</span>` : ""}</span>
+    <span class="meta">${railSpan(ori?.t, sub?.t)}</span>
   </button>`;
+}
+
+/** one short line: years for long spans, dates for days, one date for a single day */
+function railSpan(a?: number, b?: number) {
+  if (a == null || b == null) return "";
+  const span = b - a;
+  const yr = (t: number) => String(new Date(t).getUTCFullYear());
+  if (span > 365 * 86400000) return `${yr(a)} → ${yr(b)} · ${fmtDur(span)}`;
+  if (span > 86400000) return `${fmtShort(a)} → ${fmtShort(b)}`;
+  return `${fmtShort(a)} · ${fmtDur(span)}`;
 }
 
 const USER_KEY = "soc-trackdown-traces";
@@ -210,6 +222,9 @@ seg.addEventListener("click", (e) => {
   if (b) setMode(b.dataset.mode as Mode);
 });
 function setMode(m: Mode) {
+  const mb = stage.querySelector<HTMLElement>('[data-z="mode"]')!;
+  mb.textContent = m === "timeline" ? "WEB" : "TIME";
+  mb.setAttribute("aria-label", m === "timeline" ? "Switch to Web layout" : "Switch to Timeline layout");
   seg.querySelectorAll<HTMLElement>("[data-mode]").forEach((x) => {
     x.classList.toggle("on", x.dataset.mode === m);
     x.setAttribute("aria-pressed", String(x.dataset.mode === m));
@@ -229,6 +244,7 @@ document.addEventListener("click", (e) => {
     setTimeout(() => g.fit(undefined, 800), 650);
   }
   if (act === "sheet") {
+    app.classList.remove("rail-open");
     app.classList.toggle("sheet-open");
     if (app.classList.contains("sheet-open")) setTimeout(() => $("#panel").querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(), 50);
   }
@@ -239,6 +255,7 @@ stage.querySelector(".zoom")!.addEventListener("click", (e) => {
   if (z === "out") g.zoomBy(1 / 1.35);
   if (z === "fit") g.fit();
   if (z === "tools") app.classList.toggle("tools");
+  if (z === "mode") setMode(g.mode === "timeline" ? "web" : "timeline");
   stage.querySelector('[data-z="tools"]')!.setAttribute("aria-expanded", String(app.classList.contains("tools")));
 });
 
@@ -614,12 +631,12 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (eventEl) closeEvent();
     else if (tracing) skipFlag = true;
-    else if (g.selId) g.select(null);
-    else if (app.classList.contains("sheet-open")) {
+    else if (phoneMq.matches && app.classList.contains("sheet-open")) {
       app.classList.remove("sheet-open");
       syncDrawers();
       $("#peek").focus();
-    } else if (app.classList.contains("rail-open")) {
+    } else if (g.selId) g.select(null);
+    else if (app.classList.contains("rail-open")) {
       app.classList.remove("rail-open");
       $<HTMLElement>('[data-act="rail"]').focus();
     } else app.classList.remove("tools");
