@@ -11,7 +11,31 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 _URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 _BARE_DOMAIN_RE = re.compile(r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:/\S*)?", re.IGNORECASE)
 _MENTION_RE = re.compile(r"@[\w.-]+")
-_NON_WORD_RE = re.compile(r"[^\w#]+", re.UNICODE)
+
+
+def _mark_class() -> str:
+    """Regex class body for combining marks (Unicode category M) in the BMP: Thai and Lao vowels
+    and tone marks, Indic vowel signs, Arabic and Hebrew points... `\\w` doesn't include them, so
+    without this, words in those scripts were cut into pieces."""
+    ranges, start, prev = [], None, None
+    for cp in range(0x10000):
+        is_mark = unicodedata.category(chr(cp)).startswith("M")
+        if is_mark and start is None:
+            start = cp
+        if not is_mark and start is not None:
+            ranges.append((start, prev))
+            start = None
+        prev = cp
+    return "".join(f"\\u{a:04x}-\\u{b:04x}" if a != b else f"\\u{a:04x}" for a, b in ranges)
+
+
+_NON_WORD_RE = re.compile(r"[^\w#" + _mark_class() + r"]+", re.UNICODE)
+# Scripts written without spaces between words: Han, kana, Thai, Lao, Khmer, Myanmar.
+_UNSPACED_RE = re.compile(
+    "[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+    "\u0e00-\u0e7f\u0e80-\u0eff\u1780-\u17ff\u1000-\u109f]"
+)
+CHARS_PER_WORD = 2  # rough word length in unspaced scripts (CJK ~1.5-2, Thai longer)
 _WS_RE = re.compile(r"\s+")
 _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:(?!\d)", re.IGNORECASE)
 
@@ -60,6 +84,35 @@ def normalize_text(text: str | None) -> str:
 
 def tokens(norm_text: str) -> list[str]:
     return norm_text.split() if norm_text else []
+
+
+def _unspaced(token: str) -> int:
+    return len(_UNSPACED_RE.findall(token))
+
+
+def is_unspaced(norm_text: str) -> bool:
+    """Mostly written in a script without spaces between words."""
+    letters = norm_text.replace(" ", "")
+    return bool(letters) and _unspaced(letters) * 2 >= len(letters)
+
+
+def word_count(norm_text: str) -> int:
+    """Words, counting a run of unspaced-script characters as about one word per two characters
+    (a long Japanese sentence is one whitespace token but ~20 words)."""
+    n = 0
+    for tok in tokens(norm_text):
+        u = _unspaced(tok)
+        n += max(1, -(-u // CHARS_PER_WORD)) if u * 2 >= len(tok) else 1
+    return n
+
+
+def shingles(norm_text: str) -> set[str]:
+    """Near-duplicate shingles: word 3-grams, or character 3-grams for unspaced scripts."""
+    if is_unspaced(norm_text):
+        s = norm_text.replace(" ", "")
+        return {s[i : i + 3] for i in range(max(1, len(s) - 2))}
+    toks = tokens(norm_text)
+    return {" ".join(toks[i : i + 3]) for i in range(max(1, len(toks) - 2))}
 
 
 def text_hash(text: str | None) -> str | None:

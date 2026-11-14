@@ -556,3 +556,45 @@ def test_publisher_feed_accounts_are_not_coordinated_once_bios_are_known():
         s.name != "declared_automation" for c in fresh for s in c.signals if s.polarity == "against"
     )
     assert any(c.status == "coordinated" for c in fresh)  # and the same burst is still flagged
+
+
+# ------------------------------------------------------------------ unspaced scripts (#17) ---
+def test_unspaced_scripts_count_as_words_and_keep_their_marks():
+    from signals.textnorm import is_unspaced, normalize_text, word_count
+
+    ja = normalize_text(
+        "今日は東京で大雨が降っていて電車が止まっています。みんな気をつけてください。"
+    )
+    assert is_unspaced(ja) and word_count(ja) >= 10
+    th = normalize_text("แถมอีกวันค่ะกดไลค์+รีโพสต์รับนวดฟรีทุกเรทค่ะ")
+    assert "อีก" in th  # Thai vowels/tone marks are kept, words aren't cut into pieces
+    hi = normalize_text("नमस्ते दुनिया, यह एक परीक्षण वाक्य है")
+    assert hi.split()[0] == "नमस्ते" and word_count(hi) == 7  # spaced script, marks kept
+    en = normalize_text("Huge news: the new policy will destroy our local economy!")
+    assert en == "huge news the new policy will destroy our local economy" and word_count(en) == 10
+
+
+def test_japanese_copy_paste_and_paraphrase_become_content_keys():
+    base = empty_window(seed=21)
+    same = "今日は東京で大雨が降っていて電車が止まっています。みんな気をつけてください。"
+    variants = [
+        same.replace("大雨", "強い雨"),
+        same.replace("みんな", "皆さん"),
+        same.replace("止まっています", "遅れています"),
+    ]
+    for i in range(6):
+        text = same if i < 3 else variants[i - 3]
+        base.posts.append(
+            WPost(
+                uri=f"at://did:plc:ja{i}/app.bsky.feed.post/1",
+                did=f"did:plc:ja{i}",
+                t=base.start + 10 * i,
+                text=text,
+                text_hash=text_hash(text),
+            )
+        )
+    keys = build_keys(base, DEFAULT)
+    text_keys = [k for kv, k in keys.items() if kv[0] == "text" and "did:plc:ja0" in k.accounts]
+    neardup = [k for kv, k in keys.items() if kv[0] == "neardup" and "did:plc:ja0" in k.accounts]
+    assert text_keys and len(text_keys[0].accounts) == 3  # exact copies
+    assert neardup and len(neardup[0].accounts) >= 5  # character shingles catch the paraphrases
