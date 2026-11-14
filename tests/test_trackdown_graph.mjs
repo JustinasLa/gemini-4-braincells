@@ -31,3 +31,38 @@ test("zoom stays inside its limits above the floor", () => {
   g.zoomBy(100);
   assert.equal(g.zoomTarget.k, 2.6);
 });
+
+test("link scores keep their value and caption without a badge border", () => {
+  const graph = camera(1);
+  const text = [];
+  const context = {
+    save() {},
+    restore() {},
+    measureText(value) { return { width: value.length * 6 }; },
+    fillRect() {},
+    strokeRect() { assert.fail("A score label should not have a badge border"); },
+    fillText(value) { text.push(value); },
+  };
+  graph.pill(context, 100, 100, "0.94", "#3fe07a", "Image match");
+  assert.deepEqual(text, ["Image match", "0.94"]);
+  assert.doesNotMatch(context.font, /mono/i);
+});
+
+test("cluster labels retain status and count on a neutral background", () => {
+  const graph = camera(1);
+  graph.pendingTabs = [{ label: "Shill · 31 accounts", col: "#e2533c", x: 0, y: 0, w: 160, h: 20, fs: 11 }];
+  const backgrounds = [];
+  const text = [];
+  const context = {
+    save() {},
+    restore() {},
+    fillRect() { backgrounds.push(this.fillStyle); },
+    fillText(value) { text.push(value); },
+  };
+  graph.drawTabs(context);
+  assert.deepEqual(backgrounds, ["rgba(6,6,8,0.92)"]);
+  assert.deepEqual(text, ["Shill · 31 accounts"]);
+  assert.equal(context.fillStyle, "#e2533c");
+  assert.doesNotMatch(context.font, /mono/i);
+  assert.deepEqual(graph.pendingTabs, []);
+});

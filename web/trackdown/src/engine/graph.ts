@@ -3,7 +3,7 @@ import { sameTextKey } from "../data/shared";
 import type { Cluster, TraceCase, TraceEdge, TraceNode } from "../types";
 import { cardHtml } from "../ui/card";
 import backdropUrl from "../assets/venus-full.webp";
-import { clusterShort, isLineageEdge, isMatchRel, MONO, relOf, ROLE, roleOf, SANS } from "../ui/format";
+import { clusterShort, isLineageEdge, isMatchRel, relOf, ROLE, SANS } from "../ui/format";
 
 
 
@@ -1085,10 +1085,10 @@ export class Graph {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
         // a score tag half under a card reads as a glitch: skip it
-        const text = e.e.label ?? (e.e.sim != null ? e.e.sim.toFixed(2) : "CITES");
-        const cap = !e.e.label && e.e.sim != null ? relOf(e.e.rel).label.toUpperCase() : "";
+        const text = e.e.label ?? (e.e.sim != null ? e.e.sim.toFixed(2) : "Cites");
+        const cap = !e.e.label && e.e.sim != null ? relOf(e.e.rel).label : "";
         const fs = 10.5 / Math.max(k, 0.65);
-        c.font = `600 ${fs}px ${MONO}`;
+        c.font = `600 ${fs}px ${SANS}`;
         const pw = c.measureText(text + cap).width + fs * 2;
         const ph = fs * 1.7;
         const covered = this.nodes.some((n) => n.vis && Math.abs(n.x - mx) < n.w / 2 + pw / 2 && Math.abs(n.y - my) < n.h / 2 + ph / 2);
@@ -1204,7 +1204,7 @@ export class Graph {
         c.moveTo(g.x - w / 2, g.y - h / 2);
         c.lineTo(g.x + w / 2, g.y + h / 2);
         c.stroke();
-        c.font = `600 ${11 / Math.sqrt(k)}px ${MONO}`;
+        c.font = `600 ${11 / Math.sqrt(k)}px ${SANS}`;
         c.fillStyle = C.shill;
         c.textAlign = "left";
         c.fillText(g.label, g.x - w / 2, g.y - h / 2 - 6);
@@ -1214,7 +1214,7 @@ export class Graph {
     this.ghosts = this.ghosts.filter((g) => now - g.start < g.dur);
   }
 
-  /** machine-vision lock-on: corner brackets close in on the card, crosshair sweeps, label */
+  /** machine-vision lock-on: corner brackets close in on the card, crosshair sweeps */
   private drawOver(now: number) {
     const c = this.octx;
     const k = this.k;
@@ -1258,39 +1258,24 @@ export class Graph {
       c.lineTo(sx, this.H);
       c.stroke();
       c.setLineDash([]);
-      // label
-      c.globalAlpha = fade * clamp((t - 0.3) / 0.2, 0, 1);
-      c.font = `600 11px ${MONO}`;
-      const label = roleOf(n.d.role).label.toUpperCase();
-      const tw = c.measureText(label).width + 12;
-      c.fillStyle = r.color;
-      c.fillRect(sx - hw, sy - hh - 20, tw, 16);
-      c.fillStyle = "#050506";
-      c.textAlign = "left";
-      c.textBaseline = "middle";
-      c.fillText(label, sx - hw + 6, sy - hh - 12);
-      c.textBaseline = "alphabetic";
     }
     c.globalAlpha = 1;
     this.rings = this.rings.filter((r) => now - r.start < r.dur);
   }
 
-  /** score tag on a link: dark plate, coloured border, value + small caption */
+  /** Link score and caption on a neutral backing for readability. */
   private pill(c: CanvasRenderingContext2D, x: number, y: number, text: string, col: string, cap = "") {
     const k = this.k;
     const fs = 10.5 / Math.max(k, 0.65);
-    c.font = `600 ${fs}px ${MONO}`;
+    c.font = `600 ${fs}px ${SANS}`;
     const w1 = c.measureText(text).width;
-    c.font = `600 ${fs * 0.72}px ${MONO}`;
+    c.font = `600 ${fs * 0.72}px ${SANS}`;
     const w2 = cap ? c.measureText(cap).width + fs * 0.6 : 0;
     const w = w1 + w2 + fs * 1.1;
     const h = fs * 1.7;
     c.save();
     c.fillStyle = "rgba(6,6,8,0.92)";
     c.fillRect(x - w / 2, y - h / 2, w, h);
-    c.strokeStyle = col;
-    c.lineWidth = 1 / k;
-    c.strokeRect(x - w / 2, y - h / 2, w, h);
     c.textBaseline = "middle";
     c.textAlign = "left";
     let tx = x - w / 2 + fs * 0.55;
@@ -1299,7 +1284,7 @@ export class Graph {
       c.fillText(cap, tx, y + fs * 0.05);
       tx += w2;
     }
-    c.font = `600 ${fs}px ${MONO}`;
+    c.font = `600 ${fs}px ${SANS}`;
     c.fillStyle = col;
     c.fillText(text, tx, y + fs * 0.05);
     c.restore();
@@ -1382,9 +1367,9 @@ export class Graph {
     c.stroke();
     // tab label on the top edge, like a detector's class + score
     const fs = 11 / k; // constant on screen: the verdict label must never become microtype
-    c.font = `600 ${fs}px ${MONO}`;
+    c.font = `600 ${fs}px ${SANS}`;
     // the tab never runs past its box: drop detail from the right until it fits
-    const parts = [clusterShort(cl.status, !!this.case?.lookup).toUpperCase(), ...cl.stat.split(" · ")]; // units stay lower case: "94 s"
+    const parts = [clusterShort(cl.status, !!this.case?.lookup), ...cl.stat.split(" · ")];
     let label = parts.join(" · ");
     while (parts.length > 2 && c.measureText(label).width + fs * 1.2 > x1 - x0) { // always keep verdict + count
       parts.pop();
@@ -1419,10 +1404,10 @@ export class Graph {
     c.save();
     for (const t of this.pendingTabs) {
       c.globalAlpha = 1;
-      c.fillStyle = t.col;
+      c.fillStyle = "rgba(6,6,8,0.92)";
       c.fillRect(t.x - 1 / this.k, t.y, t.w, t.h);
-      c.font = `600 ${t.fs}px ${MONO}`;
-      c.fillStyle = "#050506";
+      c.font = `600 ${t.fs}px ${SANS}`;
+      c.fillStyle = t.col;
       c.textAlign = "left";
       c.textBaseline = "middle";
       c.fillText(t.label, t.x + t.fs * 0.6, t.y + t.h / 2 + t.fs * 0.05);

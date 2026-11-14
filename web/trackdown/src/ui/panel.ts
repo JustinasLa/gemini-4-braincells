@@ -111,7 +111,7 @@ export class Panel {
 
   private pendingHtml() {
     const failed = this.c?.lookup?.state === "failed";
-    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting…"}</div>${failed ? `<p class="lookup-message" role="alert">${esc(this.c.lookup.error || "The lookup failed. No verdict.")}</p>` : ""}<p class="lookup-message" role="status">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts</p>`;
+    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "Mock · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting…"}</div>${failed ? `<p class="lookup-message" role="alert">${esc(this.c.lookup.error || "The lookup failed. No verdict.")}</p>` : ""}<p class="lookup-message" role="status">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts</p>`;
     return `<div class="pending"><div class="label">Tracing…</div></div>`;
   }
 
