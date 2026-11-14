@@ -49,7 +49,9 @@ Rules the code enforces:
   error result telling Gemini to write the verdict; once the tool-call or time budget is used up,
   the next turn has function calling off (past the web limit, DB lookups stay available).
 - **Cache.** One process-wide cache by URL and query (6 h; failures 30 min, never retried in a
-  run). A page the `sources` worker already scraped for the cluster (`detail.key = page:<url>`) is
+  run), capped at 1,024 entries with oldest entries evicted first. Expired entries are released
+  on access or insertion. A page the `sources` worker already scraped for the cluster
+  (`detail.key = page:<url>`) is
   reused from the DB without a new request.
 - **Fetch allowlist.** `scrape_url` only accepts URLs already in the cluster's posts or evidence,
   or returned by an earlier search in the same run. Text in posts and pages is data, not

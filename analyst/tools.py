@@ -14,6 +14,7 @@ already appear in this cluster's posts or evidence, or in an earlier tool result
 """
 
 import logging
+import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -144,23 +145,41 @@ class WebCache:
 
     Holds the raw result (search hits, page facts); each cluster builds its own evidence row
     from it (a page's summary counts that cluster's accounts). Failures are cached for a shorter
-    time so a broken page is not retried on every cluster.
+    time so a broken page is not retried on every cluster. Expired entries are released on
+    access or insertion; a capacity limit also bounds retention between expirations.
     """
 
-    def __init__(self, ttl_s: float = 6 * 3600, failure_ttl_s: float = 1800):
+    def __init__(
+        self, ttl_s: float = 6 * 3600, failure_ttl_s: float = 1800, *, max_entries: int = 1024
+    ):
+        if max_entries < 1:
+            raise ValueError("max_entries must be positive")
         self._ttl = ttl_s
         self._failure_ttl = failure_ttl_s
+        self._max_entries = max_entries
         self._data: dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
 
     def get(self, key: str) -> tuple[bool, Any]:
-        hit = self._data.get(key)
-        if hit and time.monotonic() < hit[0]:
-            return True, hit[1]
-        return False, None
+        with self._lock:
+            hit = self._data.get(key)
+            if hit:
+                if time.monotonic() < hit[0]:
+                    return True, hit[1]
+                del self._data[key]
+            return False, None
 
     def put(self, key: str, value: Any) -> None:
-        ttl = self._ttl if value is not None else self._failure_ttl
-        self._data[key] = (time.monotonic() + ttl, value)
+        with self._lock:
+            now = time.monotonic()
+            expired = [k for k, (expires, _) in self._data.items() if expires <= now]
+            for k in expired:
+                del self._data[k]
+            self._data.pop(key, None)  # replacing a key refreshes its insertion order
+            if len(self._data) >= self._max_entries:
+                del self._data[next(iter(self._data))]  # oldest insertion first
+            ttl = self._ttl if value is not None else self._failure_ttl
+            self._data[key] = (now + ttl, value)
 
 
 # --- declarations the model sees (JSON schema, Gemini function calling) ---
