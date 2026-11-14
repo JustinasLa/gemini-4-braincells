@@ -23,6 +23,7 @@ class PageFacts(BaseModel):
     publisher: str | None = None
     author: str | None = None
     published_at: str | None = None  # as extracted from the page, not normalised
+    unavailable: str | None = None
     headline: str | None = None
     claims: list[str] = Field(default_factory=list)
 

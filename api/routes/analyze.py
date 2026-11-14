@@ -17,9 +17,8 @@ from api.deps import get_checker, get_store
 from api.schemas import AnalyzeRequest, AnalyzeResponse, ClusterSummary, WebFinding
 from api.store import Store
 from lookup.urls import classify
-from signals.textnorm import normalize_url
 from sources.checker import SourceChecker
-from sources.links import checkable_url, claim_phrase
+from sources.links import checkable_url, claim_phrase, url_variants
 from sources.models import ClusterPost
 
 router = APIRouter(prefix="/api/analyze", tags=["analyze"])
@@ -91,7 +90,7 @@ def analyze(
     for h in sorted(handles):
         clusters.update((c.id, c) for c in store.clusters_for_handle(h))
     if url:
-        variants = sorted({u for u in (url, normalize_url(url)) if u})  # stored normalized
+        variants = url_variants(url)
         clusters.update((c.id, c) for c in store.clusters_for_url(variants))
     phrase = claim_phrase([text]) if text else None
     if phrase:  # short text would match unrelated posts, so it is not looked up

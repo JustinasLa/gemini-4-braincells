@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from signals.textnorm import normalize_url
 from sources.models import ClusterPost
 
+X_HOSTS = frozenset({"x.com", "twitter.com", "mobile.x.com", "mobile.twitter.com"})
 # Links that point back into Bluesky itself say nothing about outside sources.
 SKIP_HOSTS = frozenset({"bsky.app", "go.bsky.app"})
 MEDIA_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".m3u8")
@@ -15,6 +16,18 @@ MEDIA_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".m3
 _URL = re.compile(r"https?://\S+")
 _MENTION_OR_TAG = re.compile(r"(?<!\w)[@#][\w.\-]+")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def url_variants(url: str) -> list[str]:
+    """Raw and normalized links, including X's desktop and mobile hosts."""
+    variants = {url} if url else set()
+    norm = normalize_url(url)
+    if norm:
+        variants.add(norm)
+        parts = urlsplit(norm)
+        if parts.hostname in X_HOSTS:
+            variants.update(parts._replace(netloc=host).geturl() for host in X_HOSTS)
+    return sorted(variants)
 
 
 def checkable_url(url: str) -> str | None:

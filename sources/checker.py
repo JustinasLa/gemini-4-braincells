@@ -9,6 +9,8 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
+from lookup.urls import classify
+from lookup.xpage import unavailable_detail
 from sources.links import claim_phrase, domain, top_links
 from sources.models import ClusterPost, PageFacts, SearchHit, SourceEvidence
 from sources.oxylabs import OxylabsError
@@ -63,6 +65,7 @@ class SourceChecker:
             key = f"page:{url}"
             if key in stored:  # scraped in an earlier pass: reuse its headline, don't re-scrape
                 headline = stored[key].get("headline")
+                unavailable = stored[key].get("unavailable")
             else:
                 facts = self._cached(f"scrape:{url}", lambda u=url: self._client.scrape_facts(u))
                 if facts is None:
@@ -72,7 +75,16 @@ class SourceChecker:
                 else:
                     out.append(_page_evidence(key, facts, shared_by, n_accounts))
                 headline = facts.headline
-            if headline:
+                unavailable = facts.unavailable
+            if unavailable == "suspended":
+                target = classify(url)
+                if target and target.kind in ("x_post", "x_profile") and target.handle:
+                    handle_key = f"search:handle:{target.handle.lower()}"
+                    if not any(i.detail["key"] == handle_key for i in out):
+                        ev = self._search_evidence("handle", target.handle, stored, adhoc)
+                        if ev:
+                            out.append(ev)
+            if not unavailable and headline and len(headline.split()) >= 3:
                 ev = self._search_evidence("headline", headline, stored, adhoc)
                 if ev:
                     out.append(ev)
@@ -121,6 +133,13 @@ def _page_evidence(
         summary = f"The linked page: {title} ({by})."
     else:
         summary = f"Linked page shared by {shared_by} of {n_accounts} accounts: {title} ({by})."
+    if f.unavailable:
+        prefix = (
+            "The linked X post"
+            if shared_by is None or n_accounts is None
+            else f"Linked X post shared by {shared_by} of {n_accounts} accounts"
+        )
+        summary = f"{prefix}: {unavailable_detail(f.unavailable)}."
     if f.http_status and f.http_status != 200:
         summary += f" The page returned HTTP {f.http_status}."
     return SourceEvidence(
@@ -138,6 +157,7 @@ def _page_evidence(
             "author": f.author,
             "published_at": f.published_at,
             "headline": f.headline,
+            "unavailable": f.unavailable,
             "claims": f.claims,
         },
         source_url=f.final_url,
@@ -153,6 +173,8 @@ def _search_evidence(
     earliest = min(dated, key=lambda h: (h.published_hint, h.position)) if dated else None
     if purpose == "post_text":
         what = "Your text" if adhoc else "The cluster's message text"
+    elif purpose == "handle":
+        what = f"The suspended account @{phrase}"
     else:
         what = "The linked headline"
     if not hits:

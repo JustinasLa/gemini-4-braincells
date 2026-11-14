@@ -42,6 +42,56 @@ _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^)]*)\)")
 _TITLE = re.compile(r'^# (.+?) on X: "(.*)"\s*$', re.S)
 
 
+def unavailable_reason(md: str) -> str | None:
+    """Read X's explicit notices outside post items."""
+    notices = {
+        "This post is from a suspended account.": "suspended",
+        "Account suspended": "suspended",
+        "This post is from a protected account.": "protected",
+        "These posts are protected": "protected",
+        "You're unable to view this Post because this account owner limits "
+        "who can view their Posts.": "protected",
+        "We're unable to show this content": "unavailable",
+        "The content may be private, deleted or only available on the app.": "unavailable",
+        "Hmm...this page doesn't exist. Try searching for something else.": "unavailable",
+        "This account doesn't exist": "not_found",
+    }
+    in_item = False
+    in_post = False
+    for raw in md.splitlines():
+        if raw.startswith("* [![@"):
+            in_item = True
+            continue
+        if in_item:
+            if raw.startswith("  ") or not raw.strip():
+                continue
+            in_item = False
+        if _AVATAR.match(raw):
+            in_post = True
+        if in_post:
+            if not raw.startswith("#"):
+                continue
+            in_post = False
+        line = raw.strip().removeprefix("* ").lstrip("# ").replace("’", "'")
+        line = line.split(" [Learn more](", 1)[0]
+        if line == "This Post is from a suspended account.":
+            line = "This post is from a suspended account."
+        if line in notices:
+            return notices[line]
+    return None
+
+
+def unavailable_detail(reason: str) -> str:
+    """Plain wording for an unreadable X post."""
+    return {
+        "suspended": "X shows this post is from a suspended account",
+        "protected": "X shows this post is from a protected account "
+        "(only approved followers can see it)",
+        "unavailable": "X says this post isn't available (it may be private, deleted or app-only)",
+        "not_found": "X says this account doesn't exist",
+    }[reason]
+
+
 def parse_count(s: str | None) -> int | None:
     """'22.3K' -> 22300, '2.9M' -> 2900000, '1,284' -> 1284."""
     if not s:

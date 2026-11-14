@@ -2,6 +2,7 @@
 
 import json
 from datetime import date
+from pathlib import Path
 
 import httpx
 import pytest
@@ -76,7 +77,7 @@ def test_search_parses_hits_and_sends_bearer_auth():
 def test_scrape_facts_extracts_and_cleans_fields():
     def handler(req: httpx.Request) -> httpx.Response:
         body = json.loads(req.content)
-        assert body["output"] == ["json"] and "schema" in body["json"]
+        assert body["output"] == ["json", "markdown"] and "schema" in body["json"]
         return httpx.Response(200, json=SCRAPE_RESPONSE)
 
     facts = client_with(handler).scrape_facts("https://bsky.social/x")
@@ -130,3 +131,55 @@ def test_missing_key_fails_fast():
 )
 def test_leading_date(snippet, expected):
     assert leading_date(snippet) == expected
+
+
+@pytest.mark.parametrize(
+    "url,final_url,expected",
+    [
+        ("https://x.com/TEN_GOP/status/1", "https://x.com/TEN_GOP/status/1", "suspended"),
+        (
+            "https://twitter.com/TEN_GOP/status/1",
+            "https://twitter.com/TEN_GOP/status/1",
+            "suspended",
+        ),
+        (
+            "https://mobile.x.com/TEN_GOP/status/1",
+            "https://mobile.x.com/TEN_GOP/status/1",
+            "suspended",
+        ),
+        (
+            "https://mobile.twitter.com/TEN_GOP/status/1",
+            "https://x.com/TEN_GOP/status/1",
+            "suspended",
+        ),
+        ("https://t.co/short", "https://x.com/TEN_GOP/status/1", "suspended"),
+        ("https://x.com/TEN_GOP/status/1", "https://example.com", "suspended"),
+        ("https://example.com/article", "https://example.com/article", None),
+        ("https://x.com.example.com/article", "https://x.com.example.com/article", None),
+    ],
+)
+def test_scrape_facts_detects_tombstone_only_for_x_hosts(url, final_url, expected):
+    md = (
+        Path(__file__).parent / "fixtures/xpages/post_suspended_ten_gop_788098438915297280.md"
+    ).read_text()
+    calls = []
+
+    def handler(req):
+        calls.append(json.loads(req.content))
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "json": {"headline": "Post"},
+                        "markdown": md,
+                        "metadata": {"url": final_url, "statuses": {"http_request": {"code": 200}}},
+                    }
+                ]
+            },
+        )
+
+    facts = client_with(handler).scrape_facts(url)
+    assert facts.unavailable == expected
+    assert len(calls) == 1
+    assert calls[0]["output"] == ["json", "markdown"]
