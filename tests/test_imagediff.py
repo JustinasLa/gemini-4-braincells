@@ -446,6 +446,25 @@ def test_composite_has_divider_and_no_labels():
         assert panel.getextrema() == ((255, 255),) * 3  # white inputs stay white: no text
 
 
+def test_composite_resize_keeps_b_panel_and_box_on_b():
+    # A very narrow B is padded to 128 px, which pushes the composite past 2048 px: the
+    # final resize must scale B's returned panel with it, so the red box lands on B.
+    import media.imagediff as imagediff
+
+    wide = Image.new("RGB", (2040, 100), "white")
+    narrow = Image.new("RGB", (4, 100), (0, 0, 255))
+    composite, (x, y, w, h) = imagediff._composite(wide, narrow)
+    assert composite.width == 2048 and 0 < x and x + w <= composite.width
+    assert (y, h) == (0, composite.height)
+    r, g, b = composite.getpixel((x + w // 2, h // 2))
+    assert b > 200 and r < 80 and g < 80  # B's pixels sit inside the returned panel
+    r, g, b = composite.getpixel((x - 8, h // 2))
+    assert 110 <= r <= 145 and abs(r - g) < 10 and abs(r - b) < 10  # the grey divider
+    assert imagediff._mark(composite, (0, 0, 1, 1), (x, y, w, h))
+    red = [px for px in range(composite.width) if composite.getpixel((px, h // 2)) == (255, 0, 0)]
+    assert red and min(red) >= x and max(red) < x + w
+
+
 def test_prompt_names_panels_by_position(images):
     import media.imagediff as imagediff
 
@@ -770,6 +789,7 @@ def test_forbidden_words_outside_quotes_still_drop(images, sentence):
 
 
 def test_composite_width_capped_with_padded_narrow_panel():
+    # stays under 2048 without the final resize; that branch: test_composite_resize_keeps_b_panel
     tall, wide = image_bytes((20, 1000)), image_bytes((1000, 300))
     _, client = compare((tall, wide), layout="composite")
     assert sent_images(client)[0].width <= 2048

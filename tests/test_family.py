@@ -254,6 +254,20 @@ def test_face_swap_is_its_own_branch(monkeypatch):
     )
 
 
+def test_label_like_image_text_reaches_the_submission(monkeypatch):
+    # imagediff-v2 draws no "A: earlier" / "B: later" panel labels, so such text is real.
+    fake_reads(monkeypatch)
+    sentence = "The text 'B: later' was added at the top."
+
+    def describe(client, a, b, *, timeout_s):
+        return FakeDiff([sentence], ["text_added"])
+
+    monkeypatch.setattr("media.imagediff.describe_changes", describe)
+    job, trace, _ = job_and_trace()
+    family.Builder(job, trace).run()
+    assert next(n for n in job.result.family.nodes if n.id == "submitted").change == sentence
+
+
 def test_no_nemotron_skips(monkeypatch):
     job, trace, _ = job_and_trace()
     job.deps.nemotron = None
