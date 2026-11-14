@@ -32,7 +32,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <button class=btn id=judge-menu aria-expanded=false>Explore</button>
-      <span class=trace-wrap><button class=btn solid data-act=trace aria-label="New search">${icon.search}<span class=lbl>New search</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
+      <span class=trace-wrap><button class=btn solid data-act=trace aria-label="Search">${icon.search}<span class=lbl>Search</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
     </div>
   </header>
   <nav id="judge-links" hidden style="position:fixed;z-index:1000;top:58px;right:12px;background:#171717;padding:16px;gap:16px;flex-direction:column"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=methodology">Methodology &amp; limits</a><a href="?view=judge">Try a post</a></nav>
@@ -596,7 +596,7 @@ function showHome() {
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Drop a meme. Find the original and what changed.</p>
-      <form class="home-form"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Drop a meme or paste a link" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><span class="trace-wrap"><button class="btn solid" type="submit">Trace</button><button type="button" class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span></form>
+      <form class="home-form"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Drop a meme or paste a link" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to search" /></label><span class="trace-wrap"><button class="btn solid" type="submit">Search</button><button type="button" class="qr-btn" data-act="qr" aria-label="Open on phone (QR code)" title="Open on phone">QR</button></span></form>
       <details class="home-ex"><summary class="label">Simulated examples</summary>${[...sims, ...hist].map(caseBtn).join("")}</details>
     </div>
     <span class="credit">Botticelli, c. 1485</span>`;
@@ -609,7 +609,7 @@ function showHome() {
   // Do not summon the on-screen keyboard just because the home screen opened.
   // Desktop keeps the quick keyboard workflow; touch users can choose the field when ready.
   if (!matchMedia("(pointer: coarse)").matches) setTimeout(() => input.focus(), 400);
-  // a pasted image sits in the search box until Trace (or Enter) sends it
+  // a pasted image sits in the search box until Search (or Enter) sends it
   const q = $<HTMLElement>(".home-q", homeEl);
   const att = $<HTMLElement>(".home-att", homeEl);
   const placeholder = input.placeholder;
