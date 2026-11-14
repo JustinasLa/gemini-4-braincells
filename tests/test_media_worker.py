@@ -245,6 +245,23 @@ def test_non_vl_error_is_not_swallowed():
         process_cluster_media([_post(1, "did:a", "x")], client, FakeFetcher())
 
 
+def test_bounded_carrier_retries_can_reach_accounts_beyond_the_initial_prefix(monkeypatch):
+    posts = [_post(i, f"did:{i}", "same") for i in range(50)]
+    fetcher = CarrierFetcher(missing_dids={f"did:{i}" for i in range(49)})
+    calls = []
+
+    def choose(sources, count):
+        calls.append(True)
+        return sources[:count] if len(calls) == 1 else sources[-count:]
+
+    monkeypatch.setattr("media.worker.sample", choose)
+    first = process_cluster_media(posts, FakeClient(), fetcher)
+    second = process_cluster_media(posts, FakeClient(), fetcher)
+    assert len(first.failures) == 1
+    assert second.failures == [] and len(second.findings) == 1
+    assert len(fetcher.calls) == 8
+
+
 def test_failure_backoff_defers_then_retries():
     now = [0.0]
     backoff = FailureBackoff(base_s=10, clock=lambda: now[0])

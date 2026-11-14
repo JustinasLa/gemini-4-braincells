@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
+from random import sample
 from typing import Any, Protocol
 
 from api.store import bsky_post_url
@@ -403,11 +404,12 @@ class _Fetched:
 def _media_input(fetcher: Fetcher, group: MediaGroup) -> _Fetched:
     # The CID identifies the file, but CDN/PDS availability is per account. An older
     # carrier can lose its copy while another account still serves the same file.
-    sources = dict.fromkeys((p.did, p.pds_host, p.embed_kind) for p in group.posts)
+    sources = list(dict.fromkeys((p.did, p.pds_host, p.embed_kind) for p in group.posts))
+    if len(sources) > MAX_BLOB_CARRIERS:
+        sources = sample(sources, MAX_BLOB_CARRIERS)
+        # Sample afresh on retries so carriers outside an old dead prefix can be reached.
     last_error = None
-    for index, (did, pds_host, embed_kind) in enumerate(sources):
-        if index >= MAX_BLOB_CARRIERS:
-            break  # a dead blob shared by a large cluster must not monopolize the worker
+    for did, pds_host, embed_kind in sources:
         try:
             blob = fetcher.fetch(
                 did=did, cid=group.media_hash, pds_host=pds_host, embed_kind=embed_kind
