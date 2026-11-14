@@ -75,8 +75,10 @@ def shot_from_finding(finding) -> ScreenshotPost | None:
 
 def _read_fingerprint(shot: ScreenshotPost) -> str:
     """Changes when the read itself changes (a new prompt read the same file differently)."""
-    key = [shot.platform, shot.handle, shot.shown_time, shot.text]
-    return hashlib.sha1(json.dumps(key, ensure_ascii=False).encode()).hexdigest()[:16]
+    key = shot.to_detail()
+    key.pop("latency_ms")  # request timing doesn't change what the screenshot shows
+    data = json.dumps(key, ensure_ascii=False, sort_keys=True).encode()
+    return hashlib.sha1(data).hexdigest()[:16]
 
 
 # --- receipts the check issued ---------------------------------------------------------------
