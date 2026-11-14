@@ -59,7 +59,8 @@ class FakeChecker:
     def __init__(self, calls=None):
         self.calls = calls if calls is not None else []
 
-    def check(self, posts, stored=None, **kw):
+    def check(self, posts, stored=None, adhoc=False):
+        assert adhoc, "/api/analyze must ask for input-level wording"
         self.calls.append(("check", [p.embed_urls for p in posts]))
         return [
             SourceEvidence(
@@ -115,7 +116,11 @@ def test_analyze_strips_nul_and_control_chars(client):
     text = "five words here and \u0000 then more words after it"
     res = c.post(
         "/api/analyze",
-        json={"text": text, "handle": "bot.bsky\u0000.social", "url": "https://news.example/\u0000a"},
+        json={
+            "text": text,
+            "handle": "bot.bsky\u0000.social",
+            "url": "https://news.example/\u0000a",
+        },
     )
     assert res.status_code == 200
     assert ("handle", "bot.bsky.social") in store.calls

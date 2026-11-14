@@ -184,7 +184,7 @@ class Store:
         )
 
     def clusters_for_post(self, author: str, rkey: str, limit: int = 10) -> list[ClusterSummary]:
-        """Clusters holding the post `rkey` by `author` (a DID, or a handle resolved via accounts)."""
+        """Clusters holding post `rkey` by `author`: a DID, or a handle resolved via accounts."""
         return self._summaries_where(
             """SELECT cp.cluster_id FROM cluster_posts cp
                WHERE cp.post_uri = 'at://' || %(author)s || '/app.bsky.feed.post/' || %(rkey)s

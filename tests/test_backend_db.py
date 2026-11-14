@@ -231,7 +231,9 @@ def test_api_against_db(conn, cluster_id, monkeypatch):
         ).json()
         assert other["status"] == "insufficient" and other["clusters"] == []
         assert [x["id"] for x in other["author_clusters"]] == [cluster_id]
-        nul = c.post("/api/analyze", json={"text": "the water supply\u0000 was poisoned last night"})
+        nul = c.post(
+            "/api/analyze", json={"text": "the water supply\u0000 was poisoned last night"}
+        )
         assert nul.status_code == 200
     finally:
         app.dependency_overrides.clear()

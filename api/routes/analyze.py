@@ -97,9 +97,10 @@ def analyze(
     if (web_url or phrase) and checker is None:
         notes.append("Live web checks are not configured on this server.")
     elif web_url or phrase:
-        # One synthetic post lets the cluster checker run unchanged on ad-hoc input.
+        # One synthetic post lets the cluster checker run on ad-hoc input; adhoc=True makes it
+        # describe the input ("Your text ...") instead of a cluster and its accounts.
         post = ClusterPost(did="adhoc", text=text or None, embed_urls=[web_url] if web_url else [])
-        findings = [WebFinding(**e.model_dump()) for e in checker.check([post])]
+        findings = [WebFinding(**e.model_dump()) for e in checker.check([post], adhoc=True)]
         if not findings:
             notes.append("The live web check returned nothing usable for this input.")
     elif text:
