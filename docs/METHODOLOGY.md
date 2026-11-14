@@ -8,8 +8,8 @@ it is named; that file is authoritative if it changes. Measured accuracy is not 
 is computed by `eval/` and served live by `GET /api/metrics`.
 
 Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
-API are on `main` and running live. The evaluation harness (open PRs #9 and #10) is being
-integrated; the sections about them describe that code as it stands in review.
+API are on `main` and running live, and so is the evaluation harness (its results are at
+`/api/metrics`).
 
 ## What we detect
 
