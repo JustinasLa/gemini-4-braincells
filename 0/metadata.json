@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7CGC4QE8Y3KGK3KEYBYJASC",
+  "session_id": "d7dd4874-c775-42d2-9740-e64e68d108ed",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-14T07:46:56.726819859Z",
+  "branch": "valtteri/api-analyze-smoke",
+  "checkpoints_count": 7,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/TEST-POSTS.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "1f53bf638c1d",
+  "session_token_usage": {
+    "input_tokens": 84,
+    "cache_creation_tokens": 78698,
+    "cache_read_tokens": 2354276,
+    "output_tokens": 23949,
+    "api_call_count": 30
+  },
+  "session_metrics": {
+    "turn_count": 7
+  }
+}
