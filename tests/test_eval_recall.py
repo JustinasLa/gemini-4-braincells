@@ -282,3 +282,43 @@ def test_consecutive_runs_do_not_share_windows(tmp_path, capsys):
     assert main(["recall", "--split", "heldout", *common]) == 0
     out = capsys.readouterr().out
     assert "1 windows of 600s from hours 2027011509" in out and "1/1" in out
+
+
+def test_load_base_rates_both_shapes(tmp_path):
+    from eval.recall import load_base_rates
+
+    rates = {
+        "sample_with_age": 400,
+        "fresh_rate": 0.0125,
+        "sample_with_profile": 399,
+        "empty_rate": 0.0,
+    }
+    flat, wrapped = tmp_path / "flat.json", tmp_path / "wrapped.json"
+    flat.write_text(json.dumps(rates))
+    wrapped.write_text(json.dumps({"detector_version": "v1.5", "base_rates": rates}))
+    for p in (flat, wrapped):
+        r = load_base_rates(str(p))
+        assert (r.n_age, r.fresh, r.n_profile, r.empty) == (400, 0.0125, 399, 0.0)
+    assert load_base_rates("signals/fixtures/attack_results_live_v15_20261113T2000Z.json").n_age
+
+
+def test_base_rates_reach_the_detector_and_details(tmp_path, capsys):
+    from eval.__main__ import main
+
+    _write(tmp_path, list(_ticks(T0, T0 + 600)))
+    rates = tmp_path / "rates.json"
+    rates.write_text(
+        json.dumps(
+            {
+                "sample_with_age": 400,
+                "fresh_rate": 0.0125,
+                "sample_with_profile": 399,
+                "empty_rate": 0.0,
+            }
+        )
+    )
+    out = tmp_path / "out.json"
+    argv = ["recall", "--split", "dev", "--slice", str(tmp_path), "--repeats", "1"]
+    assert main([*argv, "--workers", "1", "--base-rates", str(rates), "--json-out", str(out)]) == 0
+    det = json.loads(out.read_text())["details"]
+    assert det["base_rates"]["fresh_rate"] == 0.0125 and det["base_rates"]["source"] == str(rates)

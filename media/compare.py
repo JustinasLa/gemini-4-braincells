@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import statistics
 import time
@@ -25,6 +26,7 @@ from media.nemotron import (
     SYSTEM_PROMPT,
     NemotronClient,
     is_vl_model,
+    log_call_attempt,
     parse_content,
     safe_description,
 )
@@ -145,14 +147,23 @@ def _one(client: NemotronClient, v: dict[str, Any], item: dict[str, Any]) -> dic
     try:
         r = client._client.chat.completions.create(model=client.model, messages=messages, **kw)
     except Exception as exc:  # noqa: BLE001 - measured, not hidden
-        return {"cid": item["cid"], "error": type(exc).__name__}
+        latency_ms = log_call_attempt(
+            model=client.model,
+            media_hash=item["cid"],
+            started=t,
+            outcome=type(exc).__name__,
+            error_type=type(exc).__name__,
+        )
+        return {"cid": item["cid"], "error": type(exc).__name__, "latency_ms": latency_ms}
+    latency_ms = log_call_attempt(model=client.model, media_hash=item["cid"], started=t, response=r)
     ch = r.choices[0]
     out = {
         "cid": item["cid"],
-        "latency_ms": round((time.monotonic() - t) * 1000),
+        "latency_ms": latency_ms,
         "model": r.model,
         "finish": ch.finish_reason,
         "null_content": not ch.message.content,
+        "prompt_tokens": r.usage.prompt_tokens if r.usage else None,
         "completion_tokens": r.usage.completion_tokens if r.usage else None,
         "reasoning_tokens": getattr(
             getattr(r.usage, "completion_tokens_details", None), "reasoning_tokens", None
@@ -205,6 +216,7 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             bool(PEOPLE_CLAIMS.search(r.get("description", ""))) for r in ok
         ),
         "latency_ms_p50": round(statistics.median(lat)) if lat else None,
+        "prompt_tokens_mean": mean("prompt_tokens"),
         "completion_tokens_mean": mean("completion_tokens"),
         "reasoning_tokens_mean": mean("reasoning_tokens"),
     }
@@ -240,6 +252,7 @@ def run(sample: list[dict[str, Any]], variants: list[str], workers: int = 4) -> 
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     p = argparse.ArgumentParser(prog="python -m media.compare")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("sample")

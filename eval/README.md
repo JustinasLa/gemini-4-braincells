@@ -5,14 +5,20 @@ Every number the dashboard shows about our own accuracy comes from here, through
 
 ```bash
 uv run python -m eval copy-slices                                # keep finished recorded hours
-uv run python -m eval recall --split dev                          # print the table only
-uv run python -m eval recall --split heldout --database-url URL   # ...and write an eval_runs row
+uv run python -m eval recall --split dev --base-rates signals/fixtures/attack_results_live_v15_20261113T2000Z.json           # print the table only
+uv run python -m eval recall --split heldout --base-rates signals/fixtures/attack_results_live_v15_20261113T2000Z.json \
+    --database-url URL                                            # ...and write an eval_runs row
 uv run pytest tests/test_eval_recall.py                           # offline; no DB, no network
 ```
 
 For `recall`, `--database-url` is opt-in: without it nothing is written anywhere. Other flags:
 `--repeats N` (campaigns per level per window, default 5), `--levels L1 L2`, `--workers 4`,
-`--json-out FILE`, `--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). Ad-hoc or partial runs (`--hours`,
+`--json-out FILE`, `--hours YYYYMMDDHH ...` (ad-hoc hours instead of a split). `--base-rates FILE`
+turns on the detector's identity base-rate test (v1.5) the way the live worker runs it: the live
+worker measures base rates from its DB (`signals.baseline.load_rates`), which the offline eval
+can't reach, so it reads them from a JSON file (`BaseRates.as_dict()`, or any file with a
+`base_rates` key, like Kirill's live measurement above). The source is stored in
+`details.base_rates`; without the flag that is `null` and the identity test is off. Ad-hoc or partial runs (`--hours`,
 `--max-windows`, a subset of `--levels`, a `--window-s` other than 600) are refused with
 `--database-url`, so they can't replace a split's published row.
 
@@ -37,6 +43,7 @@ run may add fetched profiles to the profile cache (`--offline` fetches nothing).
 | `live_hand_labels` | **precision** of `coordinated` and **FPR** on live clusters, against two humans' blind labels (below) | `precision`, `fpr`, `n` (definite human labels in that split), `details` (kappa, CIs, per-item labels) |
 | `organic_synth` | **FPR**: share of injected synthetic organic bursts (viral, news link, live event, fandom) the detector marks `coordinated` | `fpr`, `n`, `details` |
 | `organic_live` | **FPR** on real organic bursts in recorded windows, picked by a fixed rule that never reads detector output | `fpr`, `n`, `details` |
+| `bluesky_takedowns` | **External validation**: share of accounts Bluesky itself takes down or suspends within `horizon_h` hours after we flag them, per detector status, vs. random active accounts (`eval/takedowns.py`, below) | `n` (eligible `coordinated` accounts), `details` (all groups, Wilson CIs, cluster-level table) |
 
 `split` is `dev` (we may look at it while changing the detector or the eval) or `heldout`
 (reported only; never tune thresholds, hit rules or synth settings on it). **Split rule** (shared
@@ -190,7 +197,43 @@ count in `details`.
 
 ## Results
 
-RESULTS_PLACEHOLDER
+### Recall on synthetic campaigns (`synthetic_campaigns`)
+
+Measured 2026-11-14 with detector v1.5 and the base rates Kirill measured live on 2026-11-13 20:00
+UTC (400 sampled accounts, 1.25% fresh, 0% empty profiles). Result JSON (every trial) is kept in
+`/srv/junction-espoo/data/eval-slices/results/` on the team server.
+
+**heldout**: 7 windows of 10 min from UTC hours 2026111319, 2026111321 (1 skipped as not fully recorded), 5 campaigns per level per window, detector v1.5, eval commit `dc92289`, run 2026-11-13T23:40:45+00:00.
+
+| level | caught | recall | 95% CI | surfaced | best cluster status |
+|---|---|---|---|---|---|
+| L1 | 35/35 | 1.00 | [0.90, 1.00] | 35/35 | coordinated 35 |
+| L2 | 34/35 | 0.97 | [0.85, 0.99] | 35/35 | coordinated 34, insufficient 1 |
+| L3 | 0/35 | 0.00 | [0.00, 0.10] | 35/35 | insufficient 35 |
+| **all** | **69/105** | **0.66** | [0.56, 0.74] | | |
+
+**dev**: 6 windows of 10 min from UTC hours 2026111320 (0 skipped as not fully recorded), 5 campaigns per level per window, detector v1.5, eval commit `dc92289`, run 2026-11-13T23:37:34+00:00.
+
+| level | caught | recall | 95% CI | surfaced | best cluster status |
+|---|---|---|---|---|---|
+| L1 | 30/30 | 1.00 | [0.89, 1.00] | 30/30 | coordinated 30 |
+| L2 | 26/30 | 0.87 | [0.70, 0.95] | 30/30 | coordinated 26, insufficient 4 |
+| L3 | 0/30 | 0.00 | [0.00, 0.11] | 30/30 | insufficient 30 |
+| **all** | **56/90** | **0.62** | [0.52, 0.72] | | |
+
+What this says:
+
+- **L1** (copy-paste, brand-new accounts, < 1 min burst) and **L2** (light paraphrase, 3-8 week
+  old accounts, ~5 min jitter) are caught almost always; every one of them is at least surfaced.
+- **L3** (heavy paraphrase, aged accounts with followers, slow drip) is **never** caught: content
+  and network fire, but neither timing (p ~ 0.9) nor identity (aged accounts) is significant, so
+  the detector abstains (`insufficient`, "can't tell"). Every L3 campaign is surfaced. This is the
+  known limit in `signals/README.md`, now measured.
+- The same trials on v1.3 (no identity test) gave dev 58/90 and heldout 69/105. v1.5 combines the
+  timing and identity tests with Bonferroni (p = 2 x the smaller one): L2 campaigns with weak
+  identity evidence (accounts 20-60 days old) can now miss the p <= 0.01 cut (timing p 0.006 ->
+  combined 0.012-0.015) while others are caught through identity alone (p 0.02 -> 0.00007). Net:
+  dev -2, heldout 0. The trials are deterministic: re-running a split gives identical trials.
 
 ## Calibration, frozen errors and detector provenance
 
@@ -319,6 +362,38 @@ tune them against these held-out errors. Built with Codex.
 - `deleted` on offline posts/actions only reflects deletes seen up to the window's end (what the
   live worker sees when it loads the window). The detector doesn't read it; `signals/store.py`
   only copies it into snapshots.
+- The base rates are one live snapshot (Fri 20:00 UTC), not measured per window as live. Gemini
+  embeddings (`detect(embed=...)`) are off offline, so the semantic-duplicate signal isn't part of
+  these numbers.
 - Fixed 10-minute windows: the live worker also slides the window every minute and runs a 1 h
   window. A campaign split across two fixed windows isn't tested here (campaigns are placed inside
   one window).
+
+
+## External validation: Bluesky moderation (`takedowns.py`)
+
+```bash
+uv run python -m eval takedowns [--horizon-h 3]          # print
+uv run python -m eval takedowns --horizon-h 3 --write    # ...and write a bluesky_takedowns row
+```
+
+Bluesky's own moderation never sees our scores and we never tune on it, so "how many of the
+accounts we flag does Bluesky later take down?" is an independent check. It is **not precision**:
+moderation misses many bad accounts (a lower bound) and acts for reasons other than coordination.
+
+- Groups: members of stored clusters by status (`coordinated`, `insufficient`, `likely_organic`,
+  first flag time = the first such cluster's `created_at`; synthetic clusters excluded), the live
+  random sample `baseline_accounts`, and `random_active`: per UTC hour since ingest began, 300
+  accounts drawn by hash from everyone who posted, liked or reposted in that hour (retroactive, so
+  it covers the same hours as our flags).
+- Outcome: a Jetstream `account` event with status `takendown` or `suspended`; `deleted` and
+  `throttled` are reported separately; `deactivated` (voluntary) is ignored.
+- Same time at risk for everyone: an account counts only if flagged at least `horizon_h` ago, and
+  only events within `horizon_h` after its flag count. Accounts actioned before their flag are
+  dropped. 95% Wilson intervals. The cluster-level table shows whether the rate comes from many
+  clusters or one ring.
+
+First run (Sat 14 Nov ~02:40 Espoo, horizon 3 h, mixed detector versions v1.3-v1.5):
+`coordinated` 33/229 accounts moderated (14.4%, 95% CI 10.5-19.6%); `insufficient` 1.8%;
+`likely_organic` 0/3,288 (CI 0-0.12%); `random_active` 0/600 (CI 0-0.64%). Clusters with a
+moderated member: `coordinated` 6/27, `insufficient` 6/171, `likely_organic` 0/472.

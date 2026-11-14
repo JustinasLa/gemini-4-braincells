@@ -96,6 +96,31 @@ that anyone was paid or why.
 | `db/` | `schema.sql` plus `migrations/`. |
 | `deploy/` | Docker Compose, Caddy, deploy and outside-check scripts for the Hostinger VPS. |
 
+## Tech stack
+
+| Part | Where it is used |
+|---|---|
+| **Bluesky Jetstream** (public firehose) | Data source. `ingest/consumer.py` reads it over WebSocket; `ingest/writer.py` stores it. |
+| **Bluesky AppView + PLC directory** | Account enrichment (profile, creation date, handle history) in `signals/enrich.py`. |
+| **Oxylabs Web API** | `sources/oxylabs.py` (`/scrape` with AI extraction, `/search`), called by the `sources` worker and by `POST /api/analyze` (`api/routes/analyze.py`). Gemini also calls it as a tool (`analyst/tools.py`). |
+| **Google Gemini** (`google-genai`) | `analyst/agent.py` (function-calling loop over Oxylabs and DB tools) and `analyst/gemini.py`; checked by `analyst/guard.py`. |
+| **NVIDIA Nemotron 3.5 Super VL** | Planned image and video-frame reader in `media/` (stub on `main`). `openai` is a dependency for its OpenAI-compatible API. |
+| **Python 3.12 + uv** | Every backend service. `pyproject.toml` / `uv.lock`; one image in `Dockerfile`. |
+| **PostgreSQL 16 + pgvector** | The only datastore: `db/schema.sql`, `db/migrations/`, applied by `common/migrate.py`. Raw tables are hour-partitioned. pgvector is enabled but no vector columns exist yet. |
+| **psycopg 3** | All DB access: `common/db.py`, `ingest/`, `signals/store.py`, `sources/store.py`, `analyst/store.py`, `api/store.py`. |
+| **datasketch** (MinHash LSH) | Near-duplicate text keys in `signals/keys.py`. |
+| **NumPy + SciPy (sparse)** | Account co-action graph in `signals/graph.py`; permutation null model in `signals/score.py`. |
+| **python-igraph + leidenalg** | Splitting large connected components into clusters (Leiden) in `signals/graph.py`. |
+| **httpx** | Outbound HTTP: `sources/oxylabs.py`, `signals/enrich.py`. |
+| **Pydantic + pydantic-settings** | Settings from env (`common/config.py`); API models (`api/schemas.py`), verdicts (`analyst/verdict.py`), source facts (`sources/models.py`). |
+| **FastAPI + Uvicorn** | The JSON API: `api/main.py`, `api/routes/`. |
+| **Plain HTML + JavaScript** | The dashboard, one file with no build step: `web/public/index.html` (calls `/api/*` with `fetch`). |
+| **Caddy 2** | Serves `web/public` and proxies `/api/*` to the API (`deploy/Caddyfile`). |
+| **Docker Compose** | All services (db, migrate, ingest, signals, sources, analyst, api, caddy): `deploy/docker-compose.yml`. |
+| **Hostinger VPS + Traefik** | Production host. Hostinger's Traefik terminates HTTPS in front of our Caddy (`deploy/docker-compose.hostinger.yml`); shipped with `deploy/deploy.sh`, checked with `deploy/check.sh`. |
+| **pytest + ruff** | Tests in `tests/`; lint and format config in `pyproject.toml`. |
+| **Entire** (Graph, Brain) | Agent session checkpoints and code lookup for the team (see below). |
+
 ## How the metrics are made
 
 The eval code is in review (PRs #9 and #10); this describes what it does. `eval/` replays recorded Jetstream hours offline, through the same normaliser and the same

@@ -31,7 +31,7 @@ from analyst import store
 from analyst.agent import GeminiAgent
 from analyst.gemini import GeminiVerdictModel
 from analyst.guard import enforce
-from analyst.prompt import SYSTEM, build_prompt
+from analyst.prompt import SYSTEM, build_prompt, fit_evidence
 from analyst.tools import Budget, MemorySink, ToolBox, WebCache
 from common.config import get_settings
 from common.db import connect
@@ -75,13 +75,14 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
     out = []
     with connect(timeout_s=10) as conn:
         for cid in cluster_ids:
-            ctx = store.load_context(conn, cid)
+            full_ctx = store.load_context(conn, cid)  # the toolbox's URL allowlist uses all of it
+            ctx = fit_evidence(full_ctx) if full_ctx is not None else full_ctx
             rec = {"model": model, "mode": mode, "cluster_id": cid, "detector": ctx.status}
             started = time.monotonic()
             try:
                 if mode == "agent":
                     box = ToolBox(
-                        ctx,
+                        full_ctx,
                         web=web,
                         sink=MemorySink(),
                         cache=cache,
@@ -97,8 +98,15 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
                         SYSTEM, build_prompt(ctx), box
                     )
                     draft = res.draft
-                    known = ctx.evidence_ids | set(box.new_evidence)
-                    full = replace(ctx, evidence=[*ctx.evidence, *box.new_evidence.values()])
+                    known = ctx.evidence_ids | set(box.returned)
+                    returned = box.returned  # successful tool calls only
+                    full = replace(
+                        ctx,
+                        evidence=[
+                            *ctx.evidence,
+                            *(e for i, e in returned.items() if i not in ctx.evidence_ids),
+                        ],
+                    )
                     rec.update(
                         cost_usd=res.cost_usd,
                         prompt_tokens=sum(c.prompt_tokens or 0 for c in res.model_calls),
@@ -106,8 +114,11 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
                         model_turns=len(res.model_calls),
                         tool_calls=len(box.records),
                         web_calls=box.budget.web_calls,
+                        # new tool evidence the model cited that a successful call returned
                         cited_tool_evidence=sum(
-                            1 for c in draft.evidence if c.evidence_id in box.new_evidence
+                            1
+                            for c in draft.evidence
+                            if c.evidence_id in box.new_evidence and c.evidence_id in box.returned
                         ),
                         tools=[
                             {k: r[k] for k in ("name", "endpoint", "source_url", "cached", "ok")}
