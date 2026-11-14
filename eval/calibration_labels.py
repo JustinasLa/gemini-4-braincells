@@ -1,10 +1,11 @@
 """Adapt the hand-label owner's frozen samples without copying their adjudication logic."""
 
-import importlib
 import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+from eval import labels as hand_labels
 
 
 def load_hand_labels(root: Path, split: str, version: str) -> tuple[list[dict], dict]:
@@ -13,18 +14,15 @@ def load_hand_labels(root: Path, split: str, version: str) -> tuple[list[dict], 
     metadata = {"samples": len(samples), "with_label_records": len(ready), "included": 0}
     if not ready:
         return [], metadata
-    try:
-        labels_module = importlib.import_module("eval.labels")
-    except ModuleNotFoundError as error:
-        if error.name != "eval.labels":
-            raise
-        return [], {**metadata, "blocked": "eval.labels not merged; use --labels snapshots"}
     cases, excluded, seen = [], Counter(), set()
     for path in ready:
         sample = json.loads(path.read_text())
-        labels, adjudications = labels_module.load_records(root / f"{path.stem}.labels.jsonl")
-        finals = labels_module.final_labels(
-            [item["item"] for item in sample["items"]], labels, adjudications
+        labels, adjudications = hand_labels.load_records(root / f"{path.stem}.labels.jsonl")
+        pair = hand_labels.pick_pair(labels)  # same labelling pair as eval.labels.score
+        finals = hand_labels.final_labels(
+            [item["item"] for item in sample["items"]],
+            {name: labels[name] for name in pair} if pair else {},
+            adjudications,
         )
         for item in sample["items"]:
             detector = item["detector"]
