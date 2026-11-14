@@ -595,7 +595,7 @@ input:focus-visible { outline: none; }
 .home-form .home-upload:focus-within { border-color: var(--cv); box-shadow: 0 0 0 1px var(--cv); }
 .home.drop .home-form input[name="q"], .home.drop .home-upload { border-color: var(--cv); box-shadow: 0 0 0 1px var(--cv), 0 0 40px rgba(63, 224, 122, 0.2); }
 .home-ex { margin: 22px auto 0; max-width: 640px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 14px; animation: big-in 1s var(--ease-out) 0.65s both; }
-.home-ex .label { width: 100%; margin-bottom: 4px; color: rgba(255, 255, 255, 0.7); }
+.home-ex .label { width: fit-content; max-width: 100%; margin: 0 auto 4px; padding: 8px 12px; color: rgba(255, 255, 255, 0.82); border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(6, 6, 8, 0.58); text-align: center; line-height: 1.3; }
 .home-ex .label::before { content: none; }
 .home-ex button { font: 400 14px/1.3 var(--sans); color: rgba(255, 255, 255, 0.85); padding: 6px 0; border-bottom: 1px solid transparent; text-shadow: 0 1px 8px #000; transition: color 0.2s, border-color 0.2s; }
 .home-ex button::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 8px 1px 0; background: var(--vc); }
