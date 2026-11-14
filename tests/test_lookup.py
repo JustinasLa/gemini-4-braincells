@@ -1309,3 +1309,39 @@ def test_parse_edited_post_page():
     assert m.status_id == "2121316314375749699" and m.handle == "ada_example"
     assert m.text.startswith("The harbour ferry now leaves at 6:40")
     assert m.views == 16600 and m.replies == 14
+
+
+def test_x_author_rate_skips_pre_snowflake_ids(monkeypatch):
+    # an old pinned post's id (pre-2010, no time in it) must not break the posting rate
+    from lookup import service
+    from lookup.xpage import Profile, XItem
+
+    recent = [XItem("ada_example", "Ada", sid, "hi") for sid in ("20", SUBJ, QUOTE, COPY)]
+    monkeypatch.setattr(
+        service,
+        "parse_profile",
+        lambda md, handle: Profile(handle, joined="2009-06", followers=10, recent=recent),
+    )
+    job = Lookup("lk_rate", LookupInput(url="https://x.com/ada_example"), make_deps())
+    acct = job._x_author("ada_example", False)
+    assert acct is not None and acct.recent_posts_per_day == 48.0  # 2 gaps in 42 min -> 1 h
+
+
+def test_resolve_closes_the_client_it_makes(monkeypatch):
+    import httpx
+
+    made = []
+    real = httpx.Client
+
+    def client(**kw):
+        def redirect(req):
+            return httpx.Response(301, headers={"location": "https://news.example/story"})
+
+        c = real(transport=httpx.MockTransport(redirect), **kw)
+        made.append(c)
+        return c
+
+    monkeypatch.setattr(httpx, "Client", client)
+    job = Lookup("lk_short", LookupInput(text=TEXT), make_deps())
+    assert job._resolve("https://t.co/abc") == "https://news.example/story"
+    assert len(made) == 1 and made[0].is_closed

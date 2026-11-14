@@ -168,7 +168,7 @@ def _now() -> datetime:
 def snippet_time(snippet: str, at: datetime) -> tuple[datetime | None, float | None]:
     """A search engine's date hint and how uncertain it is (seconds after `time`).
 
-    '23 hours ago' -> (at - 23 h, 3600): the engine rounds to the unit. 'Nov 13, 2026 — ...'
+    '23 hours ago' -> (at - 24 h, 7200): the engine rounds to the unit. 'Nov 13, 2026 — ...'
     -> (that midnight UTC, 86400): any time that day."""
     if m := _REL_AGO.match(snippet or ""):
         unit = _REL_UNIT[m.group(2).lower()]
@@ -356,12 +356,11 @@ class Lookup:
         call: dict | None = None,
         ok: bool = True,
         latency_ms: int | None = None,
-        cached: bool | None = None,
     ) -> int:
         """Record one receipt. A cache hit (lookup/cache.py) says so and keeps the time of the
         original read; it is never shown as a fresh request."""
         call = call or {}
-        cached = bool(call.get("cached")) if cached is None else cached
+        cached = bool(call.get("cached"))
         summary = summary[:400]
         fetched = call.get("fetched_at")
         if cached:
@@ -442,10 +441,6 @@ class Lookup:
                                 setattr(old, f, val)
                         if pg.claims:
                             old.claims = pg.claims
-                    elif pg.role == "linked" and pg.receipt_id:
-                        old.publisher = old.publisher or pg.publisher
-                        old.headline = pg.headline or old.headline
-                        old.receipt_id = pg.receipt_id
                     return old
             pg.id = f"page:{len(self.result.pages) + 1}"
             self.result.pages.append(pg)
@@ -493,7 +488,8 @@ class Lookup:
         return end if cap_s is None else min(end, time.monotonic() + cap_s)
 
     def _spend(self, need_s: float = 3.0, reserve_s: float = ASSESS_RESERVE_S) -> None:
-        """Gate before every paid or slow provider call; keeps time back for Gemini's reading."""
+        """Gate before every paid or slow provider call; keeps time back for the primary
+        (Nemotron) reading."""
         if time.monotonic() + need_s + reserve_s > self.deadline:
             raise BudgetExceeded("time budget used up")
 
@@ -712,7 +708,6 @@ class Lookup:
                     )
                 if reason:
                     self._tombstone_note(detail)
-                self._subject_time = snowflake_time(t.post_id)
                 return
             counts = ", ".join(
                 f"{v:,} {k}"
@@ -813,10 +808,11 @@ class Lookup:
             if p.followers is None and p.joined is None:
                 raise StepUnavailable("profile not readable logged out")
             per_day = None
-            ids = sorted(int(it.status_id) for it in p.recent if it.status_id)
-            if len(ids) >= 3:
-                span = (snowflake_time(ids[-1]) - snowflake_time(ids[0])).total_seconds()
-                per_day = round((len(ids) - 1) / max(span / 86400, 1 / 24), 1)
+            # a pre-2010 (non-snowflake) id, e.g. an old pinned post, has no time in it
+            times = sorted(t for it in p.recent if (t := snowflake_time(it.status_id)))
+            if len(times) >= 3:
+                span = (times[-1] - times[0]).total_seconds()
+                per_day = round((len(times) - 1) / max(span / 86400, 1 / 24), 1)
             rid = self.receipt(
                 "oxylabs",
                 "/scrape",
@@ -975,6 +971,7 @@ class Lookup:
                 )
             except (httpx.HTTPError, BudgetExceeded, BlueskyTimeUp):
                 pass
+            # the feed also lists reposts of other people's posts
             feed = [pv for pv in feed if (pv.get("author") or {}).get("did") == pr.get("did")]
             times = sorted(
                 t for t in (parse_time((p.get("record") or {}).get("createdAt")) for p in feed) if t
@@ -1002,14 +999,7 @@ class Lookup:
             )
             self._bsky_handles.add(pr.get("handle") or actor)
             found = []
-            me = (pr.get("did"), pr.get("handle"))
-            own = [
-                pv
-                for pv in feed
-                if (pv.get("author") or {}).get("did") in me
-                or (pv.get("author") or {}).get("handle") in me
-            ]
-            for pv in own[:10]:  # the feed also lists reposts of other people's posts
+            for pv in feed[:10]:
                 rp = self.add_post(self._bsky_post_obj(pv, "author_recent", None, rid))
                 found.append(rp.id)
             st.found = found
@@ -1033,6 +1023,9 @@ class Lookup:
             return loc if res.is_redirect and loc.startswith(("https://", "http://")) else url
         except httpx.HTTPError:
             return url
+        finally:
+            if http is not self.deps.http:  # made for this call: close its connection pool
+                http.close()
 
     def _user_text(self) -> str | None:
         return (self.result.input.text or "").strip() or None
@@ -1102,7 +1095,7 @@ class Lookup:
                     pid = self.add_page(
                         Page(
                             id="",
-                            url=short if short != url else url,
+                            url=short,
                             final_url=final,
                             role="linked",
                             publisher=facts.publisher,
@@ -1137,7 +1130,7 @@ class Lookup:
                 pg = self.add_page(
                     Page(
                         id="",
-                        url=short if short != url else url,
+                        url=short,
                         final_url=facts.final_url or url,
                         role="linked",
                         publisher=facts.publisher,
