@@ -46,6 +46,7 @@ _DATES = [
     re.compile(rf"(?<![\d/.-]){_YEAR}(?![\d/.-])"),
 ]
 _SENTENCE = re.compile(r"(?<=[.!?\]])\s+(?=[A-Z\"“])")
+_MARKS = re.compile(r"\\([!-/:-@\[-`{-~])|[*`]+|(?<!\w)_+|_+(?!\w)")
 _NOTE_MARK = re.compile(r"\u27e6(\d+)\u27e7")  # ⟦n⟧: a footnote kept through sentence splitting
 MAX_MILESTONES = 8
 # Know Your Meme sections, by each entry kind's own headings: memes About / Origin / Spread;
@@ -113,7 +114,9 @@ def _plain(markdown: str) -> tuple[str, list[str]]:
     notes = _FOOTNOTE.findall(markdown) + _NOTE_MARK.findall(markdown)
     text = _NOTE_MARK.sub("", _FOOTNOTE.sub("", markdown))
     text = _LINK.sub(lambda m: "" if m.group(0).startswith("!") else m.group(1), text)
-    text = re.sub(r"[*_`]+", "", text)
+    # emphasis marks go; an escaped character ("frozen\_pope") and an underscore inside a word
+    # ("snake_case") stay as written
+    text = _MARKS.sub(lambda m: m.group(1) or "", text)
     return re.sub(r"\s+", " ", text).strip(), notes
 
 
@@ -188,12 +191,13 @@ def _sections(markdown: str, level: str = "## ") -> dict[str, list[str]]:
 
 
 def _paragraphs(lines: list[str]) -> list[str]:
-    text = "\n".join(lines)
+    # a quoted post is someone else's words, not the entry's: its lines go, and it still ends
+    # the paragraph before it ("They wrote:" then "> On July 5th, 2019, I ...")
+    text = "\n".join("" if line.lstrip().startswith(">") else line for line in lines)
     return [
         p.strip()
         for p in re.split(r"\n\s*\n", text)
-        # pictures, tables, the info box, and quoted posts (someone else's words, not the entry's)
-        if p.strip() and not p.strip().startswith(("[![", "![", "|", ":", ">"))
+        if p.strip() and not p.strip().startswith(("[![", "![", "|", ":"))  # pictures, tables
     ]
 
 

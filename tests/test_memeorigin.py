@@ -178,6 +178,9 @@ KINDS = {
         "Storm Area 51, also known as the Area 51 Raid and Alienstock, is a satirical Facebook",
         {"background", "developments"},
         "2019-06-27",
+        'On June 27th, 2019, three anonymous Facebook users "Shitposting cuz im in shambles," '
+        '"Smyleekun" and "The Hidden Sound" created the event page "Storm Area 51, They Can\'t '
+        'Stop All of Us," scheduled to commence at 3:00 a.m. on September 20th, 2019.',
     ),
     "person": (
         "kym_person_john_pork.md",
@@ -186,6 +189,9 @@ KINDS = {
         "John Pork is a virtual influencer",
         {"history", "online-presence"},
         "2018-09-24",
+        "On September 24th, 2018, Instagram virtual influencer john.pork made their first post, "
+        "a selfie of the influencer standing outside of Doune Castle, Scotland, garnering over "
+        "6,000 likes in five years (shown below, left).",
     ),
     "subculture": (
         "kym_subculture_godzilla.md",
@@ -194,19 +200,21 @@ KINDS = {
         "Godzilla is a fictional Japanese giant monster",
         {"history", "online-presence"},
         "1998",
+        "In 1998, the American remake of Godzilla was released.",
     ),
 }
 
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_parse_kym_other_kinds(kind):
-    fixture, url, name, summary, sections, first = KINDS[kind]
+    fixture, url, name, summary, sections, first, quote = KINDS[kind]
     markdown = (FIXTURES / fixture).read_text()
     entry = parse_kym(markdown, url)
     assert entry.source == "Know Your Meme" and entry.name == name and entry.url == url
     assert entry.image_url.startswith("https://i.kym-cdn.com/entries/icons/original/")
     assert entry.summary.startswith(summary)
     assert entry.milestones and entry.milestones[0].date == first
+    assert entry.milestones[0].text == quote  # word for word, as the page reads
     # each dated sentence cites its section on the page, by the page's own anchor id
     assert {m.url.split("#", 1)[1] for m in entry.milestones} == sections
     page = _plain(markdown)[0]
@@ -227,6 +235,25 @@ def test_kym_quoted_posts_are_not_the_entry_speaking():
     # the entry's own sentence about the tweets is kept; the embedded tweet it quotes is not
     assert any(t.startswith("On the morning of September 20th, 2019") for t in texts)
     assert not any("@mickakers" in t for t in texts)
+    # an escaped underscore is part of the name, as the page shows it
+    assert "Redditor frozen_pope posted a still from the Sonic 2019" in " ".join(texts)
+
+
+def test_kym_quote_right_after_the_entrys_words():
+    md = (
+        "# Example Entry\n\n## About\n\n**Example Entry** is a test entry.\n\n"
+        "## Origin\n\n"
+        "On July 4th, 2019, user Sam posted a plan, writing:\n"
+        "> On July 5th, 2019, I will post my own plan and nobody can stop me.\n"
+        ">\n"
+        "> — Sam (@sam) [July 4, 2019](https://twitter.com/sam/status/1)\n\n"
+        "On July 6th, 2019, the plan spread to Reddit and other sites.\n"
+    )
+    entry = parse_kym(md, "https://knowyourmeme.com/memes/events/example-entry")
+    assert [m.text for m in entry.milestones] == [
+        "On July 4th, 2019, user Sam posted a plan, writing:",
+        "On July 6th, 2019, the plan spread to Reddit and other sites.",
+    ]
 
 
 def test_parse_kym_needs_an_entry_page():
