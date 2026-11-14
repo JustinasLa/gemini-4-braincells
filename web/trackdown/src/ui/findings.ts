@@ -33,10 +33,11 @@ export function factualFindings(result: LookupResult): string {
     if (!url) return [];
     const receipt = page.receipt_id == null ? null : receipts.get(page.receipt_id);
     const read = receipt?.endpoint === "/scrape";
+    const role = page.role === "reference" ? "Text-copy candidate" : page.role === "linked" ? "Linked page" : "Coverage candidate";
     const date = read && page.published_at
       ? ` · Published: ${page.published_at}`
       : page.published_hint ? ` · Search date hint: ${page.published_hint}` : "";
-    return [`<section class="data-group"><a class="src" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(page.headline || new URL(url).hostname)} ↗</a><div class="receipt-meta">${read ? "Source page read · not automatic verification" : "Search lead · page not read"}${esc(date)}</div></section>`];
+    return [`<section class="data-group"><a class="src" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(page.headline || new URL(url).hostname)} ↗</a><div class="receipt-meta">${role} · ${read ? "Source page read · not automatic verification" : "Search lead · page not read"}${esc(date)}</div></section>`];
   }).join("");
   const mediaNote = media && !readings.some((reading) => reading.media_provenance)
     ? '<div class="notice"><b>Media attribution.</b> Source discovery and exact-image verification are separate. Collected articles may document attribution; image descriptions and OCR alone do not authenticate the image or its caption.</div>'

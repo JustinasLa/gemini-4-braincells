@@ -48,9 +48,11 @@ Coverage preserves the broad headline/caption-opening search and adds a separate
 retaining up to 40 words of the claim. Both run concurrently, within the provider deadline;
 a failed search does not discard the other's results.
 The verification phase reads up to three source pages (`Deps.source_pages_max`) within the
-existing provider deadline, after coverage arrives, prioritizing non-social reporting,
-government/academic records and older candidate sources, and diversifying domains.
-Repost sites remain fallback leads. Domain priority is a retrieval heuristic, not a guarantee
+existing provider deadline, prioritizing non-social reporting, government/academic records
+and older candidate sources, and diversifying domains. One slot prioritizes the earliest
+pre-post text-copy candidate to preserve origin discovery; it can start before coverage
+arrives when at least one other slot remains for reporting. Other repost sites remain
+fallback leads. Domain priority is a retrieval heuristic, not a guarantee
 of credibility. Failed or unread pages remain search leads, with limitations shown in notes.
 The prompt distinguishes read pages from search snippets and includes their source URLs.
 

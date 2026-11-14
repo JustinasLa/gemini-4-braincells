@@ -37,7 +37,15 @@ from lookup.models import (
     Spread,
     Step,
 )
-from lookup.urls import X_STATUS_RE, Target, classify, domain, snowflake_time, x_post_url
+from lookup.urls import (
+    BSKY_HOSTS,
+    X_STATUS_RE,
+    Target,
+    classify,
+    domain,
+    snowflake_time,
+    x_post_url,
+)
 from lookup.xpage import (
     PostPage,
     XItem,
@@ -75,19 +83,20 @@ ASSESS_RESERVE_S = 10.0  # the last seconds of the budget are the primary (Nemot
 X_MIN_SIM = 0.35  # an X search hit sharing fewer words with the text is not about it
 OCR_MIN_WORDS = 8  # image text shorter than this is a label, not a message worth searching
 REPOST_HOSTS = (
-    "reddit.com",
-    "youtube.com",
-    "youtu.be",
-    "instagram.com",
-    "tiktok.com",
-    "facebook.com",
-    "threads.com",
-    "threads.net",
-    "ifunny.co",
-    "ifunnyx.co",
-    "x.com",
-    "twitter.com",
-    "bsky.app",
+    X_HOSTS
+    | BSKY_HOSTS
+    | {
+        "reddit.com",
+        "youtube.com",
+        "youtu.be",
+        "instagram.com",
+        "tiktok.com",
+        "facebook.com",
+        "threads.com",
+        "threads.net",
+        "ifunny.co",
+        "ifunnyx.co",
+    }
 )
 UPLOAD = "upload:"  # media_urls entry of an uploaded image: its bytes are in the job, not a CDN
 # an uploaded image's own step labels: there is no post, the image is the input
@@ -597,6 +606,7 @@ class Lookup:
             self._screenshot()  # media was skipped: the step says why
         wait(x_searches, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # the X candidates from both searches, best match first
+        self._queue_older_pages(n=min(1, self.deps.source_pages_max - 1), older_only=True)
         wait(rest + side, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
         self._queue_verify()  # candidates the search for the image's text found
         self._queue_older_pages()
@@ -1354,16 +1364,18 @@ class Lookup:
                 and pg.id != self.result.subject_id
                 and pg.id not in self._v_pages
             ]
-        candidates.sort(
-            key=lambda pg: (
-                any(
-                    domain(pg.url) == host or domain(pg.url).endswith("." + host)
-                    for host in REPOST_HOSTS
-                ),
-                not domain(pg.url).endswith((".gov", ".edu", ".ac.uk", ".gov.uk")),
-                pg.time or datetime.max.replace(tzinfo=UTC),
+        older_ids = {page.id for page in self._older_page_candidates(n=1)}
+
+        def priority(page: Page) -> tuple:
+            host = domain(page.url)
+            return (
+                page.id not in older_ids,
+                any(host == repost or host.endswith("." + repost) for repost in REPOST_HOSTS),
+                not host.endswith((".gov", ".edu", ".ac.uk", ".gov.uk")),
+                page.time or datetime.max.replace(tzinfo=UTC),
             )
-        )
+
+        candidates.sort(key=priority)
         selected = []
         hosts = set()
         for page in candidates:
@@ -1374,12 +1386,15 @@ class Lookup:
         selected.extend(page for page in candidates if page not in selected)
         return selected[: max(0, self.deps.source_pages_max - len(self._v_pages))]
 
-    def _queue_older_pages(self, n: int | None = None) -> None:
+    def _queue_older_pages(self, n: int | None = None, *, older_only: bool = False) -> None:
         """Queue bounded source reads, prioritizing original records and older copies."""
         if not (self._subject_text or self._phrase()):
             return
         with self.lock:
             pages = self._source_page_candidates()
+            if older_only:
+                older_ids = {page.id for page in self._older_page_candidates(n=1)}
+                pages = [page for page in pages if page.id in older_ids]
             if n is not None:
                 pages = pages[: max(0, n - len(self._v_pages))]
             self._v_pages += [pg.id for pg in pages]
@@ -1674,6 +1689,7 @@ class Lookup:
             futures = [search_pool.submit(self._search, query, 10) for query in queries]
             found = []
             succeeded = 0
+            errors = []
             try:
                 done, _ = wait(
                     futures, timeout=max(0.0, self._provider_deadline() - time.monotonic())
@@ -1684,6 +1700,7 @@ class Lookup:
                             raise BudgetExceeded("coverage search time budget used up")
                         hits, call = future.result()
                     except Exception as exc:
+                        errors.append(exc)
                         log.info("coverage query failed: %s", exc)
                         self.note("A coverage search was unavailable; other source leads are kept.")
                         continue
@@ -1692,7 +1709,13 @@ class Lookup:
                     rid = self.receipt(
                         "oxylabs",
                         "/search",
-                        f"Coverage search: {len(hits)} results",
+                        (
+                            "Search for pages about the uploaded image"
+                            if image
+                            else "Coverage search"
+                        )
+                        + (" (by its text or description)" if about else "")
+                        + f": {len(hits)} results",
                         query=query,
                         call=call,
                     )
@@ -1711,7 +1734,10 @@ class Lookup:
             finally:
                 search_pool.shutdown(wait=False, cancel_futures=True)
             if not succeeded:
-                raise StepUnavailable("coverage searches unavailable")
+                raise next(
+                    (error for error in errors if not isinstance(error, BudgetExceeded)),
+                    errors[0],
+                )
             st.found = found
             st.detail = (
                 f"{len(found)} pages "

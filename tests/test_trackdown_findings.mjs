@@ -34,6 +34,19 @@ function result() {
   };
 }
 
+test("source leads distinguish text copies and linked pages from coverage", () => {
+  const lookup = result();
+  lookup.pages = [
+    { url: "https://reddit.com/r/copy", role: "reference" },
+    { url: "https://example.com/linked", role: "linked" },
+    { url: "https://example.org/report", role: "coverage" },
+  ];
+  const html = factualFindings(lookup);
+  assert.match(html, /Text-copy candidate · Search lead/);
+  assert.match(html, /Linked page · Search lead/);
+  assert.match(html, /Coverage candidate · Search lead/);
+});
+
 test("supported facts remain visible when coordination is insufficient", () => {
   const lookup = result();
   const html = factualFindings(lookup);

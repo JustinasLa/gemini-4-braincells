@@ -6,7 +6,7 @@ import pytest
 
 from lookup.assess import SYSTEM, _Draft, brief, guard
 from lookup.models import ClaimCheck, LookupInput, Page, Post
-from lookup.service import Lookup
+from lookup.service import BudgetExceeded, Lookup
 from sources.models import PageFacts, SearchHit
 from tests.test_lookup import make_deps
 
@@ -386,6 +386,83 @@ def test_source_priority_keeps_historical_reporting_ahead_of_reposts():
         ARTICLE_URL,
         "https://another.example/report",
         "https://recent.example/repost",
+    ]
+
+
+@pytest.mark.parametrize("budget", [False, True])
+def test_coverage_preserves_failure_reason_and_budget_state(budget, caplog):
+    job = lookup()
+    job._subject_text = PHOTO_CAPTION
+
+    def search(query, limit):
+        if budget:
+            raise BudgetExceeded("coverage budget exhausted")
+        raise RuntimeError("source provider unavailable")
+
+    job._search = search
+    job._coverage()
+    step = job._step("coverage")
+    assert step.state == ("skipped" if budget else "failed")
+    assert ("time budget used up" if budget else "unexpected error (logged)") in step.detail
+    if not budget:
+        assert "source provider unavailable" in caplog.text
+
+
+def test_older_copy_gets_one_priority_slot_without_crowding_out_reporting():
+    job = lookup()
+    job._subject_time = datetime(2026, 1, 1, tzinfo=UTC)
+    for url, year, role in (
+        ("https://reddit.com/r/oldest/", 2020, "reference"),
+        ("https://youtube.com/watch?v=later", 2021, "reference"),
+        (ARTICLE_URL, 2022, "coverage"),
+        ("https://another.example/story", 2022, "coverage"),
+    ):
+        job.add_page(
+            Page(
+                id="",
+                url=url,
+                role=role,
+                time=datetime(year, 1, 1, tzinfo=UTC),
+                time_source="search_hint",
+            )
+        )
+    assert [page.url for page in job._source_page_candidates()] == [
+        "https://reddit.com/r/oldest/",
+        ARTICLE_URL,
+        "https://another.example/story",
+    ]
+
+
+def test_older_copy_read_starts_before_coverage_with_reporting_slot_reserved():
+    job = Lookup("lk_early_copy", LookupInput(text=PHOTO_CAPTION), make_deps())
+    job.deps.source_pages_max = 2
+    job._subject_time = datetime(2026, 1, 1, tzinfo=UTC)
+    reading = threading.Event()
+
+    def copies():
+        job.add_page(
+            Page(
+                id="",
+                url="https://reddit.com/r/oldest/",
+                role="reference",
+                time=datetime(2020, 1, 1, tzinfo=UTC),
+                time_source="search_hint",
+            )
+        )
+
+    def coverage():
+        assert reading.wait(timeout=2)
+        assert len(job._v_pages) == 1
+        job.add_page(Page(id="", url=ARTICLE_URL))
+
+    job._copies_web = copies
+    job._coverage = coverage
+    job._safe_verify_page = lambda page: reading.set()
+    job.run()
+    assert reading.is_set()
+    assert [page.url for page in job.result.pages if page.id in job._v_pages] == [
+        "https://reddit.com/r/oldest/",
+        ARTICLE_URL,
     ]
 
 
