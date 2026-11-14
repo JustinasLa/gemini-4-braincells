@@ -114,8 +114,21 @@ reads it (its text goes on the card and into the monitor check and the reading),
   3-word run, however few of its words it otherwise shares; the others are dropped. Each kept
   post or page lists its runs in `caption_match`, which Trackdown highlights in its text. The
   earliest copy read on its own page is `origin_id`.
+- a site address written in the image (`textsim.domains`: `standwithjensen.com`, not big
+  platforms' own like x.com, not file names) is searched for too, at most two: the web by the
+  address, X and Bluesky by its name part when that is 8+ letters (`"standwithjensen"` also
+  finds `#standwithjensen`), else by the address. A screenshot of a web page is found by its
+  address far more often than by its first words, which are mostly the page's menus. A hit
+  that names the site (the address, or its 8+ letter name part as a hashtag or under another
+  ending: `#standwithjensen`, `standwithjensen.online`, never as a plain word or a file
+  name like `analytics.js`) joins the trace
+  like a 3-word run and is highlighted the same way.
+- a copy of the image (a candidate for its origin), post or page, must repeat a real part of
+  its text: runs covering 6+ words, or half of a shorter text; for a page, in what its own
+  read returned, never the search snippet it was found by. A short post that only names the site or a few
+  of its words is about the image, not a copy of it.
 - Nemotron's description is never searched for, and nor is the looser coverage query (skipped).
-  With fewer than 3 words of text, only the picture is searched for.
+  With fewer than 3 words of text and no site address, only the picture is searched for.
 - an upload Nemotron types a screenshot of a post still goes through the screenshot step, which
   looks for the real post it shows.
 - the upload is never its own origin: with no dated match, `origin_id` is null.

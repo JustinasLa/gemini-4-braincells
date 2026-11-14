@@ -325,3 +325,241 @@ def test_upload_quote_whose_quoted_post_carries_the_caption_keeps_both():
 
     job, post = verify("nobody panics at the airport today")  # no 3 words in a row of either
     assert post is None and [p.id for p in job.result.posts] == [job.result.subject_id]
+
+
+# ---------------------------------------------------------------- a site address in the image
+
+SITE_TEXT = [
+    "petition.example-site.org",
+    "Stand with Example",
+    "Sign the letter",
+    "SEARCH PUBLIC SIGNERS BY NAME",
+    "Dario",
+    "1–2 of 2 matching public signers · Page 1 of 1",
+]
+PROMO = "2121377395244749097"
+OFFTOPIC = "2121377395244749098"
+
+
+class SiteOxylabs(FakeOxylabs):
+    """The page's menus never match as a phrase; its address finds the campaign and its posts."""
+
+    def scrape_markdown(self, url, deadline=None):
+        if url.endswith(PROMO):
+            return _md("promoexample", PROMO, "Sign it: petition.example-site.org #examplesite"), {}
+        if url.endswith(OFFTOPIC):
+            return _md("offexample", OFFTOPIC, "cats are great"), {}
+        raise RuntimeError("not found")
+
+    def search(self, query, max_results=10, deadline=None):
+        self.queries.append(query)
+        if "example-site" not in query:
+            return []
+        if query.startswith("site:x.com"):
+            return [
+                SearchHit(
+                    url=f"https://x.com/promoexample/status/{PROMO}",
+                    title='promo on X: "Sign it: petition.example-site.org"',
+                    snippets=["Sign it: petition.example-site.org"],
+                    position=1,
+                ),
+                SearchHit(
+                    url=f"https://x.com/offexample/status/{OFFTOPIC}",
+                    title='off on X: "cats are great"',
+                    snippets=["cats are great"],
+                    position=2,
+                ),
+            ]
+        return [
+            SearchHit(
+                url="https://petition.example-site.org/",
+                title="An open letter",
+                snippets=["petition.example-site.org · An independent campaign"],
+                position=1,
+            ),
+            SearchHit(
+                url="https://forum.example/thread",
+                title="Is the example-site petition real?",
+                snippets=["People keep adding fake names; example-site.net is a lookalike"],
+                position=2,
+            ),
+            SearchHit(
+                url="https://other.example/letters",
+                title="Open letters to company boards",
+                snippets=["Sign the open letter to the board before Friday"],
+                position=3,
+            ),
+        ]
+
+
+class SiteBsky:
+    last_call: dict = {}
+
+    def __init__(self):
+        self.queries = []
+
+    def search(self, q, limit=25, deadline=None):
+        self.queries.append(q)
+        if "example-site" not in q:
+            return []
+
+        def pv(rkey, text, at):
+            return {
+                "uri": f"at://did:plc:aaaaaaaaaaaaaaaaaaaaaaaa/app.bsky.feed.post/{rkey}",
+                "author": {"handle": f"{rkey}.bsky.social"},
+                "record": {"text": text, "createdAt": at},
+            }
+
+        return [
+            # every word of it is in the image's text, but it only names the site
+            pv("short", "#examplesite petition.example-site.org", "2026-11-13T20:00:00Z"),
+            # it repeats the page itself: a copy of the screenshot's text
+            pv(
+                "copy",
+                "petition.example-site.org Stand with Example Sign the letter: SEARCH PUBLIC "
+                "SIGNERS BY NAME",
+                "2026-11-13T21:00:00Z",
+            ),
+        ]
+
+
+def test_site_address_in_image_is_searched_and_matches():
+    from lookup.textsim import domains
+
+    assert domains("\n".join(SITE_TEXT)) == ["petition.example-site.org"]
+    ox, bsky = SiteOxylabs(), SiteBsky()
+    deps = Deps(oxylabs=ox, bsky=bsky, nemotron=FakeReader(text=SITE_TEXT, media_type="screenshot"))
+    job = Lookup("lk_site", LookupInput(image=_ref()), deps, image=JPEG)
+    job.run()
+    r = job.result
+    # the phrase search ran, and the address searches: the web by the address, X by its
+    # distinctive name part (8+ letters), which also finds #examplesite-style mentions
+    assert '"petition.example-site.org"' in ox.queries
+    assert 'site:x.com "example-site"' in ox.queries
+    assert any(q.startswith('"petition.example-site.org Stand with') for q in ox.queries)
+    pages = {pg.url: pg for pg in r.pages}
+    assert "https://petition.example-site.org/" in pages
+    assert pages["https://petition.example-site.org/"].caption_match == [
+        "petition.example-site.org"
+    ]
+    # the site's distinctive name under another ending (a lookalike) counts too
+    assert pages["https://forum.example/thread"].caption_match == ["example-site"]
+    assert "https://other.example/letters" not in pages  # names neither the site nor 3 words
+    promo = next(p for p in r.posts if p.id == f"x:{PROMO}")
+    assert promo.verified and promo.caption_match == ["petition.example-site.org"]
+    assert not any(p.id == f"x:{OFFTOPIC}" for p in r.posts)
+    # a post that only names the site is about the screenshot, not a copy of it: never its
+    # origin; the Bluesky post that repeats the page's text is
+    assert '"example-site"' in bsky.queries
+    short = next(p for p in r.posts if p.id.endswith("/short"))
+    assert short.caption_match == ["petition.example-site.org"]
+    assert r.origin_id.endswith("/copy") and promo.role != "origin"
+    assert any("name the site written in it (petition.example-site.org)" in n for n in r.notes)
+    assert "or name the site" in job._step("copies_web").detail
+
+
+def test_platform_addresses_and_file_names_are_not_searched():
+    from lookup.textsim import domain_hits, domains
+
+    assert domains("x.com/user posted photo.jpg on bsky.app, e.g. at t.co/abc") == []
+    assert domains("www.StandWithJensen.com and news.bbc.co.uk and nvidia.com") == [
+        "standwithjensen.com",
+        "nvidia.com",
+    ]
+    hits = domain_hits(
+        "Visit StandWithJensen.com, #standwithjensen, standwithjensen.online; not "
+        "standwithjensenfan.com, and not a plain standwithjensen",
+        ["standwithjensen.com"],
+    )
+    assert hits == ["StandWithJensen.com", "#standwithjensen", "standwithjensen"]
+    # a dictionary word as the site's name is never matched as a plain word
+    assert domain_hits("The information is incorrect", ["information.com"]) == []
+    # a file name is not another ending of the site
+    assert domain_hits("remove analytics.js and analytics.pdf", ["analytics.com"]) == []
+    for name in (
+        "analytics.min.js",
+        "analytics.bundle.js",
+        "end of analytics. Then",
+        "analytics.track_event()",
+        "analytics.online_backup",
+        "analytics.onlineé",
+    ):
+        assert domain_hits(name, ["analytics.com"]) == [], name
+    assert domain_hits("analytics.co.uk too", ["analytics.com"]) == ["analytics"]
+    assert domain_hits("analytics.online is a lookalike", ["analytics.com"]) == ["analytics"]
+
+
+def _graph_job():
+    from datetime import UTC, datetime
+
+    from lookup.models import Page, Post
+
+    job = Lookup("lk_graph", LookupInput(image=_ref()), Deps(oxylabs=FakeOxylabs()), image=JPEG)
+    job._add_upload_post()
+    job._caption = "\n".join(SITE_TEXT)
+    job._domains = ["petition.example-site.org"]
+    copy_text = "petition.example-site.org Stand with Example Sign the letter SEARCH PUBLIC SIGNERS"
+    job.add_post(
+        Post(
+            id="at://did:plc:aaaaaaaaaaaaaaaaaaaaaaaa/app.bsky.feed.post/copy",
+            platform="bluesky",
+            text=copy_text,
+            created_at=datetime(2026, 11, 13, 21, tzinfo=UTC),
+            role="bluesky",
+            similarity=0.9,
+            verified=True,
+        )
+    )
+
+    def page(url, headline, snippet, read=None):
+        """`read`: what the page's own read returned (None: never read)."""
+        pg = job.add_page(
+            Page(
+                id="",
+                url=url,
+                role="reference",
+                headline=headline,
+                snippet=snippet,
+                time=datetime(2026, 11, 12, tzinfo=UTC),
+                time_source="page",
+                time_uncertainty_s=0,
+            )
+        )
+        if read is not None:
+            job._page_read[pg.id] = read
+        return pg
+
+    return job, page
+
+
+def test_page_that_only_names_the_site_is_not_the_uploads_origin():
+    job, page = _graph_job()
+    page(
+        "https://petition.example-site.org/",
+        "petition.example-site.org",
+        "An open letter",
+        read="petition.example-site.org\nAn open letter to the board",
+    )
+    job._finish_graph()
+    assert job.result.origin_id.endswith("/copy")  # the post that repeats the page's text
+
+
+def test_page_that_repeats_the_images_text_can_be_its_origin():
+    job, page = _graph_job()
+    pg = page(
+        "https://archive.example/snap",
+        "Stand with Example: Sign the letter",
+        "SEARCH PUBLIC SIGNERS BY NAME · 1–2 of 2 matching public signers",
+        read="Stand with Example: Sign the letter\nSEARCH PUBLIC SIGNERS BY NAME",
+    )
+    job._finish_graph()
+    assert job.result.origin_id == pg.id
+
+
+def test_a_search_snippet_alone_never_makes_a_page_the_uploads_origin():
+    job, page = _graph_job()
+    snippet = "Stand with Example: Sign the letter SEARCH PUBLIC SIGNERS BY NAME"
+    page("https://stale.example/a", snippet, snippet, read="petition.example-site.org\nAbout us")
+    page("https://unread.example/b", snippet, snippet)  # dated, but its read never came back
+    job._finish_graph()
+    assert job.result.origin_id.endswith("/copy")
