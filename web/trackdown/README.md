@@ -27,6 +27,8 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 
 - The canvas sits on Botticelli's *Birth of Venus*, darkened, with its real ORB detections baked in
   (green boxes, match scores, dashed match lines), drifting slightly as you pan.
+- The nudity in `venus-full.webp` is covered by detection boxes in the same green style,
+  showing swirled fragments of the drapery (`blender/cover_venus.py`, run once on the uncovered painting).
 - Real computer vision, not decoration: the keypoints and descriptor-match scores come from OpenCV
   (`blender/venus_cv.py` -> `src/assets/venus-cv.json`). They animate in the splash, the trace window,
   the verdict banner and the verdict reveal. On cards, a green box shows a score only when the link
@@ -105,8 +107,8 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   path is also unavailable does the app run a clearly labelled simulated trace. Bad input (400),
   rate limits (429), job failure and timeout show an error instead of silently inventing a trace.
 - **Hosting**: `npm run ship` refreshes `web/public/trackdown/`. Caddy serves it as the site's home
-  page at `/` (and still at `/trackdown/` for old links); the live monitor dashboard is at `/monitor/`.
-  Old dashboard hash links (`/#/cluster/7`, `/#/accuracy`, `/#/method`) are forwarded to `/monitor/`.
+  page at `/` (and still at `/trackdown/` for old links). `/?cluster=<id>` opens a live cluster; the
+  removed dashboard's links (`/monitor/...`, `/#/cluster/7`) land there or on the home page.
 - Wording: "Shill" labels a cluster's spread. Cards in a cluster are called "In coordinated
   cluster"; no account is ever called a shill.
 

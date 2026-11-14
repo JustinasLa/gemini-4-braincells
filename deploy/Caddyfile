@@ -27,14 +27,8 @@
 		root * /srv/web
 		file_server
 	}
-	# The live monitor (dashboard) lives under /monitor/; Trackdown (Shill or Chill) is the home page.
-	redir /monitor /monitor/ 308
-	handle /monitor/* {
-		encode gzip
-		root * /srv/web
-		try_files {path} /monitor/index.html
-		file_server
-	}
+	# The old live monitor page is gone; its links land on the home page (which opens /#/cluster/N links).
+	redir /monitor* / 308
 	# Old Trackdown links (/trackdown/?lookup=...) keep working.
 	redir /trackdown /trackdown/ 308
 	handle /trackdown/* {

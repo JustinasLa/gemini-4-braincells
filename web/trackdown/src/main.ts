@@ -2,35 +2,32 @@ import "./styles.css";
 import rhinoUrl from "./assets/rhino-1515.webp";
 import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
-import { analyze, listLive, liveCase, type ClusterSummary } from "./data/api";
+import { analyze, liveCase } from "./data/api";
 import { simulatedCases } from "./data/cases";
 import { IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
 import { Graph, type Mode } from "./engine/graph";
 import type { TraceCase } from "./types";
 import { flipInto, preloadCoin, wait } from "./ui/coin";
-import { thumbStyle } from "./ui/crop";
 import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
-import { esc, fmtDate, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
+import { esc, fmtDate, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
 import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
-const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" height="${n}"`);
 
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <a class="wordmark" href="/monitor/" title="Back to the live monitor" aria-label="Shill or Chill: back to the live monitor">SHILL OR CHILL</a>
-    <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
+    <a class="wordmark" href="/" aria-label="Shill or Chill: home">SHILL OR CHILL</a>
+    <div class="case-head"><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
       <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
       <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
     </div>
   </header>
-  <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
   <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
     <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
@@ -54,9 +51,7 @@ const app = $(".app");
 const phoneMq = matchMedia("(max-width: 860px)"); // the CSS breakpoint
 const syncDrawers = () => {
   const phone = phoneMq.matches;
-  const rail = $(".rail");
   const pnl = $("#panel");
-  rail.inert = !app.classList.contains("rail-open");
   const sheet = phone && app.classList.contains("sheet-open");
   pnl.inert = phone ? !sheet : !(app.classList.contains("panel-open") || app.classList.contains("lookup-active"));
   if (sheet) {
@@ -67,8 +62,6 @@ const syncDrawers = () => {
   // an open sheet covers the page: nothing behind it may take focus
   $(".topbar").inert = sheet;
   stage.inert = sheet;
-  if (sheet) rail.inert = true;
-  document.querySelector('[data-act="rail"]')?.setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
   document.querySelector("#peek")?.setAttribute("aria-expanded", String(app.classList.contains("sheet-open")));
 };
 new MutationObserver(syncDrawers).observe(app, { attributes: true, attributeFilter: ["class"] });
@@ -91,7 +84,6 @@ let tracing = 0;
 let traceSequence = 0;
 let lookupController: AbortController | null = null;
 let skipFlag = false;
-let liveRows: ClusterSummary[] = [];
 preloadCoin();
 initTooltips();
 
@@ -110,7 +102,6 @@ type Phase = "home" | "trace" | "done";
 function setPhase(p: Phase) {
   app.dataset.phase = p;
   app.classList.toggle("panel-open", p === "done");
-  if (p !== "done") app.classList.remove("rail-open");
   setInsets();
   if (p === "done") setTimeout(() => {
     setInsets(); // the dock has finished moving in by now
@@ -149,79 +140,6 @@ function renderResources(c: TraceCase) {
   document.title = `${c.title} · Trackdown · Shill or Chill`;
 }
 
-// ---------------------------------------------------------------- outliner
-function railItem(c: TraceCase) {
-  const sub = c.nodes.find((n) => n.id === c.submittedId);
-  const ori = c.nodes.find((n) => n.id === c.originId);
-  const th = c.historical ? { style: `background-image:url(${rhinoUrl});background-position:72% 40%;background-size:260%`, score: "1515" } : thumbStyle(c.id, 64);
-  return `<button class="cat-item${current?.id === c.id ? " on" : ""}" data-case="${c.id}" style="--vc:${STATUS[c.status].css}">
-    <span class="thumb" style="${th.style}" data-score="${th.score}"></span>
-    <span class="vd">${STATUS[c.status].short} · ${esc(SHORT_KICKER[c.kicker] ?? c.kicker)}</span>
-    <span class="ttl">${esc(c.title)}</span>
-    <span class="meta">${railSpan(ori?.t, sub?.t)}</span>
-  </button>`;
-}
-
-/** one short line: years for long spans, dates for days, one date for a single day */
-function railSpan(a?: number, b?: number) {
-  if (a == null || b == null) return "";
-  const span = b - a;
-  const yr = (t: number) => String(new Date(t).getUTCFullYear());
-  if (span > 365 * 86400000) return `${yr(a)} → ${yr(b)} · ${fmtDur(span)}`;
-  if (span > 86400000) return `${fmtShort(a)} → ${fmtShort(b)}`;
-  return `${fmtShort(a)} · ${fmtDur(span)}`;
-}
-
-// rail captions are one line in a 300px rail: short forms of the case kickers
-const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Old photo", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live", "Live image lookup": "Image" };
-
-const USER_KEY = "soc-trackdown-traces";
-const userCases: TraceCase[] = (() => {
-  try {
-    return (JSON.parse(localStorage.getItem(USER_KEY) ?? "[]") as TraceCase[]).slice(0, 8);
-  } catch {
-    return [];
-  }
-})();
-function saveUserCases() {
-  try {
-    localStorage.setItem(USER_KEY, JSON.stringify(userCases.slice(0, 8)));
-  } catch {
-    /* private mode */
-  }
-}
-function renderRail() {
-  const sims = simulatedCases();
-  const live = liveRows
-    .map(
-      (r) => `<button class="cat-item live${current?.id === `live-${r.id}` ? " on" : ""}" data-live="${r.id}" style="--vc:${STATUS[r.status].css}">
-      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">#${r.id}</span>
-      <span class="meta">${r.size ?? "?"} accounts</span></button>`,
-    )
-    .join("");
-  $("#rail").innerHTML = `
-    ${userCases.length ? `<div class="label"><span>your traces</span><span>${userCases.length}</span></div>${userCases.map(railItem).join("")}` : ""}
-    <div class="label"><span>case files</span><span>${sims.length}</span></div>
-    ${sims.map(railItem).join("")}
-    ${live ? `<div class="label"><span>live from the monitor</span><span>${liveRows.length}</span></div>${live}` : ""}
-    <p class="rail-note"><b>Case files are simulated</b> (fictional accounts, <span class="mono" style="font-size:11px">.example</span> sites) except Dürer's Rhinoceros, which is real history. ${live ? "Live clusters come straight from the detector." : "Live clusters appear here when the monitor API is reachable."}</p>`;
-}
-$("#rail").addEventListener("click", async (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>("[data-case],[data-live]");
-  if (!b) return;
-  app.classList.remove("rail-open");
-  if (b.dataset.live) {
-    try {
-      openCase(await liveCase(Number(b.dataset.live)), "spread");
-    } catch {
-      toast("Couldn't load that cluster from the API");
-    }
-    return;
-  }
-  const c = [...userCases, ...simulatedCases()].find((x) => x.id === b.dataset.case);
-  if (c) openCase(c, "spread");
-});
-
 // ---------------------------------------------------------------- view mode + actions
 const seg = $("#mode");
 seg.addEventListener("click", (e) => {
@@ -256,13 +174,7 @@ document.addEventListener("click", (e) => {
   if (!a || a.closest("#panel") || a.closest(".event")) return;
   const act = a.dataset.act;
   if (act === "trace") showHome();
-  if (act === "rail") {
-    app.classList.toggle("rail-open");
-    if (app.classList.contains("rail-open")) setTimeout(() => $("#rail").querySelector<HTMLElement>("button")?.focus(), 50);
-    setTimeout(() => g.fit(undefined, 800), 650);
-  }
   if (act === "sheet") {
-    app.classList.remove("rail-open");
     app.classList.toggle("sheet-open");
     if (app.classList.contains("sheet-open")) setTimeout(() => $("#panel").querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(), 50);
   }
@@ -318,7 +230,6 @@ function openCase(c: TraceCase, how: "spread" | "static") {
   hideHome();
   setPhase("done");
   current = c;
-  renderRail();
   g.load(c, { revealAll: how === "static" });
   renderResources(c);
   panel.set(c, false);
@@ -402,7 +313,6 @@ async function runTrace(c: TraceCase) {
   hideHome();
   setPhase("trace");
   current = c;
-  renderRail();
   g.load(c, { revealAll: false });
   renderResources(c);
   dock.pause();
@@ -575,7 +485,6 @@ function showHome() {
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
-    <a class="home-back" href="/monitor/">← Live monitor</a>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
@@ -587,7 +496,7 @@ function showHome() {
   const img = new Image();
   img.src = venusFullUrl;
   const home = homeEl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-back, .home-wm, .home-tag, .home-form, .home-ex, .credit")] });
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
   $("form", homeEl).addEventListener("submit", (e) => {
@@ -663,20 +572,11 @@ async function startTrace(raw: LookupRequest, mock = false) {
   const shownSteps = new Set<string>();
   let settled = false;
   const latest: { result: LookupResult | null } = { result: null };
-  const remember = (trace: TraceCase) => {
-    if (mock) return;
-    const existing = userCases.findIndex((item) => item.id === trace.id);
-    if (existing >= 0) userCases.splice(existing, 1);
-    userCases.unshift(trace);
-    saveUserCases();
-  };
   // The primary reading is in: show the finished trace now. A second reading that is still
   // running is added later by update() without re-running this reveal or refitting the graph.
   const settle = (trace: TraceCase) => {
     if (settled) return;
     settled = true;
-    remember(trace);
-    renderRail();
     setStatus(null, "");
     setPhase("done");
     void showEvent(trace, run);
@@ -709,8 +609,7 @@ async function startTrace(raw: LookupRequest, mock = false) {
     const stepKey = (step: (typeof trace.steps)[0], i: number) => step.id ?? `#${i}`;
     const rows = trace.steps.map((step, i) => `<div class="line${step.state === "running" ? " active" : ""}${shownSteps.has(stepKey(step, i)) ? " seen" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"${step.detail && step.state !== "failed" ? ` title="${esc(step.detail)}"` : ""}><b>${esc(step.text)}</b>${step.detail && step.state === "failed" ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${step.state === "done" ? (step.found?.length ? String(step.found.length) : "") : esc(step.state ?? "pending")}</span></div>`).join(""); // one short line per step, readable as it streams in; details are a hover away, failures show theirs
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
-    const dot = result.state === "failed" ? "r" : result.state === "running" ? "g live" : "g";
-    consoleEl.innerHTML = `<div class="term-head"><span class="d ${dot}" title="Lookup ${esc(result.state)}"></span>${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
+    consoleEl.innerHTML = `<div class="term-head">${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
     trace.steps.forEach((step, i) => shownSteps.add(stepKey(step, i)));
     if (ready && result.state === "running") settle(trace);
@@ -732,8 +631,6 @@ async function startTrace(raw: LookupRequest, mock = false) {
       return;
     }
     if (settled) {
-      remember(trace); // replace the saved copy with the one that has every reading
-      renderRail();
       return;
     }
     settle(trace);
@@ -752,8 +649,6 @@ async function startTrace(raw: LookupRequest, mock = false) {
         trace = simulateFromInput(text);
         toast("// live APIs not reachable: running a simulated trackdown");
       }
-      userCases.unshift(trace);
-      saveUserCases();
       runTrace(trace);
     } else {
       if (latest.result) update({ ...latest.result, state: "failed", error: message, steps: latest.result.steps.map((step) => step.state === "running" ? { ...step, state: "failed", detail: message } : step.state === "pending" ? { ...step, state: "skipped" } : step) });
@@ -812,10 +707,7 @@ document.addEventListener("keydown", (e) => {
       syncDrawers();
       $("#peek").focus();
     } else if (g.selId) g.select(null);
-    else if (app.classList.contains("rail-open")) {
-      app.classList.remove("rail-open");
-      $<HTMLElement>('[data-act="rail"]').focus();
-    } else app.classList.remove("tools");
+    else app.classList.remove("tools");
   }
   if (e.key === " ") {
     e.preventDefault();
@@ -831,8 +723,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") g.zoomBy(1.3);
   if (e.key === "-") g.zoomBy(1 / 1.3);
   if (/^[1-9]$/.test(e.key)) {
-    const all = [...userCases, ...simulatedCases()];
-    const c = all[Number(e.key) - 1];
+    const c = simulatedCases()[Number(e.key) - 1];
     if (c) openCase(c, "spread");
   }
   if ((e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown") && current) {
@@ -853,19 +744,15 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------- boot
-renderRail();
 syncDrawers();
 const params = new URLSearchParams(location.search);
 const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simulatedCases()[0];
 if (params.has("mockLookup") && import.meta.env.DEV) void startTrace("https://social.example/newsroom/status/100", true);
 else if (params.get("lookup")) void startTrace(params.get("lookup")!);
+else if (/^\d+$/.test(params.get("cluster") ?? "")) liveCase(Number(params.get("cluster"))).then((c) => openCase(c, "spread"), () => { toast("Couldn't load that cluster from the API"); openCase(first, "static"); });
 else if (params.has("static")) openCase(first, "static");
 else if (params.has("case")) runTrace(first);
 else {
   setPhase("home");
   showHome();
 }
-listLive().then((rows) => {
-  liveRows = rows;
-  if (rows.length) renderRail();
-});

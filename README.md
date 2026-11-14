@@ -8,17 +8,15 @@ like-farms. It explains every flagged group with evidence you can click through,
 something is most likely just people reacting to the news, refuses to guess when the evidence is
 thin, and publishes its own measured error rates.
 
-Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS): the home page is Trackdown
-(paste a post, trace it), and the live monitor dashboard is at
-[`/monitor/`](https://noise-radar.srv2159172.hstgr.cloud/monitor/). API health:
+Live: **https://noise-radar.srv2159172.hstgr.cloud** (Hostinger VPS): the site is Trackdown
+(paste a post, trace it; live clusters open from its Cases list or `/?cluster=<id>`). API health:
 [`/api/health`](https://noise-radar.srv2159172.hstgr.cloud/api/health), measured accuracy:
 [`/api/metrics`](https://noise-radar.srv2159172.hstgr.cloud/api/metrics).
 
 Full method, metrics, limits and ethics: **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
 
 Status: ingest, the detector, Oxylabs source checks, Nemotron media reading, Gemini verdicts and the
-API are on `main` and live, and so are the eval harness and the dashboard (its Accuracy page,
-`/monitor/#/accuracy`, shows `/api/metrics`).
+API are on `main` and live, and so is the eval harness (its results are at `/api/metrics`).
 
 ## The thesis
 
@@ -93,7 +91,7 @@ that anyone was paid or why.
 | `analyst/` | Gemini: per-cluster verdict JSON with cited evidence, counter-evidence and what would change it; guarded by code. |
 | `eval/` | Recall on injected synthetic campaigns, false-positive rate on organic bursts, on held-out hours → `eval_runs`. |
 | `api/` | FastAPI: clusters, cluster detail, metrics, health, ad-hoc `POST /api/analyze`. |
-| `web/` | Dashboard served by Caddy (Trackdown home page at `/`, live monitor dashboard at `/monitor/`). |
+| `web/` | Trackdown, the web UI, served by Caddy at `/`. |
 | `common/` | Shared settings (`common.config`) and DB connections (`common.db`), migrations runner. |
 | `db/` | `schema.sql` plus `migrations/`. |
 | `deploy/` | Docker Compose, Caddy, deploy and outside-check scripts for the Hostinger VPS. |
@@ -116,7 +114,6 @@ that anyone was paid or why.
 | **httpx** | Outbound HTTP: `sources/oxylabs.py`, `signals/enrich.py`. |
 | **Pydantic + pydantic-settings** | Settings from env (`common/config.py`); API models (`api/schemas.py`), verdicts (`analyst/verdict.py`), source facts (`sources/models.py`). |
 | **FastAPI + Uvicorn** | The JSON API: `api/main.py`, `api/routes/`. |
-| **Plain HTML + JavaScript** | The dashboard, one file with no build step: `web/public/monitor/index.html` (calls `/api/*` with `fetch`). |
 | **Caddy 2** | Serves `web/public` and proxies `/api/*` to the API (`deploy/Caddyfile`). |
 | **Docker Compose** | All services (db, migrate, ingest, signals, sources, analyst, api, caddy): `deploy/docker-compose.yml`. |
 | **Hostinger VPS + Traefik** | Production host. Hostinger's Traefik terminates HTTPS in front of our Caddy (`deploy/docker-compose.hostinger.yml`); shipped with `deploy/deploy.sh`, checked with `deploy/check.sh`. |

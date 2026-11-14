@@ -14,7 +14,7 @@ if [[ -n ${health:-} ]]; then
   python3 -c 'import json,sys; h=json.loads(sys.argv[1]); lag=h.get("ingest_lag_s"); sys.exit(0 if h.get("ok") and lag is not None and lag < float(sys.argv[2]) else 1)' \
     "$health" "$max_lag" || fail+=("health not ok: $health")
 fi
-for path in /api/clusters?limit=1 /api/metrics / /monitor/; do
+for path in /api/clusters?limit=1 /api/metrics /; do
   get "$path" >/dev/null || fail+=("$path failed")
 done
 trackdown=$(curl -sS --max-time 20 -w $'\n%{http_code}' "$url/trackdown/")
