@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import struct
+import time
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -1055,7 +1056,8 @@ def test_gif_walk_never_under_reports_pillow():
     [
         ("The bottom caption 'FOR FIVE SECONDS' is unchanged.", False),
         ("The background remains the same.", False),
-        ("The dog did not change.", False),
+        ("The background did not change.", False),
+        ("The dog did not change.", True),  # "dog" is not a listed plain head noun: kept
         ("There is no visible change to the face.", False),
         ("The caption changed from 'NO CHANGE' to 'BIG CHANGE'.", True),  # quoted image text
         ("The colours were shifted to a warmer tone.", True),
@@ -1136,3 +1138,53 @@ def test_plain_no_change_sentences_match(sentence):
     from media.imagediff import _says_no_change
 
     assert _says_no_change(sentence)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The copy looks the same.",
+        "The duplicate is unchanged.",
+        "The other copy is the same.",
+        "The replacement looks the same.",
+        "The addition is unchanged.",
+        "The crop is the same.",
+        "The sticker is unchanged.",  # not a listed plain head noun: kept (cosmetic at worst)
+    ],
+)
+def test_edit_noun_heads_are_kept(sentence):
+    from media.imagediff import _says_no_change
+
+    assert not _says_no_change(sentence)
+
+
+def test_curly_apostrophe_contraction_matches():
+    from media.imagediff import _says_no_change
+
+    assert _says_no_change("The background hasn\u2019t changed.")
+
+
+def test_real_rate_limiter_never_sleeps_past_deadline(images):
+    """A slot taken by another thread can't push the wait past the budget: refuse instead."""
+    from media.nemotron import RateLimiter
+
+    slept = []
+    limiter = RateLimiter(30, sleep=slept.append)  # 2 s spacing
+    client = FakeClient(response(json.dumps(FULL)))
+    client._limiter = limiter
+    limiter._next = time.monotonic() + 1.8  # another call holds the slot for 1.8 s
+    assert describe_changes(client, *images, timeout_s=2.0) is None
+    assert slept == [] and client.requests == []
+
+
+def test_real_rate_limiter_reserves_and_sleeps_within_budget(images):
+    from media.nemotron import RateLimiter
+
+    slept = []
+    limiter = RateLimiter(30, sleep=slept.append)
+    client = SequenceClient([response(json.dumps(FULL))])
+    client._limiter = limiter
+    limiter._next = time.monotonic() + 1.0
+    assert describe_changes(client, *images, timeout_s=10) is not None
+    assert len(slept) == 1 and 0.5 < slept[0] <= 1.0
+    assert limiter._next >= time.monotonic() + 2.0  # the next caller waits a full interval

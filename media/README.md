@@ -185,8 +185,8 @@ What we learned:
 
 ## Image diff (`imagediff-v1`)
 
-`describe_changes(client, original, variant, *, timeout_s, edited_region=None) -> ImageDiff | None`
-(`media/imagediff.py`) says in plain sentences what changed between an earlier meme and a later
+`describe_changes(client, original, variant, *, timeout_s, edited_region=None,
+layout="composite", max_tokens=2048) -> ImageDiff | None` (`media/imagediff.py`) says in plain sentences what changed between an earlier meme and a later
 variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, from
 `caption_changed`, `text_added`, `text_removed`, `element_added`, `element_removed`,
 `face_changed`, `cropped`, `recolored`, `watermark`, `other`), `text_before` / `text_after`

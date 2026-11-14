@@ -9,6 +9,7 @@ import logging
 import math
 import re
 import struct
+import threading
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast, get_args
@@ -111,15 +112,17 @@ _FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
 _SUBJECT = (
     r"(?:(?:the|its|this|that)\s+)?"
     r"(?:(?:top|bottom|upper|lower|left|right|centre|center|middle|main|whole|entire|overall"
-    r"|other|rest\s+of\s+the)\s+)*"
-    r"[a-z]+(?:\s+'')?\s+"
+    r"|rest\s+of\s+the)\s+)*"
+    # plain head nouns only: "the copy / duplicate / replacement is the same" reports an edit
+    r"(?:background|foreground|captions?|text|words|image|photo|picture|scene|faces?|colou?rs?"
+    r"|lighting|layout|composition|framing|logos?|watermarks?|rest)(?:\s+'')?\s+"
 )
 _NO_CHANGE_FORMS = tuple(
     re.compile(form, re.I)
     for form in (
         rf"{_SUBJECT}(?:is|are|was|were|remains?|remained|stays?|stayed|looks?)\s+"
         r"(?:unchanged|the\s+same)\.?",  # not "identical": an added copy can be identical
-        rf"{_SUBJECT}(?:(?:did|does|has|have)\s+not|didn't|doesn't|hasn't|haven't)\s+changed?\.?",
+        rf"{_SUBJECT}(?:(?:did|does|has|have)\s+not|(?:did|does|has|have)n['\u2019]t)\s+changed?\.?",
         r"nothing(?:\s+else)?\s+(?:(?:has|was|is)\s+)?changed\.?",
         r"(?:there\s+(?:is|are|was|were)\s+)?no\s+(?:other\s+)?(?:visible\s+)?changes?"
         rf"(?:\s+(?:to|in)\s+{_SUBJECT.removesuffix(r'\s+')})?\.?",
@@ -506,12 +509,9 @@ def describe_changes(
         # Same-package private access: _complete's retry loop cannot honour a lookup budget.
         # Checked before reserving a limiter slot, so a lookup out of budget costs none.
         limiter = client._limiter
-        if not _fits(limiter, deadline):
+        if not _reserve(limiter, deadline):
             raise TimeoutError("no time budget left for the request")
-        limiter.wait()
         for attempt in (1, 2):
-            if deadline - time.monotonic() <= 0:
-                raise TimeoutError("time budget spent before the request")
             if deadline - time.monotonic() < _MIN_REQUEST_S:  # after the limiter's real wait
                 raise TimeoutError("too little time budget left for the request")
             started, pending = time.monotonic(), True
@@ -552,7 +552,8 @@ def describe_changes(
                     task="imagediff",
                 )
                 pending = False
-                limiter.wait()  # the retry takes its own rate-limiter slot, like _complete
+                if not _reserve(limiter, deadline):  # its own limiter slot, like _complete
+                    raise TimeoutError("no time budget left for the retry") from exc
         if time.monotonic() > deadline:
             raise TimeoutError("reply arrived after the time budget")
         if not is_super_vl_model(response.model):
@@ -582,6 +583,30 @@ def describe_changes(
         level = logging.ERROR if isinstance(exc, NotVisionModelError) else logging.WARNING
         log.log(level, "image comparison unavailable: %s: %.300s", type(exc).__name__, exc)
         return None
+
+
+_LIMITER_LOCK = threading.Lock()
+
+
+def _reserve(limiter: Any, deadline: float) -> bool:
+    """Take a rate-limiter slot only if the request can still start with budget to spare,
+    never sleeping past the deadline. RateLimiter.wait() is check-then-sleep without a lock, so
+    another thread could take the slot and push the sleep past the deadline; a RateLimiter is
+    therefore reserved here under a lock. Any other limiter object is asked to wait()."""
+    if not all(hasattr(limiter, name) for name in ("_next", "interval", "_sleep")):
+        if not _fits(limiter, deadline):
+            return False
+        limiter.wait()
+        return True
+    with _LIMITER_LOCK:
+        now = time.monotonic()
+        starts = max(now, limiter._next)
+        if deadline - starts < _MIN_REQUEST_S:
+            return False
+        limiter._next = starts + limiter.interval
+    if starts > now:
+        limiter._sleep(starts - now)
+    return True
 
 
 def _fits(limiter: Any, deadline: float) -> bool:
