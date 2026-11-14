@@ -1262,8 +1262,72 @@ def test_label_quotes_alongside_real_edits_are_kept(images, sentence):
     assert result.text_before == ["A: earlier"] and result.text_after == ["A: now"]
 
 
-def test_transcriptions_are_never_label_filtered(images):
-    payload = {**FULL, "text_before": ["A: earlier", "THEY SAID"], "text_after": ["B: later"]}
+@pytest.mark.parametrize("layout", ["composite", "pair"])
+def test_both_label_transcriptions_dropped_in_composite(images, layout):
+    payload = {
+        **FULL,
+        "text_before": ["A: earlier", "THEY SAID"],
+        "text_after": [" b : Later ", "WAS AN ACCIDENT"],
+    }
+    result, _ = compare(images, payload, layout=layout)
+    if layout == "composite":
+        assert result.text_before == ["THEY SAID"]
+        assert result.text_after == ["WAS AN ACCIDENT"]
+    else:
+        assert result.text_before == ["A: earlier", "THEY SAID"]
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (["A: earlier"], ["A: now"]),  # one label alone may be real text
+        (["B: later"], ["A: earlier"]),  # labels on the wrong panels: not ours
+        (["A: later"], ["B: earlier"]),  # never drawn
+    ],
+)
+def test_label_like_transcriptions_kept_otherwise(images, before, after):
+    payload = {**FULL, "text_before": before, "text_after": after}
     result, _ = compare(images, payload, layout="composite")
-    assert result.text_before == ["A: earlier", "THEY SAID"]
-    assert result.text_after == ["B: later"]
+    assert result.text_before == before and result.text_after == after
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The label 'A: earlier' changed to 'B: later'.",
+        "The top label was replaced with 'B: later'.",
+        "The label text changed from 'A: earlier' to 'B: later'.",
+        "The labels were changed from 'A: earlier' to 'B: later'.",
+        "The panel label changed from 'A: earlier' to 'B: later'.",
+        "The top-left panel label 'A: earlier' was replaced with 'B: later' at the top left.",
+    ],
+)
+def test_more_label_only_wordings_dropped(images, sentence):
+    payload = {
+        **FULL,
+        "changes": [sentence, *FULL["changes"]],
+        "kinds": ["caption_changed", "caption_changed"],
+    }
+    result, _ = compare(images, payload, layout="composite")
+    assert result.changes == FULL["changes"]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The caption changed from 'B: earlier' to 'A: later'.",  # never drawn
+        "The label 'A: earlier' changed to 'B: later' and a hat was added.",
+        "The top label was replaced with 'B: later' by a red sticker.",
+    ],
+)
+def test_undrawn_or_compound_label_wordings_kept(images, sentence):
+    payload = {**FULL, "changes": [sentence], "kinds": ["caption_changed"]}
+    result, _ = compare(images, payload, layout="composite")
+    assert result.changes == [sentence]
+
+
+def test_panel_labels_single_source():
+    import media.imagediff as imagediff
+
+    assert imagediff._PANEL_LABELS == ("A: earlier", "B: later")
+    assert 'Ignore the "A: earlier" / "B: later" labels.' in imagediff.SYSTEM_PROMPT

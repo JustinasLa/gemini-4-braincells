@@ -253,8 +253,10 @@ worker, is logged at ERROR here.
   words, a label noun, the exact quoted "A: earlier" / "B: later", a position-only location) is
   dropped (seen once live in prod, lookup `lk_a83a7c2ff47c2545`: "The
   top label changed from 'A: earlier' to 'B: later'."). Any sentence that quotes other text or
-  reports something else is kept, and transcriptions are never altered. Known limit: a real
-  caption change that is literally 'A: earlier' to 'B: later' would be dropped too. Adult or graphic media (model flag or the
+  reports something else is kept. When the transcriptions hold both labels, each on its own
+  panel ("A: earlier" in `text_before`, "B: later" in `text_after`), those two lines are removed
+  (the UI would show them as a text change); one alone is kept as possible real text. Known
+  limit: a real caption change that is literally 'A: earlier' to 'B: later' is dropped too. Adult or graphic media (model flag or the
   shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
   no text lists.
 

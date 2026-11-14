@@ -133,18 +133,31 @@ _NO_CHANGE_FORMS = tuple(
 # report quoting nothing but the exact labels counts; transcriptions are never altered.
 # Its own narrow grammar: position words, a label noun, the exact quoted labels and a location
 # made only of position words. Any other word means the sentence may report a real edit.
+_PANEL_LABELS = ("A: earlier", "B: later")  # drawn by _composite, named in SYSTEM_PROMPT
 _POS = r"(?:top|bottom|upper|lower|left|right|centre|center|middle|corner|edge)"
 _WHERE = rf"(?:\s+(?:at|in|on|to|from|near)\s+the\s+{_POS}(?:[\s-]+{_POS})*"
 _WHERE += r"(?:\s+of\s+the\s+(?:image|picture|panel))?)?"
-_LNOUN = r"(?:labels?|text|captions?|headings?|titles?|headers?|tags?)"
-_LBL = r"\s*[AB]\s*:\s*(?:earlier|later)\s*"
+_MOD = rf"(?:(?:{_POS}|panel|image|picture)[\s-]+)*"
+_LNOUN = r"(?:labels?|text|captions?|headings?|titles?|headers?|tags?)(?:\s+text)?"
+
+
+def _label_pattern(label: str) -> str:  # "A: earlier" -> A\s*:\s*earlier, loose spacing
+    key, word = label.split(":")
+    return rf"\s*{re.escape(key.strip())}\s*:\s*{re.escape(word.strip())}\s*"
+
+
+_LBL_EACH = tuple(re.compile(_label_pattern(label), re.I) for label in _PANEL_LABELS)
+_LBL = "(?:" + "|".join(_label_pattern(label) for label in _PANEL_LABELS) + ")"
 _LQ = rf"(?:'{_LBL}'|\"{_LBL}\"|\u2018{_LBL}\u2019|\u201c{_LBL}\u201d)"
+_AUX = r"(?:(?:was|were|has\s+been|have\s+been)\s+)?"
+_SWAP = r"(?:changed|switched|replaced|updated)"
 _LABEL_ONLY = tuple(
     re.compile(form, re.I)
     for form in (
-        rf"(?:the\s+)?(?:{_POS}[\s-]+)*{_LNOUN}{_WHERE}\s+(?:(?:was|has\s+been)\s+)?"
-        rf"(?:changed|switched|replaced|updated)\s+from\s+{_LQ}\s+to\s+{_LQ}\.?",
-        rf"(?:the|an?)\s+(?:{_POS}[\s-]+)*{_LNOUN}\s+{_LQ}{_WHERE}\s+(?:was|has\s+been)\s+"
+        rf"(?:the\s+)?{_MOD}{_LNOUN}{_WHERE}\s+{_AUX}{_SWAP}\s+from\s+{_LQ}\s+to\s+{_LQ}\.?",
+        rf"(?:the\s+)?{_MOD}{_LNOUN}(?:\s+{_LQ})?{_WHERE}\s+{_AUX}{_SWAP}\s+(?:to|with)\s+{_LQ}"
+        rf"{_WHERE}\.?",
+        rf"(?:the|an?)\s+{_MOD}{_LNOUN}\s+{_LQ}{_WHERE}\s+(?:was|were|has\s+been)\s+"
         rf"(?:added|removed){_WHERE}\.?",
     )
 )
@@ -177,7 +190,7 @@ Return only JSON: text_before, text_after, changes, kinds, content_flags, confid
   authorship or truth. Never use deepfake, fake, faked, real, authentic, genuine, bot, shill,
   troll or propaganda. For a swapped face say:
   "The face of the person in the centre was replaced with a different face."
-- Ignore the "A: earlier" / "B: later" labels.
+- Ignore the "{_PANEL_LABELS[0]}" / "{_PANEL_LABELS[1]}" labels.
 - content_flags: subset of ["adult", "graphic"]. Sexual/nude material: ["adult"].
   Gore/violence: ["graphic"]. Do not describe bodies or acts in either case.
 - confidence: a number from 0 to 1."""
@@ -359,9 +372,7 @@ def _composite(
     composite = Image.new("RGB", (sum(widths) + gap, height + bar), "white")
     draw = ImageDraw.Draw(composite)
     font = ImageFont.load_default(size=20)
-    for image, label, offset in zip(
-        panels, ("A: earlier", "B: later"), (0, widths[0] + gap), strict=True
-    ):
+    for image, label, offset in zip(panels, _PANEL_LABELS, (0, widths[0] + gap), strict=True):
         composite.paste(image, (offset, bar))
         draw.text((offset + 8, 8), label, fill="black", font=font)
     panel = (widths[0] + gap, bar, panels[1].width, height)
@@ -396,6 +407,15 @@ def _normalise(
     sentences = [" ".join(" ".join(_strings([value])).split()) for value in raw]
     before = [text[:300] for text in _strings(payload.get("text_before"), limit=20)]
     after = [text[:300] for text in _strings(payload.get("text_after"), limit=20)]
+    # Both drawn labels transcribed, each on its own panel ("A: earlier" in A, "B: later" in B):
+    # the model read our labels, which would show as a text change. One alone may be real text.
+    if (
+        labelled
+        and any(_LBL_EACH[0].fullmatch(text) for text in before)
+        and any(_LBL_EACH[1].fullmatch(text) for text in after)
+    ):
+        before = [text for text in before if not _LBL_EACH[0].fullmatch(text)]
+        after = [text for text in after if not _LBL_EACH[1].fullmatch(text)]
     flags = [flag.lower() for flag in _strings(payload.get("content_flags"))]
     _, flags = safe_description(" ".join(sentences + before + after), flags)
     kinds = payload.get("kinds", [])
