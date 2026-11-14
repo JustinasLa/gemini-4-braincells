@@ -6,6 +6,10 @@
     <meta name="theme-color" content="#0b0b0c" />
     <meta name="description" content="Trackdown, Noise Radar’s tracing view: trace a post back to its earliest copy and see whether its spread was coordinated." />
     <title>Trackdown · Noise Radar</title>
+    <script>
+      // The live monitor moved from / to /monitor/. Keep its old links (/#/cluster/7, /#/accuracy) working.
+      if (/^#\/(cluster|accuracy|method)(\/|$)/.test(location.hash)) location.replace("/monitor/" + location.hash);
+    </script>
     <link rel="icon" type="image/png" href="./coin/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#050506">
   <meta name="description" content="Noise Radar detects coordinated amplification on Bluesky, shows the evidence behind every call and publishes its own error rates.">
   <title>Noise Radar</title>
-  <link rel="icon" href="trackdown/coin/favicon.png">
+  <link rel="icon" href="/coin/favicon.png">
   <link rel="alternate" type="application/atom+xml" title="Noise Radar: new coordinated clusters" href="/api/feed.atom">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -319,7 +319,7 @@
     </nav>
     <div class="top-right">
       <div class="live" id="live" role="status"><span class="dot"></span><span class="txt">Connecting…</span></div>
-      <a class="btn" href="trackdown/">Trace a link</a>
+      <a class="btn" href="/">Trace a link</a>
     </div>
   </header>
   <main id="app" class="page" tabindex="-1"></main>
@@ -479,7 +479,7 @@
     app.querySelector('#trace').onsubmit = (e) => {
       e.preventDefault();
       const q = e.target.q.value.trim();
-      location.href = q ? `trackdown/?lookup=${encodeURIComponent(q)}` : 'trackdown/';
+      location.href = q ? `/?lookup=${encodeURIComponent(q)}` : '/';
     };
   }
 
