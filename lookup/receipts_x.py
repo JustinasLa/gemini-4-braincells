@@ -133,10 +133,7 @@ def find_x(shot: ScreenshotPost, deps: ReceiptDeps, budget: Budget) -> list[Cand
         # an admitted candidate with the screenshot's words, word for word in order, at a time
         # that fits: nothing else to read
         anchor = deps.anchor or deps.now()
-        exact = any(
-            same_words(text, c.text) and time_fits(shot.shown_time, c.created_at, anchor)
-            for c in cands
-        )
+        exact = any(time_fits(shot.shown_time, c.created_at, anchor) for c in cands)
         if not exact:
             have = {c.id for c in cands}
             # strongest evidence first (hits are sorted by score): an exact search hit beats a
@@ -305,11 +302,9 @@ def _hits(j: _Job, deps: ReceiptDeps, handle: str, text: str) -> list[_Hit]:
     )
     rid = _record(deps, j, summary, ok=readable)
     out = []
-    for it in p.recent:
-        # only the account's own posts: a repost or pinned post by someone else isn't theirs
-        if it.status_id and it.handle.lower() == handle.lower():
-            sim = textsim.similarity(it.text, text)
-            out.append(_Hit(it.status_id, it.handle, sim, PROFILE, it, sim, rid))
+    for it in p.recent:  # xpage keeps only the account's own posts (not reposts), with ids
+        sim = textsim.similarity(it.text, text)
+        out.append(_Hit(it.status_id, it.handle, sim, PROFILE, it, sim, rid))
     return out
 
 
