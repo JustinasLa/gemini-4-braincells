@@ -700,3 +700,32 @@ def test_people_under_one_public_suffix_are_not_one_operator():
         if x.name == "transparent_automation"
     )
     assert g.detail["domain"] == "weather.im" and g.score == 1.0
+
+
+def test_language_diversity_does_not_vouch_for_new_accounts():
+    from signals.score import AccountInfo, organic_guards
+
+    members = [f"did:plc:ml{i}" for i in range(8)]
+    langs = ["en", "es", "pt", "de", "fr", "it", "fi", "pl"]
+    wd = WindowData(start=0, end=600)
+    wd.posts = [
+        WPost(uri=f"at://{d}/app.bsky.feed.post/1", did=d, t=10.0 + i, text="x", langs=[langs[i]])
+        for i, d in enumerate(members)
+    ]
+
+    def guard(age):
+        info = {d: AccountInfo(did=d, age_days=age, followers=5) for d in members}
+        return next(
+            g
+            for g in organic_guards(members, [], info, wd, DEFAULT)
+            if g.name == "language_diversity"
+        )
+
+    assert guard(700.0).score == 1.0  # established people in 8 languages: independent
+    new = guard(3.0)
+    assert new.score == 0.0 and new.detail["settled_share"] == 0.0
+    assert "new accounts" in new.summary
+    unknown = next(
+        g for g in organic_guards(members, [], {}, wd, DEFAULT) if g.name == "language_diversity"
+    )
+    assert unknown.score == 1.0  # no account info: unchanged
