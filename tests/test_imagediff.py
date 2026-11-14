@@ -1048,3 +1048,25 @@ def test_gif_walk_never_under_reports_pillow():
             continue  # refused: safe
         assert declared[0] >= size[0] and declared[1] >= size[1], (data, declared, size)
     assert opened > 500
+
+
+@pytest.mark.parametrize(
+    ("sentence", "kept"),
+    [
+        ("The bottom caption 'FOR FIVE SECONDS' is unchanged.", False),
+        ("The background remains the same.", False),
+        ("The dog did not change.", False),
+        ("There is no visible change to the face.", False),
+        ("The caption changed from 'NO CHANGE' to 'BIG CHANGE'.", True),  # quoted image text
+        ("The colours were shifted to a warmer tone.", True),
+    ],
+)
+def test_no_change_sentences_dropped(images, sentence, kept):
+    payload = {
+        **FULL,
+        "changes": [sentence, *FULL["changes"]],
+        "kinds": ["other", "caption_changed"],
+    }
+    result, _ = compare(images, payload)
+    assert (sentence in result.changes) is kept
+    assert FULL["changes"][0] in result.changes

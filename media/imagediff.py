@@ -85,6 +85,7 @@ _NOUN = (
     r"(?:captions?|text|words?|lines?|watermarks?|handles?|labels?|titles?|headlines?"
     r"|slogans?|signs?|banners?|logos?|urls?|hashtags?)"
 )
+_QUOTE = re.compile(_Q)
 _TEXT_FORMS = (
     re.compile(
         rf"(?:the\s+)?(?:{_ADJ}\s+)*{_NOUN}(?:\s+text)?\s+(?:(?:was|were|has\s+been)\s+)?"
@@ -101,6 +102,12 @@ _TEXT_FORMS = (
 # Formats that read only the header on open, so the size check runs before any decoding
 # (ICO, for one, decodes its largest image inside Image.open). Memes and screenshots use these.
 _FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
+# A "change" that says nothing changed (seen live: "The bottom caption 'X' is unchanged.").
+_NO_CHANGE = re.compile(
+    r"\b(?:unchanged|(?:did|does|has|have)\s+not\s+change[d]?|(?:didn't|hasn't|haven't)\s+change"
+    r"|(?:remains?|remained|stays?|stayed|is|are)\s+the\s+same|no\s+(?:visible\s+)?changes?)\b",
+    re.I,
+)
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
 # Larger inputs are refused from the header, before decoding (decompression bombs). This is far
@@ -356,7 +363,12 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
     ocr = _OcrText(before + after)
     for index, sentence in enumerate(sentences):
         unquoted = _exempt_image_text(sentence, ocr)
-        if not sentence or _FORBIDDEN.search(unquoted) or (marked and _MARKER.search(unquoted)):
+        if (
+            not sentence
+            or _FORBIDDEN.search(unquoted)
+            or _NO_CHANGE.search(_QUOTE.sub("''", sentence))  # a caption may say "no change"
+            or (marked and _MARKER.search(unquoted))
+        ):
             continue
         sentence = sentence if sentence.endswith(".") else sentence + "."
         if sentence in changes or len(changes) == 5:

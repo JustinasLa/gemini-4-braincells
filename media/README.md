@@ -191,45 +191,57 @@ variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, fro
 `caption_changed`, `text_added`, `text_removed`, `element_added`, `element_removed`,
 `face_changed`, `cropped`, `recolored`, `watermark`, `other`), `text_before` / `text_after`
 (legible text in each), `confidence`, `model` (as the response returned it), `latency_ms`. No
-visible change gives `changes == []`. Inputs: JPEG (incl. MPO), PNG, GIF, WebP; formats that
-decode inside `Image.open` (ICO) are refused. It returns None, never raises, on bad image bytes,
-another format, an image over 24 MP (checked from the header before Pillow allocates anything:
-for GIF (walked the way Pillow 13 walks it) and WebP the declared canvas is read from the raw
-bytes, since Pillow allocates it inside
-`Image.open`), timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
-could lose an unfinished `content_flags`) or an unusable reply. A non-Super-VL response, which
-stops the worker, is logged at ERROR here but still returns None: the lookup must not break.
+visible change gives `changes == []`.
 
-- **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`).
-  `timeout_s` counts from entry: image decoding, then the rate-limiter wait, then the request,
-  which gets what is left as its HTTP timeout. No request starts with less than 0.5 s left after
-  the limiter's wait (None instead). The HTTP timeout applies per read, so a reply that completes
-  after the deadline is dropped (None). A bare 5xx gets one retry, with its own limiter slot, if
-  at least 3 s of the budget is left; a dropped connection does not (that inference may have run). Each request is logged by `log_call_attempt` with
-  `task=imagediff`, and the Super VL check applies. It calls the OpenAI client directly, not `NemotronClient._complete`, whose 4-try
-  backoff cannot keep to a lookup's budget.
+It never raises into the lookup. It returns None on: bad image bytes; a format other than JPEG
+(incl. MPO), PNG, GIF or WebP (ICO, for one, decodes inside `Image.open`); an image over 24 MP;
+timeout; an API error; a non-Super-VL response; a reply cut at `max_tokens` (a repaired cut could
+lose an unfinished `content_flags`); an unusable reply. A non-Super-VL response, which stops the
+worker, is logged at ERROR here.
+
+- **Untrusted images:** the 24 MP limit is checked before Pillow allocates anything. GIF and WebP
+  allocate their canvas inside `Image.open`, so their declared size is read from the raw bytes
+  first: WebP from its VP8X/VP8/VP8L header, GIF by walking the stream the way Pillow 13's
+  `GifImagePlugin` does (a differential test on 3000 mutated GIFs checks the walk never reports
+  less than Pillow). JPEGs decode at reduced scale (`draft`); colour-key PNGs are flattened
+  before resizing.
+- **One call per pair**, reasoning off, guided `json_schema` (as in `lookup/assess.py`; vLLM's
+  grammar rejects `uniqueItems`). `timeout_s` counts from entry: decoding, then the rate-limiter
+  wait, then the request, which gets what is left as its HTTP timeout. No request starts with
+  less than 0.5 s left. The HTTP timeout applies per read, so a reply completing after the
+  deadline is dropped. A bare 5xx gets one retry, with its own limiter slot, if at least 3 s are
+  left; a dropped connection does not (that inference may have run). Each request is logged by
+  `log_call_attempt` (`task=imagediff`) and must pass the Super VL check. It calls the OpenAI
+  client directly, not `NemotronClient._complete`, whose 4-try backoff cannot keep to a budget.
 - **Layout:** Verda accepts two images per request, so both were measured. The default is one
   composite image: both scaled to one height, labelled "A: earlier" / "B: later", at most 2048 px
-  wide. `edited_region` (fractions of the variant) draws a red box on B, after the composite
-  is scaled so the line stays visible. Only then is the model told about the box, and a "red
-  box/outline/border/frame" sentence is dropped as our own marker.
-- **Wording:** describes the media, never names a person. A sentence with deepfake, fake, real,
-  authentic, genuine, bot, shill, troll or propaganda in our own words is dropped with its kind.
-  A quoted span is exempt only when the whole sentence is one of the two forms the prompt uses
-  to report image text ("The caption changed from 'X' to 'Y'." / "The text 'X' was added/removed
-  ...") and the reply's own transcription confirms the quote (a whole transcribed line, or 2+
-  consecutive transcribed words). So a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported,
-  while scare quotes, quoted narration or a quoted 'red box' are not exempt. Adult or graphic
-  media (model flag or the shared `safe_description` word list) gives exactly "Adult content." or
-  "Graphic content." with no text lists.
+  wide. `edited_region` (fractions of the variant) draws a red box on B after scaling. Only then
+  is the model told about the box, and a "red box/outline/border/frame" sentence is dropped as
+  our own marker.
+- **Wording guards (code, after the prompt):** describes the media, never names a person. A
+  sentence with deepfake, fake, real, authentic, genuine, bot, shill, troll or propaganda in our
+  own words is dropped with its kind. Quoted image text is exempt only when the whole sentence is
+  one of the two text-report forms the prompt asks for ("The caption changed from 'X' to 'Y'." /
+  "The text 'X' was added/removed ...") and the reply's own transcription confirms the quote, so
+  a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported but scare quotes are not exempt. A
+  sentence saying something did not change is dropped. Adult or graphic media (model flag or the
+  shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
+  no text lists.
 
-Evaluated on 20 pairs made from 7 public-domain Wikimedia Commons photos (the images and pairs
-stay outside git). Pairs: 3 caption swaps, 1 caption swap plus watermark, text added, text removed,
-an element added, 2 elements removed, 2 face patches, 2 crops, a hue shift, a grayscale, a
-watermark added, a watermark removed, and 3 identical pairs (re-encoded at JPEG q55-70 and/or
-resized to 80-90%). Endpoint: Verda, `nemotron-3.5-super-vl`, sequential calls, 2026-11-14,
-final prompt, 3 runs. "Kind" = the expected kind is among `kinds`; "clean" = additionally no
+### Evaluation
+
+20 pairs made from 7 public-domain Wikimedia Commons photos (the images and pairs stay outside
+git): 3 caption swaps, 1 caption swap plus watermark, text added, text removed, an element added,
+2 elements removed, 2 face patches, 2 crops, a hue shift, a grayscale, a watermark added, a
+watermark removed, and 3 identical pairs (re-encoded at JPEG q55-70 and/or resized to 80-90%).
+Sequential calls, 2026-11-14. "Kind" = the expected kind is among `kinds`; "clean" = also no
 unrelated kind (a crop may also report what it cut off), and an identical pair returns no change.
+
+**Verda, `nemotron-3.5-super-vl` (Super VL confirmed), 3 runs.** Prompt as of commit `7bda242`:
+the final prompt differs only in that the red-box rule moved from the system prompt to the
+per-call text, sent only when a box is drawn. The later code guards don't change the model's
+reply. Re-run on Verda before relying on these for the final prompt (Verda was down from
+~09:50 UTC).
 
 | Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
 |---|---|---|---|---|---|---|
@@ -241,20 +253,25 @@ Per kind, composite, each of 3 runs: caption changed 4/4, text added 1/1, text r
 element added 1/1, element removed 1/2, face changed 2/2, cropped 2/2, recolored 2/2, watermark
 2/2, identical 3/3. No reply had a forbidden word, a person's name, panel words or our red box.
 
+**NVIDIA build API, Super VL not confirmed, 1 run, final prompt (smoke check only).** Same model
+id requested, but every reply is labelled `private/nvidia/nemotron-3.5-super-120b-a12b`, which
+`is_super_vl_model` rejects. The check was bypassed in a throwaway script, and nothing was stored.
+Composite: 19/20 valid (one 40 s timeout), kind right 17/20, clean 15/20, captions read 4/4, p50
+2.1 s, p90 3.1 s. Same misses as Verda (the inset reads as added) plus an identical pair read as
+cropped, a spurious "cropped", and a "caption ... is unchanged" sentence, which led to the
+no-change guard.
+
 What we learned:
-- vLLM's guided decoding rejects `uniqueItems` (HTTP 400 "Unimplemented keys" on every call), so
-  the schema leaves it out.
+- vLLM's guided decoding rejects `uniqueItems` (HTTP 400 "Unimplemented keys" on every call).
 - Verda answers some calls with a bare HTTP 500, whatever the request shape (schema,
   `json_object`, none): about 70% in one busy period, 0-10% otherwise. Hence the one retry.
-- Pair layout reported a crop that is not there in an identical pair (a re-encoded portrait) in 3
-  of 3 runs (an earlier prompt also gave "warmer tone"). Composite returned no change for all 3
-  identical pairs in every run.
-- With a red `edited_region` box, the first prompt reported the box as an added element (7 of the
-  12 valid pair-layout replies). The prompt rule and the code guard brought that to 0, but the box did not
-  improve accuracy on these pairs. Composite without a box was the most accurate.
+- Pair layout reported a crop that is not there in an identical pair (a re-encoded portrait) in
+  3 of 3 runs. Composite returned no change for all 3 identical pairs in every Verda run.
+- With a red `edited_region` box, the first prompt reported the box as an added element (7 of
+  the 12 valid pair-layout replies). The prompt rule and the code guard brought that to 0, but
+  the box did not improve accuracy on these pairs.
 - An early composite prompt wrote "in the later image" / "left panel". Banning panel words fixed
   that, but direction then needs its own rule ("in A but missing from B was removed").
 - Known limit: a colour sunflower inset pasted on a grayscale portrait, then removed, reads as
   "added" in composite in every run. Removed sunglasses and a removed watermark read correctly.
-  Pair layout gets the inset right, but it is less accurate overall.
-- Latency is far below the 4 s target: the reply is about 100 tokens with reasoning off.
+- Latency on Verda is far below the 4 s target: the reply is about 100 tokens with reasoning off.
