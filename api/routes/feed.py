@@ -19,7 +19,7 @@ from api.store import Store
 router = APIRouter(prefix="/api", tags=["feed"])
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
-# Same words as the dashboard (web/public/index.html, STATUS).
+# Same words as the dashboard (web/public/monitor/index.html, STATUS).
 LABEL = {
     "coordinated": "Coordinated",
     "insufficient": "Can’t tell",
@@ -138,7 +138,7 @@ def build_feed(
     )
     _sub(feed, "updated", _iso(max((_updated(c) for c in clusters), default=now)))
     _sub(feed, "link", rel="self", type="application/atom+xml", href=self_url)
-    _sub(feed, "link", rel="alternate", type="text/html", href=f"{base}/")
+    _sub(feed, "link", rel="alternate", type="text/html", href=f"{base}/monitor/")
     author = _sub(feed, "author")
     _sub(author, "name", "Noise Radar")
     _sub(feed, "generator", "Noise Radar API")
@@ -149,7 +149,7 @@ def build_feed(
         _sub(entry, "title", entry_title(c))
         _sub(entry, "updated", _iso(_updated(c)))
         _sub(entry, "published", _iso(c.window_end))
-        _sub(entry, "link", rel="alternate", type="text/html", href=f"{base}/#/cluster/{c.id}")
+        _sub(entry, "link", rel="alternate", type="text/html", href=f"{base}/monitor/#/cluster/{c.id}")
         _sub(entry, "category", term=c.status, label=LABEL.get(c.status, c.status))
         _sub(entry, "summary", entry_text(c), type="text")
     return ET.tostring(feed, encoding="utf-8", xml_declaration=True)
