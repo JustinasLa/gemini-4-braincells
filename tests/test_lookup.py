@@ -1124,18 +1124,19 @@ def _race_lookup(order, facts):
 
     md = (XPAGES / "post_suspended_LeroyLovesUSA_796772863869075460.md").read_text()
     page_done, linked_done = threading.Event(), threading.Event()
+    gates: list[bool] = []  # each gate's wait result, asserted here (lookup code catches errors)
 
     class Oxy(FakeOxylabs):
         def scrape_markdown(self, url, deadline=None):
             self.calls.append(("scrape", url))
             if order == "facts_first":
-                assert linked_done.wait(5)
+                gates.append(linked_done.wait(5))
             return md, {"url": TOMB_URL}
 
         def scrape_facts(self, url, deadline=None):
             self.calls.append(("facts", url))
             if order != "facts_first":
-                assert page_done.wait(5)
+                gates.append(page_done.wait(5))
             if facts is None:
                 raise OxylabsError("oxylabs /scrape failed (500)", status=500)
             return facts(url)
@@ -1158,6 +1159,7 @@ def _race_lookup(order, facts):
     job = Ordered("lk_race", LookupInput(url="https://news.example/redirect"), deps)
     job.run()
     assert page_done.is_set() and linked_done.is_set()
+    assert gates == [True]  # the competing read really waited for the first one to finish
     return job, deps
 
 
