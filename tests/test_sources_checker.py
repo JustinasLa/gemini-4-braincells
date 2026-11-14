@@ -167,6 +167,19 @@ def test_failed_calls_are_not_retried_within_the_failure_ttl():
     assert len(client.scrapes) == 1
 
 
+def test_call_cache_is_bounded_and_drops_the_oldest_entry():
+    # The API keeps one checker for the process, fed by every /api/analyze input.
+    client = FakeClient()
+    checker = SourceChecker(client, max_cached=2)
+    for text in ("one two three four five", "six seven eight nine ten", "a b c d e f"):
+        checker.check([ClusterPost(did="d", text=text)])
+    assert len(checker._cache) == 2
+    checker.check([ClusterPost(did="d", text="a b c d e f")])  # newest: still cached
+    assert len(client.searches) == 3
+    checker.check([ClusterPost(did="d", text="one two three four five")])  # evicted: fetched again
+    assert len(client.searches) == 4
+
+
 def test_failed_scrape_is_skipped_not_reported_as_evidence():
     items = SourceChecker(FakeClient(fail_scrape=True)).check(posts())
     assert [i.detail["purpose"] for i in items] == ["post_text"]

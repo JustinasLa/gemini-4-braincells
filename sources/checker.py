@@ -5,6 +5,7 @@ URL it came from. Failures are logged and skipped: a missing check is not eviden
 """
 
 import logging
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from typing import Protocol
@@ -36,14 +37,18 @@ class SourceChecker:
         max_hits: int = 8,
         cache_ttl_s: float = 6 * 3600,
         failure_ttl_s: float = 1800,
+        max_cached: int = 1024,
     ):
         self._client = client
         self._max_links = max_links
         self._max_hits = max_hits
         self._ttl = cache_ttl_s
         self._failure_ttl = failure_ttl_s
-        # key -> (expires_at, value); value None = the call failed recently, don't retry yet
+        self._max_cached = max_cached
+        # key -> (expires_at, value); value None = the call failed recently, don't retry yet.
+        # Oldest first; bounded because the API keeps one checker for every /api/analyze input.
         self._cache: dict[str, tuple[float, object]] = {}
+        self._lock = threading.Lock()
 
     def check(
         self,
@@ -123,17 +128,25 @@ class SourceChecker:
 
     def _cached(self, key: str, fetch):
         now = time.monotonic()
-        hit = self._cache.get(key)
+        with self._lock:
+            hit = self._cache.get(key)
         if hit and now < hit[0]:
             return hit[1]
         try:
             value = fetch()
         except OxylabsError as exc:
             log.warning("source check skipped for %.0fs (%s): %s", self._failure_ttl, key, exc)
-            self._cache[key] = (now + self._failure_ttl, None)
+            self._store(key, now + self._failure_ttl, None)
             return None
-        self._cache[key] = (now + self._ttl, value)
+        self._store(key, now + self._ttl, value)
         return value
+
+    def _store(self, key: str, expires_at: float, value: object) -> None:
+        with self._lock:
+            self._cache.pop(key, None)
+            self._cache[key] = (expires_at, value)
+            while len(self._cache) > self._max_cached:
+                del self._cache[next(iter(self._cache))]
 
 
 def _is_x(*urls: str) -> bool:
