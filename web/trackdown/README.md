@@ -167,14 +167,12 @@ TinEye crawl date. A lookup with no image search and no verdict has no finale an
 ## Meme trace (image matches)
 
 Optional `image_matches` add an earliest-match Original card and grouped variations to the map,
-timeline and panel. Select a variation to compare the submission with it (side by side or a keyboard
-slider; slider on phones). Image dates say “first seen by TinEye” (an upper bound, not publication),
-“page dated”, “time from post id”, or “date unknown”; an upload never becomes its own origin.
-Descriptions are Nemotron’s reading, not verified facts. `changes_from` says which way to read them: "match" → the
-list is headed "This copy → your picture", "upload" → "Your picture → this copy"; absent stays a
-plain "What changed". It is a reading convention, not a claim about which picture is older. A description the server took back
-(`changes_withdrawn`, a later date flipped its direction) reads "Description withdrawn", not "No change
-description returned". Boxes from the pixel comparison are 0..1 fractions of
+timeline and panel. Select a variation to compare the submission and match side by side; on phones,
+the two images stack vertically. The comparison contains the pictures and their labels without
+metadata, model descriptions or overlay controls. Image dates elsewhere say “first seen by TinEye”
+(an upper bound, not publication), “page dated”, “time from post id”, or “date unknown”; an upload
+never becomes its own origin. Descriptions elsewhere are Nemotron’s reading, not verified facts.
+Boxes from the pixel comparison are 0..1 fractions of
 the submission (`media.variants.relate(upload, match)`): the edited region is drawn on both images,
 a crop box marks the part of the submission a cropped match shows. Variant links are visual relationships drawn beside the copy chain, never lineage: the server's
 variant edges (image origin → edited/cropped matches) are used as sent. The submission joins the copy
