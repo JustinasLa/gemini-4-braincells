@@ -66,12 +66,14 @@ def make_sample(n: int, likely_posts: bool = False) -> list[dict[str, Any]]:
                    e.cluster_id, e.created_at, e.detail->>'media_hash' AS cid,
                    e.detail->'dids'->>0 AS did, e.detail->>'media_kind' AS media_kind,
                    e.detail->'extracted_text' AS extracted_text,
+                   e.detail->'content_flags' AS content_flags,
                    s.embed_kind, a.pds_host
             FROM evidence e
             LEFT JOIN cluster_posts_snapshot s ON s.uri = e.detail->'post_uris'->>0
             LEFT JOIN accounts a ON a.did = e.detail->'dids'->>0
             WHERE e.kind = 'media' AND e.detail->>'prompt_version' = 'media-v3'
-              AND e.detail->>'media_type' = 'screenshot'"""
+              AND e.detail->>'media_type' = 'screenshot'
+              AND NOT coalesce(e.detail->'content_flags', '[]'::jsonb) ? 'adult'"""
             + (_LIKELY_POST if likely_posts else "")
             + """
             ORDER BY e.detail->>'media_hash', e.created_at DESC"""
@@ -91,12 +93,15 @@ def make_sample(n: int, likely_posts: bool = False) -> list[dict[str, Any]]:
                 "embed_kind": embed_kind,
                 "pds_host": r["pds_host"],
                 "extracted_text": r["extracted_text"] or [],
+                "content_flags": r["content_flags"] or [],
             }
         )
     return out
 
 
 def _one(client: NemotronClient, v: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    if "adult" in (item.get("content_flags") or []):  # the worker never sends these either
+        return {"cid": item["cid"], "skipped": "adult"}
     messages = [
         {"role": "system", "content": SCREENSHOT_SYSTEM_PROMPT},
         {

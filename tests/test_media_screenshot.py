@@ -251,7 +251,7 @@ def test_full_post_is_read_and_normalised():
     assert post.prompt_version == SCREENSHOT_PROMPT_VERSION
 
 
-@pytest.mark.parametrize("is_post", [False, "false", "no", None, 0, 1])
+@pytest.mark.parametrize("is_post", [False, "false", "no", " False "])
 def test_not_a_post_reads_as_none(is_post):
     # e.g. a chat screenshot: the model says is_post false, other fields are ignored
     assert _post({**FULL, "is_post": is_post}) is None
@@ -262,13 +262,27 @@ def test_chat_screenshot_is_none():
     assert _post(chat) is None
 
 
-@pytest.mark.parametrize("is_post", ["true", "True", " yes ", "1"])
+@pytest.mark.parametrize("is_post", ["true", "True", " yes "])
 def test_is_post_string_is_accepted(is_post):
     assert _post({**FULL, "is_post": is_post}) is not None
 
 
+@pytest.mark.parametrize("is_post", [None, 0, 1, "1", "maybe", [True]])
+def test_missing_or_invalid_is_post_raises_so_the_read_is_retried(is_post):
+    with pytest.raises(ValueError):
+        _post({**FULL, "is_post": is_post})
+    with pytest.raises(ValueError):
+        _post({k: v for k, v in FULL.items() if k != "is_post"})
+
+
+def test_text_is_verbatim_even_when_it_reads_like_null_or_is_long():
+    assert _post({**FULL, "text": "None"}).text == "None"
+    long = "word " * 3000
+    assert _post({**FULL, "text": long}).text == long.strip()
+
+
 def test_post_with_nothing_findable_is_none():
-    payload = {**FULL, "handle": None, "display_name": "  ", "text": "null"}
+    payload = {**FULL, "handle": None, "display_name": "  ", "text": None}
     assert _post(payload) is None
     assert _post({"is_post": True}) is None
 
@@ -505,3 +519,12 @@ def test_prompt_maps_unlisted_platforms_to_other_not_x():
     from media.screenshot import SCREENSHOT_SYSTEM_PROMPT
 
     assert "Truth Social" in SCREENSHOT_SYSTEM_PROMPT and 'never "x"' in SCREENSHOT_SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("value", [0.4, 1.5, 2.999])
+def test_fractional_numeric_count_is_not_rounded_into_a_count(value):
+    assert parse_count(value) is None
+
+
+def test_huge_suffixed_count_is_none_not_overflow():
+    assert parse_count("9" * 309 + "K") is None

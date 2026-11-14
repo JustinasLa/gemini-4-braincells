@@ -68,7 +68,6 @@ _PEOPLE_CLAIMS = re.compile(
 # newer than the model is not a sign of editing.
 _DATE_JUDGEMENT = re.compile(r"\b(future|not yet happened|hasn'?t happened)\b", re.I)
 
-_MAX_TEXT = 4000
 _MAX_SHORT = 120
 
 SCREENSHOT_SYSTEM_PROMPT = f"""You read one image that was already classified as a screenshot.
@@ -136,8 +135,8 @@ def parse_count(value: Any) -> int | None:
         return None
     if isinstance(value, int):
         return value if value >= 0 else None
-    if isinstance(value, float):
-        return round(value) if math.isfinite(value) and value >= 0 else None
+    if isinstance(value, float):  # only a whole number: 0.4 must not become a shown 0
+        return int(value) if math.isfinite(value) and value >= 0 and value.is_integer() else None
     if not isinstance(value, str):
         return None
     s = value.strip().lower().replace(" ", " ").replace(" ", " ")
@@ -149,7 +148,8 @@ def parse_count(value: Any) -> int | None:
         # "2.5K" / "2,5K" (decimal comma); a suffix count never has thousands separators
         if number.count(".") + number.count(",") > 1 or " " in number:
             return None
-        return round(float(number.replace(",", ".")) * _SUFFIX[suffix])
+        scaled = float(number.replace(",", ".")) * _SUFFIX[suffix]
+        return round(scaled) if math.isfinite(scaled) else None
     # no suffix: "1,204" / "1.204" / "1 204" are thousands separators, "12" is a plain integer
     parts = re.split(r"[., ]", number)
     if len(parts) > 1 and not all(len(p) == 3 for p in parts[1:]):
@@ -186,13 +186,12 @@ def normalise_handle(value: Any) -> str | None:
     return h if _HANDLE_RE.match(h) else None
 
 
-def _text(value: Any, limit: int) -> str | None:
+def _text(value: Any, limit: int | None = None) -> str | None:
+    """Stripped string or None. Only JSON null is "not shown": a post may literally say "None"."""
     if not isinstance(value, str):
         return None
     s = value.replace("\r\n", "\n").strip()
-    if not s or s.lower() in {"null", "none", "n/a"}:
-        return None
-    return s[:limit]
+    return (s[:limit] if limit else s) or None
 
 
 def _oddities(value: Any) -> list[str]:
@@ -211,23 +210,27 @@ def _oddities(value: Any) -> list[str]:
 
 
 def _is_post(value: Any) -> bool:
+    """The reply's is_post. Missing or unreadable raises ValueError: a malformed reply must take
+    the retry path, not be stored as a permanent "not a post"."""
     if isinstance(value, bool):
         return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"true", "yes", "1"}
-    return False
+    if isinstance(value, str) and value.strip().lower() in {"true", "yes"}:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"false", "no"}:
+        return False
+    raise ValueError(f"is_post must be true or false, got {value!r}")
 
 
 def screenshot_from_payload(
     payload: dict[str, Any], *, media_hash: str, model: str, latency_ms: int
 ) -> ScreenshotPost | None:
     """Normalise a parsed model reply. None when it isn't a post, or nothing findable is legible
-    (no handle, display name or text)."""
+    (no handle, display name or text). Raises ValueError when is_post is missing or invalid."""
     if not _is_post(payload.get("is_post")):
         return None
     display_name = _text(payload.get("display_name"), _MAX_SHORT)
     handle = normalise_handle(payload.get("handle"))
-    text = _text(payload.get("text"), _MAX_TEXT)
+    text = _text(payload.get("text"))  # verbatim, never cut (max_tokens bounds the reply)
     if not (display_name or handle or text):
         return None
     try:

@@ -134,37 +134,41 @@ drops UI-oddity notes that describe people (bot, shill...) or judge a date again
 own knowledge ("in the future").
 
 Measured with `python -m media.compare_screenshot` on real screenshots from candidate clusters
-(the sample and results stay outside git: they point at real posts). Samples: **A**, the 40
-newest distinct `media-v3` screenshots (22 clusters); **B** (`--likely-posts`), 34 screenshots
-whose OCR has an @handle or whose description mentions a post (20 clusters, 14 also in A).
+(the sample and results stay outside git: they point at real posts). The sampler leaves out
+adult-flagged media, and `run` skips any it is given, as the worker does. Samples: **A**, the 40
+newest distinct `media-v3` screenshots (21 clusters); **B** (`--likely-posts`), 34 screenshots
+whose OCR has an @handle or whose description mentions a post (19 clusters, 19 also in A).
 Endpoint: Verda, `nemotron-3.5-super-vl` (root
-`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`), 4 parallel calls, 2026-11-14 07:17 UTC,
+`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`), 4 parallel calls, 2026-11-14 07:25 UTC,
 final prompt. "Legible" counts are among items read as posts; grounding = share of the read
 text's words that the media-v3 OCR also found (a hallucination check).
 
 | Sample | Reasoning | Valid JSON | Cut off | Posts | Handle legible | Text legible | Text grounding (median, <0.5) | p50 latency | p90 latency | Mean completion (reasoning) tokens |
 |---|---|---|---|---|---|---|---|---|---|---|
-| A (40) | on, `max_tokens=4096` | 40/40 | 0 | 1 | 1/1 | 1/1 | 1.0, 0 | 1.7 s | 2.6 s | 782 (670) |
-| A (40) | **off**, `max_tokens=1536` | 40/40 | 0 | 1 | 1/1 | 1/1 | 1.0, 0 | 0.31 s | 0.41 s | 112 (0) |
-| B (34) | on, `max_tokens=4096` | 34/34 | 0 | 7 | 7/7 | 6/7 | 1.0, 0 | 1.9 s | 2.9 s | 832 (708) |
-| B (34) | **off**, `max_tokens=1536` | 34/34 | 0 | 7 | 7/7 | 6/7 | 1.0, 0 | 0.34 s | 0.46 s | 121 (0) |
+| A (40) | on, `max_tokens=4096` | 40/40 | 0 | 1 | 1/1 | 1/1 | 1.0, 0 | 1.67 s | 2.23 s | 720 (607) |
+| A (40) | **off**, `max_tokens=1536` | 40/40 | 0 | 1 | 1/1 | 1/1 | 1.0, 0 | 0.27 s | 0.35 s | 112 (0) |
+| B (34) | on, `max_tokens=4096` | 34/34 | 0 | 7 | 7/7 | 6/7 | 1.0, 0 | 1.66 s | 3.85 s | 855 (731) |
+| B (34) | **off**, `max_tokens=1536` | 34/34 | 0 | 7 | 7/7 | 6/7 | 1.0, 0 | 0.26 s | 0.41 s | 121 (0) |
 
-Agreement, on vs off: same is_post on 74/74, same handle on 8/8 posts, text Jaccard median 1.0.
-Two reasoning-off runs agreed on every field (off #2: p50 0.27-0.29 s).
+Agreement, on vs off: same is_post on 74/74, same handle on 7/8 posts, text Jaccard median 1.0.
+Two reasoning-off runs agreed on every field (off #2: p50 0.24-0.25 s). Earlier runs on two
+similar samples gave the same picture.
 
 What we learned:
-- **Reasoning stays off for this read** (`MEDIA_SCREENSHOT_REASONING=false`): 5-6x faster, a
-  much tighter worst case (slowest call about 1.1 s vs 6.6 s), no format or cut-off failures in
-  222 off calls, and the same posts, handles and text. Unlike the main read (v2 reasoning off
-  looped once), this output is short (about 120 tokens), and the 1536 budget caps a loop.
-- Where on and off differed in a first run, reasoning on was the one that invented a repost
-  count and a time on a non-English post and flagged "the date is in the future" (the model
-  judges dates against its training cutoff). The prompt now forbids date judgements and the
+- **Reasoning stays off for this read** (`MEDIA_SCREENSHOT_REASONING=false`): 6x faster, a
+  much tighter worst case, no format or cut-off failures, and the same posts and text. Unlike
+  the main read (v2 reasoning off looped once), this output is short (about 120 tokens), and
+  the 1536 budget caps a loop.
+- Where on and off differed, reasoning on was wrong: it "corrected" a shown handle to the
+  account's web domain (off read it as shown), and in an earlier run invented a repost count
+  and a time on a non-English post and flagged "the date is in the future" (the model judges
+  dates against its training cutoff). The prompt now forbids date judgements and the
   normaliser drops them.
 - Most prod "screenshots" are not posts: charts, radar maps, flight trackers, headlines, court
-  filings, TV grabs. is_post was right on every image checked by eye (all 74): no false posts,
-  no missed posts. Only 8 distinct posts are in the samples, so field accuracy rests on 8 items.
-- Known limit: with reasoning off, a Truth Social post still reads as `x` (reasoning on now says
+  filings, TV grabs. is_post was right on every image checked by eye (74, earlier samples): no
+  false posts, no missed posts. Only 8 post reads are in the samples (7 in B, 1 in A), so
+  field accuracy rests on a handful of posts; re-measure as more reach prod.
+- Known limit: with reasoning off, a Truth Social post still reads as `x` (reasoning on says
   `other`, after the "not in the list is other, never x" rule). On a cut-off Bluesky post the
   model read the next, fully legible post of the thread (both settings).
 - No count was ever written as 0 when not shown; no UI-oddity note described a person.
