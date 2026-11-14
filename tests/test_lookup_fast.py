@@ -834,7 +834,7 @@ def test_cached_image_reading_keeps_its_time_and_depends_on_the_post_text():
         job = Lookup("lk_i", LookupInput(text=TEXT), _deps(nemotron=reader, media_cache=media,
                                                             media_urls=urls))  # fmt: skip
         job._subject_text = text
-        assert job._read_image(_image_http(), IMG_URL).description == "A chart."
+        assert job._read_image(_image_http(), IMG_URL, threading.Event()).description == "A chart."
         (rc,) = [r for r in job.result.receipts if r.tool == "nemotron"]
         return rc
 
@@ -930,3 +930,40 @@ def test_gemini_reading_is_labelled_with_the_version_that_answered(version):
     a._client, a.model = _FakeGemini(version), "gemini-4-hydrogen"
     out = a.assess(_snapshot(), deadline=time.monotonic() + 5)
     assert out.model == (version or "gemini-4-hydrogen")
+
+
+# ---------------------------------------------------------------- review round 3 (Sol) fix
+
+
+class HangingImageReader(FakeImageReader):
+    """An image call that ignores its client timeout (each network wait under it, the total
+    far over it) until `release` is set."""
+
+    def __init__(self):
+        super().__init__()
+        self.release = threading.Event()
+
+    def analyze(self, media, *, context=None):
+        self.release.wait(WAIT_S)
+        return super().analyze(media, context=context)
+
+
+def test_image_work_stops_at_the_provider_deadline_and_drops_late_readings(monkeypatch):
+    from lookup import service
+
+    monkeypatch.setattr(service, "IMAGE_NEED_S", 0.0)
+    reader = HangingImageReader()
+    job = Lookup("lk_h", LookupInput(url=X_URL), _deps(nemotron=reader, http=_image_http()))
+    job._media_urls = [IMG_URL]
+    job._subject_text = TEXT
+    job.deadline = time.monotonic() + service.ASSESS_RESERVE_S + 0.3  # provider deadline: +0.3 s
+    started = time.monotonic()
+    job._media()
+    elapsed = time.monotonic() - started
+    assert elapsed < 1.0  # not the 2 s the call hangs
+    st = _steps(job)["media"]
+    assert st.state == "skipped" and "time budget used up" in st.detail
+    reader.release.set()  # the late reading arrives now: it must not be shown
+    assert _until_s(lambda: len(reader.calls) == 1, 1.0)
+    threading.Event().wait(0.1)
+    assert job.result.media == [] and not any(r.tool == "nemotron" for r in job.result.receipts)

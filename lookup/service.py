@@ -1392,10 +1392,20 @@ class Lookup:
             http = self.deps.http or httpx.Client(timeout=20, follow_redirects=False)
             # only the platforms' own image CDNs are downloaded
             urls = [u for u in urls if domain(u) in MEDIA_HOSTS and u.startswith("https://")]
-            with ThreadPoolExecutor(
-                max_workers=max(1, len(urls)), thread_name_prefix="lookup-m"
-            ) as mp:
-                reads = list(mp.map(lambda u: self._read_image(http, u), urls))
+            # A wall-clock bound on the whole image work: client timeouts bound each network
+            # wait, not a call's total time. Reads still running at the deadline are left
+            # behind (no blocking shutdown) and can no longer publish (`closed`).
+            closed = threading.Event()
+            mp = ThreadPoolExecutor(max_workers=max(1, len(urls)), thread_name_prefix="lookup-m")
+            try:
+                futures = [mp.submit(self._read_image, http, u, closed) for u in urls]
+                wait(futures, timeout=max(0.0, self._provider_deadline() - time.monotonic()))
+            finally:
+                with self.lock:
+                    closed.set()
+                mp.shutdown(wait=False, cancel_futures=True)
+            late = BudgetExceeded("time budget used up")
+            reads = [f.result() if f.done() and not f.cancelled() else late for f in futures]
             texts, read = [], 0
             errors = [r for r in reads if isinstance(r, Exception)]
             for url, a in zip(urls, reads, strict=True):
@@ -1453,7 +1463,7 @@ class Lookup:
                 else ""
             )
 
-    def _read_image(self, http: httpx.Client, url: str) -> Any:
+    def _read_image(self, http: httpx.Client, url: str, closed: threading.Event) -> Any:
         """One image read by Nemotron; the analysis, None (not an image / not a VL model) or
         the exception. A known image (same URL or bytes, same post text as context) is not
         read again: its receipt says cached and keeps the time of the original reading."""
@@ -1496,15 +1506,17 @@ class Lookup:
                 "not a vision-language model."
             )
             return None
-        rid = self.receipt(
-            "nemotron",
-            "chat.completions",
-            f"Nemotron read the image: {a.description[:200]}",
-            source_url=url,
-            call={"fetched_at": read_at, "cached": cached},
-            latency_ms=0 if cached else a.latency_ms,
-        )
-        with self.lock:
+        with self.lock:  # one critical section with `closed`: a late reading is never shown
+            if closed.is_set():
+                return BudgetExceeded("the image reading came after the time budget")
+            rid = self.receipt(
+                "nemotron",
+                "chat.completions",
+                f"Nemotron read the image: {a.description[:200]}",
+                source_url=url,
+                call={"fetched_at": read_at, "cached": cached},
+                latency_ms=0 if cached else a.latency_ms,
+            )
             self.result.media.append(
                 MediaFinding(
                     media_url=url,
