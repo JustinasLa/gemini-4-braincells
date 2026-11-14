@@ -142,6 +142,9 @@ def make_deps() -> Deps:
         verify_read_s=s.lookup_verify_read_s,
         time_budget_s=s.lookup_time_budget_s,
         second_reading_s=s.lookup_second_reading_s,
+        reverse_image=s.lookup_reverse_image,
+        public_base_url=s.lookup_public_base_url
+        or (f"https://{s.public_host}" if s.public_host else ""),
     )
 
 
