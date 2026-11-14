@@ -13,6 +13,7 @@ cursor for more; `/2/status/<id>` the post alone. A missing post is HTTP 404 wit
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -25,6 +26,8 @@ from lookup.xpage import XItem
 
 BASE_URL = "https://api.fxtwitter.com"
 UA = "Mozilla/5.0 (compatible; shill-or-chill-lookup/1.0)"
+OP_TIMEOUT_S = 2.0  # longest single network wait (connect, first byte, next chunk)
+MAX_BYTES = 4 * 1024 * 1024  # a conversation page is ~100 KB
 
 
 class FxTwitterError(Exception):
@@ -146,15 +149,28 @@ class FxTwitterClient:
             self._http.close()
 
     def _get(self, path: str, params: dict | None, deadline: float | None) -> dict:
-        timeout = self.timeout_s
+        """One GET, ended by `deadline` as a whole: the body is read in chunks with the clock
+        checked between them, and no single network wait may be longer than OP_TIMEOUT_S, so
+        a server trickling bytes can't hold the read past its bound (by more than that)."""
+        end = time.monotonic() + self.timeout_s
         if deadline is not None:
-            timeout = min(timeout, deadline - time.monotonic())
-            if timeout <= 0.2:
-                raise FxTwitterError("no time left for FxTwitter")
+            end = min(end, deadline)
+        if end - time.monotonic() <= 0.2:
+            raise FxTwitterError("no time left for FxTwitter")
         t0 = time.monotonic()
         url = f"{self.base_url}{path}"
+        status = None
         try:
-            r = self._http.get(url, params=params, timeout=timeout)
+            op = min(OP_TIMEOUT_S, end - t0)
+            with self._http.stream("GET", url, params=params, timeout=op) as r:
+                status = r.status_code
+                body = bytearray()
+                for chunk in r.iter_bytes():
+                    body += chunk
+                    if time.monotonic() > end:
+                        raise FxTwitterError("FxTwitter answer not complete in time")
+                    if len(body) > MAX_BYTES:
+                        raise FxTwitterError("FxTwitter answer too large")
         except httpx.HTTPError as exc:
             raise FxTwitterError(f"FxTwitter request failed: {type(exc).__name__}") from exc
         finally:
@@ -162,18 +178,22 @@ class FxTwitterClient:
                 "endpoint": path.rsplit("/", 1)[0],
                 "latency_ms": int((time.monotonic() - t0) * 1000),
                 "fetched_at": _now(),
+                "http_status": status,
             }
-        self._local.last_call["http_status"] = r.status_code
         try:
-            data = r.json()
+            data = json.loads(bytes(body))
         except ValueError as exc:
-            raise FxTwitterError(f"FxTwitter answered HTTP {r.status_code}, not JSON") from exc
+            raise FxTwitterError(f"FxTwitter answered HTTP {status}, not JSON") from exc
         if not isinstance(data, dict):
-            raise FxTwitterError(f"FxTwitter answered HTTP {r.status_code} with no object")
-        if r.status_code == 404 or (r.status_code == 200 and data.get("status") is None):
+            raise FxTwitterError(f"FxTwitter answered HTTP {status} with no object")
+        # only an explicit {"status": null} (FxTwitter's not-found answer) means the post is
+        # gone; an answer without the field is an error, and the caller reads the X page
+        if status == 404 or (status == 200 and "status" in data and data["status"] is None):
             raise FxNotFound("FxTwitter: no such post")
-        if r.status_code != 200:
-            raise FxTwitterError(f"FxTwitter answered HTTP {r.status_code}")
+        if status != 200:
+            raise FxTwitterError(f"FxTwitter answered HTTP {status}")
+        if "status" not in data:
+            raise FxTwitterError("FxTwitter answer has no status")
         return data
 
     def status(self, status_id: str, *, deadline: float | None = None) -> Conversation:

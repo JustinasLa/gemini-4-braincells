@@ -313,3 +313,49 @@ def test_fallback_shares_the_candidate_read_bound(monkeypatch):
     cand = Post(id=f"x:{COPY}", platform="x", url=f"https://x.com/cy_example/status/{COPY}")
     assert job._verify_x(cand, TEXT) is None
     assert not any(c == ("scrape", cand.url) for c in ox.calls)
+
+
+# ---------------------------------------------------------------- review round 2
+
+
+def test_answer_without_status_is_an_error_not_a_missing_post():
+    c = _client(lambda req: httpx.Response(200, json={"error": "temporarily unavailable"}))
+    with pytest.raises(FxTwitterError) as e:
+        c.status(VG_ID)
+    assert not isinstance(e.value, FxNotFound)
+
+
+def test_trickling_answer_ends_at_the_deadline():
+    import time as _time
+
+    body = json.dumps(VG).encode()
+
+    def trickle():
+        for i in range(0, len(body), 2000):
+            _time.sleep(0.15)
+            yield body[i : i + 2000]
+
+    c = _client(lambda req: httpx.Response(200, content=trickle()))
+    t0 = _time.monotonic()
+    with pytest.raises(FxTwitterError, match="not complete in time"):
+        c.status(VG_ID, deadline=_time.monotonic() + 1.0)
+    assert _time.monotonic() - t0 < 1.5
+
+
+def test_candidate_falls_back_to_its_page_when_fxtwitter_answers_without_status():
+    class OddFx(FakeFx):
+        def status(self, sid, *, deadline=None):
+            self.calls.append((sid, False))
+            raise FxTwitterError("FxTwitter answer has no status")
+
+    ox = FakeOxylabs()
+    job = Lookup(
+        "lk_odd",
+        LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"),
+        Deps(oxylabs=ox, fxtwitter=OddFx()),
+    )
+    from lookup.models import Post
+
+    cand = Post(id=f"x:{COPY}", platform="x", url=f"https://x.com/cy_example/status/{COPY}")
+    job._verify_x(cand, TEXT)
+    assert ("scrape", cand.url) in ox.calls
