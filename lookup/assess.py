@@ -186,7 +186,12 @@ class Assessor:
             if isinstance(res.parsed, _Draft)
             else _Draft.model_validate_json(res.text or "")
         )
-        return guard(draft, r, model=self.model, latency_ms=latency,
+        # the label is the version the API says answered; an alias can resolve to another one
+        returned = getattr(res, "model_version", None)
+        if not returned:
+            log.warning("gemini response carries no model_version; labelled %s (requested)",
+                        self.model)  # fmt: skip
+        return guard(draft, r, model=returned or self.model, latency_ms=latency,
                      cost=cost_usd(self.model, prompt, out))  # fmt: skip
 
 

@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from common.config import get_settings
 from lookup.jobs import JobStore, RateLimited
 from lookup.models import LookupInput
-from lookup.service import Deps
+from lookup.service import IMAGE_CALL_S, Deps
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/lookup", tags=["lookup"])
@@ -58,10 +58,12 @@ def make_deps() -> Deps:
                 key,
                 base_url=base,
                 model=model,
-                rpm=s.media_rpm,
+                # no spacing between this lookup's (at most 2) image calls: the lookup is capped per
+                # hour already, and a limiter wait would not fit the time budget (IMAGE_NEED_S)
+                rpm=0,
                 max_tokens=s.media_max_tokens,
                 reasoning=s.media_reasoning,
-                timeout_s=20,
+                timeout_s=IMAGE_CALL_S,
                 max_retries=1,
             )
         except Exception as exc:  # optional: a lookup without media reading still works

@@ -69,7 +69,8 @@ SEARCH_CAP_S = 10.0
 PAGE_CAP_S = 15.0  # X post/profile pages (markdown)
 FACTS_CAP_S = 20.0  # /scrape with AI extraction
 IMAGE_DOWNLOAD_S = 10.0  # an image from the platform CDN
-IMAGE_NEED_S = 23.0  # a Nemotron image call: client timeout 20 s + the rate limiter's spacing
+IMAGE_CALL_S = 20.0  # the lookup's Nemotron image client: one attempt, this timeout, no limiter
+IMAGE_NEED_S = IMAGE_CALL_S + 3.0  # an image call starts only if it ends before the reserve
 _REL_AGO = re.compile(r"^\s*(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", re.I)
 _REL_UNIT = {
     "second": 1,

@@ -891,3 +891,42 @@ def test_a_reading_past_its_own_bound_is_not_published():
     assert not job.result.readings_disagree
     st = _steps(job)["second_reading"]
     assert st.state == "skipped" and "time" in (st.detail or "")
+
+
+# ---------------------------------------------------------------- review round 2 (Sol) fixes
+
+
+def test_lookup_image_client_never_waits_on_a_rate_limiter(monkeypatch):
+    from common.config import Settings
+    from lookup.service import IMAGE_CALL_S, IMAGE_NEED_S
+
+    s = Settings(verda_inference_key="k", oxylabs_web_api_key="o", gemini_api_key="",
+                 media_rpm=1)  # fmt: skip
+    monkeypatch.setattr(lookup_route, "get_settings", lambda: s)
+    deps = lookup_route.make_deps()
+    # MEDIA_RPM=1 would space two image calls 60 s apart; the lookup's client has no spacing,
+    # so one image call is bounded by its timeout, which IMAGE_NEED_S covers
+    assert deps.nemotron._limiter.interval == 0.0
+    assert deps.nemotron._client.timeout == IMAGE_CALL_S < IMAGE_NEED_S
+    assert deps.assessor is not None and deps.second_assessor is None  # no Gemini key
+
+
+class _FakeGemini:
+    def __init__(self, version):
+        self.version = version
+        self.models = self
+
+    def generate_content(self, *, model, contents, config):
+        d = _Draft(summary="s", origin="o", corroboration="c", spread_pattern="p", cites=[1],
+                   llm_reading="unclear")  # fmt: skip
+        return SimpleNamespace(parsed=d, text=None, usage_metadata=None, model_version=self.version)
+
+
+@pytest.mark.parametrize("version", ["gemini-4-hydrogen-001", None])
+def test_gemini_reading_is_labelled_with_the_version_that_answered(version):
+    from lookup.assess import Assessor
+
+    a = Assessor.__new__(Assessor)
+    a._client, a.model = _FakeGemini(version), "gemini-4-hydrogen"
+    out = a.assess(_snapshot(), deadline=time.monotonic() + 5)
+    assert out.model == (version or "gemini-4-hydrogen")

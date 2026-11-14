@@ -153,7 +153,8 @@ Receipt {
                                        // the original read's time, which X counts keep as metrics_as_of
 }
 Assessment {
-  "model": "nemotron-3.5-super-vl",    // the model id the response returned (gemini-4-hydrogen for the second)
+  "model": "nemotron-3.5-super-vl",    // the model id the response returned (Gemini: its modelVersion;
+                                       // the requested id, logged as such, only if the API returns none)
   "summary": "...",                    // 2-4 sentences
   "origin": "...", "corroboration": "...", "spread_pattern": "...",
   "counter_evidence": ["..."], "would_change": ["..."],
@@ -193,7 +194,8 @@ budget used up". Same Oxylabs search or page read within `LOOKUP_PROVIDER_CACHE_
 and the same image with the same post text (by URL or bytes, 24 h) are served from a process
 cache (`lookup/cache.py`), marked `cached` on their receipts with the original read's time
 (search snippets' "3 hours ago" stays relative to that read). Images are downloaded and read
-only while a bounded call still fits before the reading's reserve.
+only while a bounded call (one attempt, 20 s, no rate-limiter wait: a lookup makes at most
+two) still fits before the reading's reserve.
 
 ## Rules that keep it honest (and why)
 
