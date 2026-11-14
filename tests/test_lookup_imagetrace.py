@@ -1473,3 +1473,41 @@ def test_a_date_arriving_during_the_reading_never_mislabels_the_direction():
     assert published.changes == [] and published.changes_from is None
     receipt = job.result.receipts[-1]
     assert not receipt.ok and "changed which picture it starts from" in receipt.summary
+
+
+def test_a_date_arriving_after_publication_withdraws_the_description():
+    """Sol r2: the description was published post-first; TinEye's 2008 crawl for the same copy
+    then proves it predates the post, so the published sentences read the wrong way."""
+
+    def quick(client, original, variant, *, timeout_s):
+        return SimpleNamespace(
+            changes=["A caption was added"], kinds=["text_added"], latency_ms=4, model="m"
+        )
+
+    job = job_for(describe_changes=quick)
+    job._upload = None
+    job.result.posts.append(
+        Post(
+            id="x:subject",
+            platform="x",
+            role="submitted",
+            created_at=datetime(2026, 11, 13, 22, 32, tzinfo=UTC),
+            verified=True,
+        )
+    )
+    job.result.subject_id = "x:subject"
+    trace = imagetrace.Trace(job)
+    undated = replace(hit("edited.png", engine="yandex", when=None), page_url=None)
+    [match] = trace._accept(result("yandex", "query", [undated]), 1)
+    trace._publish_match(match.model_copy(update={"relation": "edited"}))
+    published = trace._diff((trace.matches[match.id], EDITED, BASE, quick))
+    assert published.changes_from == "upload" and trace.matches[match.id].changes
+    rid = trace.matches[match.id].receipt_id
+    dated = replace(undated, engine="tineye", first_seen=OLD, time_source="crawl_date")
+    trace._accept(result("tineye", "query", [dated]), 2)
+    after = trace.matches[match.id]
+    assert after.first_seen == OLD
+    assert after.changes == [] and after.change_kinds == [] and after.changes_from is None
+    receipt = job.result.receipts[rid - 1]
+    assert not receipt.ok and receipt.summary.startswith("Image change description withdrawn")
+    assert all(m.changes_from is None for m in job.result.image_matches if m.id == match.id)

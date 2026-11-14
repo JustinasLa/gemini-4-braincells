@@ -276,6 +276,10 @@ class Trace:
                     elif not match.first_seen and hit.engine == "tineye":
                         match.engine = hit.engine
                     self.matches[mid] = match
+                    if match.changes_from and self._match_is_older(match) != (
+                        match.changes_from == "match"
+                    ):
+                        self._withdraw_description(mid)
                     self.priorities[mid] = self._priority(
                         match, min(self.priorities[mid][2], hit.rank)
                     )
@@ -517,6 +521,21 @@ class Trace:
         bound = match.first_seen + timedelta(days=match.time_source == "crawl_date")
         return bound <= posted
 
+    def _withdraw_description(self, mid):
+        """A date arrived after the change description was published and flipped which picture
+        it starts from: its sentences read the other way, so they are taken back (job.lock)."""
+        match = self.matches[mid]
+        self.matches[mid] = match.model_copy(
+            update={"changes": [], "change_kinds": [], "changes_from": None}
+        )
+        if match.receipt_id:
+            self._complete(
+                match.receipt_id,
+                "Image change description withdrawn: a later date for this copy changed which "
+                "picture it starts from",
+                ok=False,
+            )
+
     def _diff(self, item):
         match, data, base, describe = item
         older = self._match_is_older(match)
@@ -540,36 +559,37 @@ class Trace:
             if diff is None:
                 self._complete(rid, "Image change description unavailable", ok=False)
                 return None
-            if self._match_is_older(match) != older:
-                # a first-seen date arrived while Nemotron read the pair and flipped the order:
-                # its sentences describe the other direction, so they are not shown
-                self._complete(
-                    rid,
-                    "Image change description not shown: the copy's date arrived during the "
-                    "reading and changed which picture it starts from",
-                    ok=False,
-                    latency_ms=diff.latency_ms,
-                )
-                return None
             updated = match.model_copy(deep=True)
             updated.changes = [_wording(change) for change in diff.changes]
             updated.change_kinds = list(dict.fromkeys(diff.kinds))
             updated.changes_from = "match" if older else "upload"
             updated.receipt_id = rid
             updated = ImageMatch.model_validate(updated.model_dump())
-            self._complete(
-                rid,
-                self._comparison_summary(updated)
-                + (
-                    "; observed changes from this copy to the submitted picture: "
-                    if older
-                    else "; observed changes from the submitted picture to this copy: "
+            with self.job.lock:  # re-check and publish as one step: no date slips in between
+                if self._match_is_older(match) != older:
+                    # a first-seen date arrived while Nemotron read the pair and flipped the
+                    # order: its sentences describe the other direction, so they are not shown
+                    self._complete(
+                        rid,
+                        "Image change description not shown: the copy's date arrived during "
+                        "the reading and changed which picture it starts from",
+                        ok=False,
+                        latency_ms=diff.latency_ms,
+                    )
+                    return None
+                self._complete(
+                    rid,
+                    self._comparison_summary(updated)
+                    + (
+                        "; observed changes from this copy to the submitted picture: "
+                        if older
+                        else "; observed changes from the submitted picture to this copy: "
+                    )
+                    # media.imagediff: [] means Nemotron saw no visible change
+                    + ("; ".join(updated.changes) or "Nemotron saw no visible change"),
+                    latency_ms=diff.latency_ms,
                 )
-                # media.imagediff: [] means Nemotron saw no visible change
-                + ("; ".join(updated.changes) or "Nemotron saw no visible change"),
-                latency_ms=diff.latency_ms,
-            )
-            self._publish_match(updated)
+                self._publish_match(updated)
             return updated
         except Exception:
             self._complete(rid, "Image change description unavailable", ok=False)

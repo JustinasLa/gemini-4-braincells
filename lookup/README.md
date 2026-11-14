@@ -190,7 +190,9 @@ starting point). `"match"`: the changes turn this copy into the submitted pictur
 For an upload it is always `"match"`: a comparison convention, not a chronology (when someone
 uploads a picture says nothing about when it was made or edited). For a post it is `"match"`
 only when the copy's first-seen upper bound proves it existed before the post, judged on the
-copy's latest dates; a description whose direction a late-arriving date flipped is not shown.
+copy's latest dates; a description whose direction a late-arriving date flips is not shown,
+or is withdrawn if already published (`changes`, `change_kinds` and `changes_from` cleared; its
+receipt says why).
 Neither value says who copied whom or which picture was made first; show the direction with
 the sentences (e.g. "This copy → your picture").
 
