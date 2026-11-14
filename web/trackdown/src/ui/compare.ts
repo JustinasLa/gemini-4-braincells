@@ -28,16 +28,56 @@ function changesHtml(trace: TraceCase, match: ImageMatch): string {
   return `<h3>What changed</h3>${pending ? '<p class="meme-scanning" role="status">Comparing variations…</p>' : ""}${changes.length ? `<ul>${changes.map((change) => `<li>${esc(change)}</li>`).join("")}</ul>` : !pending ? '<p class="meme-note">No change description returned.</p>' : ""}<div class="meme-kind-chips">${kinds.map((kind) => `<span>${esc(humanLabel(kind))}</span>`).join("")}</div><p class="meme-honesty">Changes are Nemotron’s model reading of the two images, not verified facts.</p>`;
 }
 
+const titleText = (match: ImageMatch) => {
+  const relation = relationOf(match);
+  return `${humanLabel(relation)} ${relation === "different" ? "image · not a variation" : "copy"}`;
+};
+const variantHeading = (match: ImageMatch) => `${relationOf(match) === "different" ? "Different image" : "Match"} · ${domainOf(match)}`;
+/** what the variant's picture depends on: when this changes, the image (and its fallback chain) restarts */
+const pictureKey = (match: ImageMatch) => JSON.stringify([match.image_url, match.thumb_url, match.page_url, match.domain, match.width, match.height]);
+
+function factsHtml(match: ImageMatch): string {
+  const page = pageUrl(match.page_url);
+  const dimensions = Number.isFinite(match.width) && Number.isFinite(match.height) && match.width! > 0 && match.height! > 0 ? `${match.width} × ${match.height} px` : "Dimensions unknown";
+  return `<span>${esc(humanLabel(relationOf(match)))}</span><span>${Number.isFinite(match.distance) ? `Perceptual distance ${match.distance}` : "Perceptual distance unknown"}</span><span>${esc(engineLabel(match))}</span><span>${dimensions}</span><span>${esc(firstSeenLabel(match))}</span><span>${Number.isFinite(match.receipt_id) ? `Receipt #${match.receipt_id}` : "Receipt not supplied"}</span>${page ? `<a href="${esc(page)}" target="_blank" rel="noopener noreferrer">Page on ${esc(domainOf(match))} ↗</a>` : ""}`;
+}
+
+/** Replace a region's markup only when it changed, keeping focus on an equivalent control. */
+function swap(region: HTMLElement, html: string) {
+  if (region.innerHTML === html) return;
+  const focused = document.activeElement instanceof HTMLElement && region.contains(document.activeElement) ? document.activeElement : null;
+  const href = focused?.getAttribute("href");
+  region.innerHTML = html;
+  if (focused) (region.querySelector<HTMLElement>(href ? `a[href="${CSS.escape(href)}"]` : "a,button") ?? region.closest<HTMLElement>("dialog")?.querySelector<HTMLElement>(".meme-close"))?.focus();
+}
+
+function renderVariant(dialog: HTMLElement, match: ImageMatch) {
+  const plane = dialog.querySelector<HTMLElement>(".meme-variant")!;
+  plane.querySelector("h3")!.textContent = variantHeading(match);
+  const key = pictureKey(match);
+  if (plane.dataset.picture !== key) {
+    plane.dataset.picture = key;
+    plane.querySelector(".meme-image")?.remove();
+    plane.insertAdjacentHTML("beforeend", memeImage({ ...match, relation_note: imageAlt(match) }));
+  } else {
+    const image = plane.querySelector("img");
+    if (image) image.alt = imageAlt(match);
+  }
+  const frame = plane.querySelector(".meme-image")!;
+  frame.querySelectorAll(".meme-region").forEach((region) => region.remove());
+  frame.insertAdjacentHTML("beforeend", boxes(match));
+}
+
+/** Live update of an open comparison: every field that depends on the match, without touching the
+ * layout mode, the slider position or (where the control survives) focus. */
 export function refreshComparison(trace: TraceCase) {
   if (!active || active.dataset.trace !== trace.id) return;
   const match = trace.lookup?.image_matches?.find((candidate) => candidate.id === active!.dataset.match);
   if (!match) return;
-  const changes = active.querySelector<HTMLElement>(".meme-changes")!;
-  const html = changesHtml(trace, match);
-  if (changes.innerHTML !== html) changes.innerHTML = html;
-  const frame = active.querySelector(".meme-variant .meme-image")!;
-  frame.querySelectorAll(".meme-region").forEach((region) => region.remove());
-  frame.insertAdjacentHTML("beforeend", boxes(match));
+  active.querySelector("#meme-compare-title")!.textContent = titleText(match);
+  renderVariant(active, match);
+  swap(active.querySelector<HTMLElement>(".meme-comparison-facts")!, factsHtml(match));
+  swap(active.querySelector<HTMLElement>(".meme-changes")!, changesHtml(trace, match));
 }
 
 export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLElement) {
@@ -50,24 +90,21 @@ export function openCompare(trace: TraceCase, match: ImageMatch, opener: HTMLEle
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
   dialog.setAttribute("aria-labelledby", "meme-compare-title");
-  const relation = relationOf(match);
-  const page = pageUrl(match.page_url);
-  const dimensions = Number.isFinite(match.width) && Number.isFinite(match.height) && match.width! > 0 && match.height! > 0 ? `${match.width} × ${match.height} px` : "Dimensions unknown";
-  dialog.innerHTML = `<header class="meme-dialog-head"><div><p class="meme-eyebrow">// ${trace.mock ? "MOCK · " : ""}IMAGE COMPARISON</p><h2 id="meme-compare-title">${humanLabel(relation)} ${relation === "different" ? "image · not a variation" : "copy"}</h2></div><button class="meme-close" aria-label="Close comparison" autofocus>×</button></header>
+  dialog.innerHTML = `<header class="meme-dialog-head"><div><p class="meme-eyebrow">// ${trace.mock ? "MOCK · " : ""}IMAGE COMPARISON</p><h2 id="meme-compare-title">${esc(titleText(match))}</h2></div><button class="meme-close" aria-label="Close comparison" autofocus>×</button></header>
     <div class="meme-compare-body">
       <div class="meme-modes" role="group" aria-label="Comparison layout"><button data-view="side" aria-pressed="true">Side by side</button><button data-view="overlay" aria-pressed="false">Slider overlay</button></div>
       <div class="meme-comparison" data-view="side" style="--reveal:50%">
         <section class="meme-plane meme-upload"><h3>Submission</h3>${memeImage({ image_url: comparisonSource(trace), relation_note: "Submitted image", domain: "submitted source" })}</section>
-        <section class="meme-plane meme-variant"><h3>${relation === "different" ? "Different image" : "Match"} · ${esc(domainOf(match))}</h3>${memeImage({ ...match, relation_note: imageAlt(match) })}</section>
+        <section class="meme-plane meme-variant"><h3></h3></section>
         <div class="meme-slider-line" aria-hidden="true"></div>
       </div>
       <label class="meme-slider" hidden>Reveal match <output>50%</output><input type="range" min="0" max="100" value="50" aria-label="Reveal matched image" aria-valuetext="50 percent match revealed"></label>
       <div class="meme-box-key"><span>Solid green: edited region</span><span>Dashed white: crop of the original</span></div>
       <p class="meme-note">Boxes use the matched image’s coordinates. Slider alignment is visual only, not an image registration.</p>
-      <div class="meme-comparison-facts"><span>${esc(humanLabel(relation))}</span><span>${Number.isFinite(match.distance) ? `Perceptual distance ${match.distance}` : "Perceptual distance unknown"}</span><span>${esc(engineLabel(match))}</span><span>${dimensions}</span><span>${esc(firstSeenLabel(match))}</span><span>${Number.isFinite(match.receipt_id) ? `Receipt #${match.receipt_id}` : "Receipt not supplied"}</span>${page ? `<a href="${esc(page)}" target="_blank" rel="noopener noreferrer">Page on ${esc(domainOf(match))} ↗</a>` : ""}</div>
+      <div class="meme-comparison-facts">${factsHtml(match)}</div>
       <section class="meme-changes" aria-live="polite">${changesHtml(trace, match)}</section>
     </div>`;
-  dialog.querySelector(".meme-variant .meme-image")!.insertAdjacentHTML("beforeend", boxes(match));
+  renderVariant(dialog, match);
   document.body.append(dialog);
   const comparison = dialog.querySelector<HTMLElement>(".meme-comparison")!;
   const slider = dialog.querySelector<HTMLElement>(".meme-slider")!;

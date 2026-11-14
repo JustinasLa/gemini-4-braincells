@@ -64,7 +64,11 @@ export function imageTraceState(result: LookupResult) {
     seen.add(match.id);
     return true;
   });
-  const origin = matches.find((match) => match.id === result.image_origin_id && relationOf(match) !== "different");
+  // an "original" published (page or post-id time) after the submitted post cannot be its source: it stays a
+  // match. A TinEye crawl date is only an upper bound, so a later one says nothing about order.
+  const posted = Date.parse(result.posts.find((post) => post.id === result.subject_id)?.created_at ?? "");
+  const after = (match: ImageMatch) => match.time_source !== "crawl_date" && (imageTime(match) ?? -Infinity) > posted;
+  const origin = matches.find((match) => match.id === result.image_origin_id && relationOf(match) !== "different" && !after(match));
   const groups = IMAGE_RELATIONS.map((relation) => ({ relation, matches: matches.filter((match) => match !== origin && relationOf(match) === relation) }));
   const busy = (step: typeof reverse) => step?.state === "pending" || step?.state === "running";
   return {
@@ -86,7 +90,8 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
   const existing = new Set(trace.nodes.map((node) => node.id));
   const nodes: TraceNode[] = state.matches.filter((match) => relationOf(match) !== "different" && !existing.has(match.id)).map((match) => ({
     id: match.id, t: imageTime(match) ?? (Number.isFinite(anchor) ? anchor : 0),
-    timeUnknown: imageTime(match) == null, undated: imageTime(match) == null,
+    // a TinEye crawl date places the card but is no publication time: undated keeps it off "Posted", gaps and the ruler
+    timeUnknown: imageTime(match) == null, undated: imageTime(match) == null || match.time_source === "crawl_date",
     platform: "web", role: match === state.origin ? "origin" : relationOf(match) === "edited" ? "mutation" : "source",
     author: { name: domainOf(match), handle: domainOf(match), hue: 100 },
     text: match.relation_note || `${humanLabel(relationOf(match))} image copy`,
@@ -97,11 +102,16 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
   }));
   const origin = nodes.find((node) => node.id === state.origin?.id);
   const parent = origin?.id ?? submitted?.id;
-  const edges: TraceEdge[] = parent ? nodes.filter((node) => node.id !== parent).map((node) => ({ from: parent, to: node.id, rel: "variant", note: "Image variation; not evidence of who copied whom" })) : [];
+  const note = "Image variation; not evidence of who copied whom";
+  const edges: TraceEdge[] = parent ? nodes.filter((node) => node.id !== parent).map((node) => ({ from: parent, to: node.id, rel: "variant", note })) : [];
+  // the submission is itself a copy of the original image: link it, after any post lineage it already has
+  // (the graph walks parents[0] to the origin, so an existing copy chain keeps priority)
+  if (origin && submitted && submitted.id !== origin.id) edges.push({ from: origin.id, to: submitted.id, rel: "variant", note });
   const ids = new Set(state.matches.map((match) => match.id));
   const validIds = new Set([...trace.nodes, ...nodes].map((node) => node.id));
   return {
     ...trace, nodes: [...trace.nodes, ...nodes],
+    originId: trace.originId || origin?.id || "", // a post origin, when the lookup found one, stays the origin
     edges: [...trace.edges.filter((edge) => edge.rel !== "variant" || (!ids.has(edge.to) && !ids.has(edge.from))), ...edges],
     steps: trace.steps.map((step) => ({ ...step, found: [...new Set([...(step.found ?? []), ...(trace.lookup!.steps.find((raw) => raw.id === step.id)?.found ?? []).filter((id) => validIds.has(id))])] })),
   };
