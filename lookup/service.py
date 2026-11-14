@@ -300,9 +300,12 @@ class Lookup:
         # the family tree's copies as small JPEGs, served while the job lives (lookup/family.py)
         self.family_images: dict[str, bytes] = {}
         self._bsky_handles: set[str] = set()
-        # media url -> the bytes downloaded to read it (a few; the swarm check matches the
-        # submitted picture against the live Bluesky index)
+        # media url -> the bytes downloaded to read it: the submitted post's own picture only,
+        # until the swarm check (which matches it against the live Bluesky index) ends
         self._pictures: dict[str, bytes] = {}
+        self._swarm_over = False
+        # X posts read with a quoted post: their pictures may be the quoted post's (swarm check)
+        self._x_quoting: set[str] = set()
         # X handle (lowercased) -> the author's profile FxTwitter sent with a post (swarm check)
         self._fx_authors: dict[str, dict] = {}
         self._final: dict | None = None
@@ -765,6 +768,9 @@ class Lookup:
         verified: bool,
         as_of: datetime | None,
     ) -> Post:
+        if it.quoted_id:  # the swarm check: its pictures may be the quoted post's
+            with self.lock:
+                self._x_quoting.add(f"x:{it.status_id}")
         return Post(
             id=f"x:{it.status_id}",
             platform="x",
@@ -2299,7 +2305,13 @@ class Lookup:
         with self.lock:  # one critical section with `closed`: a late reading is never shown
             if closed.is_set():
                 return BudgetExceeded("the image reading came after the time budget")
-            if data and len(self._pictures) < 4 and "/card_img/" not in url:
+            if (
+                data
+                and not self._pictures
+                and not self._swarm_over
+                and url in self._media_urls
+                and "/card_img/" not in url
+            ):  # the submitted post's own picture, for the swarm check; dropped when it ends
                 self._pictures[url] = data
             if a.media_type == "screenshot" and "/card_img/" not in url:
                 # the "screenshot" step reads it as a post (bytes None: cached)
@@ -2346,6 +2358,10 @@ class Lookup:
                 self.result.swarm = self.result.swarm_live = self.result.swarm_sample = None
                 st = self._step("swarm")
                 st.state, st.detail, st.ended_at = "failed", "check failed", _now()
+        finally:
+            with self.lock:  # the picture's bytes are kept only for the swarm check
+                self._pictures.clear()
+                self._swarm_over = True
 
     # ---------------------------------------------------------------- monitor
     def _monitor(self) -> None:

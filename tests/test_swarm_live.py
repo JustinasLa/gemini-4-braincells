@@ -7,6 +7,7 @@ disposable Postgres and are skipped unless TEST_DATABASE_URL is set (see tests/t
 import io
 import os
 import re
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -57,6 +58,15 @@ def fake_fetch(images: dict[str, bytes]):
 
     fetch.calls = calls
     return fetch
+
+
+def all_clean(uris):
+    """An AppView that returned every asked post, without labels."""
+    return {u: set() for u in uris}
+
+
+def clean_vision(data):
+    return ("meme", None, False)
 
 
 # --- grouping by perceptual hash -----------------------------------------------------------------
@@ -380,11 +390,23 @@ class FakeConn:
                 return self.boosts.get(kind, [])
         if "FROM accounts" in s:
             return [self.accounts[d] for d in params[0] if d in self.accounts]
+        if "FROM meme_swarms" in s or "FROM picture_hashes" in s:
+            return []  # nothing stored yet
         raise AssertionError(f"unexpected query: {s[:120]}")
 
 
 def fake_scorer(calls=None):
-    def score(sightings, accounts=None, *, basis="sample", basis_note="", baseline=None, cfg=None):
+    def score(
+        sightings,
+        accounts=None,
+        *,
+        basis="sample",
+        basis_note="",
+        baseline=None,
+        cfg=None,
+        window=None,
+        selected_by_file=False,
+    ):
         if calls is not None:
             calls.append(
                 {
@@ -392,6 +414,8 @@ def fake_scorer(calls=None):
                     "accounts": accounts,
                     "basis": basis,
                     "basis_note": basis_note,
+                    "window": window,
+                    "selected_by_file": selected_by_file,
                 }
             )
         posts = [s for s in sightings if s.kind == "post"]
@@ -462,7 +486,8 @@ def test_dry_run_writes_nothing_and_groups_files(capsys):
         dry_run=True,
         scorer=fake_scorer(calls),
         fetch=fake_fetch(images),
-        labels=lambda uris: {},
+        labels=all_clean,
+        vision=clean_vision,
         enrich=False,
         end=T0 + timedelta(hours=12),
     )
@@ -475,6 +500,9 @@ def test_dry_run_writes_nothing_and_groups_files(capsys):
     assert not by_files[("adult",)].safe and by_files[("adult",)].unsafe_reason == "tag #nsfw"
     assert by_files[("meme",)].report.verdict == "organic"
     assert all(c["basis"] == "live" for c in calls)
+    assert all(
+        c["selected_by_file"] is True and c["window"][1] == T0 + timedelta(hours=12) for c in calls
+    )
     assert any(c["basis_note"] == "6 posts our Bluesky feed saw in 24 h" for c in calls)
     assert res.stats["unsafe"] == 1 and res.stats["groups"] == 3
     assert "candidates_s" in res.stats["timings"] and "total_s" in res.stats["timings"]
@@ -518,28 +546,39 @@ def test_failed_label_check_is_not_safe_for_new_groups():
     assert not any(g.safe for g in res.groups)
 
 
-def test_vision_reads_in_wall_order_and_holds_unread_groups():
-    posts, images = world()
+def by_bytes(images, answers):
+    """A fake vision reader: answer by which test picture it was given; records the reads."""
     reads = []
 
-    def vision(data, context):
-        reads.append(context)
-        return ("ad", "BUY NOW", False) if "Buy now" in context else ("photo", None, True)
+    def vision(data):
+        cid = next(c for c, b in images.items() if b == data)
+        reads.append(cid)
+        return answers(cid)
 
+    vision.reads = reads
+    return vision
+
+
+def test_vision_reads_round_robin_and_holds_unread_groups():
+    posts, images = world()
+    vision = by_bytes(
+        images, lambda cid: ("ad", "BUY NOW", False) if cid == "spamA" else ("photo", None, True)
+    )
     res = run_pass(
         FakeConn(posts),
         LiveConfig(file_min_accounts=2, vision_budget=1),
         dry_run=True,
         scorer=fake_scorer(),
         fetch=fake_fetch(images),
-        labels=lambda u: {},
+        labels=all_clean,
         vision=vision,
         enrich=False,
         end=T0 + timedelta(hours=12),
     )
     by = {g.files[0]: g for g in res.groups}
-    assert reads == ["Buy now at shop.example"]  # the swarm verdict is read first
+    assert vision.reads == ["spamA"]  # round-robin starts with the swarm verdicts
     assert by["spamA"].safe and by["spamA"].kind == "ad" and by["spamA"].caption == "BUY NOW"
+    assert by["spamA"].vision_cid == "spamA"
     assert not by["meme"].safe and by["meme"].hold == "vision pending"
     assert by["meme"].unsafe_reason is None  # not sticky: it is read on a later pass
     assert res.stats["wall"] == 1 and res.stats["pending"] == 1 and res.stats["unsafe"] == 1
@@ -550,13 +589,230 @@ def test_vision_reads_in_wall_order_and_holds_unread_groups():
         dry_run=True,
         scorer=fake_scorer(),
         fetch=fake_fetch(images),
-        labels=lambda u: {},
+        labels=all_clean,
         vision=vision,
         enrich=False,
         end=T0 + timedelta(hours=12),
     )
     meme = next(g for g in res.groups if g.files == ["meme"])
     assert not meme.safe and meme.unsafe_reason == "vision: adult" and meme.caption is None
+
+
+def test_vision_order_is_round_robin_over_verdicts_largest_first():
+    def grp(name, verdict, n):
+        g = Group(files=[name], posts=[post_row(i, f"did:plc:{name}{i}") for i in range(n)])
+        g.id, g.report = name, SwarmReport(verdict=verdict, score=1.0)
+        return g
+
+    gs = [grp("s1", "swarm", 9), grp("s2", "swarm", 20), grp("s3", "swarm", 5)]
+    gs += [grp("o1", "organic", 6), grp("o2", "organic", 7), grp("u1", "unclear", 8)]
+    assert [g.id for g in live.vision_order(gs)] == ["s2", "o2", "u1", "s1", "o1", "s3"]
+
+
+def test_no_vision_reader_holds_everything_unless_opted_in():
+    posts, images = world()
+    kw = dict(
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fake_fetch(images),
+        labels=all_clean,
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    res = run_pass(FakeConn(posts), LiveConfig(file_min_accounts=2), **kw)
+    assert not any(g.safe for g in res.groups) and res.stats["wall"] == 0
+    assert {g.hold for g in res.groups if not g.unsafe_reason} == {"vision pending"}
+    res = run_pass(FakeConn(posts), LiveConfig(file_min_accounts=2, wall_without_vision=True), **kw)
+    assert res.stats["wall"] == 2  # the adult one stays unsafe
+
+
+def test_vision_stops_for_the_pass_after_a_timeout():
+    posts, images = world()
+    calls = []
+
+    def slow(data):
+        calls.append(1)
+        raise TimeoutError("read timed out")
+
+    res = run_pass(
+        FakeConn(posts),
+        LiveConfig(file_min_accounts=2, vision_budget=5),
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fake_fetch(images),
+        labels=all_clean,
+        vision=slow,
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    assert len(calls) == 1 and res.stats["wall"] == 0
+
+
+def test_caption_with_adult_words_makes_the_group_unsafe():
+    posts, images = world()
+    res = run_pass(
+        FakeConn(posts),
+        LiveConfig(file_min_accounts=2),
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fake_fetch(images),
+        labels=all_clean,
+        vision=lambda data: ("ad", "SUBSCRIBE ON ONLYFANS", False),
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    spam = next(g for g in res.groups if g.files[0] == "spamA")
+    assert not spam.safe and spam.unsafe_reason.startswith("caption") and spam.caption is None
+
+
+def test_deadline_stops_hashing_labels_and_vision():
+    posts, images = world()
+    fetch = fake_fetch(images)
+    res = run_pass(
+        FakeConn(posts),
+        LiveConfig(file_min_accounts=2, deadline_s=0),
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fetch,
+        labels=all_clean,
+        vision=clean_vision,
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    assert fetch.calls == [] and res.stats["wall"] == 0
+    # nothing hashed or label-checked: nothing safe, so no vision read was even queued
+    assert res.stats["late"] == ["hashes", "labels"]
+
+
+def test_label_outage_holds_groups_with_the_real_fetch_labels():
+    """fetch_labels never raises on a network error: what it did not check must not be safe."""
+    posts, images = world()
+
+    def down(request):
+        raise httpx.ConnectError("AppView down")
+
+    client = httpx.Client(transport=httpx.MockTransport(down))
+    got = safety.fetch_labels(["at://x/app.bsky.feed.post/1"], client)
+    assert got == {} and got.failed == {"at://x/app.bsky.feed.post/1"}
+    res = run_pass(
+        FakeConn(posts),
+        LiveConfig(file_min_accounts=2),
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fake_fetch(images),
+        labels=lambda uris: safety.fetch_labels(uris, client),
+        vision=clean_vision,
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    assert not any(g.safe for g in res.groups)
+    assert {g.hold for g in res.groups if not g.unsafe_reason} == {"labels unchecked"}
+    assert not any(g.labels_checked for g in res.groups)
+
+
+def test_posts_missing_on_the_appview_hold_the_group():
+    posts, images = world()
+    gone = posts[0]["uri"]  # a spam post the AppView no longer returns (taken down)
+    res = run_pass(
+        FakeConn(posts),
+        LiveConfig(file_min_accounts=2),
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fake_fetch(images),
+        labels=lambda uris: {u: set() for u in uris if u != gone},
+        vision=clean_vision,
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    by = {g.files[0]: g for g in res.groups}
+    assert not by["spamA"].safe and by["spamA"].hold == "posts missing on AppView"
+    assert by["meme"].safe
+
+
+def test_many_taken_down_accounts_hold_the_group_and_their_posts_are_not_listed():
+    posts, images = world()
+    accounts = {
+        f"did:plc:s{i}": {"did": f"did:plc:s{i}", "status": "takendown" if i < 2 else None}
+        for i in range(6)
+    }
+    res = run_pass(
+        FakeConn(posts, accounts=accounts),
+        LiveConfig(file_min_accounts=2),
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fake_fetch(images),
+        labels=all_clean,
+        vision=clean_vision,
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    spam = next(g for g in res.groups if g.files[0] == "spamA")
+    assert not spam.safe and spam.hold == "accounts taken down" and not spam.unsafe_reason
+    listed = live.swarm_posts(spam, {}, {"did:plc:s0", "did:plc:s1"})
+    assert len(listed) == 4 and not any("did:plc:s0/" in p.url for p in listed)
+
+
+def test_boosts_are_capped_per_group():
+    posts, images = world()
+    target = posts[0]["uri"]
+    likes = [
+        {
+            "uri": f"at://did:plc:f{i}/app.bsky.feed.like/{i}",
+            "did": f"did:plc:f{i}",
+            "subject_uri": target,
+            "seen_at": T0 + timedelta(seconds=100 + i),
+        }
+        for i in range(30)
+    ]
+    res = run_pass(
+        FakeConn(posts, boosts={"like": likes}),
+        LiveConfig(file_min_accounts=2, likes_per_group=10),
+        dry_run=True,
+        scorer=fake_scorer(),
+        fetch=fake_fetch(images),
+        labels=all_clean,
+        vision=clean_vision,
+        enrich=False,
+        end=T0 + timedelta(hours=12),
+    )
+    spam = next(g for g in res.groups if g.files[0] == "spamA")
+    assert [r["uri"] for r in spam.boosts["like"]] == [r["uri"] for r in likes[:10]]
+    assert res.stats["boosts"]["like"] == 30
+
+
+def test_split_never_reuses_an_id_in_the_same_pass():
+    """A stored 2-picture group splits; the larger part keeps its id, the other gets a new one."""
+    old = PriorState(stable_id("x1"), True, None, None, None, T0, T0 - timedelta(hours=1))
+    x2 = Group(files=["x2"], posts=[post_row(i, f"did:plc:b{i}") for i in range(8)])
+    x1 = Group(files=["x1"], posts=[post_row(i, f"did:plc:a{i}") for i in range(5)])
+    retired = assign_ids([x2, x1], {"x1": [old], "x2": [old]})
+    assert x2.id == stable_id("x1") and x2.prior is old
+    assert x1.id not in (x2.id, "") and x1.priors == [old] and retired == []
+
+
+def test_examples_of_account_and_boost_signals_are_never_served():
+    from swarm.store import detail_from_row, public_report
+
+    sig = lambda fam: SwarmSignal(  # noqa: E731
+        family=fam, name="n", score=1.0, summary="s", examples=["at://did:plc:a/x/1"]
+    )
+    report = SwarmReport(
+        verdict="swarm", signals=[sig("accounts"), sig("boost"), sig("timing"), sig("copy")]
+    )
+    clean = public_report(report)
+    assert [bool(s.examples) for s in clean.signals] == [False, False, True, True]
+    row = {
+        "id": "g",
+        "rep_did": "did:plc:x",
+        "rep_cid": "c",
+        "verdict": "swarm",
+        "score": 1.0,
+        "n_posts": 1,
+        "n_accounts": 1,
+        "report": report.model_dump(mode="json"),
+    }
+    served = detail_from_row(row)
+    assert [bool(s.examples) for s in served.report.signals] == [False, False, True, True]
 
 
 def test_wall_reader_parses_the_reply_and_rejects_other_models():
@@ -576,7 +832,25 @@ def test_wall_reader_parses_the_reply_and_rejects_other_models():
     reader = safety.WallReader(
         "k", base_url="u", model="m", client=client("nemotron-3.5-super-vl", ok)
     )
-    assert reader(picture_bytes(1), "lol") == ("meme", "when the code compiles", False)
+    assert reader(picture_bytes(1)) == ("meme", "when the code compiles", False)
+    sent = []
+    spy = client("nemotron-3.5-super-vl", ok)
+    real_create = spy.chat.completions.create
+    spy.chat.completions.create = lambda **kw: sent.append(kw) or real_create(**kw)
+    safety.WallReader("k", base_url="u", model="m", client=spy)(picture_bytes(1))
+    texts = [
+        p["text"]
+        for m in sent[0]["messages"]
+        if isinstance(m["content"], list)
+        for p in m["content"]
+        if p["type"] == "text"
+    ]
+    assert texts == ["Read this picture and return the JSON object."]  # no post text
+    words = '{"kind": "ad", "caption": "xxx hot milfs", "adult": false, "graphic": false}'
+    reader = safety.WallReader(
+        "k", base_url="u", model="m", client=client("nemotron-3.5-super-vl", words)
+    )
+    assert reader(picture_bytes(1)) == ("ad", None, True)
     bait = '{"kind": "photo", "caption": "", "adult": true}'
     reader = safety.WallReader(
         "k", base_url="u", model="m", client=client("nemotron-3.5-super-vl", bait)
@@ -600,7 +874,7 @@ def test_hash_cache_fetches_each_file_once():
         dry_run=True,
         scorer=fake_scorer(),
         fetch=fetch,
-        labels=lambda u: {},
+        labels=all_clean,
         enrich=False,
         hash_cache=cache,
         end=T0 + timedelta(hours=12),
@@ -637,7 +911,7 @@ def test_accounts_reach_the_scorer():
         dry_run=True,
         scorer=fake_scorer(calls),
         fetch=fake_fetch(images),
-        labels=lambda u: {},
+        labels=all_clean,
         enrich=False,
         end=T0 + timedelta(hours=12),
     )
@@ -695,10 +969,11 @@ def test_open_connection_sets_read_only_option(monkeypatch):
     got = {}
     monkeypatch.setattr(cli.psycopg, "connect", lambda url, **kw: got.update(kw) or "conn")
     cli.open_connection("postgresql:///x", read_only=True)
-    assert got["options"] == "-c default_transaction_read_only=on"
+    assert "-c default_transaction_read_only=on" in got["options"]
+    assert "-c statement_timeout=30s" in got["options"] and "-c lock_timeout=3s" in got["options"]
     got.clear()
     cli.open_connection("postgresql:///x", read_only=False)
-    assert "options" not in got
+    assert "read_only" not in got["options"] and "statement_timeout" in got["options"]
 
 
 def test_duration_parsing():
@@ -720,7 +995,7 @@ def test_real_scorer_scores_a_live_group():
         dry_run=True,
         scorer=score_mod.score_swarm,
         fetch=fake_fetch(images),
-        labels=lambda u: {},
+        labels=all_clean,
         enrich=False,
         end=T0 + timedelta(hours=12),
     )
@@ -809,7 +1084,7 @@ def test_db_dry_run_on_read_only_connection_writes_nothing(db):
             dry_run=True,
             scorer=fake_scorer(),
             fetch=fake_fetch(images),
-            labels=lambda u: {},
+            labels=all_clean,
             enrich=False,
         )
         with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
@@ -820,65 +1095,213 @@ def test_db_dry_run_on_read_only_connection_writes_nothing(db):
     assert (_count(c, "meme_swarms"), _count(c, "picture_hashes")) == before == (0, 0)
 
 
+def kind_vision(images):
+    """spam picture -> an ad, the meme -> a meme, anything else -> adult."""
+    kinds = {"spamA": "ad", "spamB": "ad", "meme": "meme"}
+    return by_bytes(images, lambda cid: (kinds.get(cid, "photo"), None, cid not in kinds))
+
+
 @needs_db
 def test_db_pass_stores_groups_with_stable_ids_and_serves_them(db):
     c, images, posts = db
     fetch = fake_fetch(images)
-    kw = dict(scorer=fake_scorer(), fetch=fetch, labels=lambda u: {}, enrich=False)
+    vision = kind_vision(images)
+    kw = dict(scorer=fake_scorer(), fetch=fetch, labels=all_clean, vision=vision, enrich=False)
     first = run_pass(c, LiveConfig(file_min_accounts=2), **kw)
     assert first.stats["stored"] == 3 and _count(c, "picture_hashes") == 4
     ids = {tuple(g.files): g.id for g in first.groups}
     second = run_pass(c, LiveConfig(file_min_accounts=2), **kw)
     assert {tuple(g.files): g.id for g in second.groups} == ids
-    assert len(fetch.calls) == 4  # hashes came from the table the second time
+    assert len(fetch.calls) == 4 + 2  # hashes from the table; 2 vision reads in pass 1 only
+    assert sorted(vision.reads) == ["meme", "spamA"]
 
     store = SwarmStore(c)
     wall = store.wall()
-    assert [i.verdict for i in wall.items] == ["swarm", "organic"]  # adult one is not listed
+    assert [i.kind for i in wall.items] == ["meme", "ad"]  # memes first; adult one not listed
     spam_id = ids[("spamA", "spamB")]
-    assert wall.items[0].id == spam_id and wall.items[0].headline == "6 accounts · same words"
-    assert wall.items[0].thumb.endswith("/spamA@jpeg") and wall.window_h
+    assert wall.items[1].id == spam_id and wall.items[1].headline == "6 accounts · same words"
+    assert wall.items[1].thumb.endswith("/spamA@jpeg") and wall.window_h
     detail = store.detail(spam_id)
     assert detail.picture.startswith("https://cdn.bsky.app/img/feed_fullsize/")
     assert len(detail.posts) == 6 and detail.posts[0].url.startswith("https://bsky.app/profile/")
     adult_id = ids[("adult",)]
     assert store.detail(adult_id) is None and store.detail(adult_id, include_unsafe=True)
     assert store.wall(verdict="organic").items[0].verdict == "organic"
+    assert store.picture_source(spam_id) == (posts[0]["did"], "spamA")
+    assert store.picture_source(adult_id) is None
 
-    # the lookup's read side
-    index = LiveSwarmIndex(lambda: psycopg.connect(DSN), fetch=fetch)
+    # the lookup's read side: no network (fetch is not called again)
+    index = LiveSwarmIndex(lambda: psycopg.connect(DSN))
+    n_fetch = len(fetch.calls)
     assert index.find_by_cids(["spamB"]).id == spam_id
     assert index.find_by_cids(["adult"]) is None
     upload = picture_bytes(11, size=(640, 480), quality=70)
+    t0 = time.monotonic()
     assert index.find_by_picture(upload).id == spam_id
+    assert index.find_by_picture(picture_bytes(11, size=(320, 240), quality=40)).id == spam_id
+    assert time.monotonic() - t0 < 0.5
     assert index.find_by_picture(picture_bytes(99)) is None
     assert index.find_by_picture(b"not an image") is None
+    assert len(fetch.calls) == n_fetch
 
 
 @needs_db
 def test_db_unsafe_stays_unsafe_and_stale_groups_are_dropped(db):
     c, images, posts = db
     meme_uris = {p["uri"] for p in posts if p["media_hashes"] == ["meme"]}
+    kw = dict(scorer=fake_scorer(), fetch=fake_fetch(images), enrich=False)
+    kw["vision"] = clean_vision
     run_pass(
         c,
         LiveConfig(file_min_accounts=2),
-        scorer=fake_scorer(),
-        fetch=fake_fetch(images),
         labels=lambda us: {u: ({"porn"} if u in meme_uris else set()) for u in us},
-        enrich=False,
+        **kw,
     )
-    run_pass(
-        c,
-        LiveConfig(file_min_accounts=2),
-        scorer=fake_scorer(),
-        fetch=fake_fetch(images),
-        labels=lambda us: {},
-        enrich=False,
-    )
+    run_pass(c, LiveConfig(file_min_accounts=2), labels=all_clean, **kw)
     row = c.execute("SELECT safe, unsafe_reason FROM meme_swarms WHERE files = '{meme}'").fetchone()
     assert row == (False, "label porn")
     c.execute("UPDATE meme_swarms SET updated_at = now() - interval '7 hours'")
     assert SwarmStore(c).drop_stale(6) == 3 and _count(c, "meme_swarms") == 0
+    # the file keeps its mark: the picture coming back is unsafe at once
+    res = run_pass(c, LiveConfig(file_min_accounts=2), labels=all_clean, **kw)
+    meme = next(g for g in res.groups if g.files == ["meme"])
+    assert not meme.safe and meme.unsafe_reason == "label porn"
+
+
+# --- merges, splits, rep changes, freshness: each on its own empty schema -------------------------
+
+
+@pytest.fixture
+def empty_db():
+    with psycopg.connect(DSN, autocommit=True) as c:
+        c.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        for f in [ROOT / "db/schema.sql", *sorted((ROOT / "db/migrations").glob("*.sql"))]:
+            c.execute(f.read_text())
+        now = datetime.now(UTC).replace(microsecond=0)
+        c.execute("SELECT noise_ensure_partitions(%s, %s)", (now - timedelta(hours=3), now))
+        yield c, now - timedelta(minutes=50)
+
+
+def add_post(c, did, rkey, at, files, text="look at this"):
+    c.execute("INSERT INTO accounts (did) VALUES (%s) ON CONFLICT DO NOTHING", (did,))
+    uri = f"at://{did}/app.bsky.feed.post/{rkey}"
+    c.execute(
+        """INSERT INTO posts (uri, did, text, langs, seen_at, embed_kind, media_hashes, tags)
+           VALUES (%s, %s, %s, '{en}', %s, 'images', %s, '{}')""",
+        (uri, did, text, at, list(files)),
+    )
+    return uri
+
+
+@needs_db
+def test_db_merge_keeps_unsafe_of_the_group_it_retires(empty_db):
+    """S (file A, safe, read) and U (file C, same picture, labelled porn; its thumbnail failed
+    once) merge: U's id is retired, but the merged group stays unsafe."""
+    c, base = empty_db
+    add_post(c, "did:plc:a0", "a", base, ["A"])
+    for i in range(15):
+        add_post(c, f"did:plc:b{i}", "b", base + timedelta(minutes=20, seconds=i), ["A"])
+    img = {"A": picture_bytes(11), "C": picture_bytes(11, size=(300, 225), quality=60)}
+    c_uris: set[str] = set()
+    labels = lambda us: {u: ({"porn"} if u in c_uris else set()) for u in us}  # noqa: E731
+    kw = dict(scorer=fake_scorer(), labels=labels, vision=clean_vision, enrich=False)
+    cfg = LiveConfig(file_min_accounts=3)
+    run_pass(c, cfg, fetch=fake_fetch(img), hash_cache=MemoryHashCache(), **kw)
+    for i in range(5):
+        at = base + timedelta(minutes=10, seconds=i)
+        c_uris.add(add_post(c, f"did:plc:c{i}", "c", at, ["C"]))
+    run_pass(c, cfg, fetch=fake_fetch({"A": img["A"]}), hash_cache=MemoryHashCache(), **kw)
+    rows = c.execute("SELECT files, safe, unsafe_reason FROM meme_swarms ORDER BY created_at")
+    assert rows.fetchall() == [(["A"], True, None), (["C"], False, "label porn")]
+    res = run_pass(c, cfg, fetch=fake_fetch(img), hash_cache=MemoryHashCache(), **kw)
+    assert res.stats["retired"] == 1
+    rows = c.execute("SELECT files, safe, unsafe_reason FROM meme_swarms").fetchall()
+    assert rows == [(["A", "C"], False, "label porn")]
+    assert SwarmStore(c).wall().items == []
+    marks = c.execute("SELECT cid, unsafe_reason FROM picture_hashes ORDER BY cid").fetchall()
+    assert marks == [("A", "label porn"), ("C", "label porn")]
+
+
+def _three_picture_post(c, base, files):
+    for i in range(5):
+        add_post(c, f"did:plc:m{i}", "m", base + timedelta(seconds=i), files)
+
+
+@needs_db
+def test_db_rep_change_after_a_vision_read_needs_a_new_read(empty_db):
+    """A 3-picture post is one group, vision reads its rep X1. Then more accounts post X2 alone:
+    the X2 group keeps the stored id, but X2 was never read, so it is read now (adult here)."""
+    c, base = empty_db
+    files = ["X1", "X2", "X3"]
+    img = {f: picture_bytes(30 + i) for i, f in enumerate(files)}
+    vision = by_bytes(img, lambda cid: ("photo", None, cid == "X2"))
+    kw = dict(scorer=fake_scorer(), labels=all_clean, vision=vision, enrich=False)
+    kw.update(fetch=fake_fetch(img), hash_cache=MemoryHashCache())
+    _three_picture_post(c, base, files)
+    run_pass(c, LiveConfig(file_min_accounts=3), **kw)
+    assert vision.reads == ["X1"]
+    for i in range(3):
+        add_post(c, f"did:plc:x{i}", "x", base + timedelta(minutes=5, seconds=i), ["X2"])
+    res = run_pass(c, LiveConfig(file_min_accounts=3), **kw)
+    x2 = next(g for g in res.groups if g.files == ["X2"])
+    assert vision.reads == ["X1", "X2"] and not x2.safe and x2.unsafe_reason == "vision: adult"
+    thumbs = [i.thumb.rsplit("/", 1)[1] for i in SwarmStore(c).wall().items]
+    assert thumbs == ["X1@jpeg"]
+
+
+@needs_db
+def test_db_rep_change_without_budget_is_held(empty_db):
+    c, base = empty_db
+    files = ["X1", "X2"]
+    img = {f: picture_bytes(30 + i) for i, f in enumerate(files)}
+    vision = by_bytes(img, lambda cid: ("photo", None, False))
+    kw = dict(scorer=fake_scorer(), labels=all_clean, vision=vision, enrich=False)
+    kw.update(fetch=fake_fetch(img), hash_cache=MemoryHashCache())
+    _three_picture_post(c, base, files)
+    run_pass(c, LiveConfig(file_min_accounts=3), **kw)
+    for i in range(3):
+        add_post(c, f"did:plc:x{i}", "x", base + timedelta(minutes=5, seconds=i), ["X2"])
+    res = run_pass(c, LiveConfig(file_min_accounts=3, vision_budget=0), **kw)
+    ids = [g.id for g in res.groups]
+    assert len(set(ids)) == len(ids) == 2  # the split never stores two groups under one id
+    x2 = next(g for g in res.groups if g.files == ["X2"])
+    assert not x2.safe and x2.hold == "vision pending"
+    assert _count(c, "meme_swarms") == 2
+
+
+@needs_db
+def test_db_wall_skips_near_duplicates_and_stale_groups(empty_db):
+    c, base = empty_db
+    img = {
+        "ad1": picture_bytes(11),
+        "ad2": picture_bytes(11, size=(480, 400)),  # another aspect: never merged, hashes alike
+        "m1": picture_bytes(12),
+    }
+    for f in img:
+        for i in range(5):
+            add_post(c, f"did:plc:{f}{i}", f, base + timedelta(seconds=i), [f])
+    kinds = {"ad1": "ad", "ad2": "ad", "m1": "meme"}
+    vision = by_bytes(img, lambda cid: (kinds[cid], None, False))
+    res = run_pass(
+        c,
+        LiveConfig(file_min_accounts=3),
+        scorer=fake_scorer(),
+        fetch=fake_fetch(img),
+        labels=all_clean,
+        vision=vision,
+        enrich=False,
+    )
+    assert len(res.groups) == 3 and res.stats["wall"] == 3
+    store = SwarmStore(c)
+    items = store.wall().items
+    assert [i.kind for i in items] == ["meme", "ad"]
+    ad = next(g for g in res.groups if g.files == ["ad1"])
+    c.execute(
+        "UPDATE meme_swarms SET updated_at = now() - interval '30 minutes' WHERE id = %s", (ad.id,)
+    )
+    assert [i.kind for i in store.wall().items] == ["meme", "ad"]  # the other ad is listed now
+    assert store.detail(ad.id) is None and store.picture_source(ad.id) is None
+    assert SwarmStore(c, fresh_min=60).detail(ad.id) is not None
 
 
 def test_store_reads_empty_without_the_table():

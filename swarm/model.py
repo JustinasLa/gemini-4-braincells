@@ -78,7 +78,8 @@ class SwarmSignal(BaseModel):
     # a few plain words with the numbers, shown as a chip: "31 accounts in 4 min"
     summary: str
     numbers: dict[str, float | int | str | None] = Field(default_factory=dict)
-    # Sighting ids that show it (<= 12), for links
+    # Sighting ids that show it (<= 12), for links. Only timing and copy signals that point to a
+    # swarm carry them: accounts and boost examples would single out accounts.
     examples: list[str] = Field(default_factory=list)
 
 

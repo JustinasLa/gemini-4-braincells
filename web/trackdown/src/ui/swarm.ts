@@ -1,8 +1,9 @@
 // Meme swarms on screen: the strip on a meme result (a dot timeline, the two-word answer, a few
-// chips), the "Pushed right now" wall on the home page and the page of one live picture.
+// chips), the "Spreading now" wall on the home page and the page of one live picture (opened in-app:
+// a wall tile or "Live on Bluesky" calls the page's `onLink`, main.ts keeps the history).
 // Pictures first, almost no words: a verdict describes the group of posts, never one account, so
 // no verdict or flag ever sits next to a handle.
-import { axisLabels, fetchSwarmDetail, fetchSwarmWall, firstWords, GROUP_FILLS, layoutTimeline, swarmAria, swarmChips, VERDICT, type SwarmCard, type SwarmDetail, type SwarmReport } from "../data/swarm";
+import { axisLabels, fetchSwarmDetail, fetchSwarmWall, firstWords, GROUP_FILLS, layoutTimeline, postStamp, swarmAria, swarmChips, VERDICT, type SwarmCard, type SwarmDetail, type SwarmReport } from "../data/swarm";
 import { IMAGE_TYPES } from "../data/lookup";
 import { esc } from "./format";
 import "./swarm.css";
@@ -26,7 +27,8 @@ const epoch = (iso: string | null | undefined) => (iso ? Date.parse(iso) / 1000 
 
 /** the dot timeline: one dot per sighting, the burst on a band of the verdict's colour */
 function plot(report: SwarmReport): string {
-  const points = report.timeline ?? [];
+  const points = (report.timeline ?? []).filter((p) => p && Number.isFinite(p.t));
+  // no readable time at all: no plot (an axis of "NaN" says nothing)
   if (!points.length) return "";
   const cols = columns(points.length);
   const { dots, burst } = layoutTimeline(points, { cols, rows: ROWS });
@@ -42,7 +44,7 @@ function plot(report: SwarmReport): string {
     : `<circle cx="${cx(d.col)}" cy="${cy(d.row)}" r="${PITCH * 0.38}" fill="${fill(d)}"/>`).join("");
   const top = burst ? Math.max(...dots.filter((d) => d.col >= burst[0] && d.col <= burst[1]).map((d) => d.row + 1)) : 0;
   const band = burst ? `<rect class="sw-band" x="${burst[0] * PITCH}" y="${h - top * PITCH}" width="${(burst[1] - burst[0] + 1) * PITCH}" height="${top * PITCH}"/>` : "";
-  const times = points.map((p) => p.t).filter(Number.isFinite);
+  const times = points.map((p) => p.t);
   const first = Number.isFinite(epoch(report.first_at)) ? epoch(report.first_at) : Math.min(...times);
   const last = Number.isFinite(epoch(report.last_at)) ? epoch(report.last_at) : Math.max(...times);
   const [from, to] = axisLabels(first, last);
@@ -65,7 +67,7 @@ export function swarmStrip(report: SwarmReport, opts: { live?: string | null; st
     <div class="sw-say">
       ${chips.length ? `<ul class="sw-chips">${chips.map((c) => `<li>${c.label ? `<b>${esc(c.label)}</b>` : ""}${esc(c.summary)}</li>`).join("")}</ul>` : why}
       ${note}
-      ${opts.live ? `<a class="sw-live" href="${esc(swarmHref(opts.live))}">Live on Bluesky →</a>` : ""}
+      ${opts.live ? `<a class="sw-live" href="${esc(swarmHref(opts.live))}" data-swarm="${esc(opts.live)}">Live on Bluesky →</a>` : ""}
     </div>
   </section>`;
 }
@@ -74,21 +76,21 @@ export function swarmStrip(report: SwarmReport, opts: { live?: string | null; st
 
 function tile(card: SwarmCard): string {
   const v = VERDICT[card.verdict] ?? VERDICT.unclear;
-  return `<a class="sw-tile" href="${esc(swarmHref(card.id))}" style="--vc:${v.css}" aria-label="${esc(`${v.word}: ${card.n_accounts} accounts`)}">
+  return `<a class="sw-tile" href="${esc(swarmHref(card.id))}" data-swarm="${esc(card.id)}" style="--vc:${v.css}" aria-label="${esc(`${v.word}: ${card.n_accounts} accounts`)}">
     <img src="${esc(card.thumb)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false">
-    <b>${card.n_accounts}</b>
+    <b>${esc(String(card.n_accounts))}</b>
   </a>`;
 }
 
-/** "Pushed right now": square thumbnails of pictures many Bluesky accounts posted. Nothing at all
- *  when the list is empty or the API does not answer. */
+/** "Spreading now": square thumbnails of pictures many Bluesky accounts posted, in the API's order;
+ *  each badge's colour is its verdict. Nothing at all when the list is empty or the API does not answer. */
 export async function mountSwarmWall(home: HTMLElement): Promise<void> {
   const cards = await fetchSwarmWall(24);
   if (!cards.length || !home.isConnected || home.classList.contains("out")) return;
   const el = document.createElement("section");
   el.className = "sw-wall";
   el.setAttribute("aria-labelledby", "sw-wall-h");
-  el.innerHTML = `<h2 id="sw-wall-h">Pushed right now</h2><div class="sw-tiles">${cards.map(tile).join("")}</div>`;
+  el.innerHTML = `<h2 id="sw-wall-h">Spreading now</h2><div class="sw-tiles">${cards.map(tile).join("")}</div>`;
   // a picture that will not load takes its tile with it; no tiles left, no wall
   el.addEventListener("error", (event) => {
     const img = event.target;
@@ -110,8 +112,10 @@ function readable(url: string): boolean {
 }
 
 /** the picture as a file the upload path takes (JPEG, PNG, WebP, GIF); anything else is redrawn as a PNG */
-async function pictureFile(url: string): Promise<File> {
-  const blob = await (await fetch(url)).blob();
+async function pictureFile(url: string, signal: AbortSignal): Promise<File> {
+  const r = await fetch(url, { signal });
+  if (!r.ok) throw new Error(`picture ${r.status}`);
+  const blob = await r.blob();
   if (IMAGE_TYPES.includes(blob.type)) return new File([blob], "picture", { type: blob.type });
   const img = new Image();
   img.src = URL.createObjectURL(blob);
@@ -127,16 +131,12 @@ async function pictureFile(url: string): Promise<File> {
   }
 }
 
-const clock = (iso: string | null) => {
-  const d = iso ? new Date(iso) : null;
-  return d && !Number.isNaN(d.getTime()) ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "";
-};
 function postRow(post: SwarmDetail["posts"][0]): string {
   const words = firstWords(post.text, 9);
   const handle = post.handle ? `<span class="sw-h">${esc(post.handle)}</span>` : "";
   // a picture posted without words: the handle takes the line (no lone dot far from its handle)
   const line = words ? `<span class="sw-t">${esc(words)}</span>${handle}` : handle || `<span class="sw-t">·</span>`;
-  return `<li><a href="${esc(post.url)}" target="_blank" rel="noopener noreferrer"><time>${esc(clock(post.at))}</time>${line}</a></li>`;
+  return `<li><a href="${esc(post.url)}" target="_blank" rel="noopener noreferrer"><time>${esc(postStamp(post.at))}</time>${line}</a></li>`;
 }
 
 export function swarmPageHtml(detail: SwarmDetail, canTrace: boolean): string {
@@ -160,8 +160,12 @@ export function swarmPageHtml(detail: SwarmDetail, canTrace: boolean): string {
   </div>`;
 }
 
-/** The page of one live picture over the map, in the story's layer. `onTrace` gets the picture as a file. */
-export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void) {
+const TRACE_TIMEOUT_MS = 15000;
+
+/** The page of one live picture over the map, in the story's layer. `onTrace` gets the picture as a
+ *  file. `onLink` gets the id of a plain click on a wall tile or "Live on Bluesky" (anywhere on the
+ *  page), so the caller opens it in-app; a click with a modifier key opens the link as usual. */
+export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void, onLink: (id: string) => void) {
   const el = document.createElement("section");
   el.className = "story sw-page";
   el.setAttribute("aria-label", "Live picture");
@@ -169,12 +173,29 @@ export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void) 
   el.tabIndex = -1;
   app.appendChild(el);
   let shown: SwarmDetail | null = null;
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-swarm]");
+    if (!link?.dataset.swarm) return;
+    event.preventDefault();
+    onLink(link.dataset.swarm);
+  });
   el.addEventListener("click", async (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-swarm-trace]");
-    if (!button || !shown) return;
+    const detail = shown;
+    if (!button || !detail) return;
     button.disabled = true;
-    try { onTrace(await pictureFile(shown.picture)); }
-    catch { button.closest(".st-actions")?.remove(); } // unreadable after all: no button rather than an error
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), TRACE_TIMEOUT_MS);
+    try {
+      const file = await pictureFile(detail.picture, ctl.signal);
+      if (shown === detail && !el.hidden) onTrace(file); // the reader may have gone Back meanwhile
+    } catch {
+      if (ctl.signal.aborted) button.disabled = false; // too slow this time: it can be tried again
+      else button.closest(".st-actions")?.remove(); // unreadable after all: no button rather than an error
+    } finally {
+      clearTimeout(timer);
+    }
   });
   el.addEventListener("error", (event) => {
     if (!(event.target instanceof HTMLImageElement)) return;
@@ -182,18 +203,21 @@ export function mountSwarmPage(app: HTMLElement, onTrace: (file: File) => void) 
     el.querySelector("[data-swarm-trace]")?.closest(".st-actions")?.remove(); // nothing left to trace
   }, true);
   return {
-    /** false when the picture is not there (404, API down): the caller shows the home instead */
-    async open(id: string): Promise<boolean> {
+    /** "missing" when the picture is not there (404, API down); "stale" when `current()` says the
+     *  reader opened something else while it loaded (nothing is shown then) */
+    async open(id: string, current: () => boolean = () => true): Promise<"shown" | "missing" | "stale"> {
       const detail = await fetchSwarmDetail(id);
-      if (!detail) return false;
+      if (!current()) return "stale";
+      if (!detail) return "missing";
       shown = detail;
       el.innerHTML = swarmPageHtml(detail, readable(detail.picture));
       el.hidden = false;
       app.dataset.story = "story";
       el.scrollTop = 0;
       el.focus();
-      return true;
+      return "shown";
     },
+    isOpen: () => !el.hidden,
     hide() {
       if (el.hidden) return;
       el.hidden = true;

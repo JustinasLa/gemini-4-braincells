@@ -49,6 +49,11 @@ MAYBE_DHASH = 16
 # no single pixel by more than PIXEL_MAX_LIMIT (0-255).
 PIXEL_BLOCK_LIMIT = 4.0
 PIXEL_MAX_LIMIT = 20.0
+# An uploaded picture in the looser hash band (MAYBE_*) is verified against the stored 64x64 pixels
+# of the group's file, offline: a re-encode or resize by the uploader is let through, a crop or
+# another picture on the same template is not.
+VERIFY_BLOCK_LIMIT = 5.0
+VERIFY_MAX_LIMIT = 28.0
 TINY_SIDE = 64
 # Grayscale standard deviation below this: too little detail for a hash to mean anything.
 MIN_DETAIL = 8.0
@@ -109,23 +114,28 @@ def pixel_distance(a: PictureHash, b: PictureHash) -> tuple[float, float] | None
     return float(d.mean(axis=(1, 3)).max()), float(d.max())
 
 
-def pixels_close(a: PictureHash, b: PictureHash) -> bool:
+def pixels_close(
+    a: PictureHash,
+    b: PictureHash,
+    block: float = PIXEL_BLOCK_LIMIT,
+    worst: float = PIXEL_MAX_LIMIT,
+) -> bool:
     dist = pixel_distance(a, b)
-    return dist is not None and dist[0] <= PIXEL_BLOCK_LIMIT and dist[1] <= PIXEL_MAX_LIMIT
+    return dist is not None and dist[0] <= block and dist[1] <= worst
 
 
 def hamming(a: str, b: str) -> int:
     return (int(a, 16) ^ int(b, 16)).bit_count()
 
 
-def _aspect_close(a: PictureHash, b: PictureHash) -> bool:
+def aspect_close(a: PictureHash, b: PictureHash) -> bool:
     return abs(a.aspect / b.aspect - 1) <= ASPECT_TOLERANCE
 
 
 def same_picture(
     a: PictureHash, b: PictureHash, *, phash: int = GROUP_PHASH, dhash: int = GROUP_DHASH
 ) -> bool:
-    if not (a.detailed and b.detailed and _aspect_close(a, b)):
+    if not (a.detailed and b.detailed and aspect_close(a, b)):
         return False
     if hamming(a.phash, b.phash) > phash or hamming(a.dhash, b.dhash) > dhash:
         return False
@@ -172,23 +182,38 @@ Fetch = Callable[[str], bytes | None]
 
 
 class ThumbFetcher:
-    """GET thumbnails from the public Bluesky CDN, a few at a time. None when unavailable."""
+    """GET thumbnails from the public Bluesky CDN, a few at a time. None when unavailable.
+    A body over MAX_THUMB_BYTES is cut off while it streams, not after."""
 
     def __init__(self, client: httpx.Client | None = None, *, workers: int = 16):
         self._client = client or httpx.Client(
-            timeout=15, follow_redirects=True, headers=UA, limits=httpx.Limits(max_connections=32)
+            timeout=httpx.Timeout(10.0, connect=5.0),
+            follow_redirects=True,
+            headers=UA,
+            limits=httpx.Limits(max_connections=32),
         )
         self.workers = workers
+
+    def _get(self, url: str) -> tuple[int, bytes | None]:
+        with self._client.stream("GET", url) as r:
+            if r.status_code != 200:
+                return r.status_code, None
+            data = bytearray()
+            for chunk in r.iter_bytes():
+                data += chunk
+                if len(data) > MAX_THUMB_BYTES:
+                    return 200, None
+            return 200, bytes(data)
 
     def __call__(self, url: str) -> bytes | None:
         for _ in range(2):
             try:
-                r = self._client.get(url)
+                status, data = self._get(url)
             except httpx.HTTPError:
                 continue
-            if r.status_code == 200 and len(r.content) <= MAX_THUMB_BYTES:
-                return r.content
-            if r.status_code < 500 and r.status_code != 429:
+            if status == 200:
+                return data
+            if status < 500 and status != 429:
                 return None
         return None
 

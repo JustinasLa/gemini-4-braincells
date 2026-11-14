@@ -24,8 +24,11 @@ services:
       resources:
         limits: { cpus: "1.5", memory: 4G }
 
-  # Same limits as the base file; listed so the VPS budget above stays complete in one place.
+  # Meme swarms: 0.5 CPU / 768M (same as the base file). The VPS has 2 CPUs, one of which signals
+  # keeps busy, and about 4 GB available (14 Nov), so the swarm worker gets the smallest share. A
+  # pass is ~3 s of SQL plus thumbnail hashing, scoring and vision reads, cut off by a 4 min
+  # deadline (swarm/live.py LiveConfig.deadline_s).
   swarm:
     deploy:
       resources:
-        limits: { cpus: "1.0", memory: 1G }
+        limits: { cpus: "0.5", memory: 768M }

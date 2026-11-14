@@ -101,11 +101,11 @@ function origin(family: Family, members: Map<string, FamilyMember>): string {
 }
 
 function spread(trace: TraceCase & { lookup: LookupResult }): string {
-  // the swarm strip answers who is pushing the picture: no second answer here
-  if (trace.lookup.state === "running" || trace.lookup.swarm) return "";
-  return hasVerdict(trace)
-    ? `<p class="st-call" style="--vc:${STATUS[trace.status].css}"><b>${esc(STATUS[trace.status].word)}</b> ${esc(STATUS[trace.status].tag)}, in a group we watch</p>`
-    : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
+  if (trace.lookup.state === "running") return "";
+  // a group we watch is the lookup's own answer: it always shows
+  if (hasVerdict(trace)) return `<p class="st-call" style="--vc:${STATUS[trace.status].css}"><b>${esc(STATUS[trace.status].word)}</b> ${esc(STATUS[trace.status].tag)}, in a group we watch</p>`;
+  // with a swarm report the strip below answers who is pushing the picture: no "No campaign found" over it
+  return trace.lookup.swarm ? "" : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
 }
 
 /** What a picture trace found, worked out once for the result page and for the map's panel. */

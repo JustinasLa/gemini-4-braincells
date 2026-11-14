@@ -3,8 +3,11 @@
 -- scores each picture's posts for swarm behaviour and stores one row per picture here. The API
 -- serves the wall (GET /api/swarms) and the detail (GET /api/swarms/{id}) from this table.
 
--- Perceptual hashes of thumbnails, so a file is fetched from the CDN once. phash/dhash are NULL
--- when the thumbnail could not be fetched or decoded (error says why; retried after a while).
+-- Per file (blob CID): perceptual hashes of its thumbnail, so a file is fetched from the CDN once,
+-- and whether the file was ever judged unsafe for the public wall. phash/dhash are NULL when the
+-- thumbnail could not be fetched or decoded (error says why; retried after a while), or when the
+-- row only records unsafe_reason (error NULL: the hash is still fetched). unsafe_reason is sticky:
+-- it survives group merges, splits, id changes and stale drops, and such rows are never pruned.
 CREATE TABLE IF NOT EXISTS picture_hashes (
     cid         TEXT PRIMARY KEY,           -- Bluesky blob CID (equal CID = same file)
     did         TEXT NOT NULL,              -- an account that posted it (CDN address)
@@ -15,7 +18,9 @@ CREATE TABLE IF NOT EXISTS picture_hashes (
     height      INTEGER,
     tiny        BYTEA,                      -- 64x64 grayscale pixels: verifies a hash match
     error       TEXT,
-    fetched_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    fetched_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    unsafe_reason TEXT,                     -- set once, never cleared ("label porn", "vision: adult")
+    unsafe_at   TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS picture_hashes_fetched_idx ON picture_hashes (fetched_at);
 
@@ -39,9 +44,10 @@ CREATE TABLE IF NOT EXISTS meme_swarms (
     safe               BOOLEAN NOT NULL DEFAULT false,  -- shown on the public wall
     unsafe_reason      TEXT,
     labels_checked_at  TIMESTAMPTZ,
-    kind               TEXT,                -- meme | ad | photo | screenshot | other (vision model)
-    caption            TEXT,                -- text on the picture (vision model)
+    kind               TEXT,                -- meme | ad | photo | screenshot | other (vision of vision_cid)
+    caption            TEXT,                -- text on the picture (vision of vision_cid)
     vision_at          TIMESTAMPTZ,
+    vision_cid         TEXT,                -- the file the vision read saw: counts only while = rep_cid
     window_h           REAL,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()

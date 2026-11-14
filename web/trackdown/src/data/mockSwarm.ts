@@ -1,7 +1,7 @@
 // Development mock of the meme swarm API (`?mockSwarm`, dev server only): a wall, three detail
 // pages (a clear swarm, an organic spread, too few to tell) and the swarm fields of a lookup.
 // Every picture is drawn here as a data URL; every account and link is fictional.
-import type { SwarmAction, SwarmCard, SwarmDetail, SwarmPost, SwarmReport, SwarmSignal, SwarmTimelinePoint, SwarmVerdict, SwarmWall } from "./swarm";
+import type { SwarmAction, SwarmCard, SwarmDetail, SwarmLiveRef, SwarmPost, SwarmReport, SwarmSignal, SwarmTimelinePoint, SwarmVerdict, SwarmWall } from "./swarm";
 
 type Case = "swarm" | "organic" | "unclear";
 
@@ -142,10 +142,12 @@ export function mockDetail(id: string): SwarmDetail | null {
 }
 
 /** the swarm fields of a mock meme lookup: `?mockSwarm=organic|unclear|none`, a swarm otherwise */
-export function mockLookupSwarm(flag: string | null): { swarm: SwarmReport | null; swarm_live: SwarmDetail | null; swarm_sample: SwarmReport | null } {
+export function mockLookupSwarm(flag: string | null): { swarm: SwarmReport | null; swarm_live: SwarmLiveRef | null; swarm_sample: SwarmReport | null } {
   if (flag === "none") return { swarm: null, swarm_live: null, swarm_sample: null };
   const kind: Case = flag === "organic" || flag === "unclear" ? flag : "swarm";
   const live = kind === "swarm" ? mockDetail("mock-swarm") : null;
   const sample = report(kind, "sample", nowS());
-  return { swarm: live?.report ?? sample, swarm_live: live, swarm_sample: sample };
+  // the lookup carries only a pointer to the live group, as the API does (swarm.model.SwarmLiveRef)
+  const ref = live ? { id: live.id, verdict: live.verdict, n_accounts: live.n_accounts } : null;
+  return { swarm: live?.report ?? sample, swarm_live: ref, swarm_sample: sample };
 }

@@ -1,6 +1,7 @@
 """FastAPI dependencies. Tests override these with fakes (app.dependency_overrides)."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 
 import psycopg
 from fastapi import HTTPException
@@ -21,13 +22,26 @@ def get_store() -> Iterator[Store]:
         raise HTTPException(503, "database unavailable") from exc
 
 
-def get_swarm_store() -> Iterator[SwarmStore]:
-    """meme_swarms reads (api/routes/swarms.py); a missing table reads as empty."""
+@contextmanager
+def swarm_store_session() -> Iterator[SwarmStore]:
+    """A meme_swarms reader on its own short connection; a missing table reads as empty."""
     try:
         with connect() as conn:
             yield SwarmStore(conn)
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
+
+
+def get_swarm_store() -> Iterator[SwarmStore]:
+    """meme_swarms reads (api/routes/swarms.py), connection held for the request."""
+    with swarm_store_session() as store:
+        yield store
+
+
+def get_swarm_sessions() -> Callable[[], AbstractContextManager[SwarmStore]]:
+    """Opens a reader only for as long as a `with` needs it: the picture route lets the
+    connection go before it waits on the CDN."""
+    return swarm_store_session
 
 
 _checker: SourceChecker | None = None

@@ -5,7 +5,12 @@ A group is NOT safe when any of these holds:
 - Bluesky's AppView labels a representative post or its author porn / sexual / nudity /
   graphic-media (and the related gore, nsfl, sexual-figurative, or the moderation label !hide),
   either from Bluesky's moderation service or the author's own self-label;
-- the vision model, when it read the picture, flagged it adult.
+- the vision model, when it read the picture, flagged it adult or graphic, or the text it read on
+  the picture has adult words.
+
+A group is also kept off the wall, without a reason that sticks ("held"), while its representative
+posts could not be checked or are missing from the AppView (deleted or taken down), and while the
+vision model has not read its current picture (swarm/live.py).
 
 Unsafe groups are still real swarms: they are stored and scored, but the wall never lists them and
 their detail page is a 404. The rule is deliberately one-sided: hiding a harmless meme costs little,
@@ -79,29 +84,43 @@ def _label_values(obj: dict | None) -> set[str]:
     return {v for v in out if isinstance(v, str)}
 
 
-def fetch_labels(uris: list[str], client: httpx.Client | None = None) -> dict[str, set[str]]:
-    """{post uri: label values on the post and on its author} from the public AppView.
+class LabelResult(dict):
+    """{post uri: label values} for exactly the posts the AppView returned. `failed`: uris whose
+    request failed (not checked). A uri in neither was checked but not returned: deleted or taken
+    down. Callers must treat both kinds of absence as "not known to be safe"."""
 
-    Posts the AppView doesn't return (deleted, taken down) are left out. Network errors leave the
-    affected chunk out too; the caller decides what an unchecked group means.
+    def __init__(self, *args, failed: set[str] | None = None, **kw) -> None:
+        super().__init__(*args, **kw)
+        self.failed: set[str] = set(failed or ())
+
+
+def fetch_labels(uris: list[str], client: httpx.Client | None = None) -> LabelResult:
+    """Label values on each post and on its author from the public AppView (see LabelResult).
+
+    Network errors and non-200 answers never raise: the chunk's uris go to `failed`.
     """
     own = client is None
-    client = client or httpx.Client(timeout=10, headers=UA)
-    out: dict[str, set[str]] = {}
+    client = client or httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), headers=UA)
+    out = LabelResult()
     try:
         for i in range(0, len(uris), 25):
             chunk = uris[i : i + 25]
             try:
                 r = client.get(GET_POSTS, params=[("uris", u) for u in chunk])
-            except httpx.HTTPError as exc:
+                if r.status_code != 200:
+                    log.warning("getPosts HTTP %s", r.status_code)
+                    out.failed.update(chunk)
+                    continue
+                posts = r.json().get("posts") or []
+            except (httpx.HTTPError, ValueError) as exc:
                 log.warning("getPosts failed: %s", exc)
+                out.failed.update(chunk)
                 continue
-            if r.status_code != 200:
-                log.warning("getPosts HTTP %s", r.status_code)
-                continue
-            for post in r.json().get("posts") or []:
-                labels = _label_values(post) | _label_values(post.get("author"))
-                out[post.get("uri", "")] = labels
+            asked = set(chunk)
+            for post in posts:
+                if not isinstance(post, dict) or post.get("uri") not in asked:
+                    continue
+                out[post["uri"]] = _label_values(post) | _label_values(post.get("author"))
     finally:
         if own:
             client.close()
@@ -153,12 +172,12 @@ class WallReader:
     kind, caption and a stricter adult flag than media/'s evidence prompt (which only flags
     nudity and sex: swimwear-selfie bait networks pass it). Returns (kind, caption, adult)."""
 
-    def __init__(self, api_key: str, *, base_url: str, model: str, client=None, timeout_s=60.0):
+    def __init__(self, api_key: str, *, base_url: str, model: str, client=None, timeout_s=30.0):
         from openai import OpenAI
 
         self.model = model
         self._client = client or OpenAI(
-            api_key=api_key, base_url=base_url, timeout=timeout_s, max_retries=1
+            api_key=api_key, base_url=base_url, timeout=timeout_s, max_retries=0
         )
 
     @classmethod
@@ -177,14 +196,13 @@ class WallReader:
             )
         return None
 
-    def __call__(self, data: bytes, context: str = "") -> tuple[str | None, str | None, bool]:
+    def __call__(self, data: bytes) -> tuple[str | None, str | None, bool]:
+        """Only the picture goes to the model: post text is written by the accounts being judged
+        and could steer the answer."""
         import base64
 
         from media.nemotron import NotVisionModelError, is_super_vl_model, parse_content
 
-        text = "Read this picture and return the JSON object."
-        if context:
-            text += f"\nText of one post that carried it (context only): {context[:300]}"
         url = "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")
         response = self._client.chat.completions.create(
             model=self.model,
@@ -193,7 +211,7 @@ class WallReader:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": text},
+                        {"type": "text", "text": "Read this picture and return the JSON object."},
                         {"type": "image_url", "image_url": {"url": url}},
                     ],
                 },
@@ -210,4 +228,6 @@ class WallReader:
         kind = payload.get("kind") if payload.get("kind") in WALL_KINDS else "other"
         caption = str(payload.get("caption") or "").strip()[:300] or None
         adult = payload.get("adult") is not False or payload.get("graphic") is True
+        if not adult and caption and text_marker(caption):
+            adult = True  # adult words written on the picture
         return kind, None if adult else caption, adult

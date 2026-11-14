@@ -88,6 +88,8 @@ services:
 
   # Meme swarms: pictures many accounts posted in the last 24 h, scored for swarm behaviour every
   # 5 min -> meme_swarms (GET /api/swarms). Reads posts/reposts/likes; fetches CDN thumbnails.
+  # Needs a Nemotron key in .env for anything new to reach the public wall; set
+  # SWARM_WALL_WITHOUT_VISION=1 only to show groups without a vision read (not for a demo).
   swarm:
     build: { context: .., dockerfile: Dockerfile }
     command: ["python", "-m", "swarm", "run"]
@@ -100,7 +102,7 @@ services:
       migrate: { condition: service_completed_successfully }
     deploy:
       resources:
-        limits: { cpus: "1.0", memory: 1G }
+        limits: { cpus: "0.5", memory: 768M }
     healthcheck:
       # Healthy while the database answers (a quiet day can leave nothing new to write).
       test: ["CMD", "python", "-c", "import os, psycopg; psycopg.connect(os.environ['DATABASE_URL']).execute('SELECT 1')"]

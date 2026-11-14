@@ -8,9 +8,11 @@ our firehose saw in 24 h, already scored) is kept too, and shown when it has mor
 accounts than the sample.
 
 Pure CPU apart from one optional batched Bluesky getProfiles call and the live index query,
-all inside a hard cap (SWARM_CAP_S). It never fails the lookup and never changes `status`,
-`origin_id` or anything else: the report is additional evidence about the group of posts,
-never a label on one account.
+all inside a hard cap (SWARM_CAP_S, never into the primary reading's reserve). The sample's
+report is published as soon as it is scored; the live query has its own shorter limit and can
+only add to it. The lookup keeps a small reference to the live group (`SwarmLiveRef`), not the
+group. It never fails the lookup and never changes `status`, `origin_id` or anything else: the
+report is additional evidence about the group of posts, never a label on one account.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ import httpx
 
 from lookup.models import Account, Edge, LookupResult, Post
 from lookup.threadvariants import _media_key
-from swarm.model import AccountInfo, Sighting, SwarmDetail, SwarmReport
+from swarm.model import AccountInfo, Sighting, SwarmDetail, SwarmLiveRef, SwarmReport
 
 if TYPE_CHECKING:
     from lookup.service import Lookup
@@ -36,6 +38,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 SWARM_CAP_S = 2.0  # the whole step, getProfiles and the live index included
+LIVE_CAP_S = 1.0  # the live index query, beside the sample (it only adds to the result)
+MIN_LEFT_S = 0.3  # less time than this before the reading's reserve: the step is skipped
 PROFILES_PER_CALL = 25  # app.bsky.actor.getProfiles' own limit
 PROFILES_CALLS = 2
 PROFILES_CAP_S = 1.2  # one getProfiles call; the scoring needs the rest of the cap
@@ -148,21 +152,46 @@ def _target(p: Post, rel: str, edges: list[Edge], ids: set[str], subject: str | 
     return subject if subject in ids and subject != p.id else None
 
 
-def build_sightings(r: LookupResult) -> list[Sighting]:
+def quoting_posts(r: LookupResult, quoting: set[str] | frozenset[str] = frozenset()) -> set[str]:
+    """X posts that quote another post: `quoting` (the lookup's record of every X post read with
+    a quoted post) and every post a "quote" edge points to (Edge from the quoted post)."""
+    return set(quoting) | {e.to for e in r.edges if e.rel == "quote"}
+
+
+def _own_keys(p: Post, quotes: set[str]) -> list[str]:
+    """The files this account uploaded with the post. An X post that quotes another lists the
+    quoted post's pictures with its own (FxTwitter and the page parser both do): those are the
+    quoted account's upload, and which ones they are isn't known, so none count as its own."""
+    if p.platform == "x" and p.id in quotes:
+        return []
+    return [k for u in p.media_urls if (k := media_key(u))]
+
+
+def build_sightings(
+    r: LookupResult, quoting: set[str] | frozenset[str] = frozenset()
+) -> list[Sighting]:
+    """The counted posts as Sightings. For an X or Bluesky post lookup a "post" sighting needs a
+    picture of its own (a text match without one did not post the picture); the submitted post
+    always counts. An upload's posts count by their caption run (counted_posts)."""
     posts = counted_posts(r)
-    ids = {p.id for p in posts}
-    subject = r.subject_id if r.subject_id in ids else None
+    quotes = quoting_posts(r, quoting)
+    image = r.kind == "image"
+    subject = r.subject_id if r.subject_id in {p.id for p in posts} else None
     subj = next((p for p in posts if p.id == subject), None)
     subject_keys = {k for u in (subj.media_urls if subj else []) if (k := media_key(u))}
-    out = []
+    kept = []
     for p in posts:
         kind = KIND.get(p.role, "post")  # a counted mention is a post of the picture
+        # a quote shows the quoted post's picture: that file is the target's
+        keys = [] if kind == "quote" else _own_keys(p, quotes)
+        if kind == "post" and not keys and not image and p.id != subject:
+            continue
+        kept.append((p, kind, keys))
+    ids = {p.id for p, _, _ in kept}
+    out = []
+    for p, kind, keys in kept:
         target = _target(p, kind, r.edges, ids, subject) if kind != "post" else None
-        keys = [k for u in p.media_urls if (k := media_key(u))]
-        # a quote shows the quoted post's picture (FxTwitter lists it with the quote): that
-        # file is the target's, not one this account uploaded
-        key = None if kind == "quote" else next((k for k in keys if k in subject_keys), None)
-        key = key or (keys[0] if keys and kind != "quote" else None)
+        key = next((k for k in keys if k in subject_keys), None) or (keys[0] if keys else None)
         m = p.metrics
         out.append(
             Sighting(
@@ -298,22 +327,70 @@ def basis_note(n: int) -> str:
     return f"{n} post{'' if n == 1 else 's'} our search found"
 
 
+# ------------------------------------------------------------------ the live index, shared
+class LiveBackoff:
+    """The shared live index (swarm.live.LiveSwarmIndex) for every lookup, stepping aside for
+    `retry_s` after a query that failed or came too late: a database that doesn't answer costs
+    one lookup's attempt, not one per lookup. The index itself answers None for a DB error, so a
+    late answer is how a hanging database shows."""
+
+    def __init__(
+        self,
+        index: LiveSwarms,
+        retry_s: float = 300.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.index, self.retry_s, self._clock = index, retry_s, clock
+        self._down_until: float | None = None
+        self._lock = threading.Lock()
+
+    def down(self) -> bool:
+        with self._lock:
+            return self._down_until is not None and self._clock() < self._down_until
+
+    def failed(self) -> None:
+        with self._lock:
+            self._down_until = self._clock() + self.retry_s
+
+    def find_by_cids(self, cids: list[str]) -> SwarmDetail | None:
+        return self.index.find_by_cids(cids)
+
+    def find_by_picture(self, image: bytes) -> SwarmDetail | None:
+        return self.index.find_by_picture(image)
+
+
+def _usable(index: Any) -> Any:
+    """The live index, or None while it is backing off (LiveBackoff.down)."""
+    down = getattr(index, "down", None)
+    return None if index is None or (callable(down) and down()) else index
+
+
+def _live_failed(index: Any) -> None:
+    failed = getattr(index, "failed", None)
+    if callable(failed):
+        failed()
+
+
 # ------------------------------------------------------------------ the step
 @dataclass
 class _Input:
     result: LookupResult  # a copy: the step never writes into it
     fx_authors: dict[str, dict]
     picture: bytes | None  # the uploaded image, or the post's picture when the lookup holds it
+    quoting: set[str] = field(default_factory=set)  # X posts read with a quoted post
 
 
 @dataclass
-class _Output:
-    sample: SwarmReport | None = None
-    live: SwarmDetail | None = None
-    scorer_failed: bool = False
-    receipts: list[dict] = field(
-        default_factory=list
-    )  # Lookup.receipt kwargs, published at the end
+class _Sample:
+    report: SwarmReport | None = None
+    failed: bool = False  # the scorer raised
+    receipts: list[dict] = field(default_factory=list)  # Lookup.receipt kwargs
+
+
+@dataclass
+class _Live:
+    detail: SwarmDetail | None = None
+    failed: bool = False  # a query raised
 
 
 def _skip_reason(lk: Lookup) -> str | None:
@@ -329,8 +406,8 @@ def _skip_reason(lk: Lookup) -> str | None:
 
 
 def _picture(lk: Lookup) -> bytes | None:
-    """Picture bytes the lookup already holds: the upload, or one of the submitted post's own
-    images it downloaded to read. Nothing is downloaded for this."""
+    """Picture bytes the lookup already holds: the upload, or the submitted post's own picture
+    it downloaded to read (none on an image-reading cache hit). Nothing is downloaded for this."""
     if lk._upload is not None:
         return lk._upload
     subj = next((p for p in lk.result.posts if p.id == lk.result.subject_id), None)
@@ -339,7 +416,17 @@ def _picture(lk: Lookup) -> bytes | None:
     return next((data for url, data in held if url in urls and data), None)
 
 
-def _profiles(lk: Lookup, sightings: list[Sighting], known: dict, out: _Output, end: float):
+def live_cids(r: LookupResult) -> list[str]:
+    """The blob CIDs the live index is asked by: the submitted Bluesky post's own picture files
+    only (a post of the same file has the same CID). Never a reply's or a text match's picture:
+    those may be another picture, and the index would answer with that picture's group."""
+    subj = next((p for p in r.posts if p.id == r.subject_id), None)
+    if subj is None or subj.platform != "bluesky":
+        return []
+    return list(dict.fromkeys(c for u in subj.media_urls if (c := bsky_cid(u))))
+
+
+def _profiles(lk: Lookup, sightings: list[Sighting], known: dict, out: _Sample, end: float):
     """getProfiles for the Bluesky accounts the lookup has no profile of: at most 2 batched
     calls, only while the lookup's provider time lasts (the reading's reserve stays free)."""
     bsky = lk.deps.bsky
@@ -385,19 +472,28 @@ def _profiles(lk: Lookup, sightings: list[Sighting], known: dict, out: _Output, 
     return got
 
 
-def _live(lk: Lookup, sightings: list[Sighting], picture: bytes | None) -> SwarmDetail | None:
-    """The live Bluesky group of this picture: by the Bluesky posts' blob CIDs, else by the
-    picture's perceptual hash. Any failure: logged, nothing found."""
-    index = lk.deps.live_swarms
-    if index is None:
-        return None
-    cids: list[str] = []
-    r = lk.result
-    by_id = {p.id: p for p in r.posts}
-    for s in sightings:
-        p = by_id.get(s.id)
-        if s.platform == "bluesky" and p is not None:
-            cids += [c for u in p.media_urls if (c := bsky_cid(u)) and c not in cids]
+def _sample(lk: Lookup, inp: _Input, sightings: list[Sighting], end: float) -> _Sample:
+    """The search sample's report (getProfiles first, when there is time)."""
+    out = _Sample()
+    accounts = build_accounts(inp.result, sightings, inp.fx_authors)
+    extra = _profiles(lk, sightings, accounts, out, end)
+    if extra:
+        accounts = build_accounts(inp.result, sightings, inp.fx_authors, extra)
+    try:
+        rep = lk.deps.swarm_scorer(
+            sightings, accounts, basis="sample", basis_note=basis_note(len(sightings))
+        )
+        out.report = rep if isinstance(rep, SwarmReport) else SwarmReport.model_validate(rep)
+    except Exception as exc:
+        log.warning("lookup %s swarm: scorer failed: %s", inp.result.id, exc, exc_info=True)
+        out.failed = True
+    return out
+
+
+def _ask_live(index: Any, cids: list[str], picture: bytes | None, lookup_id: str) -> _Live:
+    """The live Bluesky group of this picture: by the submitted post's blob CIDs, else by the
+    picture's perceptual hash."""
+    out = _Live()
     calls: list[tuple[str, Callable[[], Any]]] = []
     if cids:
         calls.append(("cids", lambda: index.find_by_cids(cids)))
@@ -408,28 +504,11 @@ def _live(lk: Lookup, sightings: list[Sighting], picture: bytes | None) -> Swarm
             got = call()
             if got is None:
                 continue
-            return got if isinstance(got, SwarmDetail) else SwarmDetail.model_validate(got)
+            out.detail = got if isinstance(got, SwarmDetail) else SwarmDetail.model_validate(got)
+            return out
         except Exception as exc:
-            log.warning("lookup %s swarm: live index (%s) failed: %s", r.id, name, exc)
-    return None
-
-
-def _compute(lk: Lookup, inp: _Input, end: float) -> _Output:
-    out = _Output()
-    sightings = build_sightings(inp.result)
-    scorer = lk.deps.swarm_scorer
-    if sightings and scorer is not None:
-        accounts = build_accounts(inp.result, sightings, inp.fx_authors)
-        extra = _profiles(lk, sightings, accounts, out, end)
-        if extra:
-            accounts = build_accounts(inp.result, sightings, inp.fx_authors, extra)
-        try:
-            rep = scorer(sightings, accounts, basis="sample", basis_note=basis_note(len(sightings)))
-            out.sample = rep if isinstance(rep, SwarmReport) else SwarmReport.model_validate(rep)
-        except Exception as exc:
-            log.warning("lookup %s swarm: scorer failed: %s", lk.result.id, exc, exc_info=True)
-            out.scorer_failed = True
-    out.live = _live(lk, sightings, inp.picture)
+            log.warning("lookup %s swarm: live index (%s) failed: %s", lookup_id, name, exc)
+            out.failed = True
     return out
 
 
@@ -443,12 +522,44 @@ def choose(
     return sample, None
 
 
+def live_ref(live: SwarmDetail | None) -> SwarmLiveRef | None:
+    """What a lookup keeps of the live group: a pointer to its page (lookups are polled)."""
+    if live is None:
+        return None
+    return SwarmLiveRef(id=live.id, verdict=live.verdict, n_accounts=live.n_accounts)
+
+
+def _accounts_detail(report: SwarmReport) -> str:
+    n = report.n_accounts
+    live = " · live Bluesky feed" if report.basis == "live" else ""
+    return f"{n} account{'' if n == 1 else 's'}{live}"
+
+
+def _thread(target: Callable[[], None], name: str) -> threading.Thread:
+    t = threading.Thread(target=target, name=name, daemon=True)
+    t.start()
+    return t
+
+
 def run(lk: Lookup) -> None:
-    """The "swarm" step. Runs after the posts are final (lookup/service.py `_run`)."""
+    """The "swarm" step. Runs after the posts are final (lookup/service.py `_run`).
+
+    The sample and the live query run side by side, each in a thread whose late answer is
+    dropped. The step ends by `min(now + SWARM_CAP_S, deadline - ASSESS_RESERVE_S)` (the primary
+    reading's reserve stays free) and is skipped when less than MIN_LEFT_S is left. The sample's
+    report is published as soon as it is scored; the live group (its own limit, LIVE_CAP_S)
+    can only add to it."""
+    from lookup.service import ASSESS_RESERVE_S
+
     with lk.lock:
         why = _skip_reason(lk)
         if why:
             lk.skip("swarm", why)
+            return
+        t0 = time.monotonic()
+        end = min(t0 + SWARM_CAP_S, lk.deadline - ASSESS_RESERVE_S)
+        if end - t0 < MIN_LEFT_S:
+            lk.skip("swarm", "no time left")
             return
         st = lk._step("swarm")
         st.state, st.started_at = "running", datetime.now(UTC)
@@ -462,40 +573,81 @@ def run(lk: Lookup) -> None:
             ),
             fx_authors=dict(lk._fx_authors),
             picture=_picture(lk),
+            quoting=set(lk._x_quoting),
         )
-    end = time.monotonic() + SWARM_CAP_S
-    box: dict[str, Any] = {}
+    lid = inp.result.id
+    sightings = build_sightings(inp.result, inp.quoting)
+    index = _usable(lk.deps.live_swarms)
+    cids = live_cids(inp.result)
+    s_box: dict[str, Any] = {}
+    l_box: dict[str, Any] = {}
 
-    def work() -> None:
+    def sample_work() -> None:
         try:
-            box["out"] = _compute(lk, inp, end)
+            s_box["out"] = _sample(lk, inp, sightings, end)
         except Exception as exc:  # handed to the step below
-            box["error"] = exc
+            s_box["error"] = exc
 
-    worker = threading.Thread(target=work, name="lookup-swarm", daemon=True)
-    worker.start()
-    worker.join(max(0.0, end - time.monotonic()))
+    def live_work() -> None:
+        try:
+            l_box["out"] = _ask_live(index, cids, inp.picture, lid)
+        except Exception as exc:
+            l_box["error"] = exc
+
+    t_sample = (
+        _thread(sample_work, "lookup-swarm")
+        if sightings and lk.deps.swarm_scorer is not None
+        else None
+    )
+    t_live = (
+        _thread(live_work, "lookup-swarm-live")
+        if index is not None and (cids or inp.picture)
+        else None
+    )
+    live_end = min(t0 + LIVE_CAP_S, end)
+
+    sample: SwarmReport | None = None
+    sample_failed = False
+    if t_sample is not None:
+        t_sample.join(max(0.0, end - time.monotonic()))
+        with lk.lock:  # the sample is shown at once; the live group can only add to it
+            got: _Sample | None = s_box.get("out")
+            if "error" in s_box:
+                log.warning("lookup %s swarm check failed", lid, exc_info=s_box["error"])
+                sample_failed = True
+            elif got is not None:
+                for rc in got.receipts:
+                    lk.receipt(**rc)
+                sample, sample_failed = got.report, got.failed
+                if sample is not None:
+                    lk.result.swarm = sample
+                    st.state, st.detail = "done", _accounts_detail(sample)
+
+    live: SwarmDetail | None = None
+    if t_live is not None:
+        t_live.join(max(0.0, live_end - time.monotonic()))
+        if t_live.is_alive():
+            log.warning("lookup %s swarm: live index took over %.1f s", lid, live_end - t0)
+            _live_failed(index)
+        elif "error" in l_box:
+            _live_failed(index)
+        else:
+            live = l_box["out"].detail
+            if live is None and l_box["out"].failed:
+                _live_failed(index)
+
     with lk.lock:  # one critical section: a late answer is never published
         st.ended_at = datetime.now(UTC)
-        if worker.is_alive():
-            log.warning("lookup %s swarm check took over %.1f s", lk.result.id, SWARM_CAP_S)
-            st.state, st.detail = "skipped", "took too long"
-            return
-        if "error" in box:
-            log.warning("lookup %s swarm check failed", lk.result.id, exc_info=box["error"])
-            st.state, st.detail = "failed", "check failed"
-            return
-        out: _Output = box["out"]
-        for rc in out.receipts:
-            lk.receipt(**rc)
-        shown, kept = choose(out.sample, out.live)
+        shown, kept = choose(sample, live)
         if shown is None:
-            st.state = "failed" if out.scorer_failed else "skipped"
-            st.detail = "check failed" if out.scorer_failed else "no posts"
+            if t_sample is not None and t_sample.is_alive():
+                log.warning("lookup %s swarm check took over %.1f s", lid, end - t0)
+                st.state, st.detail = "skipped", "took too long"
+            elif sample_failed:
+                st.state, st.detail = "failed", "check failed"
+            else:
+                st.state, st.detail = "skipped", "no posts"
             return
-        lk.result.swarm, lk.result.swarm_sample, lk.result.swarm_live = shown, kept, out.live
-        n = shown.n_accounts
-        st.state = "done"
-        st.detail = f"{n} account{'' if n == 1 else 's'}" + (
-            " · live Bluesky feed" if shown.basis == "live" else ""
-        )
+        lk.result.swarm, lk.result.swarm_sample = shown, kept
+        lk.result.swarm_live = live_ref(live)
+        st.state, st.detail = "done", _accounts_detail(shown)

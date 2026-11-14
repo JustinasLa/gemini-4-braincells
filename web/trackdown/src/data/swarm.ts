@@ -78,6 +78,9 @@ export interface SwarmDetail extends SwarmCard {
 
 export interface SwarmWall { items: SwarmCard[]; as_of: string | null; window_h: number | null }
 
+/** a lookup's pointer to the live Bluesky group of the same picture (its page is ?swarm=<id>) */
+export interface SwarmLiveRef { id: string; verdict: SwarmVerdict; n_accounts: number }
+
 // ---------------------------------------------------------------- words and colours
 
 export const VERDICT: Record<SwarmVerdict, { word: string; css: string }> = {
@@ -242,14 +245,24 @@ export function swarmAria(report: Pick<SwarmReport, "verdict" | "n_accounts" | "
 
 const p2 = (n: number) => String(n).padStart(2, "0");
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** the two axis labels: the first sighting's clock time (with the day when it is not today) and
- *  how long after it the last one came. `now` and the time zone are the reader's. */
-export function axisLabels(first: number, last: number, now = Date.now() / 1000): [string, string] {
-  const d = new Date(first * 1000);
+/** a moment as UTC clock time, with the day when it is not today (UTC, like ui/format.ts): "14:12",
+ *  "13 Nov 22:30". Empty for a missing or unreadable time. */
+export function utcStamp(seconds: number, now = Date.now() / 1000): string {
+  if (!Number.isFinite(seconds)) return "";
+  const d = new Date(seconds * 1000);
   const today = new Date(now * 1000);
-  const clock = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
-  const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-  return [sameDay ? clock : `${d.getDate()} ${MON[d.getMonth()]} ${clock}`, last > first ? `+${durationShort(last - first)}` : ""];
+  const clock = `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+  const sameDay = d.getUTCFullYear() === today.getUTCFullYear() && d.getUTCMonth() === today.getUTCMonth() && d.getUTCDate() === today.getUTCDate();
+  return sameDay ? clock : `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${clock}`;
+}
+
+/** a post's time for its row: `utcStamp` of an ISO time, empty when missing */
+export const postStamp = (iso: string | null | undefined, now = Date.now() / 1000) => utcStamp(epoch(iso) ?? NaN, now);
+
+/** the two axis labels: the first sighting's UTC clock time (with the day when it is not today) and
+ *  how long after it the last one came */
+export function axisLabels(first: number, last: number, now = Date.now() / 1000): [string, string] {
+  return [utcStamp(first, now), last > first ? `+${durationShort(last - first)}` : ""];
 }
 
 /** the first few words of a post, for a one-line link */

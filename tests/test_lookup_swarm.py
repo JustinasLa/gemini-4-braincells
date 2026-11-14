@@ -4,6 +4,7 @@ fictional accounts)."""
 
 import hashlib
 import json
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,8 +14,8 @@ import pytest
 from lookup import swarm_step
 from lookup.fxtwitter import FxTwitterClient
 from lookup.models import Account, Edge, ImageRef, LookupInput, Metrics, Post
-from lookup.service import Deps, Lookup
-from swarm.model import AccountInfo, Sighting, SwarmDetail, SwarmReport
+from lookup.service import ASSESS_RESERVE_S, Deps, Lookup
+from swarm.model import AccountInfo, Sighting, SwarmDetail, SwarmLiveRef, SwarmReport
 
 SUBJ = "2121360054330986967"
 COPY = "2121370648207671396"
@@ -65,6 +66,15 @@ def _x_job(deps: Deps, posts=None, edges=None, accounts=None) -> Lookup:
     return lk
 
 
+def _bsky_job(deps: Deps, posts=(), edges=()) -> Lookup:
+    """A Bluesky post lookup: the submitted post carries BSKY_IMG (blob CID)."""
+    lk = Lookup("lk_bs", LookupInput(url="https://bsky.app/profile/eve.example/post/3kabc"), deps)
+    lk.result.subject_id = BSKY_URI
+    lk.result.posts = [_bsky(role="submitted"), *posts]
+    lk.result.edges = list(edges)
+    return lk
+
+
 def _x_posts() -> list[Post]:
     return [
         _x(SUBJ, "submitted", "Ada_Example", text="look\n\n> quoted words", media=[X_IMG],
@@ -75,7 +85,8 @@ def _x_posts() -> list[Post]:
         _x("2121360054330986001", "mention", "mo_example"),
         _x("2121360054330986002", "author_recent", "Ada_Example"),
         _x("2121360054330986003", "screenshotted", "sh_example"),
-        _x("2121360054330986004", "copy", "hint_example", time_source="search_hint"),
+        _x("2121360054330986004", "copy", "hint_example", time_source="search_hint",
+           media=["https://pbs.twimg.com/media/HXHINT?format=jpg"]),
         _bsky(),
     ]  # fmt: skip
 
@@ -294,17 +305,20 @@ def test_choose_live_when_it_has_more_accounts():
 
 def test_live_group_by_bluesky_cids_is_shown_and_the_sample_kept():
     live = FakeLive(by_cids=_detail(31))
-    lk = _x_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live))
+    lk = _bsky_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live))
     lk._swarm()
     r = lk.result
-    assert live.cids == [[CID]] and live.pictures == []  # an X post: no picture bytes held
+    assert live.cids == [[CID]] and live.pictures == []  # no picture bytes held
     assert r.swarm.basis == "live" and r.swarm.n_accounts == 31
-    assert r.swarm_sample.basis == "sample" and r.swarm_live.id == "grp1"
+    assert r.swarm_sample.basis == "sample"
+    assert r.swarm_live == SwarmLiveRef(id="grp1", verdict="swarm", n_accounts=31)
     assert next(s for s in r.steps if s.id == "swarm").detail == "31 accounts · live Bluesky feed"
 
 
 def test_live_group_with_fewer_accounts_is_kept_beside_the_sample():
-    lk = _x_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=FakeLive(_detail(2))))
+    live = FakeLive(by_picture=_detail(2))
+    lk = _x_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live))
+    lk._pictures[X_IMG] = JPEG
     lk._swarm()
     assert lk.result.swarm.basis == "sample" and lk.result.swarm_live.n_accounts == 2
     assert lk.result.swarm_sample is None
@@ -314,7 +328,8 @@ def test_upload_asks_the_live_index_by_picture():
     live = FakeLive(by_picture=_detail(12))
     lk = _image_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live))
     lk._swarm()
-    assert live.cids == [[CID]] and live.pictures == [JPEG]  # CIDs first, then the picture
+    # an upload has no file of its own on Bluesky: never a counted post's CID, the picture
+    assert live.cids == [] and live.pictures == [JPEG]
     assert lk.result.swarm.n_accounts == 12
 
 
@@ -384,7 +399,8 @@ def test_bluesky_profiles_are_read_in_one_batched_call_with_a_receipt():
 def test_bluesky_profiles_are_skipped_when_the_budget_is_short():
     bsky = FakeBsky()
     lk = _x_job(Deps(oxylabs=None, bsky=bsky, swarm_scorer=FakeScorer()))
-    lk.deadline = time.monotonic() + 5  # inside the reading's reserve
+    # 0.6 s before the reading's reserve: time to score, not for a provider call
+    lk.deadline = time.monotonic() + ASSESS_RESERVE_S + 0.6
     lk._swarm()
     assert bsky.calls == [] and lk.result.swarm is not None
     assert not any(r.endpoint == "getProfiles" for r in lk.result.receipts)
@@ -508,3 +524,236 @@ def test_account_info_is_the_contract_model():
         lk.result, swarm_step.build_sightings(lk.result), {"cy_example": {"handle": "cy_example"}}
     )
     assert all(isinstance(a, AccountInfo) and a.key == k for k, a in acc.items())
+
+
+# ------------------------------------------------------------------ review regressions
+OTHER_CID = "bafkreiotherotherotherotherotherotherotherotherotherother"
+OTHER_DID = "did:plc:replyreplyreplyreplyrepl"
+OTHER_IMG = f"https://cdn.bsky.app/img/feed_fullsize/plain/{OTHER_DID}/{OTHER_CID}@jpeg"
+
+
+def _bsky_other(uri_tail: str, role: str, media=(OTHER_IMG,)) -> Post:
+    return Post(
+        id=f"at://{OTHER_DID}/app.bsky.feed.post/{uri_tail}", platform="bluesky",
+        url=f"https://bsky.app/profile/r.example/post/{uri_tail}", author_handle="r.example",
+        text="the comets have landed", created_at=T0, time_source="api", role=role,
+        media_urls=list(media), verified=True,
+    )  # fmt: skip
+
+
+class OnlyOtherCid(FakeLive):
+    """An index holding the reply's picture only: asking by its CID finds that group."""
+
+    def find_by_cids(self, cids):
+        self.cids.append(list(cids))
+        return _detail(40) if OTHER_CID in cids else None
+
+
+def test_live_index_is_asked_by_the_submitted_posts_own_file_only():
+    # finding 1: a reply's or a text match's picture is another picture; its group must not
+    # become this meme's
+    reply, match = _bsky_other("3kr", "reply"), _bsky_other("3km", "bluesky")
+    live = OnlyOtherCid()
+    lk = _bsky_job(
+        Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live),
+        posts=[reply, match],
+        edges=[_edge(BSKY_URI, reply.id, "reply")],
+    )
+    lk._swarm()
+    assert live.cids == [[CID]]
+    assert lk.result.swarm.basis == "sample" and lk.result.swarm_live is None
+    # an X post lookup: a Bluesky text match's file is never asked for
+    live = OnlyOtherCid()
+    posts = [*_x_posts(), _bsky_other("3km", "bluesky")]
+    lk = _x_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live), posts=posts)
+    lk._swarm()
+    assert live.cids == [] and lk.result.swarm_live is None
+
+
+class SlowLive(FakeLive):
+    def __init__(self, sleep_s: float, **kw):
+        super().__init__(**kw)
+        self.sleep_s = sleep_s
+
+    def find_by_cids(self, cids):
+        time.sleep(self.sleep_s)
+        return super().find_by_cids(cids)
+
+
+def test_a_slow_live_index_keeps_the_sample_and_backs_off(monkeypatch):
+    # findings 3 and 5: the live query has its own limit and never costs the sample; a late
+    # answer makes the shared index step aside
+    monkeypatch.setattr(swarm_step, "LIVE_CAP_S", 0.2)
+    live = swarm_step.LiveBackoff(SlowLive(1.0, by_cids=_detail(31)), retry_s=300)
+    lk = _bsky_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live))
+    t = time.monotonic()
+    lk._swarm()
+    assert time.monotonic() - t < 0.8  # not the 2 s cap
+    st = next(s for s in lk.result.steps if s.id == "swarm")
+    assert st.state == "done" and lk.result.swarm.basis == "sample"
+    assert lk.result.swarm_live is None
+    assert live.down()
+
+
+def test_the_sample_is_published_before_the_live_answer():
+    seen = []
+
+    class WaitsForTheSample(FakeLive):
+        def find_by_cids(self, cids):
+            end = time.monotonic() + 0.8
+            while lk.result.swarm is None and time.monotonic() < end:
+                time.sleep(0.01)
+            seen.append(lk.result.swarm)
+            return _detail(31)
+
+    lk = _bsky_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=WaitsForTheSample()))
+    lk._swarm()
+    assert seen and seen[0] is not None and seen[0].basis == "sample"  # shown while live ran
+    assert lk.result.swarm.basis == "live" and lk.result.swarm_sample.basis == "sample"
+
+
+def test_a_failed_live_query_backs_off_then_tries_again():
+    # finding 5: one failed query, then no lookup asks for LIVE_RETRY_S
+    now = [1000.0]
+    inner = FakeLive(error=RuntimeError("db down"))
+    live = swarm_step.LiveBackoff(inner, retry_s=300, clock=lambda: now[0])
+    for _ in range(3):
+        lk = _bsky_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live))
+        lk._swarm()
+        assert lk.result.swarm.basis == "sample"
+    assert inner.cids == [[CID]]  # asked once
+    now[0] += 301
+    inner.error, inner.by_cids = None, _detail(31)
+    lk = _bsky_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=live))
+    lk._swarm()
+    assert len(inner.cids) == 2 and lk.result.swarm.basis == "live" and not live.down()
+
+
+def test_api_wraps_the_shared_live_index_in_a_backoff(monkeypatch):
+    from api.routes import lookup as routes
+
+    monkeypatch.setattr(routes, "_live_index", None)
+    monkeypatch.setattr(routes, "_live_failed_at", None)
+    monkeypatch.setattr(
+        routes, "get_settings", lambda: type("S", (), {"database_url": "postgresql://x/y"})()
+    )
+    index = routes._live_swarms()
+    assert isinstance(index, swarm_step.LiveBackoff) and index.retry_s == routes.LIVE_RETRY_S
+    assert routes._live_swarms() is index  # shared
+
+
+def test_the_step_never_runs_into_the_readings_reserve():
+    # finding 4: the step ends by deadline - ASSESS_RESERVE_S, and is skipped near it
+    scorer = FakeScorer()
+    lk = _x_job(Deps(oxylabs=None, swarm_scorer=scorer))
+    lk.deadline = time.monotonic() + ASSESS_RESERVE_S + 0.1
+    lk._swarm()
+    st = next(s for s in lk.result.steps if s.id == "swarm")
+    assert (st.state, st.detail) == ("skipped", "no time left") and scorer.calls == []
+    lk = _x_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(sleep=1.5)))
+    lk.deadline = time.monotonic() + ASSESS_RESERVE_S + 0.5
+    lk._swarm()
+    assert lk.deadline - time.monotonic() > ASSESS_RESERVE_S - 0.05
+    assert next(s for s in lk.result.steps if s.id == "swarm").detail == "took too long"
+
+
+def test_the_result_keeps_a_small_reference_to_the_live_group():
+    # finding 6: the polled result carries {id, verdict, n_accounts}, not the group
+    score = pytest.importorskip("swarm.score")
+    from swarm.model import SwarmPost
+
+    t0 = datetime(2026, 11, 14, 8, tzinfo=UTC).timestamp()
+    sights = [
+        Sighting(id=f"at://did:plc:{i:024d}/app.bsky.feed.post/{i}", platform="bluesky",
+                 account=f"did:plc:{i % 280:024d}", at=datetime.fromtimestamp(t0 + 7 * i, UTC),
+                 text=f"share this before it is gone {i % 5}", media_key=CID)
+        for i in range(600)
+    ]  # fmt: skip
+    rep = score.score_swarm(sights, basis="live", basis_note="600 posts")
+    assert len(rep.timeline) == 300
+    big = _detail(rep.n_accounts).model_copy(
+        update={
+            "report": rep,
+            "posts": [SwarmPost(url=f"https://bsky.app/p/{i}", handle=f"h{i}", text="x" * 280)
+                      for i in range(30)],
+        }
+    )  # fmt: skip
+    lk = _bsky_job(Deps(oxylabs=None, swarm_scorer=FakeScorer(), live_swarms=FakeLive(big)))
+    lk._swarm()
+    snap = lk.result.model_dump(mode="json")
+    assert snap["swarm_live"] == {"id": "grp1", "verdict": "swarm", "n_accounts": rep.n_accounts}
+    assert snap["swarm"]["basis"] == "live" and snap["swarm_sample"]["basis"] == "sample"
+    swarm_json = json.dumps({k: snap[k] for k in ("swarm", "swarm_live", "swarm_sample")})
+    assert len(swarm_json) < len(big.model_dump_json()) + 2_000  # the report once, no posts
+
+
+def test_only_the_submitted_posts_picture_is_kept_and_only_until_the_step_ends():
+    # finding 7
+    from lookup import cache as lcache
+    from tests.test_lookup_fast import IMG_URL, FakeImageReader, _deps, _image_http
+
+    media, urls = lcache.TTLCache(ttl_s=600), lcache.TTLCache(ttl_s=600)
+    deps = _deps(nemotron=FakeImageReader(), media_cache=media, media_urls=urls)
+    job = Lookup("lk_p", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    other = "https://pbs.twimg.com/media/OTHER?format=jpg&name=large"
+    job._media_urls = [IMG_URL]
+    job._read_image(_image_http(), other, threading.Event())  # not the submitted post's
+    assert job._pictures == {}
+    job._read_image(_image_http(), IMG_URL, threading.Event())
+    assert list(job._pictures) == [IMG_URL]
+    job._swarm()  # not configured: skipped, and the bytes go anyway
+    assert job._pictures == {}
+    job._media_urls = [other]
+    job._read_image(_image_http(), other, threading.Event())  # a late read after the step
+    assert job._pictures == {}
+    # an image-reading cache hit downloads nothing: no picture to match, no new download
+    again = Lookup("lk_q", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    again._media_urls = [IMG_URL]
+    again._read_image(_image_http(), IMG_URL, threading.Event())
+    assert again._pictures == {}
+
+
+def test_a_quoted_posts_pictures_are_not_the_quoting_accounts_upload():
+    # finding 8: FxTwitter lists the quoted post's pictures with the quote
+    q_img = "https://pbs.twimg.com/media/QUOTEDKEY?format=jpg&name=large"
+    posts = [
+        _x(SUBJ, "submitted", "quoter", text="this\n\n> original words", media=[q_img]),
+        _x("2121360054330986900", "mention", "orig_author", text="original words"),
+        # a copy read with a quoted post the lookup didn't keep (no edge): only the record says
+        _x(COPY, "copy", "cy_example", media=[q_img]),
+        _x("2121360054330986901", "copy", "own_example", media=[X_IMG]),
+    ]
+    lk = _x_job(
+        Deps(oxylabs=None, swarm_scorer=FakeScorer()),
+        posts=posts,
+        edges=[_edge("x:2121360054330986900", f"x:{SUBJ}", "quote")],
+    )
+    lk._x_quoting.add(f"x:{COPY}")
+    s = {x.id: x for x in swarm_step.build_sightings(lk.result, lk._x_quoting)}
+    assert s[f"x:{SUBJ}"].kind == "post" and s[f"x:{SUBJ}"].media_key is None  # still counted
+    assert f"x:{COPY}" not in s  # no picture of its own
+    assert s["x:2121360054330986901"].media_key == "HXAAAA"
+    # the record is filled where X posts are made
+    from lookup.xpage import XItem
+
+    item = XItem(handle="cy_example", name=None, status_id=COPY, text="t", quoted_id="9")
+    lk2 = _x_job(Deps(oxylabs=None))
+    lk2._x_post_from_item(item, "copy", sim=None, rid=None, verified=True, as_of=None)
+    assert lk2._x_quoting == {f"x:{COPY}"}
+
+
+def test_a_post_lookup_counts_only_posts_with_a_picture():
+    # finding 9: a text match without a picture did not post it; quotes and replies still count
+    posts = [
+        *_x_posts(),
+        _x("2121360054330986020", "copy", "text_only"),
+        _bsky_other("3kt", "bluesky", media=()),
+    ]
+    lk = _x_job(Deps(oxylabs=None), posts=posts)
+    ids = {x.id for x in swarm_step.build_sightings(lk.result)}
+    assert "x:2121360054330986020" not in ids
+    assert f"at://{OTHER_DID}/app.bsky.feed.post/3kt" not in ids
+    assert {f"x:{SUBJ}", f"x:{QUOTE}", f"x:{REPLY}"} <= ids
+    # an upload keeps its caption rule: a caption run without a picture counts
+    up = _image_job(Deps(oxylabs=None))
+    assert f"x:{COPY}" in {x.id for x in swarm_step.build_sightings(up.result)}

@@ -21,7 +21,7 @@ import { initTooltips } from "./ui/tooltip";
 import { comparisonSource } from "./ui/compare";
 import { initMemeTrace } from "./ui/variations";
 import { mountStory } from "./ui/story";
-import { mountSwarmPage, mountSwarmWall } from "./ui/swarm";
+import { mountSwarmPage, mountSwarmWall, swarmHref } from "./ui/swarm";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -58,8 +58,9 @@ const app = $(".app");
 const story = mountStory(app);
 // the picture being traced, as a local address: the story shows it before the server has it
 let storyPreview: { url: string; lookup: string } | null = null;
-// the page of one live picture (?swarm=<id>); "Trace it" sends its picture down the upload path
-const swarmPage = mountSwarmPage(app, (file) => void startTrace(file, import.meta.env.DEV && new URLSearchParams(location.search).has("mockSwarm")));
+// the page of one live picture (?swarm=<id>), opened in-app (openSwarm); "Trace it" sends its
+// picture down the upload path
+const swarmPage = mountSwarmPage(app, (file) => void startTrace(file, import.meta.env.DEV && new URLSearchParams(location.search).has("mockSwarm")), (id) => void openSwarm(id, true));
 const nav = $("#judge-links");
 $("#judge-menu").addEventListener("click", () => { nav.hidden = !nav.hidden; nav.style.display = nav.hidden ? "none" : "flex"; $("#judge-menu").setAttribute("aria-expanded", String(!nav.hidden)); });
 const view = new URLSearchParams(location.search).get("view");
@@ -99,6 +100,9 @@ const consoleEl = $("#console");
 let current: TraceCase | null = null;
 let tracing = 0;
 let traceSequence = 0;
+// bumped by everything that opens a page (home, a trace, a case, a swarm page): a swarm page that
+// answers after something else was opened is not shown
+let navSequence = 0;
 let lookupController: AbortController | null = null;
 let skipFlag = false;
 preloadCoin();
@@ -232,9 +236,11 @@ panel.onCloseSheet = () => {
 
 // ---------------------------------------------------------------- opening a case
 function openCase(c: TraceCase, how: "spread" | "static") {
+  navSequence++;
   cancelTrace();
   closeEvent();
   hideHome();
+  swarmPage.hide();
   setPhase("done");
   current = c;
   g.load(c, { revealAll: how === "static" });
@@ -313,11 +319,13 @@ async function typeLine(body: HTMLElement, tool: keyof typeof TOOL, text: string
 
 const CV = "#3fe07a";
 async function runTrace(c: TraceCase) {
+  navSequence++;
   cancelTrace();
   const run = tracing = ++traceSequence;
   skipFlag = false;
   closeEvent();
   hideHome();
+  swarmPage.hide();
   setPhase("trace");
   current = c;
   g.load(c, { revealAll: false });
@@ -512,10 +520,11 @@ function showQr() {
   dlg.showModal();
 }
 function showHome() {
+  navSequence++;
   cancelTrace();
   closeEvent();
   swarmPage.hide();
-  if (homeEl) return;
+  if (homeEl) { coverHome(false); return; }
   const cases = simulatedCases();
   const sims = cases.filter((c) => !c.historical);
   const hist = cases.filter((c) => c.historical);
@@ -621,6 +630,44 @@ function showHome() {
     if (c) runTrace(c);
   });
 }
+// The home under a swarm page opened from it is only covered, so Back finds it as it was (scroll
+// position, a pasted image, its entrance animations not replayed): invisible and inert, not removed.
+function coverHome(on: boolean) {
+  if (!homeEl) return;
+  homeEl.style.visibility = on ? "hidden" : "";
+  homeEl.inert = on;
+}
+/** the address stops naming a swarm page (an unknown id, or the page was left for a trace) */
+function dropSwarmParam() {
+  const url = new URL(location.href);
+  if (!url.searchParams.has("swarm")) return;
+  url.searchParams.delete("swarm");
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
+}
+/** Open the page of one live picture over whatever is on screen, which stays underneath: Back
+ *  (popstate) takes it away again. `push`: a click in the app, so it gets its own history entry. */
+async function openSwarm(id: string, push: boolean) {
+  if (push) {
+    // the entry it was opened from remembers whether that was the home
+    if (homeEl && !swarmPage.isOpen()) history.replaceState({ ...(history.state ?? {}), home: true }, "");
+    history.pushState({ swarm: id }, "", swarmHref(id));
+  }
+  const seq = ++navSequence;
+  const result = await swarmPage.open(id, () => seq === navSequence);
+  if (result === "stale") return;
+  if (result === "shown") { coverHome(true); return; }
+  // not there (gone, or the API is down): stay where the reader was
+  if (push) history.back();
+  else { dropSwarmParam(); if (!homeEl && !current) showHome(); }
+}
+addEventListener("popstate", (event) => {
+  const id = new URLSearchParams(location.search).get("swarm");
+  if (id) { void openSwarm(id, false); return; }
+  navSequence++; // a swarm page still loading is no longer wanted
+  // back to the home it was opened from (showHome uncovers it), else to the trace underneath
+  if ((event.state as { home?: boolean } | null)?.home || !current) showHome();
+  else swarmPage.hide();
+});
 function hideHome() {
   if (!homeEl) return;
   const el = homeEl;
@@ -638,6 +685,8 @@ async function startTrace(raw: LookupRequest, mock = false) {
     homeEl?.querySelector(".home-form")?.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(6px)" }, { transform: "translateX(0)" }], { duration: 300 });
     return;
   }
+  navSequence++;
+  dropSwarmParam(); // a trace is on screen now: the address must not reopen a swarm page
   cancelTrace();
   closeEvent();
   hideHome();
@@ -856,8 +905,10 @@ const first = simulatedCases().find((c) => c.id === params.get("case")) ?? simul
 if (params.has("mockLookup") && import.meta.env.DEV) void startTrace("https://social.example/newsroom/status/100", true);
 else if (params.get("lookup")) void startTrace(params.get("lookup")!);
 else if (params.get("swarm")) {
+  // the home shows at once; the picture's page covers it once (and if) it loads
   setPhase("home");
-  void swarmPage.open(params.get("swarm")!).then((ok) => ok || showHome());
+  showHome();
+  void openSwarm(params.get("swarm")!, false);
 }
 else if (/^\d+$/.test(params.get("cluster") ?? "")) liveCase(Number(params.get("cluster"))).then((c) => openCase(c, "spread"), () => { toast("Couldn't load that cluster from the API"); openCase(first, "static"); });
 else if (params.has("static")) openCase(first, "static");

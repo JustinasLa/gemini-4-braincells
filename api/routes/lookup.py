@@ -87,8 +87,10 @@ LIVE_RETRY_S = 300.0
 
 def _live_swarms():
     """The live Bluesky swarm index (swarm.live.LiveSwarmIndex), made on the first lookup that
-    needs it and shared; None when there is no database or the module can't be loaded (tried
-    again after LIVE_RETRY_S). A failing query later is the swarm step's to absorb."""
+    needs it and shared, behind lookup.swarm_step.LiveBackoff: after a query that fails or comes
+    too late, lookups leave it alone for LIVE_RETRY_S (a down database costs one attempt, not
+    one per lookup). None when there is no database or the module can't be loaded (tried again
+    after LIVE_RETRY_S)."""
     global _live_index, _live_failed_at
     if _live_index is not None:
         return _live_index
@@ -97,9 +99,11 @@ def _live_swarms():
     if not get_settings().database_url:
         return None
     try:
+        from lookup.swarm_step import LiveBackoff
         from swarm.live import LiveSwarmIndex
 
-        _live_index = LiveSwarmIndex()  # common.db.connect per query; DB errors return None
+        # common.db.connect per query; DB errors return None
+        _live_index = LiveBackoff(LiveSwarmIndex(), retry_s=LIVE_RETRY_S)
     except Exception as exc:
         log.warning("lookup: live swarm index unavailable: %s", exc)
         _live_failed_at = time.monotonic()

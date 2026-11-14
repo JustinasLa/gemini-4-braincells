@@ -4,6 +4,11 @@ python -m swarm once [--window 24h] [--min-accounts 5] [--limit N]   # one pass,
 python -m swarm once --dry-run [--database-url URL]                  # one pass, writes NOTHING
 python -m swarm run [--every 5m]                                     # loop
 
+Nothing new reaches the public wall without a working vision reader (a Nemotron key) unless
+--wall-without-vision (or SWARM_WALL_WITHOUT_VISION=1) is given. The connection runs with
+statement_timeout 30 s and lock_timeout 3 s, so a pass never sits long in front of or behind
+ingest's partition DROP.
+
 --dry-run opens the connection with default_transaction_read_only=on, keeps thumbnail hashes and
 account enrichment in memory, and prints one line per group (verdict, score, families, accounts,
 posts, safe, first post text, thumbnail URL) followed by the pass stats as JSON.
@@ -14,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -36,9 +42,19 @@ def duration_h(text: str) -> float:
     return n * {"s": 1 / 3600, "m": 1 / 60, "h": 1, "d": 24}[unit]
 
 
+STATEMENT_TIMEOUT = "30s"
+LOCK_TIMEOUT = "3s"
+
+
 def open_connection(url: str, *, read_only: bool) -> psycopg.Connection:
-    kw = {"options": "-c default_transaction_read_only=on"} if read_only else {}
-    return psycopg.connect(url, autocommit=True, connect_timeout=10, **kw)
+    options = f"-c statement_timeout={STATEMENT_TIMEOUT} -c lock_timeout={LOCK_TIMEOUT}"
+    if read_only:
+        options += " -c default_transaction_read_only=on"
+    return psycopg.connect(url, autocommit=True, connect_timeout=10, options=options)
+
+
+def env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -54,7 +70,17 @@ def main(argv: list[str] | None = None) -> None:
         s.add_argument("--enrich-budget", type=int, default=400)
         s.add_argument("--hash-budget", type=int, default=2000)
         s.add_argument("--vision-budget", type=int, default=20)
-        s.add_argument("--no-labels", action="store_true", help="skip the AppView label check")
+        s.add_argument(
+            "--no-labels",
+            action="store_true",
+            help="skip the AppView label check (every group is then held off the wall)",
+        )
+        s.add_argument(
+            "--wall-without-vision",
+            action="store_true",
+            default=env_flag("SWARM_WALL_WITHOUT_VISION"),
+            help="let groups reach the wall without a vision read (default off)",
+        )
         if name == "once":
             s.add_argument("--dry-run", action="store_true")
         else:
@@ -76,6 +102,7 @@ def main(argv: list[str] | None = None) -> None:
         enrich_budget=args.enrich_budget,
         hash_budget=args.hash_budget,
         vision_budget=args.vision_budget,
+        wall_without_vision=args.wall_without_vision,
     )
     dry_run = getattr(args, "dry_run", False)
     url = args.database_url or get_settings().database_url
@@ -85,7 +112,11 @@ def main(argv: list[str] | None = None) -> None:
             vision = nemotron_reader()
         except Exception:
             log.exception("vision reader unavailable")
-    log.info("vision %s", "on" if vision else "off (no key)")
+    log.info(
+        "vision %s; wall %s",
+        "on" if vision else "off",
+        "without vision allowed" if cfg.wall_without_vision else "needs a vision read",
+    )
     extra = {"labels": None} if args.no_labels else {}  # default: the public AppView
 
     if args.cmd == "once":
@@ -113,12 +144,12 @@ def main(argv: list[str] | None = None) -> None:
     def connect() -> psycopg.Connection:
         return open_connection(url, read_only=False)
 
-    conn = connect()
+    conn: psycopg.Connection | None = None
     every_s = max(30.0, args.every * 3600)
     while True:
         t0 = time.monotonic()
         try:
-            conn = live_connection(conn, connect)
+            conn = connect() if conn is None else live_connection(conn, connect)
             res = run_pass(conn, cfg, vision=vision, hash_cache=DbHashCache(conn), **extra)
             log.info("pass %s", json.dumps(res.stats, default=str))
         except Exception:

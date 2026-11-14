@@ -10,7 +10,7 @@ const { outputFiles } = await build({
   platform: "node",
   format: "esm",
 });
-const { layoutTimeline, swarmChips, swarmAria, axisLabels, durationWords, durationShort, firstWords, VERDICT, FAMILY_NAME } = await import(
+const { layoutTimeline, swarmChips, swarmAria, axisLabels, utcStamp, postStamp, durationWords, durationShort, firstWords, VERDICT, FAMILY_NAME } = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
@@ -140,4 +140,23 @@ test("durations, axis labels and first words stay short", () => {
   assert.match(axisLabels(first, first + 86400, first + 3 * 86400)[0], /^\d{1,2} [A-Z][a-z]{2} \d\d:\d\d$/);
   assert.equal(axisLabels(first, first, first)[1], "");
   assert.equal(firstWords("  one two\nthree four five six seven eight nine ten "), "one two three four five six seven eight…");
+});
+
+test("times are UTC like the rest of the app, with the day when it is not today", () => {
+  const at = Date.UTC(2026, 10, 14, 12, 12) / 1000;
+  // the reader's time zone does not matter (TZ is the test runner's)
+  assert.equal(utcStamp(at, at + 3600), "12:12");
+  assert.equal(utcStamp(Date.UTC(2026, 10, 13, 22, 30) / 1000, at), "13 Nov 22:30");
+  assert.equal(utcStamp(Date.UTC(2026, 10, 14, 23, 59) / 1000, Date.UTC(2026, 10, 15, 0, 1) / 1000), "14 Nov 23:59");
+  assert.deepEqual(axisLabels(at, at + 3.3 * 3600, at), ["12:12", "+3.3 h"]);
+  assert.equal(postStamp("2026-11-14T12:12:05.694168Z", at), "12:12");
+  assert.equal(postStamp("2026-11-14T14:12:05+02:00", at), "12:12");
+  assert.equal(postStamp(null, at), "");
+  assert.equal(postStamp("not a time", at), "");
+  assert.equal(utcStamp(NaN, at), "");
+});
+
+test("no readable time: no dots, no NaN", () => {
+  assert.deepEqual(layoutTimeline([point(NaN), point(Infinity), { a: 0, k: "post", g: 0, burst: false }]).dots, []);
+  assert.doesNotMatch(swarmAria({ verdict: "swarm", n_accounts: 3, burst: null, first_at: null, last_at: null, timeline: [point(NaN)] }), /NaN|Infinity/);
 });

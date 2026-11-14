@@ -6,9 +6,11 @@ from datetime import UTC, datetime, timedelta
 
 from swarm.config import SwarmConfig
 from swarm.model import FAMILIES, AccountInfo, Sighting
-from swarm.score import Baseline, _binom_sf, _handle_shape, score_swarm
+from swarm.score import Baseline, _binom_sf, _handle_shape, _wilson, score_swarm
 
 T0 = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+# a live pass window around T0: everything in it was seen
+WIN = (T0 - timedelta(hours=12), T0 + timedelta(hours=12))
 WORDS = (
     "cat dog bird fish moon sun rain tree road car bus train shoe hat coat lamp door wall "
     "bread milk tea cake fork spoon cup plate chair desk book pen ink page song tune drum "
@@ -79,13 +81,15 @@ def organic_case(n=200, seed=2):
 
 def test_obvious_swarm():
     s, info = swarm_case()
-    r = score_swarm(s, info)
+    r = score_swarm(s, info, window=WIN)
     assert r.verdict == "swarm", r
     assert set(r.fired) >= {"timing", "accounts", "copy"}
     assert r.score >= 0.9 and r.guard < 0.6
     assert r.p_value is not None and r.p_value <= 0.01
     names = {x.name: x for x in r.signals}
     assert {"burst", "same_text", "same_file", "same_cohort", "templated_handles"} <= set(names)
+    # untested account shares (no baseline) never fire on their own
+    assert names["same_cohort"].score <= 0.45 and names["empty_profiles"].score <= 0.45
     assert names["same_file"].summary == "same file x30"
     assert names["same_text"].summary == "same words x30"
     assert names["burst"].summary.startswith("30 accounts in ")
@@ -134,10 +138,10 @@ def test_news_moment_timing_only_is_not_swarm():
             has_avatar=True,
             bio=own_text(rng, 5),
         )
-    r = score_swarm(s, info)
+    r = score_swarm(s, info, window=WIN)
     assert r.families["timing"] >= 0.5  # the burst is real
-    assert r.verdict != "swarm"
-    assert r.verdict == "organic"
+    # a fired family is never "organic": with strong guards it is an honest "can't tell"
+    assert r.verdict == "unclear" and r.why_unclear == "signs both ways"
 
 
 def test_short_generic_text_is_not_reuse():
@@ -161,7 +165,7 @@ def test_long_text_weighs_more_than_lol():
     ]
     lol = [post(i, f"x:u{i}", t, "lol") for i, t in enumerate(times)]
     fam = lambda xs: score_swarm(xs).families["copy"]  # noqa: E731
-    assert fam(long) > 0.9 > 0.1 > fam(lol)
+    assert fam(long) > 0.8 > 0.1 > fam(lol)
 
 
 def test_empty_text_is_not_reuse():
@@ -173,7 +177,7 @@ def test_empty_text_is_not_reuse():
 
 def test_missing_account_info_still_works():
     s, _ = swarm_case(with_info=False)
-    r = score_swarm(s, None)
+    r = score_swarm(s, None, window=WIN)
     assert r.families["accounts"] == 0.0
     assert r.n_accounts_known == 0
     assert r.verdict == "swarm"  # timing + copy still agree
@@ -276,8 +280,8 @@ def test_baseline_fresh_rate_test():
     for i in range(20):
         acc = f"did:plc:a{i}"
         s.append(post(i, acc, T0 + timedelta(hours=i), own_text(rng)))
-        # created over a whole year, but all of the last 12 under 30 days old: no week bunch
-        age = rng.uniform(1, 29) if i < 12 else rng.uniform(60, 400)
+        # created over a whole year, but 16 of 20 under 30 days old: no week bunch
+        age = rng.uniform(1, 29) if i < 16 else rng.uniform(60, 400)
         info[acc] = AccountInfo(key=acc, created_at=T0 + timedelta(hours=i) - timedelta(days=age))
     high = score_swarm(s, info, baseline=Baseline(fresh_rate=0.05, n=500))
     common = score_swarm(s, info, baseline=Baseline(fresh_rate=0.6, n=500))
@@ -304,7 +308,7 @@ def test_clockwork_scheduler():
     ]
     r = score_swarm(s)
     clock = next(x for x in r.signals if x.name == "clockwork")
-    assert clock.score >= 0.9
+    assert clock.score >= 0.75  # Wilson bound of 15 of 15
     assert clock.summary == "15 posts every 97 s"
 
 
@@ -337,7 +341,7 @@ def test_same_second_accounts():
             s.append(post(i, f"x:q{i}", base + timedelta(seconds=rng.uniform(0, 2)), own_text(rng)))
     r = score_swarm(s)
     ss = next(x for x in r.signals if x.name == "same_second")
-    assert ss.summary == "32 accounts within 3 s"
+    assert ss.summary == "32 accounts paired within 3 s"
     assert ss.score >= 0.5
 
 
@@ -372,3 +376,340 @@ def test_fast_enough():
 def test_config_is_versioned():
     assert SwarmConfig().version
     assert score_swarm([]).version == SwarmConfig().version
+
+
+# ---------------------------------------------------------------- swarm-v2 regressions ----------
+# Each case below was a wrong verdict in swarm-v1 (review of 2d2dabc).
+
+LIVE_END = T0 + timedelta(hours=1)
+LIVE_WIN = (LIVE_END - timedelta(hours=24), LIVE_END)
+
+
+def test_wilson_bound_values():
+    assert abs(_wilson(5, 5, 1.96) - 0.566) < 0.002
+    assert abs(_wilson(43, 43, 1.96) - 0.918) < 0.002
+    assert _wilson(0, 10, 1.96) == 0.0 and _wilson(3, 0, 1.96) == 0.0
+
+
+def test_live_uniform_hour_same_file_is_not_swarm():
+    """v1: 10 people posting one file evenly over an hour came out swarm 55% of the time
+    (same_file was the selection rule, and the null spread posts past the window's end)."""
+    for seed in range(20):
+        rng = random.Random(seed)
+        s = [
+            post(i, f"did:plc:h{i}", T0 + timedelta(seconds=rng.uniform(0, 3600)), "", "cidH")
+            for i in range(10)
+        ]
+        r = score_swarm(s, {}, basis="live", selected_by_file=True, window=LIVE_WIN)
+        assert r.verdict != "swarm", seed
+        assert r.families["timing"] < 0.5, seed
+        assert not any(x.name in ("same_file", "own_files") for x in r.signals)
+        # the old call (no window, no selection flag) no longer finds a burst either
+        assert score_swarm(s, {}).families["timing"] < 0.5, seed
+
+
+def test_newest_20_sample_has_no_burst():
+    """v1: a search's newest 20 posts (uniform over 15 min) always had timing p <= 0.01."""
+    for seed in range(20):
+        rng = random.Random(seed)
+        s = [
+            post(i, f"did:plc:n{i}", T0 + timedelta(seconds=rng.uniform(0, 900)), "", "cidN")
+            for i in range(20)
+        ]
+        r = score_swarm(s, {})
+        assert r.families["timing"] == 0.0, seed
+        assert r.verdict != "swarm", seed
+        assert r.verdict != "organic"  # 15 minutes cannot show a spread either
+
+
+def test_single_fan_cannot_fire_boost():
+    """v1: one poster liking the other five posts within a minute made fast_boost 1.0 -> swarm."""
+    accs = [f"did:plc:f{i}" for i in range(6)]
+    s = [post(i, a, T0 + timedelta(hours=2 * i), "", "cidF") for i, a in enumerate(accs)]
+    s += [
+        Sighting(
+            id=f"l{i}",
+            platform="bluesky",
+            account=accs[0],
+            kind="like",
+            target=f"p{i}",
+            at=T0 + timedelta(hours=2 * i, seconds=40),
+        )
+        for i in range(1, 6)
+    ]
+    for by_file in (False, True):
+        r = score_swarm(s, {}, basis="live", selected_by_file=by_file, window=LIVE_WIN)
+        assert r.families["boost"] < 0.5
+        assert not any(x.name in ("fast_boost", "closed_loop") for x in r.signals)
+        assert r.verdict != "swarm"
+
+
+def test_friends_liking_each_other_is_not_a_loop():
+    """v1: six friends posting one reaction image and liking each other -> closed_loop 1.0."""
+    rng = random.Random(2)
+    accs = [f"did:plc:f{i}" for i in range(6)]
+    s = [
+        post(i, a, T0 + timedelta(minutes=60 * i + rng.uniform(0, 30)), "", "cidR")
+        for i, a in enumerate(accs)
+    ]
+    k = 0
+    for i in range(6):
+        for j in (1, 2):
+            s.append(
+                Sighting(
+                    id=f"l{k}",
+                    platform="bluesky",
+                    account=accs[(i + j) % 6],
+                    kind="like",
+                    target=f"p{i}",
+                    at=T0 + timedelta(minutes=60 * i + 40 + 10 * j),
+                )
+            )
+            k += 1
+    for by_file in (False, True):
+        r = score_swarm(s, {}, basis="live", selected_by_file=by_file, window=LIVE_WIN)
+        assert not any(x.name == "closed_loop" for x in r.signals)
+        assert r.verdict != "swarm"
+
+
+def test_old_signup_wave_cohort_is_ordinary():
+    """v1: ten accounts that joined in the same week 200 days ago -> same_cohort 1.0 -> swarm,
+    with or without a baseline."""
+    rng = random.Random(4)
+    s = [
+        post(i, f"did:plc:w{i}", T0 + timedelta(hours=3 * i + rng.uniform(0, 2)), "", "cidW")
+        for i in range(10)
+    ]
+    info = {
+        f"did:plc:w{i}": AccountInfo(
+            key=f"did:plc:w{i}",
+            created_at=T0 - timedelta(days=200 + rng.uniform(0, 6)),
+            followers=rng.randint(5, 80),
+            has_avatar=True,
+            bio="hi",
+        )
+        for i in range(10)
+    }
+    for bl in (None, Baseline(fresh_rate=0.5, empty_rate=0.4, n=1000)):
+        for by_file in (False, True):
+            r = score_swarm(s, info, basis="live", baseline=bl, selected_by_file=by_file)
+            assert r.families["accounts"] < 0.5
+            assert not any(x.name == "same_cohort" for x in r.signals)
+            assert r.verdict != "swarm"
+
+
+def test_recent_cohort_fires_only_with_a_baseline_test():
+    rng = random.Random(16)
+    s, info = [], {}
+    for i in range(12):
+        acc = f"did:plc:c{i}"
+        s.append(post(i, acc, T0 + timedelta(hours=2 * i), "", f"c{i}"))
+        info[acc] = AccountInfo(
+            key=acc, created_at=T0 - timedelta(days=3, hours=rng.uniform(0, 72))
+        )
+    untested = score_swarm(s, info)
+    tested = score_swarm(s, info, baseline=Baseline(fresh_rate=0.05, n=500))
+    common = score_swarm(s, info, baseline=Baseline(fresh_rate=0.9, n=500))
+    sig = lambda r: next((x for x in r.signals if x.name == "same_cohort"), None)  # noqa: E731
+    assert sig(untested).score <= 0.45
+    assert sig(tested).score >= 0.7
+    assert sig(tested).summary == "12 of 12 joined the same week"
+    assert sig(common) is None  # the baseline says this is ordinary
+    # a tested signal needs 8 accounts with a known age
+    few = {k: v for k, v in list(info.items())[:7]}
+    assert sig(score_swarm(s, few, baseline=Baseline(fresh_rate=0.05, n=500))).score <= 0.45
+
+
+def test_five_of_five_lurkers_do_not_fire():
+    """v1: 5 of 5 accounts without bio or avatar (binomial p = 0.0103) fired accounts -> swarm."""
+    s = [post(i, f"did:plc:e{i}", T0 + timedelta(hours=4 * i), "", "cidE") for i in range(5)]
+    info = {
+        f"did:plc:e{i}": AccountInfo(key=f"did:plc:e{i}", has_avatar=False, bio="")
+        for i in range(5)
+    }
+    for bl in (None, Baseline(empty_rate=0.4, fresh_rate=0.1, n=1000)):
+        for by_file in (False, True):
+            r = score_swarm(s, info, basis="live", baseline=bl, selected_by_file=by_file)
+            assert r.families["accounts"] < 0.5
+            assert r.verdict != "swarm"
+    # 30 of 30 with a low base rate is a tested, firing signal
+    s, info = swarm_case()
+    r = score_swarm(s, info, baseline=Baseline(empty_rate=0.2, fresh_rate=0.05, n=1000))
+    empty = next(x for x in r.signals if x.name == "empty_profiles")
+    assert empty.score >= 0.85
+
+
+def test_300_accounts_in_2_s_is_never_organic():
+    """v1: 300 accounts within 2 s with varied words and own uploads -> organic ("Chill")."""
+    rng = random.Random(1)
+    s = [
+        post(i, f"a{i}", T0 + timedelta(seconds=rng.uniform(0, 2)), own_text(rng, 10), f"m{i}")
+        for i in range(300)
+    ]
+    r = score_swarm(s, window=WIN)
+    assert "timing" in r.fired and r.p_value is not None and r.p_value <= 0.01
+    assert r.verdict == "unclear" and r.why_unclear == "signs both ways"
+    # without a window the 2 s cannot be tested, and a 2 s sample shows no spread either
+    r = score_swarm(s)
+    assert r.verdict == "unclear" and r.why_unclear == "posts span only minutes"
+
+
+def test_fandom_handles_are_not_templated():
+    """v1: fans named after one star shared a 5-letter prefix -> templated_handles -> swarm."""
+    rng = random.Random(6)
+    hs = [
+        "taylorsversion",
+        "taylornation13",
+        "taylorgang",
+        "taylorismymom",
+        "swiftie89",
+        "folklorefan",
+        "taylorfan22",
+        "tayloredit",
+    ]
+    s = [
+        post(i, f"did:plc:t{i}", T0 + timedelta(seconds=rng.uniform(0, 900)), "", "cidT")
+        for i in range(len(hs))
+    ]
+    info = {
+        f"did:plc:t{i}": AccountInfo(key=f"did:plc:t{i}", handle=h + ".bsky.social")
+        for i, h in enumerate(hs)
+    }
+    r = score_swarm(s, info, basis="live", selected_by_file=True, window=LIVE_WIN)
+    assert not any(x.name == "templated_handles" for x in r.signals)
+    assert r.verdict != "swarm"
+
+
+def test_templated_handles_need_six_handles():
+    s, info = swarm_case(n=5)
+    assert not any(x.name == "templated_handles" for x in score_swarm(s, info).signals)
+    s, info = swarm_case(n=12)
+    assert any(x.name == "templated_handles" for x in score_swarm(s, info).signals)
+
+
+def test_selected_by_file_drops_file_signals():
+    s, info = swarm_case()
+    r = score_swarm(s, info, selected_by_file=True, window=WIN)
+    names = {x.name for x in r.signals}
+    assert "same_file" not in names and "own_files" not in names
+    assert r.verdict == "swarm"  # timing, accounts and copied words still agree
+    r = score_swarm(s, None, selected_by_file=True)  # copy (words) only, no window
+    assert r.verdict == "unclear"
+
+
+def test_own_files_capped_and_not_for_x():
+    rng = random.Random(17)
+    s = [post(i, f"did:plc:o{i}", T0 + timedelta(hours=i), "", f"f{i}") for i in range(12)]
+    g = next(x for x in score_swarm(s).signals if x.name == "own_files")
+    assert g.score == 0.5 and g.polarity == "against"
+    x = [
+        Sighting(
+            id=f"x{i}",
+            platform="x",
+            account=f"x:u{i}",
+            at=T0 + timedelta(seconds=rng.uniform(0, 86400)),
+            media_key=f"3_{i}",
+        )
+        for i in range(12)
+    ]
+    assert not any(y.name == "own_files" for y in score_swarm(x).signals)
+
+
+def test_organic_needs_no_family_fired():
+    s, info = organic_case()
+    r = score_swarm(s, info, basis="live", window=(T0, T0 + timedelta(hours=48)))
+    assert r.verdict == "organic" and not r.fired and r.guard >= 0.6
+
+
+def test_clockwork_alone_cannot_carry_a_two_family_swarm():
+    rng = random.Random(12)
+    text = "everyone should buy this token today before the price goes up again"
+    s = [
+        post(i, f"x:sched{i}", T0 + timedelta(seconds=97 * i + rng.uniform(-2, 2)), text)
+        for i in range(15)
+    ]
+    r = score_swarm(s)
+    assert {"timing", "copy"} <= set(r.fired)
+    lead = max((x for x in r.signals if x.family == "timing"), key=lambda x: x.score)
+    assert lead.name == "clockwork"  # thresholded, no p-value
+    assert r.verdict == "unclear" and r.why_unclear == "timing could be chance"
+
+
+def test_same_post_under_several_ids_is_one_post():
+    """v1: each post seen as p<i>, a URL and dup<i> -> "5 accounts posted 3+ times"."""
+    s = []
+    for i in range(5):
+        at = T0 + timedelta(hours=3 * i)
+        for sid in (f"p{i}", f"https://x.com/u{i}/status/{i}", f"dup{i}"):
+            s.append(Sighting(id=sid, platform="x", account=f"x:u{i}", at=at, media_key=f"m{i}"))
+    s.append(
+        Sighting(
+            id="b0",
+            platform="x",
+            account="x:fan",
+            kind="repost",
+            target="dup0",
+            at=T0 + timedelta(seconds=5),
+        )
+    )
+    r = score_swarm(s)
+    assert r.n_posts == 5 and r.n_boosts == 1
+    assert not any(x.name == "repeat_posters" for x in r.signals)
+
+
+def test_duplicate_ids_resolve_the_same_in_any_order():
+    text = "buy this coin now it is going to the moon today"
+    a = Sighting(id="p0", platform="x", account="x:u0", at=T0, text=text)
+    b = Sighting(id="p0", platform="x", account="x:u0", at=T0, text="")
+    rest = [
+        Sighting(
+            id=f"p{i}", platform="x", account=f"x:u{i}", at=T0 + timedelta(minutes=i), text=text
+        )
+        for i in range(1, 6)
+    ]
+    assert score_swarm([a, b, *rest]).model_dump() == score_swarm([b, a, *rest]).model_dump()
+
+
+def test_repeat_posters_needs_three_accounts():
+    s = [post(i, "x:loud", T0 + timedelta(minutes=10 * i), "", f"m{i}") for i in range(50)]
+    s += [post(100 + i, f"x:o{i}", T0 + timedelta(hours=2 * i), "", f"n{i}") for i in range(4)]
+    assert not any(x.name == "repeat_posters" for x in score_swarm(s).signals)
+    s = [
+        post(f"{a}_{j}", f"x:r{a}", T0 + timedelta(hours=5 * j + a), "", f"m{a}{j}")
+        for a in range(6)
+        for j in range(3 if a < 3 else 1)
+    ]
+    rep = next(x for x in score_swarm(s).signals if x.name == "repeat_posters")
+    assert rep.summary == "3 accounts posted it 3+ times"
+
+
+def test_only_timing_and_copy_link_posts():
+    s, info = swarm_case()
+    k = 0
+    for i in range(30):
+        for j in (1, 2, 3):
+            s.append(
+                Sighting(
+                    id=f"r{k}",
+                    platform="bluesky",
+                    account=f"did:plc:bot{(i + j) % 30}",
+                    kind="repost",
+                    target=f"s{i}",
+                    at=s[i].at + timedelta(seconds=5 * j),
+                )
+            )
+            k += 1
+    r = score_swarm(s, info, window=WIN)
+    assert {x.family for x in r.signals if x.examples} <= {"timing", "copy"}
+    assert all(not x.examples for x in r.signals if x.family in ("accounts", "boost"))
+    assert any(x.name == "fast_boost" for x in r.signals)
+    assert all(not x.examples for x in r.signals if x.polarity == "against")
+
+
+def test_scores_rank_by_strength_not_saturate():
+    small, info_s = swarm_case(n=8, seed=3)
+    big, info_b = swarm_case(n=40, seed=3)
+    a = score_swarm(small, info_s, selected_by_file=True, window=WIN)
+    b = score_swarm(big, info_b, selected_by_file=True, window=WIN)
+    assert a.verdict == b.verdict == "swarm"
+    assert a.score < b.score < 1.0
