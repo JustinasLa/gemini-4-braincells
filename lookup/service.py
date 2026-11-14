@@ -288,7 +288,7 @@ class Lookup:
         # a hit that names one joins the trace like a caption run
         self._domains: list[str] = []
         # page id -> the text its own read returned (headline, claims), never search snippets
-        self._page_read: dict[str, str] = {}
+        self._page_read: dict[str, tuple[str | None, ...]] = {}
         self._upload_read = False  # Nemotron read the uploaded image (its text may be empty)
         self._page_seq = 0
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
@@ -1458,13 +1458,13 @@ class Lookup:
             self._thread_scan = scan
         scan.run(self._thread_roots())
 
-    def _carries_caption(self, text: str | None) -> bool:
+    def _carries_caption(self, *texts: str | None) -> bool:
         """An uploaded image's copy repeats a real part of its text: runs of it covering 6+
         words (or half of a shorter text). A short post that only names the site or a few of its
         words ("#standwithjensen standwithjensen.com") is about the image, not a copy of it."""
         n_cap = len(textsim.tokens(self._caption)) if self._caption else 0
         need = min(6, max(textsim.RUN_MIN, n_cap // 2))
-        runs = textsim.caption_runs(text, self._caption)
+        runs = [run for text in texts for run in textsim.caption_runs(text, self._caption)]
         return sum(textsim.n_words(r) for r in runs) >= need
 
     def _text_queries(self, where: Literal["web", "x", "bsky"]) -> list[tuple[str, str]]:
@@ -1831,9 +1831,13 @@ class Lookup:
             pg.publisher = facts.publisher or pg.publisher
             pg.author = facts.author or pg.author
             pg.published_at = facts.published_at
-            pg.headline = facts.headline or pg.headline
+            if self.result.kind == "image":
+                pg.headline = facts.headline
+                pg.snippet = "\n".join(facts.claims) or None
+            else:
+                pg.headline = facts.headline or pg.headline
             pg.claims = facts.claims
-            self._page_read[pg.id] = "\n".join([facts.headline or "", *facts.claims])
+            self._page_read[pg.id] = (facts.headline, *facts.claims)
             pg.receipt_id = rid
             pg.time, pg.time_source, pg.time_uncertainty_s = t, "page" if t else None, unc
 
@@ -2407,7 +2411,14 @@ class Lookup:
                 elif match := self._caption_match(p.text):
                     posts.append(p.model_copy(update={"caption_match": match}))
             for pg in self.result.pages:
-                if match := self._caption_match(pg.headline, pg.snippet):
+                # A successful read supersedes the search hit, even when it returned no
+                # text. Its claims can carry the caption; a stale snippet cannot verify it.
+                texts = (
+                    self._page_read[pg.id]
+                    if pg.id in self._page_read
+                    else (pg.headline, pg.snippet)
+                )
+                if match := self._caption_match(*texts):
                     pg.caption_match = match
                     pages.append(pg)
             ids = {p.id for p in posts} | {pg.id for pg in pages}
@@ -2466,7 +2477,10 @@ class Lookup:
                     # an upload: the page must carry a real part of the image's text in what its
                     # own read returned (not the search snippet or headline it was found by); a
                     # page that only names the site is about it, like a short post
-                    and (not image or self._carries_caption(self._page_read.get(pg.id)))
+                    and (
+                        not image
+                        or self._carries_caption(*self._page_read.get(pg.id, ()))
+                    )
                 ),
                 key=latest,
             )
