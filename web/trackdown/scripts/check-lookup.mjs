@@ -145,6 +145,14 @@ try {
     assert.doesNotMatch(html, /href="javascript:/i);
   });
 
+  const { fmtDur, fmtNum } = await server.ssrLoadModule("/src/ui/format.ts");
+  check("format: rounding never shows 60 s, 60 min or 1000k", () => {
+    assert.equal(fmtDur(59_700), "1 min");
+    assert.equal(fmtDur(59.7 * 60_000), "1 h");
+    assert.equal(fmtNum(999_700), "1M");
+    assert.equal(fmtNum(9_400), "9.4k");
+    assert.equal(fmtNum(42_000), "42k");
+  });
 } finally {
   await server.close();
 }
