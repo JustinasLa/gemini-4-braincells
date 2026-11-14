@@ -3,7 +3,7 @@
 import cv from "../assets/venus-cv.json";
 import venusUrl from "../assets/venus-banner.webp";
 
-interface Pt { x: number; y: number; s: number; score: number }
+interface Pt { x: number; y: number; s: number; score: number; pin?: boolean; fx?: number; fy?: number } // pin: always shown (covers nudity), showing the picture at fx, fy
 const PTS = (cv as { points: Pt[] }).points;
 const LINKS = (cv as { links: { a: number; b: number; score: number }[] }).links;
 
@@ -26,6 +26,44 @@ export interface BannerOpts {
   avoid?: () => (Element | null)[]; // keep detections off these elements (text blocks)
 }
 
+/** The picture under a box, liquid-warped like the Junction banner: a mild swirl plus a slow ripple.
+ * Built once per box; falls back to the plain patch if the canvas cannot be read. */
+function warpPatch(pic: HTMLImageElement, p: Pt, i: number): HTMLCanvasElement {
+  const nw = pic.naturalWidth;
+  const nh = pic.naturalHeight;
+  const n = Math.max(16, Math.round(p.s * nw));
+  const c = document.createElement("canvas");
+  c.width = c.height = n;
+  const g = c.getContext("2d")!;
+  g.drawImage(pic, (p.fx ?? p.x) * nw - n / 2, (p.fy ?? p.y) * nh - n / 2, n, n, 0, 0, n, n);
+  let src: ImageData;
+  try {
+    src = g.getImageData(0, 0, n, n);
+  } catch {
+    return c;
+  }
+  const out = g.createImageData(n, n);
+  const turn = (i % 2 ? -1 : 1) * (0.7 + ((i * 0.37) % 0.4));
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const dx = x - n / 2;
+      const dy = y - n / 2;
+      const r = Math.hypot(dx, dy);
+      const a = Math.atan2(dy, dx) + turn * Math.exp(-r / (0.45 * n));
+      const sx = Math.min(n - 1, Math.max(0, Math.round(n / 2 + r * Math.cos(a) + 0.03 * n * Math.sin((y / n) * Math.PI * 3))));
+      const sy = Math.min(n - 1, Math.max(0, Math.round(n / 2 + r * Math.sin(a) + 0.03 * n * Math.sin((x / n) * Math.PI * 2.4))));
+      const o = (y * n + x) * 4;
+      const q = (sy * n + sx) * 4;
+      out.data[o] = src.data[q];
+      out.data[o + 1] = src.data[q + 1];
+      out.data[o + 2] = src.data[q + 2];
+      out.data[o + 3] = 255;
+    }
+  }
+  g.putImageData(out, 0, 0);
+  return c;
+}
+
 /** Draws into `canvas` until it leaves the DOM. Returns a stop function. */
 export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): () => void {
   const { darken = 0.38, focusX = 0.55, delay = 250, per = 110 } = opts;
@@ -38,9 +76,11 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
   const links0 = opts.cv?.links ?? LINKS;
   const order = pts0.map((_, i) => i).sort((a, b) => pts0[a].x - pts0[b].x);
   const rank = new Map(order.map((i, r) => [i, r]));
+  const patches: HTMLCanvasElement[] = [];
 
   // keep detections off the text: zones are measured a few times a second, not every frame
   const hidden = new Set<number>();
+  const quiet = new Set<number>(); // pins under text: box only, no score over the words
   const offLinks = new Set<number>();
   const avoidDone = new Set<string>();
   let avoidKey = "";
@@ -78,12 +118,14 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
     ctx.drawImage(pic, ix, iy, iw, ih);
     ctx.filter = "none";
     if (!opts.src || opts.cv) {
-      const P = pts0.map((p) => ({ x: ix + p.x * iw, y: iy + p.y * ih, s: p.s * iw, score: p.score }));
+      const P = pts0.map((p) => ({ x: ix + p.x * iw, y: iy + p.y * ih, s: p.s * iw, score: p.score, pin: !!p.pin }));
+      if (!patches.length) pts0.forEach((p, i) => patches.push(warpPatch(pic, p, i)));
       // no boxes or lines over the text this banner sits behind
       const key = `${W}x${H}:${Math.floor(t / 250)}`;
       if (key !== avoidKey) {
         avoidKey = key;
         hidden.clear();
+        quiet.clear();
         offLinks.clear();
       }
       if (opts.avoid && !avoidDone.has(key)) {
@@ -98,10 +140,10 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
         const sx = (x: number) => W / 2 + (x - W / 2) * z;
         const sy = (y: number) => H / 2 + (y - H / 2) * z;
         P.forEach((p, i) => {
-          const h = (p.s * 1.8 * z) / 2;
+          const h = (p.s * (p.pin ? 1 : 1.8) * z) / 2; // pins stay put: only their own box counts
           const x = sx(p.x);
           const y = sy(p.y);
-          if (zones.some((q) => x + h > q.x0 && x - h < q.x1 && y + h > q.y0 && y - h < q.y1)) hidden.add(i);
+          if (zones.some((q) => x + h > q.x0 && x - h < q.x1 && y + h > q.y0 && y - h < q.y1)) (p.pin ? quiet : hidden).add(i);
         });
         const crosses = (a: { x: number; y: number }, b: { x: number; y: number }) =>
           zones.some((q) => {
@@ -135,24 +177,23 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
       ctx.setLineDash([]);
       // detection boxes: bright patch, green frame, score ticking up to the real value
       P.forEach((p, i) => {
-        const tt = t - delay - (rank.get(i) ?? 0) * per;
+        const tt = p.pin ? t : t - delay - (rank.get(i) ?? 0) * per; // pins are there from the first frame
         if (tt < 0 || hidden.has(i)) return;
         const e = Math.min(1, tt / 260);
         const grow = (1 - e) * p.s * 0.8;
         const sz = p.s + grow;
         const x = p.x - sz / 2;
         const y = p.y - sz / 2;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(x, y, sz, sz);
-        ctx.clip();
-        ctx.globalAlpha = e;
-        ctx.drawImage(pic, ix, iy, iw, ih);
-        ctx.restore();
+        ctx.globalAlpha = p.pin ? 1 : e;
+        ctx.drawImage(patches[i], x, y, sz, sz);
         ctx.globalAlpha = e;
         ctx.strokeStyle = "#3fe07a";
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, sz, sz);
+        if (quiet.has(i)) {
+          ctx.globalAlpha = 1;
+          return;
+        }
         const shown = p.score * Math.min(1, tt / 520);
         ctx.font = `600 ${Math.max(9, Math.min(12, sz / 5))}px "JetBrains Mono", monospace`;
         ctx.fillStyle = "#fff";
@@ -160,7 +201,7 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
         ctx.textBaseline = "middle";
         ctx.shadowColor = "#000";
         ctx.shadowBlur = 4;
-        ctx.fillText(shown.toFixed(2), p.x, p.y);
+        ctx.fillText(shown.toFixed(4), p.x, p.y);
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
       });
