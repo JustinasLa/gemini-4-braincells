@@ -148,6 +148,6 @@ test("unsafe links and unescaped model text are never rendered as active HTML", 
 test("dashboard imports and uses the tested media renderer", () => {
   const html = readFileSync(new URL("../web/public/monitor/index.html", import.meta.url), "utf8");
   assert.match(html, /<script type="module">/);
-  assert.match(html, /from "\.\/media-evidence\.mjs"/);
+  assert.match(html, /from "\.\.\/media-evidence\.mjs"/);
   assert.match(html, /mediaEvidenceItems\(c\.posts, evidence\)/);
 });
