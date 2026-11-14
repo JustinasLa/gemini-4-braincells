@@ -68,13 +68,18 @@ _MARKER = re.compile(
 )
 # Quoted image text ('...' or "...", not an apostrophe) that the reply's own OCR confirms is
 # exempt from the wording guard, so a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported.
-_QUOTED = re.compile(r"(?<!\w)'.*?'(?!\w)|\"[^\"]*\"|\u2018.*?\u2019(?!\w)|\u201c[^\u201d]*\u201d")
 _WORD = re.compile(r"[^\W_]+")
 # ...and only when the whole sentence is one of the two forms the prompt asks for to report
 # image text, so a quote in our own narration of another edit is never exempt:
 #   "The [top] caption changed from 'X' to 'Y'."
 #   "The/A [top] text/watermark/... 'X' [at the top] was added/removed[ at the bottom]."
-_Q = r"(?:(?<!\w)'.*?'(?!\w)|\"[^\"]*\"|\u2018.*?\u2019(?!\w)|\u201c[^\u201d]*\u201d)"
+# A quoted span cannot run past its closing quote: inside '...' (or a curly pair) a quote mark
+# is allowed only as an apostrophe between two letters (DON'T), so one span never swallows the
+# words between two quotes. Captured, so only the form's own quote spans are exempt.
+_Q = (
+    r"((?<!\w)'(?:[^']|(?<=\w)'(?=\w))*'(?!\w)|\"[^\"]*\""
+    r"|\u2018(?:[^\u2018\u2019]|(?<=\w)\u2019(?=\w))*\u2019(?!\w)|\u201c[^\u201d]*\u201d)"
+)
 _ADJ = r"(?:top|bottom|upper|lower|main|first|second|new|old|original|small|large|bold)"
 _NOUN = (
     r"(?:captions?|text|words?|lines?|watermarks?|handles?|labels?|titles?|headlines?"
@@ -183,18 +188,40 @@ def _declared_size(data: bytes) -> tuple[int, int] | None:
 
 
 def _gif_size(data: bytes) -> tuple[int, int]:
-    """Logical screen, grown to the first frame's extent (Pillow grows it the same way)."""
+    """Logical screen, grown to the first frame's extent, found the way Pillow 13's
+    GifImagePlugin._seek(0) walks the stream (a stricter walk would disagree with it on
+    odd streams and under-report): after an extension's first sub-block it skips sub-blocks
+    until an empty one, even past a terminator (an empty first block, a NETSCAPE2.0 block
+    with no loop block); comments stop at their terminator; stray bytes are skipped.
+    tests/test_imagediff.py checks this against Pillow on mutated streams."""
     width, height, flags = struct.unpack_from("<HHB", data, 6)
     pos = 13 + (3 << ((flags & 7) + 1) if flags & 0x80 else 0)
-    while data[pos] == 0x21:  # extension blocks: skip their sub-blocks
-        pos += 2
-        while data[pos]:
-            pos += data[pos] + 1
+
+    def sub_block(at: int) -> tuple[bytes | None, int]:  # Pillow's GifImageFile.data()
+        size = data[at]
+        return (data[at + 1 : at + 1 + size] if size else None), at + 1 + size
+
+    while True:
+        byte = data[pos]  # IndexError at the end: no image (Pillow raises too)
         pos += 1
-    if data[pos] != 0x2C:  # fail closed: Pillow skips stray bytes and reads a later descriptor
-        raise ValueError("GIF: no image descriptor where expected")
-    left, top, w, h = struct.unpack_from("<HHHH", data, pos + 1)
-    return max(width, left + w), max(height, top + h)
+        if byte == 0x3B:
+            raise ValueError("GIF: no image")
+        if byte == 0x21:
+            label = data[pos]
+            block, pos = sub_block(pos + 1)
+            if label == 0xFE:  # comment: blocks up to the terminator
+                while block:
+                    block, pos = sub_block(pos)
+                continue
+            if label == 0xFF and block is not None and block.startswith(b"NETSCAPE2.0"):
+                block, pos = sub_block(pos)  # the loop block (or the terminator)
+            while True:
+                block, pos = sub_block(pos)
+                if not block:
+                    break
+        elif byte == 0x2C:
+            left, top, w, h = struct.unpack_from("<HHHH", data, pos)
+            return max(width, left + w), max(height, top + h)
 
 
 def _webp_size(data: bytes) -> tuple[int, int]:
@@ -328,9 +355,7 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
     aligned: list[ChangeKind] = []
     ocr = _OcrText(before + after)
     for index, sentence in enumerate(sentences):
-        unquoted = sentence
-        if any(form.fullmatch(sentence) for form in _TEXT_FORMS):  # reports image text
-            unquoted = _QUOTED.sub(lambda m: _image_text(m.group(), ocr), sentence)
+        unquoted = _exempt_image_text(sentence, ocr)
         if not sentence or _FORBIDDEN.search(unquoted) or (marked and _MARKER.search(unquoted)):
             continue
         sentence = sentence if sentence.endswith(".") else sentence + "."
@@ -370,6 +395,22 @@ class _OcrText:
 
 def _words(text: str) -> list[str]:
     return _WORD.findall(text.casefold())
+
+
+def _exempt_image_text(sentence: str, ocr: _OcrText) -> str:
+    """The sentence with the quote spans of a text-report form blanked where the
+    transcription confirms them; any other sentence unchanged (all of it is guarded)."""
+    for form in _TEXT_FORMS:
+        match = form.fullmatch(sentence)
+        if match is None:
+            continue
+        out, last = [], 0
+        for group in range(1, (match.lastindex or 0) + 1):
+            start, end = match.span(group)
+            out += [sentence[last:start], _image_text(sentence[start:end], ocr)]
+            last = end
+        return "".join(out) + sentence[last:]
+    return sentence
 
 
 def _image_text(quoted: str, ocr: _OcrText) -> str:

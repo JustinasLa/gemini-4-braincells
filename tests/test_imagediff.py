@@ -741,10 +741,18 @@ def test_forbidden_words_inside_quoted_image_text_are_kept(images, sentence):
         'The face above the caption was replaced with a "fake" one.',  # incidental "caption"
         "The caption changed from 'GOOD BOY' to 'GOOD BOY'. The face is fake.",  # two sentences
         "The caption 'GOOD BOY' was added. A 'fake' face too.",
+        # a quote must not stretch across a closing quote into our own words
+        "The caption changed from 'GOOD BOY' to 'GOOD BOY'. The face is 'fake'.",
+        "The text 'GOOD BOY' was added. A 'fake' face was removed.",
     ],
 )
 def test_forbidden_words_outside_quotes_still_drop(images, sentence):
-    payload = {**FULL, "changes": [sentence], "kinds": ["other"], "text_after": ["GOOD BOY"]}
+    payload = {
+        **FULL,
+        "changes": [sentence],
+        "kinds": ["other"],
+        "text_after": ["GOOD BOY", "fake"],  # even when "fake" is transcribed text
+    }
     result, _ = compare(images, payload)
     assert result.changes == []
 
@@ -956,3 +964,87 @@ def test_live_text_sentences_match_a_text_form(sentence):
     from media.imagediff import _TEXT_FORMS
 
     assert any(form.fullmatch(sentence) for form in _TEXT_FORMS)
+
+
+GIF_FRAME = b"\x02\x02\x44\x01\x00"  # LZW min code size + one data block + terminator
+
+
+def gif_descriptor(left, top, w, h):
+    return b"\x2c" + struct.pack("<HHHHB", left, top, w, h, 0) + GIF_FRAME
+
+
+def gif_stream(screen, *parts):
+    return b"GIF89a" + struct.pack("<HHBBB", *screen, 0, 0, 0) + b"".join(parts) + b"\x3b"
+
+
+GCE_DISPOSE = b"\x21\xf9\x04\x08\x00\x00\x00\x00"
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        # empty first sub-block: Pillow then skips the next blocks (a decoy small descriptor)
+        gif_stream(
+            (10, 10),
+            GCE_DISPOSE,
+            b"\x21\x01\x00",
+            b"\x2c" + gif_descriptor(0, 0, 1, 1)[1:] + b"\x00" * 31,  # 44-byte block, then 00
+            gif_descriptor(0, 0, 5000, 5000),
+        ),
+        # NETSCAPE2.0 without its loop block: same skip past the terminator
+        gif_stream(
+            (10, 10),
+            GCE_DISPOSE,
+            b"\x21\xff\x0bNETSCAPE2.0\x00",
+            b"\x0b" + gif_descriptor(0, 0, 1, 1)[:11],
+            b"\x00",
+            gif_descriptor(0, 0, 5000, 5000),
+        ),
+    ],
+)
+def test_gif_walk_matches_pillow_on_odd_extensions(images, monkeypatch, data):
+    from media.imagediff import _declared_size
+
+    assert _declared_size(data) == (5000, 5000)
+    test_gif_webp_canvas_checked_before_open(images, monkeypatch, data)
+
+
+def test_gif_walk_never_under_reports_pillow():
+    """Differential check on mutated small GIFs: wherever Pillow opens a stream, our walk
+    returns at least Pillow's size (or refuses), so the 24 MP preflight can't be undercut."""
+    import random
+
+    from media.imagediff import _declared_size
+
+    pieces = [
+        GCE_DISPOSE,
+        b"\x21\x01\x00",
+        b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00",
+        b"\x21\xff\x0bNETSCAPE2.0\x00",
+        b"\x21\xfe\x03abc\x00",
+        b"\x21\xfe\x00",
+        b"\x00",
+        b"\x07",
+        b"\x03xyz",
+    ]
+    rng = random.Random(1234)
+    opened = 0
+    for _ in range(3000):
+        parts = [rng.choice(pieces) for _ in range(rng.randint(0, 4))]
+        for _ in range(rng.randint(1, 3)):
+            at = rng.randint(0, len(parts))
+            box = (rng.randint(0, 20), rng.randint(0, 20), rng.randint(1, 60), rng.randint(1, 60))
+            parts.insert(at, gif_descriptor(*box))
+        data = gif_stream((rng.randint(1, 40), rng.randint(1, 40)), *parts)
+        try:
+            with Image.open(io.BytesIO(data)) as image:
+                size = image.size
+        except Exception:
+            continue
+        opened += 1
+        try:
+            declared = _declared_size(data)
+        except ValueError:
+            continue  # refused: safe
+        assert declared[0] >= size[0] and declared[1] >= size[1], (data, declared, size)
+    assert opened > 500

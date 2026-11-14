@@ -194,7 +194,8 @@ variant, for the meme trace: `changes` (at most 5), `kinds` (one per change, fro
 visible change gives `changes == []`. Inputs: JPEG (incl. MPO), PNG, GIF, WebP; formats that
 decode inside `Image.open` (ICO) are refused. It returns None, never raises, on bad image bytes,
 another format, an image over 24 MP (checked from the header before Pillow allocates anything:
-for GIF and WebP the declared canvas is read from the raw bytes, since Pillow allocates it inside
+for GIF (walked the way Pillow 13 walks it) and WebP the declared canvas is read from the raw
+bytes, since Pillow allocates it inside
 `Image.open`), timeout, an API error, a non-Super-VL response, a reply cut at `max_tokens` (a cut
 could lose an unfinished `content_flags`) or an unusable reply. A non-Super-VL response, which
 stops the worker, is logged at ERROR here but still returns None: the lookup must not break.
