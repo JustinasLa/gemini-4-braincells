@@ -527,7 +527,9 @@ function showHome() {
   const home = homeEl;
   stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
-  setTimeout(() => input.focus(), 400);
+  // Do not summon the on-screen keyboard just because the home screen opened.
+  // Desktop keeps the quick keyboard workflow; touch users can choose the field when ready.
+  if (!matchMedia("(pointer: coarse)").matches) setTimeout(() => input.focus(), 400);
   // a pasted image sits in the search box until Trace it (or Enter) sends it
   const q = $<HTMLElement>(".home-q", homeEl);
   const att = $<HTMLElement>(".home-att", homeEl);
