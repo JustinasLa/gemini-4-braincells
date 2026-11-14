@@ -143,7 +143,8 @@ Tune on one set of seeds, report on others. `account_info` can also wrap
   Calibration on Gemini-written fictional sets: at 0.85, 67% of same-campaign post pairs, 5% of
   same-topic organic pairs and 0.04% of random live pairs match. It is content evidence only:
   `coordinated` still needs a behavioural family and the timing p-value.
-  The worker uses it when `GEMINI_API_KEY` is set (`--no-embeddings` turns it off).
+  The worker uses it when `GEMINI_API_KEY` is set (`python -m signals --no-embeddings run`
+  turns it off; the flag goes before the subcommand).
 - **Red team** (`attack.py`): Gemini 4 writes fictional campaigns (one message, many personas,
   no shared phrases) and organic look-alikes (many people, same fictional event, own opinions).
   Saved in `fixtures/gemini_attacks.json`; never posted; all accounts built from them are

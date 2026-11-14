@@ -619,3 +619,38 @@ def test_clock_aligned_guard_states_the_span_it_counts():
     assert g.detail["aligned"] == 5
     assert g.detail["expected_share"] == round(105 / 1800, 4)
     assert "15 s before" in g.summary and "6% expected" in g.summary
+
+
+def test_load_window_counts_active_posters_without_an_extra_query():
+    from datetime import UTC, datetime, timedelta
+
+    from signals.window import load_window
+
+    start = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    t = start.timestamp()
+    # One post seen from two Jetstream hosts (same uri), plus a second account's post.
+    posts = [
+        ("at://a/app.bsky.feed.post/1", "did:a", t + 5, "hi", None, [], [], None, None, None),
+        ("at://a/app.bsky.feed.post/1", "did:a", t + 3, "hi", None, [], [], None, None, None),
+        ("at://b/app.bsky.feed.post/2", "did:b", t + 9, "yo", None, [], [], None, None, None),
+    ]
+    posts = [(*r, None, False, ["en"]) for r in posts]
+    seen: list[str] = []
+
+    class Cur:
+        def execute(self, sql, params):
+            seen.append(sql)
+            return posts if "FROM posts WHERE" in sql and "text_hash" in sql else []
+
+    class Conn:
+        def cursor(self):
+            return Cur()
+
+    wd = load_window(Conn(), start, start + timedelta(minutes=10), DEFAULT)
+    assert [p.uri for p in wd.posts] == [
+        "at://a/app.bsky.feed.post/1",
+        "at://b/app.bsky.feed.post/2",
+    ]
+    assert wd.posts[0].t == t + 3  # earliest copy kept
+    assert wd.active_accounts == 2
+    assert not any("count(DISTINCT" in s for s in seen)

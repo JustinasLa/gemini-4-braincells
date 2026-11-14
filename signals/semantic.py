@@ -6,8 +6,9 @@ same-campaign post pairs pass, 5% of same-topic organic pairs and 0.04% of rando
 So this says "same message", not "coordinated": it is one content signal, and the status still
 needs a second, behavioural family (timing, network or identity).
 
-Cost control: only posts of members of already-suspicious clusters are embedded, each post once
-(cached by URI), batched 100 per call, with a per-pass budget.
+Cost control: only posts of members of candidate clusters (already suspicious, or small with
+enough long posts) are embedded, each post once (cached by URI), batched 100 per request, at
+most `budget_per_call` new posts per call.
 """
 
 import logging
