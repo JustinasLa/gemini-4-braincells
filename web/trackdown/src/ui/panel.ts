@@ -110,9 +110,8 @@ export class Panel {
 
   private pendingHtml() {
     const failed = this.c?.lookup?.state === "failed";
-    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting live receipts"}</div><p class="lookup-message" ${failed ? 'role="alert"' : 'role="status"'}>${esc(failed ? this.c.lookup.error || "The lookup failed. No final verdict was issued." : "Posts, pages and receipts appear as they arrive. Coordination is not judged until the lookup finishes.")}</p><p class="lookup-message">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts. Select a card for its data.</p>`;
-    return `<div class="pending"><div class="label">Tracing</div>
-      <p>Walking back one copy at a time to the earliest version we can find, then measuring how it spread.</p></div>`;
+    if (this.c?.lookup) return `<div class="label">${this.c.mock ? "MOCK · fictional data · " : ""}${failed ? "Lookup incomplete" : "Collecting…"}</div>${failed ? `<p class="lookup-message" role="alert">${esc(this.c.lookup.error || "The lookup failed. No verdict.")}</p>` : ""}<p class="lookup-message" role="status">${this.c.nodes.length} cards · ${this.c.receipts.length} receipts</p>`;
+    return `<div class="pending"><div class="label">Tracing…</div></div>`;
   }
 
   private verdict(c: TraceCase) {
@@ -120,17 +119,19 @@ export class Panel {
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
     const unscored = c.historical ? "Not scored" : "No call";
     const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
-    const notice = c.mock ? `<div class="notice"><b>Development mock.</b> All people, metrics and <span class="mono">.example</span> sources here are fictional. No live lookup was made.</div>` : c.synthetic
-      ? `<div class="notice"><b>Simulated case.</b> Fictional accounts and <span class="mono">.example</span> sites, built to show how a trackdown works. Not a verdict on any real post.</div>`
+    const notice = c.mock ? `<div class="notice"><b>Mock.</b> Fictional data; no live lookup.</div>` : c.synthetic
+      ? `<div class="notice"><b>Simulated.</b> Fictional accounts; not a verdict on a real post.</div>`
       : c.historical
-        ? `<div class="notice"><b>Historical record.</b> Written by hand from public history, not run through the detector. The verdict is our reading of it.</div>`
+        ? `<div class="notice"><b>Historical record.</b> Written by hand, not a detector result.</div>`
         : "";
-    const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>` : "";
+    const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "Replay" : "Replay"}</button></div>` : "";
+    // a lookup answers first, in one sentence; the rest of the reading and the sources fold under it
+    const [lead, rest] = leadSentence(c.summary);
     return `
-      ${c.lookup ? factualFindings(c.lookup) : ""}
+      ${c.lookup && lead ? `<section class="answer" aria-label="What we found"><p class="answer-lead">${esc(lead)}</p>${rest ? `<details><summary>More</summary><p class="lookup-message">${esc(rest)}</p></details>` : ""}</section>` : ""}
       ${!hasVerdict(c) ? `<section class="verdict noverdict" aria-label="Coordination">
-        <div class="label">Coordination · no call</div>
-        <p class="vs">${esc(c.lookup ? coordinationNote(c.lookup) : c.summary)} Only a match with a cluster we monitor gives a coordination call.</p>
+        <div class="label">No coordination call</div>
+        <p class="vs">${esc(c.lookup ? coordinationNote(c.lookup) : c.summary)}</p>
         ${this.readings(c)}
         ${notice}
       </section>` : `<section class="verdict" style="--vc:${v.css}">
@@ -140,8 +141,8 @@ export class Panel {
         ${this.readings(c)}
         ${notice}
       </section>`}
-      ${c.lookup ? `<div class="sect label">Model summary · collected evidence</div><p class="lookup-message">${esc(c.summary)}</p>` : ""}
-      ${replay}`;
+      ${replay}
+      ${c.lookup ? `<div class="sect label">Sources</div>${factualFindings(c.lookup)}` : ""}`;
   }
 
   /** model readings of the receipts. They are inferences: the status always comes from `status`. */
@@ -219,6 +220,13 @@ export class Panel {
       ${c.synthetic ? `<div class="nolink">Simulated post: no live link.</div>` : httpUrl(n.url) ? `<a class="d-src" href="${esc(n.url!)}" target="_blank" rel="noopener">Open the original ↗</a>` : ""}
     </section>`;
   }
+}
+
+/** the first sentence of a model summary, and the rest: the panel leads with one sentence */
+export function leadSentence(text: string | null | undefined): [string, string] {
+  const clean = (text ?? "").trim();
+  const cut = /^(.{40,}?[.!?])\s+(\S.*)$/s.exec(clean);
+  return cut ? [cut[1], cut[2]] : [clean, ""];
 }
 
 /** a post in the copy/spread trace: not a search result, not the real post shown in a screenshot */
