@@ -147,8 +147,10 @@ reads it (its text goes on the card and into the monitor check and the reading),
   (snowflake) and what differs; never the image origin, never a copy of the text. A picture
   the model finds unchanged is a copy, not another version: not counted. Matches are published
   as each comparison returns; the wait ends at the provider deadline (late ones are counted in
-  the receipt). Threads that could not be read get a failed receipt; with none read, the step
-  fails rather than reporting an empty scan.
+  the receipt). The lookup settles the scan before its reading, so the reading and the
+  frozen result agree; a late answer changes nothing. Reply pages that could not be read (a
+  second page too) get a failed receipt; with none read, the step fails rather than reporting
+  an empty scan.
 - the upload is never its own origin: with no dated match, `origin_id` is null.
 
 Uploads need a public URL: `LOOKUP_PUBLIC_BASE_URL`, or `https://{PUBLIC_HOST}`. The production

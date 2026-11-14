@@ -305,6 +305,7 @@ class Lookup:
         self._v_profiles: set[str] = set()  # copier profiles queued
         self._v_pages: list[str] = []  # older-looking pages queued for their own date
         self._v_read = 0  # candidate copy pages that came back (read, whatever they showed)
+        self._thread_scan: Any = None  # lookup/threadvariants.ThreadScan, settled before reading
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
@@ -687,6 +688,10 @@ class Lookup:
         if kind == "image":
             self._keep_caption_matches()  # before the image origin is chosen from the posts
         trace.finish()
+        with self.lock:
+            scan = self._thread_scan
+        if scan is not None:
+            scan.close(at_end=True)  # what the reading sees is what the result keeps
 
     def _wait_text(self, futures: list[Future]) -> None:
         """Until one of `futures` has finished with the subject's text known, or all are done.
@@ -1429,7 +1434,10 @@ class Lookup:
             with self.lock:
                 reads = list(self._v_futures)
             wait(reads, timeout=max(0.0, min(THREAD_WAIT_S, left)))
-        threadvariants.ThreadScan(self, ref).run(self._thread_roots())
+        scan = threadvariants.ThreadScan(self, ref)
+        with self.lock:
+            self._thread_scan = scan
+        scan.run(self._thread_roots())
 
     def _carries_caption(self, text: str | None) -> bool:
         """An uploaded image's copy repeats a real part of its text: runs of it covering 6+

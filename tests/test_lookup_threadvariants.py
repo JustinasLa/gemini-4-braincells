@@ -300,7 +300,7 @@ def test_unchanged_copy_is_not_a_template_match():
     job, _ = _upload_job(convs, SameMatcher(), [])
     assert not [m for m in job.result.image_matches if m.relation == "template"]
     rec = next(x for x in job.result.receipts if "one by one" in x.summary)
-    assert "1 looked unchanged (not counted)" in rec.summary
+    assert "1 looked unchanged, not counted" in rec.summary
 
 
 def test_fxtwitter_outage_fails_the_step_with_receipts():
@@ -368,12 +368,110 @@ def test_a_fast_match_is_published_while_a_slow_comparison_runs_out_of_time():
     usable = [((to_item(c[0]), c[1], c[2]), b) for c, b in ((fast, TPL_BYTES), (slow, _png("red")))]
     t0 = _time.monotonic()
     try:
-        found = scan._compare(data, usable)
+        scan._compare(data, usable)
+        scan.close()
     finally:
         release.set()
     assert _time.monotonic() - t0 < 4.5  # ended at the deadline, not after the slow call
-    assert [m.page_url for m in found] == ["https://x.com/user1/status/2121470000000000001"]
-    assert [m.id for m in job.result.image_matches] == [found[0].id]
-    assert (scan.compared, scan.late) == (1, 1)
+    assert [m.page_url for m in scan.found] == ["https://x.com/user1/status/2121470000000000001"]
+    assert [m.id for m in job.result.image_matches] == [scan.found[0].id]
+    assert (scan.compared, scan.pictures) == (1, 2)
     rec = next(x for x in job.result.receipts if "one by one" in x.summary)
     assert "1 not answered in time" in rec.summary
+
+
+def test_the_frozen_result_has_the_settled_scan_when_a_comparison_hangs(monkeypatch):
+    """Through job.run(): the lookup settles the scan before its reading, so the frozen
+    result says what came back and what didn't, and a late answer changes nothing."""
+    import threading
+
+    import lookup.service as svc
+
+    monkeypatch.setattr(svc, "IMAGE_NEED_S", 0.5)  # the fake image read is instant
+    from lookup import threadvariants as tv
+
+    compare = tv.ThreadScan._compare
+
+    def slow_to_settle(self, ref, usable):  # the scan's own wrap-up loses the race
+        compare(self, ref, usable)
+        threading.Event().wait(1.0)
+
+    monkeypatch.setattr(tv.ThreadScan, "_compare", slow_to_settle)
+
+    release = threading.Event()
+
+    class HangingMatcher:
+        def __call__(self, client, ref, cand, *, timeout_s):
+            if cand == TPL_BYTES:
+                return TemplateVerdict(True, 'shows "Xi" instead', True), 200, "m"
+            release.wait(20)
+            return TemplateVerdict(True, 'shows "Late" instead', True), 9000, "m"
+
+    root = _status(ROOT, "campaign", "We're removing fake entries from example-site.org", replies=2)
+    replies = [_reply(1, "TPL0001"), _reply(2, "CAT0002")]
+    convs = {ROOT: [{"status": root, "replies": replies, "cursor": {}}]}
+    data = _png("black")
+    ref = ImageRef(sha256=hashlib.sha256(data).hexdigest(), mime="image/png", bytes=len(data))
+    job = Lookup(
+        "lk_hang",
+        LookupInput(image=ref),
+        Deps(
+            oxylabs=SiteOxylabs(),
+            fxtwitter=FakeFx(convs),
+            nemotron=SiteReader(),
+            match_templates=HangingMatcher(),
+            image_transport=_cdn([]),
+            time_budget_s=10 + 4.0,  # 4 s of provider time; the reading's 10 s stay reserved
+        ),
+        image=data,
+    )
+    try:
+        job.run()
+        frozen = job.snapshot()
+    finally:
+        release.set()
+    st = next(s for s in frozen["steps"] if s["id"] == "thread_variants")
+    assert st["state"] == "done"
+    assert "1 show the same template" in st["detail"] and "1 not compared in time" in st["detail"]
+    rec = next(r for r in frozen["receipts"] if "one by one" in r["summary"])
+    assert rec["ok"] and "1 not answered in time" in rec["summary"]
+    tpl = [m for m in frozen["image_matches"] if m["relation"] == "template"]
+    assert [m["changes"] for m in tpl] == [['shows "Xi" instead']]
+    import time as _time
+
+    _time.sleep(0.3)  # the late answer arrives now
+    assert job.snapshot() == frozen
+    assert len([m for m in job.result.image_matches if m.relation == "template"]) == 1
+
+
+def test_a_failed_second_reply_page_is_recorded():
+    from lookup.fxtwitter import FxTwitterError
+
+    subj = _status(SUBJ, "ada_example", "Look at this page", [REF_PHOTO], replies=40)
+    page0 = [_reply(1, None, parent=(SUBJ, "ada_example"))]
+
+    class HalfFx(FakeFx):
+        def conversation(self, sid, *, cursor=None, deadline=None):
+            self.calls.append((sid, cursor))
+            if cursor:
+                raise FxTwitterError("HTTP 503")
+            data = {"status": subj, "replies": page0, "cursor": {"bottom": "1"}}
+            return FxTwitterClient._conversation(data, with_replies=True)
+
+    job = Lookup(
+        "lk_half",
+        LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"),
+        Deps(
+            oxylabs=FakeOxylabs(),
+            fxtwitter=HalfFx({SUBJ: [{"status": subj, "replies": [], "cursor": {}}]}),
+            nemotron=object(),
+            match_templates=FakeMatcher(),
+            image_transport=_cdn([]),
+            media_max=0,
+        ),
+    )
+    job.run()
+    st = job._step("thread_variants")
+    assert st.state == "done" and "1 reply pages could not be read" in st.detail
+    bad = [x for x in job.result.receipts if x.tool == "fxtwitter" and not x.ok]
+    assert bad and "reply page 2" in bad[0].summary

@@ -134,6 +134,7 @@ check("same-template reply pictures are their own group and never make the pictu
   // two pictures in one reply are one reply
   upload.image_matches.push({ ...upload.image_matches[0], id: "xr:2121470000000000001:cd", image_url: "https://pbs.twimg.com/media/TPL2.jpg" });
   assert.match(api.memeFinding(upload).sentence, /1 reply on X shows the same template/);
+  assert.equal(api.memeFinding(upload).tag, "1 reply with the same template");
   const node = api.appendImageTrace(api.lookupCase(upload)).nodes.find((n) => n.id === "xr:2121470000000000001:ab");
   assert.equal(node?.platform, "x");
   assert.equal(node?.role, "mutation");
