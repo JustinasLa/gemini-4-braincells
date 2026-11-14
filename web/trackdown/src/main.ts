@@ -51,6 +51,7 @@ document.querySelector("#app")!.innerHTML = `
     <div class="vignette"></div>
   </main>
   <aside class="panel" id="panel"></aside>
+  <div class="panel-grip" id="panel-grip" role="separator" aria-orientation="vertical" aria-controls="panel" aria-label="Resize panel" tabindex="0" title="Drag to resize · double-click to reset"></div>
 </div>`;
 
 const app = $(".app");
@@ -87,6 +88,68 @@ phoneMq.addEventListener("change", () => {
 });
 const stage = $("#stage");
 const g = new Graph(stage);
+
+// ---------------------------------------------------------------- panel width: drag the grip on its left edge
+{
+  const grip = $("#panel-grip");
+  const KEY = "trackdown.panelW";
+  const MIN = 320;
+  const maxW = () => Math.max(MIN, Math.min(960, innerWidth - 380)); // leave the canvas room to read
+  const setW = (w: number | null) => {
+    if (w == null) app.style.removeProperty("--panel-w");
+    else app.style.setProperty("--panel-w", `${Math.round(Math.min(maxW(), Math.max(MIN, w)))}px`);
+    grip.setAttribute("aria-valuenow", String(Math.round($("#panel").getBoundingClientRect().width || w || 0)));
+  };
+  const save = () => {
+    try {
+      const v = app.style.getPropertyValue("--panel-w");
+      v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY);
+    } catch {}
+  };
+  try {
+    const saved = parseFloat(localStorage.getItem(KEY) || "");
+    if (saved) setW(saved);
+  } catch {}
+  grip.setAttribute("aria-valuemin", String(MIN));
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    app.classList.add("resizing");
+    const move = (ev: PointerEvent) => setW(innerWidth - ev.clientX);
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      app.classList.remove("resizing");
+      save();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  });
+  grip.addEventListener("dblclick", () => {
+    setW(null);
+    save();
+  });
+  grip.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 80 : 20;
+    const w = $("#panel").getBoundingClientRect().width;
+    if (e.key === "ArrowLeft") setW(w + step);
+    else if (e.key === "ArrowRight") setW(w - step);
+    else if (e.key === "Home") setW(maxW());
+    else if (e.key === "End") setW(MIN);
+    else return;
+    e.preventDefault();
+    e.stopPropagation(); // not also a graph-selection arrow key
+    save();
+  });
+  // keep a saved width inside the window when it shrinks
+  addEventListener("resize", () => {
+    const v = parseFloat(app.style.getPropertyValue("--panel-w"));
+    if (v) setW(v);
+  });
+}
 (window as unknown as { __g: Graph }).__g = g;
 const panel = new Panel($("#panel"), g);
 const dock = new Dock($("#dock"), g);
