@@ -533,7 +533,9 @@ input:focus-visible { outline: none; }
   .mobile-only { display: inline-flex !important; }
   .hud { bottom: 100px; right: 10px; }
 
-  .dock { left: 8px; right: 8px; bottom: 8px; height: 76px; grid-template-columns: auto 1fr; gap: 10px; padding: 8px 10px; }
+  .dock { left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom, 0px)); height: 76px; grid-template-columns: auto 1fr; gap: 10px; padding: 8px 10px; }
+  /* Keep the hidden trace-state dock's measured box inside the stage while it fades in. */
+  .app:not([data-phase=done]) .dock { transform: translateY(0); }
   .stage .dock-right { display: none; }
   .stage .clock { min-width: 0; }
   .clock .d { font-size: 11px; }
