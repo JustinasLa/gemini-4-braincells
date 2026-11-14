@@ -105,6 +105,7 @@ def make_deps() -> Deps:
         media_urls=cache.MEDIA_URLS,
         verify_max=s.lookup_verify_max,
         profiles_max=s.lookup_profiles_max,
+        verify_read_s=s.lookup_verify_read_s,
         time_budget_s=s.lookup_time_budget_s,
         second_reading_s=s.lookup_second_reading_s,
     )

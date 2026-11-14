@@ -181,7 +181,11 @@ Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies
    and `media` (the images in parallel) all start at once.
 3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
    (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
-   verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Candidates
+   verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read
+   of a candidate copy or older page gets `LOOKUP_VERIFY_READ_S` (8 s; Oxylabs `/scrape` p90 is
+   ~7 s): the reading waits for the slowest of them, so a straggler stays an unread mention
+   instead of holding everything back. The step then says "R of N read" (N queued, R came back);
+   "more candidates not read" counts the ones never queued. Candidates
    from the search for an image's text are queued when `media` is done.
 4. `monitor` runs once every search, page and image is in (it needs the link, the text and the
    Bluesky accounts), while `verify` finishes.

@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     lookup_job_ttl_s: float = 3600
     lookup_verify_max: int = 8  # candidate X copies whose own page is read
     lookup_profiles_max: int = 4  # copier profiles read (account age, followers)
+    # cap (s) per read of a candidate copy or older page; slower ones stay unread mentions
+    lookup_verify_read_s: float = 8
     lookup_time_budget_s: float = 60  # searches + page reads; the last 10 s are the reading's
     lookup_media: bool = True  # Nemotron reads the post's images
     # The cited reading (lookup/assess.py, lookup/README.md has the measurement): Nemotron 3.5

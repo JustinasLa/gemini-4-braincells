@@ -156,6 +156,9 @@ class Deps:
     replies_max: int = 8
     media_max: int = 2
     time_budget_s: float = 60.0
+    # cap (s) on each read of a candidate copy or older page; Oxylabs /scrape p90 is ~7 s, and
+    # the reading waits for the slowest of these reads
+    verify_read_s: float = 8.0
     second_reading_s: float = 45.0  # the second reading's own bound; it never delays the first
     workers: int = 16
 
@@ -192,6 +195,7 @@ class Lookup:
         self._v_posts: list[str] = []  # candidate X posts queued for their own page
         self._v_profiles: set[str] = set()  # copier profiles queued
         self._v_pages: list[str] = []  # older-looking pages queued for their own date
+        self._v_read = 0  # candidate copy pages that came back (read, whatever they showed)
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
@@ -513,11 +517,9 @@ class Lookup:
                 return
 
     # ---------------------------------------------------------------- X
-    def _scrape_x(self, url: str) -> tuple[str, dict]:
+    def _scrape_x(self, url: str, cap_s: float = PAGE_CAP_S) -> tuple[str, dict]:
         self._spend()
-        md, _meta = self.deps.oxylabs.scrape_markdown(
-            url, deadline=self._provider_deadline(PAGE_CAP_S)
-        )
+        md, _meta = self.deps.oxylabs.scrape_markdown(url, deadline=self._provider_deadline(cap_s))
         return md, dict(self.deps.oxylabs.last_call)
 
     def _x_post_from_item(
@@ -1162,14 +1164,20 @@ class Lookup:
             ids = list(self._v_posts)
             by_id = {p.id: p for p in self.result.posts}
             kinds = [by_id[i].role for i in ids if i in by_id and by_id[i].verified]
+            queued = set(ids)
             unread = sum(
                 1
                 for p in self.result.posts
-                if p.platform == "x" and not p.verified and p.role == "mention"
+                if p.platform == "x"
+                and not p.verified
+                and p.role == "mention"
+                and p.id not in queued
             )
+            read = self._v_read  # pages that came back; a timed-out or failed read isn't one
             st.found = [i for i in ids if i in by_id]
             st.detail = (
-                f"{len(ids)} read: {kinds.count('copy') + kinds.count('origin')} copies"
+                (f"{read} read" if read == len(ids) else f"{read} of {len(ids)} read")
+                + f": {kinds.count('copy') + kinds.count('origin')} copies"
                 f" · {kinds.count('quote')} quotes · {kinds.count('reply')} replies"
                 + (f" · {unread} more candidates not read" if unread else "")
                 + (" · time budget used up" if out_of_time else "")
@@ -1204,7 +1212,7 @@ class Lookup:
         try:
             self._spend()
             facts = self.deps.oxylabs.scrape_facts(
-                pg.url, deadline=self._provider_deadline(FACTS_CAP_S)
+                pg.url, deadline=self._provider_deadline(min(FACTS_CAP_S, self.deps.verify_read_s))
             )
             call = dict(self.deps.oxylabs.last_call)
         except Exception as exc:
@@ -1237,6 +1245,8 @@ class Lookup:
         except Exception as exc:
             log.info("verify %s failed: %s", p.url, exc)
             return
+        with self.lock:
+            self._v_read += 1
         if post is not None and post.role in ("copy", "quote") and post.author_handle:
             self._queue_profile(post.author_handle)
 
@@ -1249,7 +1259,9 @@ class Lookup:
     def _verify_x(self, p: Post, reference: str) -> Post | None:
         """Read a candidate on its own page; returns the verified post (None if dropped)."""
         sid = p.id.split(":", 1)[1]
-        md, call = self._scrape_x(p.url)
+        # a candidate copy is evidence, not the subject: a straggler stays an unread mention
+        # rather than holding the reading (verify_read_s)
+        md, call = self._scrape_x(p.url, cap_s=self.deps.verify_read_s)
         page = parse_post_page(md, sid)
         m = page.main
         if m is None:
