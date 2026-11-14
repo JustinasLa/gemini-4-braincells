@@ -1345,3 +1345,42 @@ def test_resolve_closes_the_client_it_makes(monkeypatch):
     job = Lookup("lk_short", LookupInput(text=TEXT), make_deps())
     assert job._resolve("https://t.co/abc") == "https://news.example/story"
     assert len(made) == 1 and made[0].is_closed
+
+
+def test_dropped_candidate_takes_its_edges_with_it():
+    from lookup.models import Post
+
+    md = QUOTE_MD.replace("🤷", "Totally unrelated words about garden cats and their naps.")
+    md = md.replace(f"  [1h](/ada_example/status/{SUBJ})\n\n  {TEXT}\n\n", "")
+    job = Lookup("lk_d", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps())
+    job.result.subject_id = f"x:{SUBJ}"
+    job.deps.oxylabs.scrape_markdown = lambda url, deadline=None: (md, {})
+    cand = Post(
+        id=f"x:{COPY}",
+        platform="x",
+        url=f"https://x.com/cy_example/status/{COPY}",
+        role="mention",
+        similarity=0.6,
+    )
+    job.add_post(cand)
+    job.add_edge(cand.id, f"x:{SUBJ}", "media", tool="nemotron")  # the OCR search's edge
+    assert job._verify_x(cand, TEXT) is None
+    assert not any(p.id == cand.id for p in job.result.posts)
+    assert not any(cand.id in (e.from_, e.to) for e in job.result.edges)
+
+
+def test_bluesky_search_receipt_link_is_url_encoded():
+    from urllib.parse import parse_qs, urlsplit
+
+    class FakeBsky:
+        last_call: dict = {}
+
+        def search(self, q, limit=25, deadline=None):
+            return []
+
+    text = "Salt & pepper fries are back at the diner tonight, 50% off?"
+    job = _job(text=text)
+    job.deps.bsky = FakeBsky()
+    job._copies_bsky()
+    (rc,) = [r for r in job.result.receipts if r.endpoint == "searchPosts"]
+    assert parse_qs(urlsplit(rc.source_url).query)["q"] == ['"Salt & pepper fries are back at the"']

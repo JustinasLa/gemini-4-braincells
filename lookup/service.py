@@ -1597,6 +1597,7 @@ class Lookup:
         if role == "mention" and sim < X_MIN_SIM:
             with self.lock:  # its own page shows it isn't about this text: drop the search hit
                 self.result.posts = [q for q in self.result.posts if q.id != p.id]
+                self.result.edges = [e for e in self.result.edges if p.id not in (e.from_, e.to)]
             return None
         kind = {
             "quote": "quotes it",
@@ -1633,7 +1634,7 @@ class Lookup:
                     text=m.quoted_text or "",
                     created_at=snowflake_time(m.quoted_id),
                     time_source="snowflake",
-                    role="copy" if sim_quoted >= COPY_MIN else "mention",
+                    role="copy",  # quoted_other is set only when sim_quoted >= COPY_MIN
                     similarity=round(sim_quoted, 2),
                     receipt_id=rid,
                     verified=True,
@@ -1645,6 +1646,8 @@ class Lookup:
         return post
 
     def _copies_bsky(self) -> None:
+        from urllib.parse import quote_plus
+
         phrase = textsim.phrase(self._subject_text, 8) or textsim.phrase(self._card_title, 8)
         if not phrase or not self.deps.bsky:
             self.skip(
@@ -1663,7 +1666,7 @@ class Lookup:
                 "searchPosts",
                 f"Bluesky search for the exact text: {len(posts)} posts",
                 query=q,
-                source_url=f"https://bsky.app/search?q={q}",
+                source_url=f"https://bsky.app/search?q={quote_plus(q)}",
                 call=self.deps.bsky.last_call,
             )
             ref = self._subject_text or phrase
