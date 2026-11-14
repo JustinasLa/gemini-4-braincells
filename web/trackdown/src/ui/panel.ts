@@ -119,8 +119,9 @@ export class Panel {
   private verdict(c: TraceCase) {
     const v = STATUS[c.status];
     const scored = c.scored !== false && !c.historical && c.status !== "insufficient";
-    const unscored = c.historical ? "Not scored" : "No call";
-    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
+    const missingConfidence = c.live && c.scored === false && c.status !== "insufficient";
+    const unscored = c.historical ? "Not scored" : missingConfidence ? "Not recorded" : "No call";
+    const unscoredNote = c.historical ? "Historical illustration, not a detector result." : missingConfidence ? "Detector confidence was not recorded for this verdict." : c.findingsOnly ? "Outside the window we monitor." : "The evidence doesn't settle it either way.";
     const notice = c.mock ? `<div class="notice"><b>Mock.</b> Fictional data; no live lookup.</div>` : c.synthetic
       ? `<div class="notice"><b>Simulated.</b> Fictional accounts; not a verdict on a real post.</div>`
       : c.historical
