@@ -76,6 +76,23 @@ try {
     assert.deepEqual(focused, [[target.id, 0.95]]);
   });
 
+  check("post details keep timestamp labels and receipts without the layout disclaimer", () => {
+    const panel = new Panel({ addEventListener() {} }, {});
+    for (const timeUnknown of [true, false]) {
+      const node = { ...textNode("post", "A post with evidence"), timeUnknown,
+        realData: [{ label: "Post data", facts: [{ label: "Text", value: "Evidence retained" }], receiptId: 42, url: "https://example.com/post" }] };
+      panel.c = { nodes: [node], edges: [], receipts: [] };
+      const html = panel.detail(node);
+      assert.match(html, /Real data/);
+      assert.match(html, /Evidence retained/);
+      assert.match(html, /Receipt #42/);
+      assert.match(html, /href="https:\/\/example.com\/post"/);
+      assert.match(html, /Posted/);
+      assert.equal(html.includes('class="v2">Time unknown</div>'), timeUnknown);
+      assert.doesNotMatch(html, /Time unknown:|positioned at the submitted|publication timestamp/);
+    }
+  });
+
   check("fixture has a screenshotted post, a screenshot_of edge and screenshot receipts", () => {
     const r = fixture();
     assert.ok(r.posts.some((p) => p.role === "screenshotted"));
