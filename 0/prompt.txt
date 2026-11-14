@@ -1,0 +1,71 @@
+Delegated task node:delegated-task:command%3Amcp%3A4d8feec2-68bf-4f66-9c13-20930b39f2f4%3Adelegate-task%3Ad7d0df20-6451-4829-9d21-ecb7796c71f5 (#19 publisher feed transparent_automation) [completed]:
+I stopped before writing any code. Issue #19 is already fixed on main for this cluster, so there is no PR, branch, commit or eval run.
+
+**Main already handles it, through `declared_automation`, not #38.** Clusters 682 and 859 were scored by detector v1.2 and v1.3. `declared_automation` arrived later, in v1.6 (#35). Bluesky's public API shows the members' bios: 4 of 5 say "A JD Supra news feed www.jdsupra.com". Frank's bio says "Lead Engineer at JD Supra." without the word "feed", which is why it's 4 of 5.
+
+I rebuilt cluster 682's shape and ran it through the detector on unchanged main (4ac5d81): 5 accounts post jdsupra.com links 1 s apart, twice, with the real handles, bios, ages (627 and 723 days) and follower counts.
+
+| Account info | Status | Strongest guard |
+|---|---|---|
+| None (not looked up yet) | `coordinated` | none, 0.0 |
+| Looked up, with bios | `insufficient` | `declared_automation` 0.8 (`established_accounts` 0.6) |
+| Looked up, bios not loaded | `insufficient` | `established_accounts` 0.6, exactly at the 0.6 cut-off |
+| Same accounts, 3 days old | `coordinated` | none |
+
+So once account info is loaded, v1.6 keeps this cluster out of `coordinated` with margin. #38 only hardens the same guard by ignoring bios that weren't loaded yet. I checked the latest 200 clusters of each status in prod and none include these accounts, so there is no newer prod result to compare.
+
+**The handle-token rule from the issue wouldn't fire on the real clusters:**
+- Only 3 of 5 handles in cluster 682 contain "jdsupra" (60%), and 2 of 5 in cluster 859 (40%). `european-union-law`, `ai-law-news`, `privacywatch` and `medialaws` don't.
+- With the 80% threshold it does nothing for these clusters.
+- Scored as a share instead, it would give 0.6 for cluster 682. That adds no margin over the 0.6 `established_accounts` already gives.
+- To get every member, the guard would have to read the bios. That's the job `declared_automation` already does.
+
+The new branch would add a way to game the detector and change the evals, without changing the verdict on the clusters it was meant to fix.
+
+**The verdict flip can't be fixed with a guard.** The 21:35 `coordinated` call happened before the accounts were looked up. In that state the loader (`signals/accounts.py:30`) drops accounts that haven't been looked up yet, so the detector has no handles, ages or bios. No account-based guard can fire. The only clue left would be "everyone links one domain", and a link campaign looks exactly like that too.
+
+Since v1.6, each pass looks the accounts up before scoring, up to 400 accounts. The early `coordinated` call now only happens when that lookup fails or the cap runs out. That's a separate change (for example, holding a call until the members are looked up), not a guard.
+
+**If you still want something for #19:**
+1. Close #19, citing #35 (v1.6) and #38.
+2. Or open a small follow-up to add a JD Supra regression test for `declared_automation`.
+3. Or open a follow-up on what to call a cluster whose members haven't been looked up yet.
+
+I recorded this finding in Brain as `project.decisions.rejected`. The worktree is clean. The repro script is at /tmp/claude-1001/REDACTED/38f8f951-9edd-4905-af94-9453349f9611/scratchpad/jd.py.
+
+Delegated task node:delegated-task:command%3Amcp%3A4d8feec2-68bf-4f66-9c13-20930b39f2f4%3Adelegate-task%3A238deca7-8190-45d9-bce0-50114965f3b4 (#14 #15 #16 /api/analyze fixes) [completed]:
+I've fixed all three issues and opened one PR to main: https://github.com/JustinasLa/gemini-4-braincells/pull/45. It is not merged, and the body says "Refs #14 #15 #16".
+
+**Head:** `6ab476e19f529e27c176f0c8d338f7c0cb820e96`, branch `dev/analyze-input-fixes`, one commit per issue (`d4216dd` #14, `bd6d7d3` #15, `6ab476e` #16). Pushing from the worktree was rejected, so I pushed from a fresh clone in `~/work/analyze-push`.
+
+**Tests:** `uv run pytest -q -p no:cacheprovider` gives `1 failed, 363 passed, 9 skipped`. The one failure is the known `tests/test_media_path.py::test_stored_media_reaches_api_and_dashboard`. `ruff check` and `ruff format --check` are clean on the changed files.
+
+**DB tests:** no test DB was configured, so I ran a temporary Postgres (the `pgserver` package) in the scratchpad. `tests/test_backend_db.py` gave 4 passed, so the new SQL ran against real Postgres. I stopped that Postgres afterwards.
+
+**Files changed:**
+- `api/schemas.py`: control characters are stripped from all three inputs, plus a new `author_clusters` response field.
+- `api/routes/analyze.py`: parses bsky.app and at:// post links, adds the author fallback, and skips the web check for Bluesky links.
+- `api/store.py`: new `Store.clusters_for_post(author, rkey)`. It matches `post_uri` directly for a DID, and resolves a handle to its DID through `accounts` (case-insensitive).
+- `sources/checker.py`: `check(..., adhoc=True)` produces the input-level wording.
+- `tests/test_api_routes.py`, `tests/test_sources_checker.py`, `tests/test_backend_db.py`.
+
+**Tests added:**
+- **#14:** NUL in text, handle and url returns 200 and the store gets the stripped strings; input that is only `"\u0000 "` returns 422.
+- **#15:**
+  - The DID link, the at:// URI and a handle link to a clustered post all return "matched".
+  - A post that isn't in a cluster, by an author who is a member, returns "insufficient" with the author note.
+  - A bsky profile link works like the `handle` field.
+  - The web check never runs on a Bluesky link (with text alongside, only the text is searched).
+  - The DB test covers the same cases.
+- **#16:** ad-hoc summaries contain no "account" or "cluster" wording and the account counts are null. A new test pins the real-cluster summaries byte for byte, and the fake checker checks that the analyze route asks for ad-hoc wording.
+
+**Author-context wording:**
+- **Status:** author overlap never makes the status "matched". When the linked post is in no cluster, it stays "insufficient", the way `/api/lookup` treats overlap that comes only from an account.
+- **New field:** the author's clusters come back in the new optional `author_clusters` field, not in `clusters`. The current UI ignores it, but it does show `notes`.
+- **Note text:** "This post is not in a cluster we monitor, but its author is a member of cluster #N. That is context about the account, not evidence that this post was part of coordinated activity." It never calls anyone a shill.
+
+**Behaviour changes worth knowing:**
+- Only links that `checkable_url` accepts are sent to the web check now. A media file or localhost link with no text gets no web check and no "returned nothing usable" note, where before it got that note.
+- `_page_evidence` kept its old arguments, with None meaning ad-hoc input. My first version changed them and broke the caller in `analyst/tools.py`, which the full test run caught.
+
+PR https://github.com/JustinasLa/gemini-4-braincells/pull/45, head 6ab476e19f529e27c176f0c8d338f7c0cb820e96, checks and reviews none reported yet (no CI checks on the PR, no review decision).
