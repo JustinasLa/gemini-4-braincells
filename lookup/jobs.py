@@ -59,8 +59,9 @@ class JobStore:
         self._started: deque[tuple[float, str]] = deque()  # (time, client)
 
     def _expire(self, now: float) -> None:
-        for jid, (t0, _) in list(self._jobs.items()):
-            if now - t0 > self.job_ttl_s:
+        for jid, (t0, job) in list(self._jobs.items()):
+            # Expiry cannot cancel a worker: keep active jobs pollable and counted by _check.
+            if job.result.state != "running" and now - t0 > self.job_ttl_s:
                 del self._jobs[jid]
         for k, jid in list(self._by_key.items()):
             if jid not in self._jobs:
@@ -100,8 +101,9 @@ class JobStore:
             jid = self._by_key.get(key)
             if jid and jid in self._jobs:
                 t0, job = self._jobs[jid]
-                failed = job.result.state == "failed"
-                if not failed and now - t0 <= self.cache_ttl_s:
+                state = job.result.state
+                # An active lookup is shared work even when result caching is disabled.
+                if state == "running" or (state == "done" and now - t0 <= self.cache_ttl_s):
                     return job
             self._check(client)
             job = Lookup(f"lk_{secrets.token_hex(8)}", inp, self._make_deps(), image=image)
