@@ -10,7 +10,10 @@ each model in two modes:
 - agent: function calling with live Oxylabs search/scrape + DB lookups (analyst/agent.py),
   tool evidence kept in memory (MemorySink); one WebCache is shared by all models, so a page or
   query is fetched from Oxylabs once per comparison;
-- single: the one-shot verdict on pre-gathered evidence (analyst/gemini.py), no tools.
+- single: the one-shot verdict on pre-gathered evidence (analyst/gemini.py), no tools;
+- gated: what the worker does (analyst/runner.py): gemini-decision-1 first, then the agent, or
+  (when a web check cannot matter) Nemotron, escalated to the model single-shot when it
+  disagrees with decision-1. Latency includes the gate.
 
 Per run it records: JSON valid (the reply parsed into VerdictDraft), citations (cited ids that
 exist / all cited ids), usable (guard did not have to downgrade for missing citations),
@@ -29,9 +32,12 @@ from datetime import UTC, datetime
 
 from analyst import store
 from analyst.agent import GeminiAgent
+from analyst.decide import DecisionGate
 from analyst.gemini import GeminiVerdictModel
 from analyst.guard import enforce
+from analyst.nemotron import NemotronVerdictModel
 from analyst.prompt import SYSTEM, build_prompt, fit_evidence
+from analyst.runner import fast_verdict
 from analyst.tools import Budget, MemorySink, ToolBox, WebCache
 from common.config import get_settings
 from common.db import connect
@@ -80,7 +86,43 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
             rec = {"model": model, "mode": mode, "cluster_id": cid, "detector": ctx.status}
             started = time.monotonic()
             try:
-                if mode == "agent":
+                route = mode
+                if mode == "gated":
+                    gate = DecisionGate(
+                        s.gemini_decision_model,
+                        api_key=s.gemini_api_key,
+                        threshold=s.analyst_gate_max_p_web,
+                    ).check(SYSTEM, build_prompt(ctx))
+                    route = "fast" if gate is not None and gate.skip_tools else "agent"
+                    rec.update(route=route, gate_p_web=gate.p_web if gate else None)
+                if route == "fast":
+                    nemotron = (
+                        NemotronVerdictModel.from_settings() if s.verda_inference_key else None
+                    )
+                    v = fast_verdict(
+                        ctx,
+                        gate,
+                        fallback=GeminiVerdictModel(s.gemini_api_key, model),
+                        nemotron=nemotron,
+                    )
+                    calls = v.model_calls
+                    rec.update(
+                        route=v.gate["route"],
+                        cost_usd=v.cost_usd,
+                        prompt_tokens=sum(c.get("prompt_tokens") or 0 for c in calls),
+                        output_tokens=sum(c.get("output_tokens") or 0 for c in calls),
+                        model_turns=len(calls),
+                        tool_calls=0,
+                        web_calls=0,
+                        json_valid=True,
+                        cited=len(v.evidence),
+                        cited_valid=len(v.evidence),  # guard already dropped unknown ids
+                        usable=not any("valid citations" in a for a in v.adjustments),
+                        llm_assessment=v.llm_assessment,
+                        agrees=v.agrees_with_detector,
+                        confidence=v.confidence,
+                    )
+                elif route == "agent":
                     box = ToolBox(
                         full_ctx,
                         web=web,
@@ -130,17 +172,18 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
                     draft = m.draft(SYSTEM, build_prompt(ctx))
                     known, full = ctx.evidence_ids, ctx
                     rec.update(m.last_call, model_turns=1, tool_calls=0, web_calls=0)
-                v = enforce(draft, full, model=model)
-                cited = [c.evidence_id for c in draft.evidence]
-                rec.update(
-                    json_valid=True,
-                    cited=len(cited),
-                    cited_valid=sum(1 for i in cited if i in known),
-                    usable=not any("valid citations" in a for a in v.adjustments),
-                    llm_assessment=v.llm_assessment,
-                    agrees=v.agrees_with_detector,
-                    confidence=v.confidence,
-                )
+                if route != "fast":  # the fast path's verdict is already guarded
+                    v = enforce(draft, full, model=model)
+                    cited = [c.evidence_id for c in draft.evidence]
+                    rec.update(
+                        json_valid=True,
+                        cited=len(cited),
+                        cited_valid=sum(1 for i in cited if i in known),
+                        usable=not any("valid citations" in a for a in v.adjustments),
+                        llm_assessment=v.llm_assessment,
+                        agrees=v.agrees_with_detector,
+                        confidence=v.confidence,
+                    )
             except Exception as exc:  # a failed run is a data point, not a crash
                 log.warning("%s %s cluster %s failed: %s", model, mode, cid, exc)
                 rec.update(json_valid=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
@@ -152,7 +195,7 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
 
 def summarize(runs: list[dict]) -> list[dict]:
     rows = []
-    for mode in ("agent", "single"):
+    for mode in ("agent", "single", "gated"):
         for model in dict.fromkeys(r["model"] for r in runs):
             rs = [r for r in runs if r["model"] == model and r["mode"] == mode]
             if not rs:

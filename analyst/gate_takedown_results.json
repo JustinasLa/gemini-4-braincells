@@ -1,0 +1,2039 @@
+{
+ "run_at": "2026-11-14",
+ "ground_truth": "Bluesky takedown or suspension of a member account within 24 h after the cluster was created (account_events), accounts already actioned before excluded",
+ "sample": "all 28 non-synthetic coordinated/insufficient clusters with a takedown, created >6 h ago, plus 32 random ones without (seed 7)",
+ "options": [
+  {
+   "cid": 46,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 4,
+   "p_web": 0.2994,
+   "d_status": "insufficient",
+   "d_conf": 0.561,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 9.8,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.68,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.29,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 68,
+   "detector": "coordinated",
+   "hits": 6,
+   "n": 7,
+   "p_web": 0.1128,
+   "d_status": "coordinated",
+   "d_conf": 0.747,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 7.37,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 5.94,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.27,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 105,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 8,
+   "p_web": 0.2812,
+   "d_status": "insufficient",
+   "d_conf": 0.62,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 12.55,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.82,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.82,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 174,
+   "detector": "coordinated",
+   "hits": 1,
+   "n": 44,
+   "p_web": 0.3396,
+   "d_status": "coordinated",
+   "d_conf": 0.704,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 7.76,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 5.87,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 0.93,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 276,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 5,
+   "p_web": 0.3585,
+   "d_status": "insufficient",
+   "d_conf": 0.529,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 12.24,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 10.22,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.52,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 277,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 4,
+   "p_web": 0.2837,
+   "d_status": "insufficient",
+   "d_conf": 0.628,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 7.37,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.59,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 0.88,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 318,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 6,
+   "p_web": 0.3565,
+   "d_status": "insufficient",
+   "d_conf": 0.567,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 21.69,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 4.66,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.2,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 419,
+   "detector": "coordinated",
+   "hits": 10,
+   "n": 10,
+   "p_web": 0.2264,
+   "d_status": "coordinated",
+   "d_conf": 0.764,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 6.12,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 6.61,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.37,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 530,
+   "detector": "coordinated",
+   "hits": 3,
+   "n": 10,
+   "p_web": 0.3216,
+   "d_status": "coordinated",
+   "d_conf": 0.835,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 8.89,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 4.85,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.29,
+    "cited": 6
+   }
+  },
+  {
+   "cid": 613,
+   "detector": "coordinated",
+   "hits": 26,
+   "n": 26,
+   "p_web": 0.0902,
+   "d_status": "coordinated",
+   "d_conf": 0.835,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 14.91,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 5.92,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.66,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 727,
+   "detector": "coordinated",
+   "hits": 10,
+   "n": 10,
+   "p_web": 0.3393,
+   "d_status": "coordinated",
+   "d_conf": 0.729,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 6.27,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 6.19,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.0,
+    "cited": 3
+   }
+  },
+  {
+   "cid": 824,
+   "detector": "insufficient",
+   "hits": 8,
+   "n": 8,
+   "p_web": 0.1123,
+   "d_status": "coordinated",
+   "d_conf": 0.652,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 14.43,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 9.66,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 2.1,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 835,
+   "detector": "coordinated",
+   "hits": 1,
+   "n": 6,
+   "p_web": 0.3794,
+   "d_status": "coordinated",
+   "d_conf": 0.77,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 9.6,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 6.51,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.84,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 1024,
+   "detector": "insufficient",
+   "hits": 11,
+   "n": 12,
+   "p_web": 0.0751,
+   "d_status": "coordinated",
+   "d_conf": 0.707,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 14.79,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 7.65,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 2.03,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 1057,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 8,
+   "p_web": 0.347,
+   "d_status": "insufficient",
+   "d_conf": 0.578,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 8.04,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.01,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.34,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 1181,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 4,
+   "p_web": 0.2831,
+   "d_status": "insufficient",
+   "d_conf": 0.636,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 9.69,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.95,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.13,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 1260,
+   "detector": "insufficient",
+   "hits": 7,
+   "n": 7,
+   "p_web": 0.0889,
+   "d_status": "coordinated",
+   "d_conf": 0.565,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 13.86,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 7.64,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.0,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 1262,
+   "detector": "insufficient",
+   "hits": 6,
+   "n": 6,
+   "p_web": 0.0813,
+   "d_status": "coordinated",
+   "d_conf": 0.734,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 18.89,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 8.17,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.66,
+    "cited": 6
+   }
+  },
+  {
+   "cid": 1436,
+   "detector": "insufficient",
+   "hits": 8,
+   "n": 8,
+   "p_web": 0.0753,
+   "d_status": "coordinated",
+   "d_conf": 0.653,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 19.9,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 7.58,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.64,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 1462,
+   "detector": "insufficient",
+   "hits": 4,
+   "n": 4,
+   "p_web": 0.1875,
+   "d_status": "coordinated",
+   "d_conf": 0.562,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 15.26,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.88,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.77,
+    "cited": 9
+   }
+  },
+  {
+   "cid": 1594,
+   "detector": "insufficient",
+   "hits": 8,
+   "n": 8,
+   "p_web": 0.1258,
+   "d_status": "coordinated",
+   "d_conf": 0.735,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 15.32,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 7.1,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 2.31,
+    "cited": 10
+   }
+  },
+  {
+   "cid": 1631,
+   "detector": "insufficient",
+   "hits": 4,
+   "n": 4,
+   "p_web": 0.2667,
+   "d_status": "insufficient",
+   "d_conf": 0.601,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 16.12,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.45,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.82,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 1828,
+   "detector": "insufficient",
+   "hits": 14,
+   "n": 14,
+   "p_web": 0.1049,
+   "d_status": "coordinated",
+   "d_conf": 0.728,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 18.9,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 7.17,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.18,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 1889,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 4,
+   "p_web": 0.1218,
+   "d_status": "insufficient",
+   "d_conf": 0.5,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 13.68,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 4.64,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.29,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 2032,
+   "detector": "insufficient",
+   "hits": 1,
+   "n": 13,
+   "p_web": 0.104,
+   "d_status": "insufficient",
+   "d_conf": 0.467,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 15.78,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.51,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 2.26,
+    "cited": 10
+   }
+  },
+  {
+   "cid": 2976,
+   "detector": "coordinated",
+   "hits": 1,
+   "n": 4,
+   "p_web": 0.0526,
+   "d_status": "coordinated",
+   "d_conf": 0.69,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 7.01,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 5.81,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.55,
+    "cited": 10
+   }
+  },
+  {
+   "cid": 3056,
+   "detector": "coordinated",
+   "hits": 1,
+   "n": 4,
+   "p_web": 0.2509,
+   "d_status": "coordinated",
+   "d_conf": 0.66,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 11.25,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 5.45,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.61,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 3609,
+   "detector": "coordinated",
+   "hits": 1,
+   "n": 4,
+   "p_web": 0.0358,
+   "d_status": "coordinated",
+   "d_conf": 0.842,
+   "hyd_default": {
+    "error": "ValidationError: 1 validation error for VerdictDraft\n  JSON input should be string, bytes or bytearray [type=json_type, input_value=None,",
+    "lat": 0.27
+   },
+   "hyd_low": {
+    "error": "ValidationError: 1 validation error for VerdictDraft\n  JSON input should be string, bytes or bytearray [type=json_type, input_value=None,",
+    "lat": 0.26
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.28,
+    "cited": 9
+   }
+  },
+  {
+   "cid": 2386,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.1148,
+   "d_status": "likely_organic",
+   "d_conf": 0.536,
+   "hyd_default": {
+    "llm": "likely_organic",
+    "lat": 17.55,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "likely_organic",
+    "lat": 7.67,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.36,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 1428,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.3693,
+   "d_status": "likely_organic",
+   "d_conf": 0.557,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 12.98,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.7,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.55,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 912,
+   "detector": "coordinated",
+   "hits": 0,
+   "n": 5,
+   "p_web": 0.1584,
+   "d_status": "coordinated",
+   "d_conf": 0.668,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 12.91,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 6.43,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.13,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 247,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.5598,
+   "d_status": "insufficient",
+   "d_conf": 0.635,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 12.59,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.1,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 0.87,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 2404,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.0779,
+   "d_status": "insufficient",
+   "d_conf": 0.614,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 8.54,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.81,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.02,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 3506,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.0769,
+   "d_status": "insufficient",
+   "d_conf": 0.534,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 12.92,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 4.41,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.26,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 1010,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.4479,
+   "d_status": "insufficient",
+   "d_conf": 0.605,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 9.23,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.66,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.54,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 3444,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "gate_error": "BadRequestError: Error code: 400 - {'error': {'message': \"Input blocked: The prompt could not be submitted. The prompt contains sensitive",
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 11.44,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.85,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.11,
+    "cited": 0
+   }
+  },
+  {
+   "cid": 2954,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.6787,
+   "d_status": "insufficient",
+   "d_conf": 0.641,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 6.35,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.87,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.43,
+    "cited": 6
+   }
+  },
+  {
+   "cid": 2692,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.4801,
+   "d_status": "insufficient",
+   "d_conf": 0.582,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 9.65,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 8.22,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.53,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 3630,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 5,
+   "p_web": 0.3899,
+   "d_status": "insufficient",
+   "d_conf": 0.54,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 10.85,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.43,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 2.0,
+    "cited": 9
+   }
+  },
+  {
+   "cid": 1281,
+   "detector": "coordinated",
+   "hits": 0,
+   "n": 30,
+   "p_web": 0.3563,
+   "d_status": "coordinated",
+   "d_conf": 0.566,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 11.55,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 5.44,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.77,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 2775,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.8441,
+   "d_status": "insufficient",
+   "d_conf": 0.652,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 10.83,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.18,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 2.1,
+    "cited": 10
+   }
+  },
+  {
+   "cid": 2144,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.2514,
+   "d_status": "insufficient",
+   "d_conf": 0.534,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 17.77,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.47,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.99,
+    "cited": 9
+   }
+  },
+  {
+   "cid": 396,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.4376,
+   "d_status": "insufficient",
+   "d_conf": 0.622,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 7.74,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 4.51,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.35,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 2529,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.432,
+   "d_status": "insufficient",
+   "d_conf": 0.623,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 11.91,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 4.19,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 2.09,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 460,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.0469,
+   "d_status": "insufficient",
+   "d_conf": 0.633,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 12.04,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.27,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.94,
+    "cited": 6
+   }
+  },
+  {
+   "cid": 2091,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.386,
+   "d_status": "insufficient",
+   "d_conf": 0.585,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 8.85,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.16,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.48,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 790,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.4251,
+   "d_status": "insufficient",
+   "d_conf": 0.592,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 8.38,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.41,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.85,
+    "cited": 9
+   }
+  },
+  {
+   "cid": 257,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 7,
+   "p_web": 0.0342,
+   "d_status": "insufficient",
+   "d_conf": 0.439,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 17.26,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.64,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 2.1,
+    "cited": 11
+   }
+  },
+  {
+   "cid": 2868,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.663,
+   "d_status": "insufficient",
+   "d_conf": 0.543,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 14.91,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.61,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.91,
+    "cited": 9
+   }
+  },
+  {
+   "cid": 1305,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 10,
+   "p_web": 0.3186,
+   "d_status": "insufficient",
+   "d_conf": 0.466,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 11.47,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.04,
+    "cited": 3
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.29,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 241,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 8,
+   "p_web": 0.4363,
+   "d_status": "likely_organic",
+   "d_conf": 0.66,
+   "hyd_default": {
+    "llm": "likely_organic",
+    "lat": 22.76,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.59,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.87,
+    "cited": 10
+   }
+  },
+  {
+   "cid": 2756,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.2541,
+   "d_status": "insufficient",
+   "d_conf": 0.487,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 12.91,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 7.2,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "likely_organic",
+    "lat": 2.17,
+    "cited": 12
+   }
+  },
+  {
+   "cid": 1595,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 8,
+   "p_web": 0.4315,
+   "d_status": "insufficient",
+   "d_conf": 0.556,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 8.47,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.49,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.32,
+    "cited": 4
+   }
+  },
+  {
+   "cid": 480,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 9,
+   "p_web": 0.0515,
+   "d_status": "insufficient",
+   "d_conf": 0.463,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 11.81,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 7.3,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.8,
+    "cited": 8
+   }
+  },
+  {
+   "cid": 2908,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.4603,
+   "d_status": "insufficient",
+   "d_conf": 0.612,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 7.84,
+    "cited": 4
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 6.09,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.32,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 2860,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.2496,
+   "d_status": "insufficient",
+   "d_conf": 0.657,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 7.23,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.51,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.41,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 566,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 5,
+   "p_web": 0.2344,
+   "d_status": "likely_organic",
+   "d_conf": 0.611,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 11.94,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 7.28,
+    "cited": 5
+   },
+   "nemo": {
+    "llm": "likely_organic",
+    "lat": 1.91,
+    "cited": 7
+   }
+  },
+  {
+   "cid": 975,
+   "detector": "coordinated",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.1359,
+   "d_status": "coordinated",
+   "d_conf": 0.684,
+   "hyd_default": {
+    "llm": "coordinated",
+    "lat": 9.96,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "coordinated",
+    "lat": 8.06,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "coordinated",
+    "lat": 1.06,
+    "cited": 5
+   }
+  },
+  {
+   "cid": 3332,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 4,
+   "p_web": 0.2918,
+   "d_status": "insufficient",
+   "d_conf": 0.674,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 9.13,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 4.95,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 1.37,
+    "cited": 6
+   }
+  },
+  {
+   "cid": 2067,
+   "detector": "insufficient",
+   "hits": 0,
+   "n": 6,
+   "p_web": 0.6508,
+   "d_status": "insufficient",
+   "d_conf": 0.506,
+   "hyd_default": {
+    "llm": "insufficient",
+    "lat": 10.07,
+    "cited": 5
+   },
+   "hyd_low": {
+    "llm": "insufficient",
+    "lat": 5.39,
+    "cited": 4
+   },
+   "nemo": {
+    "llm": "insufficient",
+    "lat": 0.97,
+    "cited": 0
+   }
+  }
+ ],
+ "cascade_live": [
+  {
+   "cid": 46,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.93,
+   "p_web": 0.2994,
+   "cost": null
+  },
+  {
+   "cid": 68,
+   "hits": 6,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.19,
+   "p_web": 0.1128,
+   "cost": null
+  },
+  {
+   "cid": 105,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.55,
+   "p_web": 0.2812,
+   "cost": null
+  },
+  {
+   "cid": 174,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.91,
+   "p_web": 0.3396,
+   "cost": null
+  },
+  {
+   "cid": 276,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.09,
+   "p_web": 0.3585,
+   "cost": null
+  },
+  {
+   "cid": 277,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.8,
+   "p_web": 0.2837,
+   "cost": null
+  },
+  {
+   "cid": 318,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.88,
+   "p_web": 0.3565,
+   "cost": null
+  },
+  {
+   "cid": 419,
+   "hits": 10,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 10.14,
+   "p_web": 0.2264,
+   "cost": 0.015277
+  },
+  {
+   "cid": 530,
+   "hits": 3,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.95,
+   "p_web": 0.3216,
+   "cost": null
+  },
+  {
+   "cid": 613,
+   "hits": 26,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 13.43,
+   "p_web": 0.0902,
+   "cost": 0.020132
+  },
+  {
+   "cid": 727,
+   "hits": 10,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.14,
+   "p_web": 0.3393,
+   "cost": null
+  },
+  {
+   "cid": 824,
+   "hits": 8,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.74,
+   "p_web": 0.1123,
+   "cost": null
+  },
+  {
+   "cid": 835,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.78,
+   "p_web": 0.3794,
+   "cost": null
+  },
+  {
+   "cid": 1024,
+   "hits": 11,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 16.69,
+   "p_web": 0.0751,
+   "cost": 0.028095
+  },
+  {
+   "cid": 1057,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.93,
+   "p_web": 0.347,
+   "cost": null
+  },
+  {
+   "cid": 1181,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.46,
+   "p_web": 0.2831,
+   "cost": null
+  },
+  {
+   "cid": 1260,
+   "hits": 7,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 16.93,
+   "p_web": 0.0889,
+   "cost": 0.025815
+  },
+  {
+   "cid": 1262,
+   "hits": 6,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.28,
+   "p_web": 0.0813,
+   "cost": null
+  },
+  {
+   "cid": 1436,
+   "hits": 8,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 32.43,
+   "p_web": 0.0753,
+   "cost": 0.03486
+  },
+  {
+   "cid": 1462,
+   "hits": 4,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 14.62,
+   "p_web": 0.1875,
+   "cost": 0.023675
+  },
+  {
+   "cid": 1594,
+   "hits": 8,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.07,
+   "p_web": 0.1258,
+   "cost": null
+  },
+  {
+   "cid": 1631,
+   "hits": 4,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.69,
+   "p_web": 0.2667,
+   "cost": null
+  },
+  {
+   "cid": 1828,
+   "hits": 14,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 27.85,
+   "p_web": 0.1049,
+   "cost": 0.032511
+  },
+  {
+   "cid": 1889,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.06,
+   "p_web": 0.1218,
+   "cost": null
+  },
+  {
+   "cid": 2032,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.06,
+   "p_web": 0.104,
+   "cost": null
+  },
+  {
+   "cid": 2976,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.97,
+   "p_web": 0.0526,
+   "cost": null
+  },
+  {
+   "cid": 3056,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.67,
+   "p_web": 0.2509,
+   "cost": null
+  },
+  {
+   "cid": 3609,
+   "hits": 1,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.93,
+   "p_web": 0.0358,
+   "cost": null
+  },
+  {
+   "cid": 2386,
+   "hits": 0,
+   "route": "escalated",
+   "llm": "likely_organic",
+   "model": "gemini-4-hydrogen",
+   "lat": 19.56,
+   "p_web": 0.1148,
+   "cost": 0.028973
+  },
+  {
+   "cid": 1428,
+   "hits": 0,
+   "route": "escalated",
+   "llm": "insufficient",
+   "model": "gemini-4-hydrogen",
+   "lat": 18.71,
+   "p_web": 0.3693,
+   "cost": 0.031088
+  },
+  {
+   "cid": 912,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.91,
+   "p_web": 0.1584,
+   "cost": null
+  },
+  {
+   "cid": 247,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.64,
+   "p_web": 0.5598,
+   "cost": null
+  },
+  {
+   "cid": 2404,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.96,
+   "p_web": 0.0779,
+   "cost": null
+  },
+  {
+   "cid": 3506,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.82,
+   "p_web": 0.0769,
+   "cost": null
+  },
+  {
+   "cid": 1010,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.17,
+   "p_web": 0.4479,
+   "cost": null
+  },
+  {
+   "cid": 3444,
+   "error": "gate"
+  },
+  {
+   "cid": 2954,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.61,
+   "p_web": 0.6787,
+   "cost": null
+  },
+  {
+   "cid": 2692,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.74,
+   "p_web": 0.4801,
+   "cost": null
+  },
+  {
+   "cid": 3630,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.24,
+   "p_web": 0.3899,
+   "cost": null
+  },
+  {
+   "cid": 1281,
+   "hits": 0,
+   "route": "escalated",
+   "llm": "coordinated",
+   "model": "gemini-4-hydrogen",
+   "lat": 11.25,
+   "p_web": 0.3563,
+   "cost": 0.018826
+  },
+  {
+   "cid": 2775,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.16,
+   "p_web": 0.8441,
+   "cost": null
+  },
+  {
+   "cid": 2144,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.05,
+   "p_web": 0.2514,
+   "cost": null
+  },
+  {
+   "cid": 396,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.28,
+   "p_web": 0.4376,
+   "cost": null
+  },
+  {
+   "cid": 2529,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.05,
+   "p_web": 0.432,
+   "cost": null
+  },
+  {
+   "cid": 460,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.11,
+   "p_web": 0.0469,
+   "cost": null
+  },
+  {
+   "cid": 2091,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 0.99,
+   "p_web": 0.386,
+   "cost": null
+  },
+  {
+   "cid": 790,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.15,
+   "p_web": 0.4251,
+   "cost": null
+  },
+  {
+   "cid": 257,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.51,
+   "p_web": 0.0342,
+   "cost": null
+  },
+  {
+   "cid": 2868,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.29,
+   "p_web": 0.663,
+   "cost": null
+  },
+  {
+   "cid": 1305,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.95,
+   "p_web": 0.3186,
+   "cost": null
+  },
+  {
+   "cid": 241,
+   "hits": 0,
+   "route": "escalated",
+   "llm": "insufficient",
+   "model": "gemini-4-hydrogen",
+   "lat": 22.46,
+   "p_web": 0.4363,
+   "cost": 0.033203
+  },
+  {
+   "cid": 2756,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.7,
+   "p_web": 0.2541,
+   "cost": null
+  },
+  {
+   "cid": 1595,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.81,
+   "p_web": 0.4315,
+   "cost": null
+  },
+  {
+   "cid": 480,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.6,
+   "p_web": 0.0515,
+   "cost": null
+  },
+  {
+   "cid": 2908,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.69,
+   "p_web": 0.4603,
+   "cost": null
+  },
+  {
+   "cid": 2860,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.63,
+   "p_web": 0.2496,
+   "cost": null
+  },
+  {
+   "cid": 566,
+   "hits": 0,
+   "route": "escalated",
+   "llm": "insufficient",
+   "model": "gemini-4-hydrogen",
+   "lat": 12.44,
+   "p_web": 0.2344,
+   "cost": 0.029648
+  },
+  {
+   "cid": 975,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "coordinated",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 2.08,
+   "p_web": 0.1359,
+   "cost": null
+  },
+  {
+   "cid": 3332,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.84,
+   "p_web": 0.2918,
+   "cost": null
+  },
+  {
+   "cid": 2067,
+   "hits": 0,
+   "route": "nemotron",
+   "llm": "insufficient",
+   "model": "nemotron-3.5-super-vl",
+   "lat": 1.74,
+   "p_web": 0.6508,
+   "cost": null
+  }
+ ]
+}
