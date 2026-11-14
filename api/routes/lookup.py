@@ -265,6 +265,27 @@ def get_lookup_image(job_id: str, jobs: Annotated[JobStore, Depends(get_jobs)]) 
     )
 
 
+@router.get("/{job_id}/family/{member_id}")
+def get_family_image(
+    job_id: str, member_id: str, jobs: Annotated[JobStore, Depends(get_jobs)]
+) -> Response:
+    """A family tree copy as this lookup downloaded and matched it (a small JPEG), while the job
+    lives: many hosts refuse to be shown on another site, and this is the picture we checked."""
+    job = jobs.get(job_id)
+    data = getattr(job, "family_images", {}).get(member_id) if job is not None else None
+    if data is None:
+        raise HTTPException(404, "no such family picture for this lookup id (it may have expired)")
+    return Response(
+        data,
+        media_type="image/jpeg",
+        headers={
+            "cache-control": "private, max-age=3600",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
 @router.get("/{job_id}")
 def get_lookup(job_id: str, jobs: Annotated[JobStore, Depends(get_jobs)]) -> dict:
     job = jobs.get(job_id)

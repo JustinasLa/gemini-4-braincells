@@ -3,6 +3,7 @@ import { fmtDur, fmtNum, httpUrl, shotLabel } from "../ui/format";
 import type { ClusterSummary } from "./api";
 import { hashStr } from "./build";
 import { appendImageTrace, type ImageMatch } from "./imageTrace";
+import { appendFamily } from "./family";
 
 // lookup/models.py Edge.tool and Receipt.tool
 type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id" | "tineye" | "yandex" | "fetch";
@@ -501,7 +502,7 @@ export function lookupCase(result: LookupResult): TraceCase {
   }
   const subject = result.subject_id ? resolve(result.subject_id) : "";
   const submittedId = nodeIds.has(subject) ? subject : nodes.find((node) => node.url === result.input.url || node.id === result.input.url)?.id ?? "";
-  return appendImageTrace({
+  return appendFamily(appendImageTrace({
     id: result.id, title: (result.posts.find((post) => post.id === result.subject_id)?.text?.replace(/\s+/g, " ") || result.input.url || result.input.text || (result.kind === "image" ? "Uploaded image" : "Live lookup")).slice(0, 90),
     kicker: result.kind === "image" ? "Live image lookup" : "Live link lookup", status: matched?.status ?? "insufficient", confidence: matched?.confidence ?? 0, scored: matched?.confidence != null,
     synthetic: false, live: true, submittedId, originId: result.origin_id && nodeIds.has(resolve(result.origin_id)) ? resolve(result.origin_id) : "",
@@ -517,5 +518,5 @@ export function lookupCase(result: LookupResult): TraceCase {
     summary: readingsDisagree(result) ? `Two model readings of these receipts differ; both are shown below. ${result.posts.length} posts and ${result.pages.length} pages collected.`
       : result.assessment?.summary || (!matched && result.unreadable ? `${result.unreadable}: the submitted post can't be read${result.input.text ? "; these results trace the text you supplied" : ", so there is nothing to trace"}. Can't tell is not a verdict on the account.` : null) || `${result.posts.length} posts and ${result.pages.length} pages collected so far. ${matched ? "Coordination status comes only from the matched monitored cluster." : "Coordination: insufficient evidence. This is not a finding about the accuracy of the content."}`,
     lookup: result,
-  });
+  }));
 }

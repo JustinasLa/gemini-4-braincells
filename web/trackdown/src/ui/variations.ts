@@ -3,6 +3,7 @@ import type { TraceCase, TraceNode } from "../types";
 import { esc } from "./format";
 import { memeImage, installImageFallbacks } from "./memeImage";
 import { openCompare, refreshComparison } from "./compare";
+import { familySectionHtml } from "./familyPanel";
 import "./meme.css";
 
 export function imageCardHtml(node: TraceNode): string {
@@ -11,7 +12,7 @@ export function imageCardHtml(node: TraceNode): string {
   const url = pageUrl(match.page_url);
   return `<div class="meme-card meme-${relation}" data-ui>
     <button class="meme-card-open" data-ui data-meme-compare="${esc(node.id)}" aria-label="Compare ${esc(relation)} copy on ${esc(domainOf(match))}">
-      <span class="meme-eyebrow">${node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
+      <span class="meme-eyebrow">${node.eyebrow ? esc(node.eyebrow) : node.role === "origin" ? "ORIGINAL · EARLIEST MATCH FOUND" : `${esc(relation.toUpperCase())} · VARIATION`}</span>
       <strong>${esc(domainOf(match))}</strong>
       <span class="meme-card-preview">Compare with submission ↗</span>
     </button>
@@ -37,6 +38,7 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
   const button = (id: string, title: string, subtitle: string) => `<button class="meme-list-item" data-meme-compare="${esc(id)}"><span>${esc(title)}</span><small>${esc(subtitle)}</small><span class="meme-list-arrow" aria-hidden="true">↗</span></button>`;
   const html = `<section class="meme-section" aria-label="Meme trace">
     ${trace.mock ? '<h2 class="meme-eyebrow">MOCK</h2>' : ""}
+    ${familySectionHtml(trace)}
     ${finding && finding !== "pending" ? `<div class="meme-finding" style="--vc:${finding.color}"><div class="meme-finding-word">${esc(finding.word.toUpperCase())}</div><p>${esc(finding.sentence)}</p></div>` : ""}
     <h3>Original <small>earliest match found</small></h3>
     ${state.searching ? '<p class="meme-scanning" role="status">Searching for earlier copies…</p>' : ""}
@@ -62,7 +64,8 @@ export function initMemeTrace(current: () => TraceCase | null) {
     if (!opener && (!card || target?.closest("a"))) return;
     const trace = current();
     const id = opener?.dataset.memeCompare ?? card?.dataset.id;
-    const match = trace?.lookup?.image_matches?.find((candidate) => candidate.id === id);
+    // a family tree card that is not an image match carries its own picture (data/family.ts)
+    const match = trace?.lookup?.image_matches?.find((candidate) => candidate.id === id) ?? trace?.nodes.find((node) => node.id === id)?.imageMatch;
     if (trace && match) openCompare(trace, match, opener ?? card!.querySelector<HTMLElement>("button")!);
   });
   document.querySelector("#legend .legend-hint")?.insertAdjacentHTML("beforebegin", '<div class="li"><span class="ln" style="--s:dashed;--c:#a2ffb5"></span>Image variation</div>');

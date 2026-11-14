@@ -278,6 +278,8 @@ class Lookup:
         self._upload_read = False  # Nemotron read the uploaded image (its text may be empty)
         self._page_seq = 0
         self._shots: list[tuple[str, str, str, bytes | None]] = []  # (url, sha256, mime, bytes)
+        # the family tree's copies as small JPEGs, served while the job lives (lookup/family.py)
+        self.family_images: dict[str, bytes] = {}
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
         self._unreadable = False  # the submitted post or page is an X tombstone

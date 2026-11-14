@@ -90,6 +90,8 @@ class FamilyMember(BaseModel):
     kind: Literal["source", "copy", "caption", "label", "poster", "face_swap", "edit", "screenshot"]
     # the copy is a small thumbnail (under 300 px): its text was read from very few pixels
     small: bool = False
+    # this server's copy of the picture, as downloaded and matched: /api/lookup/{id}/family/{id}
+    picture: str | None = None
     receipt_id: int | None = None
 
 

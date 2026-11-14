@@ -56,6 +56,7 @@ READ_S = 8.0
 DIFF_S = 12.0
 SOURCE_S = 12.0  # an encyclopedia search + page read
 STORE_SIDE = 1024  # a copy kept for this step is re-encoded to at most this side
+THUMB_SIDE = 480  # the tree's picture of a copy
 BRANCH_LABEL = {
     "caption": "Captions",
     "label": "Labels on the scene",
@@ -691,8 +692,30 @@ class Builder:
             edits=c.edits or [],
             kind=c.kind if c.kind != "submitted" else "copy",
             small=_side(c.data) < SMALL_PX,
+            picture=self._picture(c),
             receipt_id=c.receipt_id or (m.receipt_id if m else None),
         )
+
+    def _picture(self, c: _Copy) -> str | None:
+        """Keep a small JPEG of the copy for the tree (served by the API while the job lives)."""
+        if c.id == "submitted":
+            return None
+        try:
+            from PIL import Image, ImageOps
+
+            with Image.open(io.BytesIO(c.data)) as image:
+                image = ImageOps.exif_transpose(image).convert("RGB")
+                image.thumbnail((THUMB_SIDE, THUMB_SIDE))
+                out = io.BytesIO()
+                image.save(out, "JPEG", quality=84)
+        except Exception:
+            return None
+        store = getattr(self.job, "family_images", None)
+        if store is None:
+            return None
+        with self.job.lock:
+            store[c.id] = out.getvalue()
+        return f"/api/lookup/{self.job.result.id}/family/{quote(c.id, safe='')}"
 
     @staticmethod
     def _date(c: _Copy) -> str | None:
