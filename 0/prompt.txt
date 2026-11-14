@@ -1,0 +1,10 @@
+Delegated task node:delegated-task:command%3Amcp%3Afa7bd387-c109-4337-9711-9eeb16f3af3f%3Adelegate-task%3Aab515170-9926-4bba-9197-9df3af65daac (Meme trace part 3 fix: Sol review round 5 (panel labels)) [completed]:
+Two blocking data-loss regressions, both reproduced against approved `5e3124f`:
+
+- **Genuine caption edit dropped** — [media/imagediff.py:158](/home/dev/work/meme-imagediff/media/imagediff.py:158). With `text_before=["SEE YOU SOON"]`, `text_after=["A: earlier"]`, and `changes=["The caption changed to 'A: earlier'."]`, normalization now returns empty `changes` and `kinds`. The new source-optional shape suppresses an arbitrary caption replacement—not merely the documented literal `A: earlier` → `B: later` collision. Here the destination is also on the wrong panel to be B’s overlay. The approved baseline preserves this edit.
+
+- **Paired-label cleanup removes real source text** — [media/imagediff.py:417](/home/dev/work/meme-imagediff/media/imagediff.py:417). For `text_before=["A: earlier", "A: earlier"]`, `text_after=["B: later", "A: now"]`, and a genuine caption change `A: earlier` → `A: now`, cleanup removes **both** before entries, yielding `text_before=[]`. One occurrence can be the overlay and the other actual caption text. This loses real transcription even though the genuine change sentence survives; it is outside the documented exact-label-to-exact-label limitation. Cleanup must not indiscriminately remove every occurrence.
+
+Verification: **351 tests passed**, Ruff lint/format passed, prompt byte identity confirmed, and **124** non-position-modifier, compound-clause, and other-quote probes were preserved. No edits or live model calls.
+
+CHANGES REQUESTED
