@@ -95,7 +95,7 @@ def save_media_evidence(
     summary: str,
     detail: dict[str, Any],
     source_url: str | None,
-    model: str,
+    model: str | None,
     existing: dict[str, Any] | None,
 ) -> tuple[int, bool]:
     """Upsert by media_hash so ids stay stable for analyst citations. Returns (id, changed).

@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from eval.slices import SLICE_ROOT, SPLITS, hour_files, iter_windows, split_hours
+from signals.baseline import BaseRates
 from signals.config import DEFAULT, DetectorConfig
 from signals.detect import detect
 from signals.keys import MinHashCache
@@ -97,6 +98,19 @@ def judge(
     )
 
 
+def load_base_rates(path: str) -> BaseRates:
+    """Base rates from a JSON file: `BaseRates.as_dict()` itself, or any object with a
+    `base_rates` key in that shape (e.g. signals/fixtures/attack_results_live_*.json)."""
+    d = json.loads(Path(path).read_text())
+    d = d.get("base_rates", d)
+    return BaseRates(
+        n_age=int(d["sample_with_age"]),
+        fresh=float(d["fresh_rate"]),
+        n_profile=int(d["sample_with_profile"]),
+        empty=float(d["empty_rate"]),
+    )
+
+
 def trial_seed(window_start: float, level: str, k: int) -> int:
     """Deterministic, different for every window/level/repeat (so dev and heldout never share)."""
     h = hashlib.blake2b(f"{int(window_start)}|{level}|{k}".encode(), digest_size=4)
@@ -110,11 +124,13 @@ def run_trial(
     label: str = "",
     cfg: DetectorConfig = DEFAULT,
     mh_cache: MinHashCache | None = None,
+    base_rates: BaseRates | None = None,
 ) -> Trial:
-    """Inject repeat `k` of a `level` campaign into this window, run the detector, score it."""
+    """Inject repeat `k` of a `level` campaign into this window, run the detector, score it.
+    `base_rates` turns on the detector's identity base-rate test (the live worker measures them)."""
     seed = trial_seed(wd.start, level, k)
     s = campaign(level, wd, seed=seed)
-    res = detect(inject(wd, s), _synthetic_info(s), cfg, mh_cache)
+    res = detect(inject(wd, s), _synthetic_info(s), cfg, mh_cache, base_rates=base_rates)
     return judge(s, res.clusters, cfg, window=label, seed=seed)
 
 
@@ -188,12 +204,17 @@ def add_arguments(r: argparse.ArgumentParser) -> None:
     r.add_argument("--workers", type=int, default=4)
     r.add_argument("--database-url", help="write an eval_runs row here (nothing written if unset)")
     r.add_argument("--json-out", help="also write the result as JSON")
+    r.add_argument(
+        "--base-rates",
+        help="JSON with measured base rates (turns on the identity base-rate test, as live)",
+    )
 
 
 # ---------------------------------------------------------------- CLI: python -m eval recall ---
 
 _WINDOWS: list = []  # filled before the worker pool forks, read by workers (copy-on-write)
 _MH: MinHashCache | None = None
+_RATES: BaseRates | None = None
 
 
 def _work(task: tuple[int, str | None, int]):
@@ -202,8 +223,9 @@ def _work(task: tuple[int, str | None, int]):
     label, wd = _WINDOWS[idx]
     _MH = _MH or MinHashCache(DEFAULT.minhash_perm)
     if level is None:  # baseline: the window without any injection (context only)
-        return ("base", label, detect(wd, None, DEFAULT, _MH).stats["by_status"])
-    return ("trial", label, run_trial(wd, level, k, label, DEFAULT, _MH))
+        res = detect(wd, None, DEFAULT, _MH, base_rates=_RATES)
+        return ("base", label, res.stats["by_status"])
+    return ("trial", label, run_trial(wd, level, k, label, DEFAULT, _MH, _RATES))
 
 
 def _git_sha() -> str | None:
@@ -220,7 +242,9 @@ def _git_sha() -> str | None:
 
 
 def main_args(args) -> int:
+    global _RATES
     _WINDOWS.clear()  # module state for the fork pool: never carry windows over from a past run
+    _RATES = load_base_rates(args.base_rates) if args.base_rates else None
     partial = bool(
         args.hours
         or args.max_windows
@@ -282,6 +306,9 @@ def main_args(args) -> int:
         "what": "share of injected synthetic campaigns (did:plc:synth*) whose accounts the "
         "detector marks coordinated",
         "detector_version": DEFAULT.version,
+        "base_rates": (
+            {**_RATES.as_dict(), "source": args.base_rates} if _RATES else None
+        ),  # None: the identity base-rate test was off (the live worker measures base rates)
         "eval_commit": commit,
         "hit_rule": f">= {MIN_COVERAGE:.0%} of the campaign's accounts in clusters with "
         "status 'coordinated'",
