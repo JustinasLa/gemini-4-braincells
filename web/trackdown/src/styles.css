@@ -29,8 +29,8 @@
   --screenshotted: #b9a6e3; /* the real post a screenshot shows: neutral, not a copy */
 
   --wide: "Michroma", "Eurostile", ui-sans-serif, sans-serif;
-  /* T3 Code's stacks: the system UI font, Inter as the fallback */
-  --sans: -apple-system, BlinkMacSystemFont, "Inter Variable", "Inter", "Segoe UI", system-ui, sans-serif;
+  /* T3 Code's stacks: the system UI font, Inter where there is none. Keep identical to SANS and MONO in ui/format.ts (canvas text) */
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --cut: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));

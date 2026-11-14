@@ -145,6 +145,7 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   fetch: { label: "fetch", long: "Direct image download" },
 };
 
-/** T3 Code's font stacks (system UI font, Inter as the bundled fallback); canvas text uses them too */
-export const SANS = '-apple-system, BlinkMacSystemFont, "Inter Variable", "Inter", "Segoe UI", system-ui, sans-serif';
+/** T3 Code's font stacks: the system UI font, Inter (Google Fonts) where there is none. Canvas text
+ *  uses these; keep them identical to --sans and --mono in styles.css. */
+export const SANS = '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif';
 export const MONO = 'ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
