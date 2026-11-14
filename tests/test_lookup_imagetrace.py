@@ -1802,3 +1802,76 @@ def test_date_only_page_date_on_the_post_day_is_not_older():
     run_trace(job)
     assert job.result.image_matches[0].time_source == "page"
     assert job.result.image_origin_id is None
+
+
+def test_a_page_is_read_once_and_dates_every_match_on_it_even_one_found_later():
+    page = "https://blog.example/post"
+    searches = Searches([dated_hit("a", page=page, when=OLD), dated_hit("b", page=page, rank=1)])
+    gate = threading.Event()
+
+    def late_yandex(client, u, *, sites, deadline):
+        if sites:  # the Yandex sites view answers after the page was read
+            gate.wait(5)
+            return result("yandex", u, [dated_hit("c", page=page, engine="yandex")])
+        return result("yandex", u, [])
+
+    searches.yandex = late_yandex
+    pages = PageSources({page: "2007-01-02"})
+    original = imagetrace.Trace._page_date
+
+    def page_date(self, url):
+        try:
+            return original(self, url)
+        finally:
+            gate.set()
+
+    job = job_for(searches, oxylabs=pages)
+    imagetrace.Trace._page_date = page_date
+    try:
+        run_trace(job)
+    finally:
+        imagetrace.Trace._page_date = original
+    assert [url for url, _ in pages.reads] == [page]
+    dated = [m for m in job.result.image_matches if m.page_url == page]
+    assert len(dated) == 3 and all(m.time_source == "page" for m in dated)
+    assert len({m.time_receipt_id for m in dated}) == 1
+
+
+def test_a_match_compared_as_a_different_picture_is_not_read():
+    page = "https://other.example/post"
+    job = job_for(Searches([]), oxylabs=PageSources({page: "2007-01-02"}))
+    job._add_upload_post()
+    trace = imagetrace.Trace(job)
+    trace.query_url = "https://public.example/q.png"
+    trace.tineye_settled = True
+    with job.lock:
+        trace._accept_hits([(dated_hit("different", page=page), 1)])
+        trace.matches["img:1"] = trace.matches["img:1"].model_copy(update={"relation": "different"})
+    assert trace._page_candidates() == []
+
+
+@pytest.mark.parametrize(
+    "asked,final,counts",
+    [
+        ("http://www.zooomr.com/photos/labels/fire", "https://www.bowerystreet.com/", False),
+        ("https://news.example/2009/story", "https://news.example/", False),
+        ("http://community.livejournal.com/a/1.html", "https://a.livejournal.com/1.html", True),
+        ("https://www.bbc.co.uk/news/1", "https://www.bbc.co.uk/news/articles/1", True),
+        ("https://shop.example.co.uk/a", "https://other.co.uk/a", False),
+    ],
+)
+def test_a_redirect_to_another_site_or_its_front_page_gives_no_date(asked, final, counts):
+    class Moved(PageSources):
+        def scrape_facts(self, url, *, deadline=None):
+            return (
+                super().scrape_facts(url, deadline=deadline).model_copy(update={"final_url": final})
+            )
+
+    job = job_for(
+        Searches([dated_hit("a", page=asked, when=OLD)]), oxylabs=Moved({asked: "2001-01-01"})
+    )
+    run_trace(job)
+    match = next(m for m in job.result.image_matches if m.page_url == asked)
+    assert (match.time_source == "page") is counts
+    receipt = next(r for r in job.result.receipts if r.tool == "oxylabs" and r.source_url == final)
+    assert ("redirects" in receipt.summary) is not counts

@@ -93,6 +93,21 @@ def _bound(item):
     return item.first_seen + timedelta(days=item.time_source == "crawl_date")
 
 
+def _site(url: str | None) -> str:
+    """The registrable part of a URL's host, roughly: example.com, example.co.uk."""
+    labels = (domain(url) or "").split(".")
+    keep = 3 if len(labels) > 2 and len(labels[-1]) == 2 and len(labels[-2]) <= 3 else 2
+    return ".".join(labels[-keep:])
+
+
+def _same_page(asked: str, final: str) -> bool:
+    """Whether the page the scraper ended on is still the matched page: a redirect to another
+    site (a repurposed domain) or to the site's front page prints someone else's date."""
+    if _site(asked) != _site(final):
+        return False
+    return urlsplit(final).path.strip("/") != "" or urlsplit(asked).path.strip("/") == ""
+
+
 def _post_time(hit) -> tuple[datetime, str, str] | None:
     """(created_at, post URL, status id) when the hit's page or image URL is an X status: the
     post's own time is in its id (lookup.urls.snowflake_time), exact, and the picture was on X
@@ -195,7 +210,8 @@ class Trace:
         self.images: dict[str, bytes] = {}
         self.base: bytes | None = job._upload
         self.post_receipts: dict[str, int] = {}  # X status URL -> its post-id time receipt
-        self.page_reads: set[str] = set()  # match ids whose page is (being) read for a date
+        self.page_reads: set[str] = set()  # page URLs (being) read for their printed date
+        self.page_dates: dict[str, tuple[datetime, float | None, int]] = {}  # url -> date read
         self.page_futures: list[Future] = []
         self.settled = threading.Event()  # finish() has chosen the origin: no more page dates
 
@@ -342,6 +358,7 @@ class Trace:
                         match.engine = hit.engine
                     elif not match.first_seen and hit.engine == "tineye":
                         match.engine = hit.engine
+                    match = self._with_page_date(match)  # a page URL that came with this hit
                     self.matches[mid] = match
                     if match.changes_from and self._match_is_older(match) != (
                         match.changes_from == "match"
@@ -389,6 +406,7 @@ class Trace:
                         height=hit.height,
                         receipt_id=rid,
                     )
+                    match = self._with_page_date(match)  # its page was read for another match
                     self.matches[mid] = match
                     self.priorities[mid] = self._priority(hit)
                     added.append(match)
@@ -430,10 +448,11 @@ class Trace:
                 summary += " (time inside the X post id)"
         return summary
 
-    def _page_candidates(self) -> list[tuple[str, str]]:
+    def _page_candidates(self) -> list[str]:
         """Matched pages to read for their printed date, best match first (_priority: TinEye's
-        earliest first, then Yandex's undated ones), at most image_page_dates_max per lookup.
-        X posts are skipped (their id has the exact time), and so are bare image files."""
+        earliest first, then Yandex's undated ones), each page once, at most
+        image_page_dates_max per lookup. X posts are skipped (their id has the exact time), and
+        so are bare image files and matches already compared as a different picture."""
         with self.job.lock:
             if not self._active():
                 return []
@@ -445,7 +464,9 @@ class Trace:
                 match = self.matches[mid]
                 url = match.page_url
                 if (
-                    mid in self.page_reads
+                    url in self.page_reads
+                    or url in picked
+                    or match.relation == "different"
                     or not url
                     or not url.startswith(("http://", "https://"))
                     or match.engine == "x_replies"
@@ -455,11 +476,30 @@ class Trace:
                     or _IMAGE_FILE.search(urlsplit(url).path)
                 ):
                     continue
-                picked.append((mid, url))
-            self.page_reads.update(mid for mid, _url in picked)
+                picked.append(url)
+            self.page_reads.update(picked)
         return picked
 
-    def _page_date(self, item):
+    def _with_page_date(self, match):
+        """`match` dated by its page's printed date when that bound is earlier than the one it
+        has; else `match` itself (job.lock held)."""
+        got = self.page_dates.get(match.page_url) if match.page_url else None
+        if got is None or match.time_source == "snowflake":
+            return match
+        when, unc, rid = got
+        dated = match.model_copy(
+            update={
+                "first_seen": when,
+                "time_source": "page",
+                "time_uncertainty_s": unc,
+                "time_receipt_id": rid,
+            }
+        )
+        if match.first_seen and _bound(dated) >= _bound(match):
+            return match  # an earlier bound is already known
+        return dated
+
+    def _page_date(self, url):
         """Read the publication date printed on a matched page, as the text lookup reads a
         source page (Oxylabs scrape_facts, service._page_time): a dated bound with its own
         receipt. It replaces the match's date only when its latest possible time is earlier."""
@@ -469,7 +509,6 @@ class Trace:
             _page_time,
         )
 
-        mid, url = item
         with self.job.lock:
             if not self._pages_open():
                 return None
@@ -507,11 +546,16 @@ class Trace:
         if when is not None and not (PAGE_DATE_MIN <= when <= datetime.now(UTC)):
             when = None
         final = facts.final_url or url
+        moved = not _same_page(url, final)
         self._complete(
             rid,
             f"Matched page read: {facts.publisher or domain(final) or 'page'}"
             + (
-                f", published {facts.published_at} (the date printed on the page)"
+                f"; the page now redirects to {domain(final)}"
+                + ("'s front page" if _site(url) == _site(final) else "")
+                + ", so its date is not the matched page's"
+                if moved
+                else f", published {facts.published_at} (the date printed on the page)"
                 if when
                 else ", no publication date found"
             ),
@@ -519,30 +563,28 @@ class Trace:
             source_url=final,
             gate=self._pages_open,
         )
-        if when is None:
+        if when is None or moved:
             return None
         with self.job.lock:
-            if not self._pages_open() or mid not in self.matches:
+            if not self._pages_open():
                 return None
-            match = self.matches[mid]
-            dated = match.model_copy(
-                update={
-                    "first_seen": when,
-                    "time_source": "page",
-                    "time_uncertainty_s": unc,
-                    "time_receipt_id": rid,
-                }
-            )
-            if match.first_seen and _bound(dated) >= _bound(match):
-                return None  # an earlier bound is already known
-            self.matches[mid] = dated
-            if dated.changes_from and self._match_is_older(dated) != (
-                dated.changes_from == "match"
-            ):
-                self._withdraw_description(mid)
-            self.priorities[mid] = self._priority(dated, self.priorities[mid][2])
-            self._sync_matches()
-        return mid
+            # every match on this page: the page existed with them by its date
+            self.page_dates[url] = (when, unc, rid)
+            changed = []
+            for mid, match in list(self.matches.items()):
+                dated = self._with_page_date(match)
+                if dated is match:
+                    continue
+                self.matches[mid] = dated
+                if dated.changes_from and self._match_is_older(dated) != (
+                    dated.changes_from == "match"
+                ):
+                    self._withdraw_description(mid)
+                self.priorities[mid] = self._priority(dated, self.priorities[mid][2])
+                changed.append(mid)
+            if changed:
+                self._sync_matches()
+        return changed
 
     def _search(self, engine_view):
         engine, sites = engine_view
