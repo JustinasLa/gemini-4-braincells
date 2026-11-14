@@ -194,6 +194,7 @@ class Lookup:
         self._media_urls: list[str] = []
         self._bsky_handles: set[str] = set()
         self._final: dict | None = None
+        self._unreadable = False  # the submitted post or page is an X tombstone
 
     # ---------------------------------------------------------------- bookkeeping
     def snapshot(self) -> dict:
@@ -544,14 +545,7 @@ class Lookup:
                 )
                 st.state, st.detail = "done" if reason else "failed", detail
                 if reason:
-                    self.note(
-                        f"{detail}, so its text can't be read; "
-                        + (
-                            "copies are searched with the text you gave."
-                            if self._subject_text
-                            else "copies and spread were not searched."
-                        )
-                    )
+                    self._tombstone_note(detail)
                 self._subject_time = snowflake_time(t.post_id)
                 return
             counts = ", ".join(
@@ -872,6 +866,17 @@ class Lookup:
         except httpx.HTTPError:
             return url
 
+    def _tombstone_note(self, detail: str) -> None:
+        self._unreadable = True
+        self.note(
+            f"{detail}, so its text can't be read; "
+            + (
+                "copies are searched with the text you gave."
+                if self._subject_text
+                else "copies and spread were not searched."
+            )
+        )
+
     def _linked(self, url: str, is_input: bool) -> None:
         with self.step("linked") as st:
             short = url
@@ -879,6 +884,34 @@ class Lookup:
             self._spend()
             facts = self.deps.oxylabs.scrape_facts(url, deadline=self._provider_deadline())
             call = dict(self.deps.oxylabs.last_call)
+            if facts.unavailable:  # an X tombstone (e.g. behind t.co): its title isn't content
+                detail = unavailable_detail(facts.unavailable)
+                rid = self.receipt(
+                    "oxylabs",
+                    "/scrape",
+                    f"Linked page read: {detail}",
+                    source_url=facts.final_url or url,
+                    call=call,
+                )
+                pg = self.add_page(
+                    Page(
+                        id="",
+                        url=short if short != url else url,
+                        final_url=facts.final_url or url,
+                        role="linked",
+                        publisher=facts.publisher,
+                        receipt_id=rid,
+                    )
+                )
+                if is_input:
+                    self._tombstone_note(detail)
+                    with self.lock:
+                        self.result.subject_id = pg.id
+                elif self.result.subject_id:
+                    self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
+                st.found = [pg.id]
+                st.detail = detail
+                return
             pub = facts.published_at
             ptime, punc = _page_time(pub)
             rid = self.receipt(
@@ -987,7 +1020,8 @@ class Lookup:
         return pg.id
 
     def _copies_skip_detail(self, short: str) -> str:
-        if self.result.kind == "x_post" and not self.result.subject_id and not self._subject_text:
+        unread = self._unreadable or (self.result.kind == "x_post" and not self.result.subject_id)
+        if unread and not self._subject_text:
             return "the post's text couldn't be read"
         return short
 

@@ -1018,3 +1018,36 @@ def test_suspended_post_with_user_text_says_copies_use_that_text():
     )
     steps = {s.id: s for s in job.result.steps}
     assert steps["copies_web"].detail != "the post's text couldn't be read"
+
+
+def test_link_resolving_to_an_x_tombstone_is_not_read_as_content():
+    tomb = "https://x.com/realDonaldTrump/status/869766994899468288"
+
+    class Oxy(FakeOxylabs):
+        def scrape_facts(self, url, deadline=None):
+            self.calls.append(("facts", url))
+            return PageFacts(
+                url=url,
+                final_url=tomb,
+                http_status=404,
+                publisher="X",
+                headline="We're unable to show this content",
+                claims=["The page does not exist."],
+                unavailable="unavailable",
+            )
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    job = Lookup("lk_web_tomb", LookupInput(url="https://news.example/redirect"), deps)
+    job.run()
+    steps = {s.id: s for s in job.result.steps}
+    detail = "X says this post isn't available (it may be private, deleted or app-only)"
+    assert (steps["linked"].state, steps["linked"].detail) == ("done", detail)
+    assert not [c for c in deps.oxylabs.calls if c[0] == "search"]
+    assert all(p.headline is None and not p.claims for p in job.result.pages)
+    assert any(r.summary == f"Linked page read: {detail}" for r in job.result.receipts)
+    assert f"{detail}, so its text can't be read; copies and spread were not searched." in (
+        job.result.notes
+    )
+    for sid in ("copies_web", "copies_x"):
+        assert steps[sid].detail == "the post's text couldn't be read"

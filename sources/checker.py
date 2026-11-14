@@ -84,10 +84,14 @@ class SourceChecker:
             if unavailable == "suspended":
                 # the resolved page names the account (a t.co link doesn't); the input as fallback
                 target = next(
-                    (t for u in (final_url, url) if (t := classify(u)) and t.kind.startswith("x_")),
+                    (
+                        t
+                        for u in (final_url, url)
+                        if (t := classify(u)) and t.kind in ("x_post", "x_profile") and t.handle
+                    ),
                     None,
                 )
-                if target and target.kind in ("x_post", "x_profile") and target.handle:
+                if target:
                     handle_key = f"search:handle:{target.handle.lower()}"
                     if not any(i.detail["key"] == handle_key for i in out):
                         ev = self._search_evidence("handle", target.handle, stored, adhoc)

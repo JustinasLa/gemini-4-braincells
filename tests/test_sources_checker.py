@@ -313,3 +313,31 @@ def test_suspended_account_behind_a_short_link_gets_the_handle_search():
     client = Short()
     SourceChecker(client).check([ClusterPost(did="d", embed_urls=["https://t.co/abc"])], adhoc=True)
     assert client.searches == ['"TEN_GOP"']
+
+
+def test_suspended_handle_falls_back_to_the_input_when_the_final_url_has_none():
+    class WebStatus(FakeClient):
+        def scrape_facts(self, url):
+            return PageFacts(
+                url=url,
+                final_url="https://x.com/i/web/status/788098438915297280",
+                unavailable="suspended",
+                headline="Post",
+            )
+
+    url = "https://x.com/TEN_GOP/status/788098438915297280"
+    client = WebStatus()
+    SourceChecker(client).check([ClusterPost(did="d", embed_urls=[url])], adhoc=True)
+    assert client.searches == ['"TEN_GOP"']
+    key = f"page:{url}"
+    stored = {
+        key: {
+            "key": key,
+            "final_url": "https://x.com/i/web/status/1",
+            "headline": "Post",
+            "unavailable": "suspended",
+        }
+    }
+    client = FakeClient()
+    SourceChecker(client).check([ClusterPost(did="d", embed_urls=[url])], stored=stored)
+    assert client.searches == ['"TEN_GOP"']
