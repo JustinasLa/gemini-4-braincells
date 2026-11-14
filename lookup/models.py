@@ -167,6 +167,13 @@ class ImageRef(BaseModel):
     bytes: int
 
 
+class LookupBody(BaseModel):
+    """The JSON body of POST /api/lookup (an image goes to POST /api/lookup/image)."""
+
+    url: str | None = None
+    text: str | None = None
+
+
 class LookupInput(BaseModel):
     url: str | None = None
     text: str | None = None

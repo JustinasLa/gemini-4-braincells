@@ -1495,6 +1495,9 @@ class Lookup:
             self._image_query = f"{short} meme" if meme else short
         elif "adult" not in a.content_flags and a.description:
             self._image_query = ("meme " if meme else "") + " ".join(a.description.split()[:30])
+        if not self._image_query:
+            self.note("The uploaded image has too little text to search for; nothing was searched.")
+            return
         self.note(
             "The uploaded image has too little text for an exact search; the pages found are "
             "about the image (searched by its "
@@ -1541,6 +1544,11 @@ class Lookup:
                 if "/card_img/" not in url:  # link-card thumbnails: describe only
                     texts.extend(a.extracted_text)
             if errors and not read:
+                if self.result.kind == "image":
+                    self.note(
+                        "Nemotron could not read the uploaded image, so there was no text to "
+                        "search for. Try again in a minute."
+                    )
                 raise errors[0]
             found = []
             # the longest line first: headers ("NETWORK & OPERATIONS", dates) make poor queries

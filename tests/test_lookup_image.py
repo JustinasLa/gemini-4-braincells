@@ -1,6 +1,7 @@
 """Image lookups (POST /api/lookup/image): an uploaded meme or screenshot is traced like a post
 whose only content is its image (no network; fictional accounts)."""
 
+import dataclasses
 import hashlib
 
 from fastapi.testclient import TestClient
@@ -167,10 +168,11 @@ def test_no_text_searches_by_description_but_never_for_adult_content():
     class Adult(FakeReader):
         def analyze(self, media, *, context=None):
             a = super().analyze(media, context=context)
-            return MediaAnalysis(**{**a.__dict__, "content_flags": ["adult"]})
+            return dataclasses.replace(a, content_flags=["adult"])
 
     job = _run(Adult(text=[], description="Adult content (not described)."))
     assert job.deps.oxylabs.queries == []
+    assert {s.id: s.state for s in job.result.steps}["media"] == "done"  # read, not searched
 
 
 def test_image_cache_key_and_bytes_required():
@@ -218,3 +220,48 @@ def test_text_lookup_has_no_image_route():
     store = JobStore(lambda: Deps(oxylabs=FakeOxylabs()), max_per_hour=10)
     job = store.start(LookupInput(text="the comets have landed and nobody says why"), "c")
     assert job.upload is None
+
+
+def test_too_little_text_and_no_query_says_nothing_was_searched():
+    class Adult(FakeReader):
+        def analyze(self, media, *, context=None):
+            a = super().analyze(media, context=context)
+            return dataclasses.replace(a, content_flags=["adult"])
+
+    job = _run(Adult(text=[], description="Adult content (not described)."))
+    assert any("nothing was searched" in n for n in job.result.notes)
+    assert not any("searched by its" in n for n in job.result.notes)
+
+
+def test_unreadable_upload_says_so():
+    class Broken(FakeReader):
+        def analyze(self, media, *, context=None):
+            raise RuntimeError("endpoint down")
+
+    job = _run(Broken())
+    r = job.result
+    assert r.state == "done" and {s.id: s.state for s in r.steps}["media"] == "failed"
+    assert any("could not read the uploaded image" in n for n in r.notes)
+    assert job.deps.oxylabs.queries == []
+
+
+def test_rate_limited_client_is_refused_before_the_body_is_read(monkeypatch):
+    store = JobStore(lambda: Deps(oxylabs=FakeOxylabs(), nemotron=FakeReader()),
+                     max_per_hour=10, max_per_client_per_hour=1)  # fmt: skip
+    app.dependency_overrides[lookup_route.get_jobs] = lambda: store
+    monkeypatch.setattr(lookup_route, "_media_configured", lambda: True)
+    try:
+        c = TestClient(app)
+        assert c.post("/api/lookup/image", content=JPEG).status_code in (200, 202)
+        read = []
+
+        def body():
+            read.append(1)
+            yield JPEG + b"other"
+
+        assert c.post("/api/lookup/image", content=body()).status_code == 429
+        assert read == []  # refused before a byte of the upload was read
+        # the JSON route has no image field: an image there is not silently accepted
+        assert c.post("/api/lookup", json={"image": {"sha256": "x"}}).status_code == 400
+    finally:
+        app.dependency_overrides.pop(lookup_route.get_jobs, None)

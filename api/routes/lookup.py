@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from common.config import get_settings
 from lookup.jobs import JobStore, RateLimited
-from lookup.models import ImageRef, LookupInput
+from lookup.models import ImageRef, LookupBody, LookupInput
 from lookup.service import IMAGE_CALL_S, MAX_IMAGE_BYTES, Deps
 from lookup.upload import sniff_image
 from signals.textnorm import normalize_text, word_count
@@ -169,7 +169,7 @@ def _client(request: Request) -> str:
 
 @router.post("", status_code=202)
 def start_lookup(
-    body: LookupInput, request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
+    body: LookupBody, request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
 ) -> JSONResponse:
     url = (body.url or "").strip()
     text = (body.text or "").strip()
@@ -212,11 +212,19 @@ async def start_image_lookup(
     only, `LOOKUP_JOB_TTL_S`) and are never stored."""
     if not _media_configured():
         raise HTTPException(503, "Image lookups need Nemotron, which is not configured here.")
+    too_big = HTTPException(413, f"the image is larger than {MAX_IMAGE_BYTES >> 20} MB")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_IMAGE_BYTES:
+        raise too_big  # before reading any of it
+    try:
+        jobs.check_budget(_client(request))  # a refused client never makes us read the body
+    except RateLimited as exc:
+        raise HTTPException(429, str(exc)) from exc
     buf = bytearray()
     async for chunk in request.stream():
         buf += chunk
         if len(buf) > MAX_IMAGE_BYTES:
-            raise HTTPException(413, f"the image is larger than {MAX_IMAGE_BYTES >> 20} MB")
+            raise too_big
     data = bytes(buf)
     mime = sniff_image(data)  # the bytes decide, not the declared content type
     if mime is None:

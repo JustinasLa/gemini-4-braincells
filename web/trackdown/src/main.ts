@@ -242,6 +242,15 @@ function setMode(m: Mode) {
   $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
   setTimeout(() => g.fit(undefined, 1100), 380);
 }
+// An uploaded image lives on the server only while its lookup does (1 h): a saved image trace
+// reopened later says so instead of showing a broken image.
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !/\/api\/lookup\/[^/]+\/image$/.test(img.src)) return;
+  const box = img.closest(".media");
+  if (box) box.outerHTML = `<div class="media photo"><span class="cap">Uploaded image · no longer kept on the server (uploads are kept for 1 hour)</span></div>`;
+}, true);
+
 document.addEventListener("click", (e) => {
   const a = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
   if (!a || a.closest("#panel") || a.closest(".event")) return;
@@ -589,11 +598,14 @@ function showHome() {
   const imageOf = (files?: FileList | null, items?: DataTransferItemList | null) =>
     [...(files ?? [])].find((f) => f.type.startsWith("image/"))
     ?? [...(items ?? [])].find((i) => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile() ?? null;
+  // checked here, before the home screen goes: a HEIC or SVG gets a toast, not a failed trace
+  const traceImage = (f: File) => IMAGE_TYPES.includes(f.type) ? void startTrace(f)
+    : toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
   const file = $<HTMLInputElement>('input[type="file"]', homeEl);
-  file.addEventListener("change", () => { const f = imageOf(file.files); file.value = ""; if (f) void startTrace(f); });
+  file.addEventListener("change", () => { const f = imageOf(file.files); file.value = ""; if (f) traceImage(f); });
   input.addEventListener("paste", (e) => {
     const f = imageOf(e.clipboardData?.files, e.clipboardData?.items);
-    if (f) { e.preventDefault(); void startTrace(f); }
+    if (f) { e.preventDefault(); traceImage(f); }
   });
   homeEl.addEventListener("dragover", (e) => {
     if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
@@ -605,7 +617,7 @@ function showHome() {
     e.preventDefault();
     home.classList.remove("drop");
     const f = imageOf(e.dataTransfer?.files, e.dataTransfer?.items);
-    if (f) void startTrace(f);
+    if (f) traceImage(f);
     else toast("Drop an image file (JPEG, PNG, WebP or GIF).");
   });
   homeEl.addEventListener("click", (e) => {
