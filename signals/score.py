@@ -816,13 +816,30 @@ def organic_guards(
     if sum(langs.values()) >= cfg.min_cluster_size and len(langs) >= 3:
         total = sum(langs.values())
         ent = -sum((c / total) * math.log(c / total) for c in langs.values()) / math.log(len(langs))
+        # Many languages argue for independent people only if the accounts are people with a past:
+        # an operator can run a translator over one message just as easily (Gemini red team v2,
+        # Sat 14 Nov: 12 fresh accounts, 12 languages, p ~ 1e-32, saved by this guard alone).
+        # So the guard counts only for the share of accounts (with a known age) that aren't new.
+        dated = [a for a in known if a.age_days is not None]
+        settled = (
+            sum(1 for a in dated if a.age_days >= cfg.fresh_account_days) / len(dated)
+            if len(dated) >= cfg.min_cluster_size
+            else 1.0
+        )
+        summary = f"members post in {len(langs)} languages"
+        if settled < 1.0:
+            summary += (
+                f"; only {settled:.0%} of the accounts with a known age are over "
+                f"{cfg.fresh_account_days} days old, and new accounts don't make it a sign of "
+                "independent people"
+            )
         out.append(
             Signal(
                 "guard",
                 "language_diversity",
-                _r(ent * min(1.0, len(langs) / 4)),
-                f"members post in {len(langs)} languages",
-                {"languages": dict(sorted(langs.items()))},
+                _r(ent * min(1.0, len(langs) / 4) * settled),
+                summary,
+                {"languages": dict(sorted(langs.items())), "settled_share": _r(settled)},
                 polarity="against",
             )
         )
