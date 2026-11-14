@@ -132,7 +132,7 @@ function setInsets() {
 }
 
 // ---------------------------------------------------------------- header
-/** The header chip: the verdict when there is one; for a lookup without one, the image finding
+/** The mobile summary: the verdict when there is one; for a lookup without one, the image finding
  *  (or no chip at all), never "Can't tell". */
 function chipOf(c: TraceCase): { short: string; css: string } | null {
   if (hasVerdict(c)) return STATUS[c.status];
@@ -142,12 +142,12 @@ function chipOf(c: TraceCase): { short: string; css: string } | null {
 function renderResources(c: TraceCase) {
   const v = chipOf(c);
   $("#title").textContent = c.title;
-  const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
-  $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center">${v ? `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>` : ""}${tag}</span>`;
+  const tag = c.mock ? '<span class="tag sim">Mock · fictional data</span>' : c.synthetic ? '<span class="tag sim">Simulated</span>' : c.historical ? '<span class="tag hist">Historical record</span>' : "";
+  $("#badges").innerHTML = tag;
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
   peek.style.setProperty("--vc", v?.css ?? "var(--unsure)");
-  peek.innerHTML = `${v ? `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>` : ""}<span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
+  peek.innerHTML = `${v ? `<span class="vchip" style="--vc:${v.css}">${esc(v.short)}</span>` : ""}<span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
   const empty = !hasChain(c) && !c.findingsOnly && !c.lookup; // a link lookup draws what it collected
   if (empty) app.dataset.empty = "";
   else delete app.dataset.empty;

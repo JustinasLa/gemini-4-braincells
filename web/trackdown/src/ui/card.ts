@@ -64,11 +64,11 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
       <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${unknownTime ? "time unknown" : fmtClock(n.t)}</time></div>`;
   }
   const role = roleOf(n.role);
-  const mark = role.mark ? `<div class="rolemark">${esc(role.mark)}</div>` : "";
-  const stamp = n.role === "submitted" ? `<div class="stamp">SUBMITTED</div>` : "";
+  const roleLabel = n.role === "submitted" ? role.label : role.mark;
+  const mark = roleLabel ? `<div class="rolemark">${esc(roleLabel)}</div>` : "";
   const flags = n.flags?.length ? `<div class="flags">${n.flags.map((f) => `<span class="flag${flagClass(f)}">${esc(f)}</span>`).join("")}</div>` : "";
   const eng = n.reposts != null || n.likes != null ? `<span class="eng">${icon.repost}${fmtNum(n.reposts)}</span><span class="eng">${icon.heart}${fmtNum(n.likes)}</span>` : `<span>${esc(PLATFORM[n.platform] ?? n.platform)}</span>`;
-  return `${stamp}<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div>${n.platform === "x" ? '<span class="platform-x" aria-label="X post">𝕏</span>' : ""}${unknownTime ? "" : `<span class="catno">#${String(no).padStart(2, "0")}</span>`}</header>
+  return `<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div>${n.platform === "x" ? '<span class="platform-x" aria-label="X post">𝕏</span>' : ""}${unknownTime ? "" : `<span class="catno">#${String(no).padStart(2, "0")}</span>`}</header>
     ${mark}
     <p class="txt">${markRuns(n.text, n.textMatch)}</p>
     ${n.media ? mediaHtml(n.media, n.id, matchScore) : ""}
