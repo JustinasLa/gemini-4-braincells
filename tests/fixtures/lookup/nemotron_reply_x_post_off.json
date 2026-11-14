@@ -1,0 +1,21 @@
+{
+ "snapshot": "x_post",
+ "variant": "nemotron-off",
+ "raw_model": "nemotron-3.5-super-vl",
+ "raw_content": "{\n  \"summary\": \"Stephen King posted on X on November 13, 2026 at 21:50 UTC that aliens caused the nationwide FAA ground stop, describing them as blind but able to hear well. The post quickly drew millions of views and thousands of replies, reposts, and likes. The same wording was copied by a few other X accounts and quoted by others, while news outlets covered the underlying FAA ground stop.\",\n  \"origin\": \"The earliest known source is Stephen King's own X post at 2026-11-13T21:50:24.573000+00:00. This is based on the submitted post and its post ID; web search results are a sample, so an earlier source cannot be ruled out.\",\n  \"corroboration\": \"Independent outlets reporting the same text or event include PrimeTimer, Ambito, The Guardian, Los Angeles Times, and Wikipedia's page on the 2026 FAA communication outage.\",\n  \"spread_pattern\": \"Four accounts posted the text, four of them verbatim, between 2026-11-13T21:50:24 and 2026-11-14T04:40:07 UTC, a span of about 6.8 hours. The first hour had only one account (Stephen King). Copies came from @AI313_ (joined 2025-04, 11,300 followers), @Sadiapv (joined 2026-09, 11,900 followers), and @TheAnchoress (joined 2009-04, 29,200 followers, who quoted rather than copied). One Bluesky user posted similar wording independently. Search results are a sample, not every copy.\",\n  \"counter_evidence\": [\"The author is a famous, long-established account (joined 2013, 6.6 million followers) whose posts routinely attract large engagement.\", \"The post was made during a real, widely reported FAA nationwide ground stop, giving people an organic reason to discuss and quote it.\", \"Several accounts quoted or replied to the post rather than copying it verbatim, including established accounts such as @TheAnchoress.\", \"The copies received very low views (350–445) compared with the original (10.5 million), suggesting limited amplification rather than a large coordinated campaign.\"],\n  \"would_change\": [\"Evidence that many more accounts, especially newly created or templated ones, posted the identical text within minutes.\", \"Proof that the copies were generated or scheduled by a single operator or network.\", \"A statement from Stephen King or the copying accounts explaining the posts were coordinated or paid for.\"],\n  \"cites\": [1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14],\n  \"llm_reading\": \"organic_looking\"\n}",
+ "finish": "stop",
+ "usage": {
+  "completion_tokens": 671,
+  "prompt_tokens": 6849,
+  "total_tokens": 7520,
+  "completion_tokens_details": {
+   "accepted_prediction_tokens": null,
+   "audio_tokens": null,
+   "reasoning_tokens": 0,
+   "rejected_prediction_tokens": null,
+   "text_tokens": null
+  },
+  "prompt_tokens_details": null
+ },
+ "latency_ms": 2038
+}

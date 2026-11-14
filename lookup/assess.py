@@ -1,11 +1,17 @@
-"""Gemini reads a lookup's receipts and writes a short, cited reading. It never sets status."""
+"""A model reads a lookup's receipts and writes a short, cited reading. It never sets status.
+
+Nemotron 3.5 Super VL writes the primary reading (text-only chat on the Verda vLLM endpoint,
+a few seconds); Gemini can add a slower second reading. Both drafts go through the same
+`guard`: only receipt ids that exist are kept, and `llm_reading` is shown as the model's
+reading, never as the status (lookup/README.md).
+"""
 
 from __future__ import annotations
 
 import json
 import logging
 import time
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -110,6 +116,10 @@ RETRY_CODES = frozenset({500, 503, 504})  # Gemini-side blips and DEADLINE_EXCEE
 
 
 class Assessor:
+    """Gemini's reading (structured output). Slower than Nemotron: the second reading."""
+
+    provider = "gemini"
+
     def __init__(self, api_key: str, model: str, *, cap=None):
         from google import genai
 
@@ -176,8 +186,123 @@ class Assessor:
             if isinstance(res.parsed, _Draft)
             else _Draft.model_validate_json(res.text or "")
         )
-        return guard(draft, r, model=self.model, latency_ms=latency,
+        # the label is the version the API says answered; an alias can resolve to another one
+        returned = getattr(res, "model_version", None)
+        if not returned:
+            log.warning("gemini response carries no model_version; labelled %s (requested)",
+                        self.model)  # fmt: skip
+        return guard(draft, r, model=returned or self.model, latency_ms=latency,
                      cost=cost_usd(self.model, prompt, out))  # fmt: skip
+
+
+JSON_KEYS = (
+    "Return only one JSON object with keys: summary, origin, corroboration, spread_pattern "
+    "(strings), counter_evidence, would_change (arrays of strings), cites (array of receipt "
+    'ids, integers), llm_reading ("organic_looking", "copy_campaign_looking" or "unclear").'
+)
+
+
+class NemotronAssessor:
+    """Nemotron 3.5 Super VL writes the reading: text-only chat, same draft schema and guard.
+
+    Its own OpenAI client (not media/'s image client): one bounded attempt sized to the
+    lookup's remaining time. Every response's model id must name Nemotron Super VL, the same
+    check the image path makes; the Assessment carries the id the response returned."""
+
+    provider = "nemotron"
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str,
+        model: str,
+        reasoning: bool = False,
+        max_tokens: int = 2048,
+        timeout_s: float = 20.0,
+        structured: bool = True,
+        client: Any = None,
+    ):
+        if not api_key and client is None:
+            raise ValueError("Nemotron needs VERDA_INFERENCE_KEY or NVIDIA_API_KEY")
+        if client is None:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout_s, max_retries=0)
+        self._client = client
+        self.model = model
+        self.base_url = base_url
+        self.reasoning = reasoning
+        self.max_tokens = max_tokens
+        self.timeout_s = timeout_s
+        self.structured = structured
+
+    def assess(self, r: LookupResult, *, deadline: float | None = None) -> Assessment:
+        from media.nemotron import NotVisionModelError, is_super_vl_model, log_call_attempt
+
+        timeout = self.timeout_s
+        if deadline is not None:
+            timeout = max(1.0, min(timeout, deadline - time.monotonic()))
+        kw: dict[str, Any] = {}
+        if self.structured:  # vLLM guided decoding: the reply is the schema, nothing else
+            kw["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "reading", "schema": _Draft.model_json_schema()},
+            }
+        kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": self.reasoning}}
+        started = time.monotonic()
+        tag = f"lookup-assess:{r.id}"
+        try:
+            res = self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM + "\n\n" + JSON_KEYS},
+                    {"role": "user", "content": brief(r)},
+                ],
+                temperature=0.2,
+                max_tokens=self.max_tokens,
+                timeout=timeout,
+                **kw,
+            )
+        except Exception as exc:
+            name = type(exc).__name__
+            log_call_attempt(
+                model=self.model, media_hash=tag, started=started, outcome=name, error_type=name
+            )
+            raise
+        returned = getattr(res, "model", None)
+        ok = is_super_vl_model(returned)
+        outcome = "ok" if ok else "NotVisionModelError"
+        latency = log_call_attempt(
+            model=self.model, media_hash=tag, started=started, response=res, outcome=outcome
+        )
+        if not ok:
+            raise NotVisionModelError(
+                f"asked for {self.model!r} at {self.base_url} but the response came from "
+                f"{returned!r}, which is not a Nemotron Super VL model"
+            )
+        choice = res.choices[0] if res.choices else None
+        if choice is None:
+            raise ValueError("Nemotron returned no choices")
+        draft = parse_draft(choice.message.content, finish=getattr(choice, "finish_reason", None))
+        # self-hosted on Verda: no per-token price, so no cost estimate (None, not 0)
+        return guard(draft, r, model=returned, latency_ms=latency, cost=None)
+
+
+def parse_draft(content: Any, *, finish: str | None = None) -> _Draft:
+    """The draft from a chat reply: the first JSON object (fences, <think> and prose tolerated)."""
+    from media.nemotron import parse_content
+
+    try:
+        return _Draft.model_validate(parse_content(content))
+    except Exception as exc:
+        raise ValueError(f"no valid reading in the reply (finish_reason={finish}): {exc}") from exc
+
+
+def disagree(readings: list[Assessment]) -> bool:
+    """True when the readings' calls differ ('unclear' counts as a call: shown and counted)."""
+    calls = {a.llm_reading for a in readings}
+    return len(calls) > 1
 
 
 def guard(d: _Draft, r: LookupResult, *, model: str, latency_ms: int | None = None,

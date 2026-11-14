@@ -386,6 +386,10 @@ input:focus-visible { outline: none; }
 .hop .h-gap { font: 400 12px/1.35 var(--sans); color: var(--text-2); text-align: right; white-space: nowrap; }
 .hop .h-gap b { font-weight: 500; color: var(--text); display: block; }
 
+/* a live update re-renders the same view: no entrance animations, nothing held back */
+.panel-inner.quiet .pane, .panel-inner.quiet .ev { animation: none; }
+.panel-inner.quiet .conf .bar i { transition: none; }
+.term .line.seen { animation: none; }
 .ev { padding: 12px 0; border-bottom: 1px solid var(--line); animation: line-in 0.45s var(--ease-out) both; }
 .ev .by { display: flex; align-items: center; gap: 7px; font: 500 12px/1.2 var(--sans); color: var(--text-2); }
 .ev .by::before { content: ""; width: 7px; height: 7px; flex: none; background: var(--tc); }
