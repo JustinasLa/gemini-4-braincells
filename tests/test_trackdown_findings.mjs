@@ -100,3 +100,22 @@ test("all factual finding labels are distinct from coordination", () => {
     assert.ok(factualFindings(lookup).includes(label));
   }
 });
+
+test("both models retain their attributed claim-level findings", () => {
+  const lookup = result();
+  lookup.readings = [lookup.assessment, {
+    model: "second-model",
+    claim_checks: [{
+      claim: "The second reading distinguishes the proposed saving from a result.",
+      finding: "mixed",
+      explanation: "The source reports an estimate.",
+      cites: [1],
+    }],
+  }];
+  const html = factualFindings(lookup);
+  assert.match(html, /Model assessment · test-model/);
+  assert.match(html, /Model assessment · second-model/);
+  assert.match(html, /Supported by cited sources/);
+  assert.match(html, /Partly supported \/ needs context/);
+  assert.match(html, /The source reports an estimate/);
+});

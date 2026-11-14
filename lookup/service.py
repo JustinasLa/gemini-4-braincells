@@ -1633,7 +1633,7 @@ class Lookup:
             st.detail = f"{len(found)} Bluesky posts with the same text"
 
     def _coverage(self) -> None:
-        q = textsim.phrase(self._subject_text, 40) or self._card_title
+        q = self._card_title or textsim.phrase(self._subject_text, 40)
         # an upload with too little text: pages about the image, found by its caption or
         # description. They describe the image; none of them is a copy or an origin.
         about = not q and bool(self._image_query)

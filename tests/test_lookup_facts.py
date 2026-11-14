@@ -135,6 +135,38 @@ def test_claim_citations_are_checked_per_claim_not_globally():
     assert result.claim_checks[0].cites == []
 
 
+@pytest.mark.parametrize("endpoint", ["/search", "/scrape"])
+def test_claim_citations_cannot_unlock_uncited_coordination_reading(endpoint):
+    job = lookup()
+    rid, _ = source(job, endpoint)
+    result_draft = draft([rid])
+    result_draft.cites = []
+    result_draft.llm_reading = "copy_campaign_looking"
+    result = guard(result_draft, job.result, model="test")
+    assert result.cites == [rid]
+    assert result.llm_reading == "unclear"
+
+
+def test_failed_receipt_can_describe_read_failure_but_not_verify_claim():
+    job = lookup()
+    rid, _ = source(job, ok=False)
+    result_draft = draft([rid])
+    result_draft.claim_checks = []
+    result_draft.summary = "The submitted post was not found on the page read."
+    result = guard(result_draft, job.result, model="test")
+    assert result.cites == [rid]
+    assert result.summary == result_draft.summary
+    result = guard(draft([rid]), job.result, model="test")
+    assert result.claim_checks[0].cites == []
+    assert result.claim_checks[0].finding == "unverified"
+
+
+def test_uncited_summary_allows_input_read_failure_fallback():
+    result = guard(draft([999]), lookup().result, model="test")
+    assert result.summary == ""
+    assert result.llm_reading == "unclear"
+
+
 def test_media_description_does_not_authenticate_exact_image():
     job = lookup()
     rid, _ = source(job)
@@ -249,6 +281,15 @@ def test_coverage_query_keeps_the_claim_not_only_the_caption_opening():
     job._coverage()
     query = next(call[1] for call in job.deps.oxylabs.calls if call[0] == "search")
     assert "Medicare" in query and "99-1" in query
+
+
+def test_coverage_prefers_linked_article_title_over_commentary():
+    job = lookup()
+    job._subject_text = "This is my commentary about the article being shared."
+    job._card_title = "Original study reports its results"
+    job._coverage()
+    query = next(call[1] for call in job.deps.oxylabs.calls if call[0] == "search")
+    assert query == job._card_title
 
 
 def test_zero_budget_never_reads_source_pages():

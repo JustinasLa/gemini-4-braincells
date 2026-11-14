@@ -34,6 +34,8 @@ Write a short, plain reading for a general audience:
   search snippets, copied captions, popularity, the submitted post itself, or model memory.
   Prefer original records and primary sources over secondary accounts when available;
   explain disagreements and source limitations. Multiple copies are not independent evidence.
+  A linked article may establish what that article or its primary record says, but its
+  repetition of the submitted claim is not independent corroboration of the underlying event.
   Separate an event from its interpretation, a procedural vote from a substantive vote,
   a forecast or claimed percentage from a demonstrated result, and chronology from causation.
   For opinions, jokes or profiles without checkable factual claims, return an empty list.
@@ -385,8 +387,10 @@ def disagree(readings: list[Assessment]) -> bool:
 def guard(d: _Draft, r: LookupResult, *, model: str, latency_ms: int | None = None,
           cost: float | None = None) -> Assessment:  # fmt: skip
     """Keep only receipt ids that exist; with no valid citation the reading is 'unclear'."""
-    valid = {x.id for x in r.receipts if x.ok}
+    valid = {x.id for x in r.receipts}
+    successful = {x.id for x in r.receipts if x.ok}
     cites = [c for c in dict.fromkeys(d.cites) if c in valid]
+    reading = d.llm_reading if cites else "unclear"
     read_ids = {x.id for x in r.receipts if x.ok and x.endpoint == "/scrape"}
     source_ids = {
         page.receipt_id
@@ -398,7 +402,7 @@ def guard(d: _Draft, r: LookupResult, *, model: str, latency_ms: int | None = No
     for check in d.claim_checks[:6]:
         if not check.claim.strip():
             continue
-        check_cites = [cid for cid in dict.fromkeys(check.cites) if cid in valid]
+        check_cites = [cid for cid in dict.fromkeys(check.cites) if cid in successful]
         grounded = bool(source_ids.intersection(check_cites))
         downgraded |= not grounded and check.finding != "unverified"
         checks.append(
@@ -414,7 +418,6 @@ def guard(d: _Draft, r: LookupResult, *, model: str, latency_ms: int | None = No
             )
         )
     cites = list(dict.fromkeys(cites + [cid for check in checks for cid in check.cites]))
-    reading = d.llm_reading if cites else "unclear"
     has_media = bool(r.media or any(p.media_urls for p in r.posts if p.id == r.subject_id))
     summary = d.summary.strip()
     if downgraded:
@@ -423,7 +426,7 @@ def guard(d: _Draft, r: LookupResult, *, model: str, latency_ms: int | None = No
             "See the claim-level findings; coordination is assessed separately."
         )
     if not cites:
-        summary = "No cited assessment is available from the collected evidence."
+        summary = ""
     return Assessment(
         model=model,
         summary=summary,
