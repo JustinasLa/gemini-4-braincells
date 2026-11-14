@@ -92,6 +92,21 @@ check("an image origin already on the map (same id as a post) still anchors the 
   const trace = api.lookupCase(clash);
   assert.ok(trace.edges.some((edge) => edge.from === "img:origin" && edge.to === "img:edited"));
 });
+check("change sentences say which way to read them (changes_from), older servers stay neutral", () => {
+  assert.equal(api.changeDirection({ changes_from: "match" }).heading, "This copy → your picture");
+  assert.equal(api.changeDirection({ changes_from: "upload" }).heading, "Your picture → this copy");
+  assert.equal(api.changeDirection({}).heading, "");
+  assert.equal(api.changeDirection({ changes_from: "sideways" }).heading, "", "an unknown value reads as unstated");
+  const upload = api.memeFixture("meme-upload");
+  upload.image_matches = upload.image_matches.filter((match) => match.relation === "edited");
+  upload.image_origin_id = null;
+  upload.image_matches[0].changes_from = "upload";
+  const finding = api.memeFinding(upload);
+  assert.equal(finding?.kind, "edited");
+  assert.match(finding.sentence, /From this picture to that copy, as a model reads it:/);
+  delete upload.image_matches[0].changes_from;
+  assert.match(api.memeFinding(upload).sentence, /What changed, as a model reads it:/, "older servers keep the neutral lead-in");
+});
 check("relation groups count matches, exclude original and different", () => {
   const state = api.imageTraceState(fixture);
   assert.deepEqual(state.groups.map((group) => [group.relation, group.matches.length]), [["same", 1], ["resized", 1], ["cropped", 1], ["edited", 1], ["unknown", 1]]);
@@ -192,7 +207,7 @@ check("finding: when the earliest older match is edited, the submission is Edite
   edited.image_matches.find((match) => match.id === "img:edited").first_seen = "2026-11-01T00:00:00Z";
   const f = api.memeFinding(edited);
   assert.equal(f.kind, "edited");
-  assert.match(f.sentence, /What changed, as a model reads it: Caption changed/);
+  assert.match(f.sentence, /From that copy to this picture, as a model reads it: Caption changed/);
 });
 check("finding: nothing dated before the post is Original; undated copies are named as possibly older", () => {
   const later = structuredClone(fixture);

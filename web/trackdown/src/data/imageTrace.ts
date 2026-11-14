@@ -19,6 +19,10 @@ export interface ImageMatch {
   edited_region?: number[] | null;
   relation_note?: string | null;
   changes?: string[] | null;
+  /** which side `changes` start from: "match" = they turn this copy into the submitted picture,
+   *  "upload" = they turn the submitted picture into this copy; null/absent = not stated (older servers).
+   *  A reading convention, not a claim about which picture is older or who edited it. */
+  changes_from?: "match" | "upload" | string | null;
   change_kinds?: string[] | null;
   receipt_id?: number | null;
 }
@@ -39,6 +43,12 @@ export const imageTime = (match: ImageMatch) => {
   const time = Date.parse(match.first_seen);
   return Number.isFinite(time) ? time : undefined;
 };
+/** How to read a match's change sentences: the compare heading and the finale's lead-in. */
+export function changeDirection(match: ImageMatch): { heading: string; lead: string } {
+  if (match.changes_from === "match") return { heading: "This copy → your picture", lead: "From that copy to this picture, as a model reads it:" };
+  if (match.changes_from === "upload") return { heading: "Your picture → this copy", lead: "From this picture to that copy, as a model reads it:" };
+  return { heading: "", lead: "What changed, as a model reads it:" };
+}
 export function firstSeenLabel(match: ImageMatch): string {
   const time = imageTime(match);
   if (time == null) return "date unknown";
@@ -212,7 +222,7 @@ export function memeFinding(result: LookupResult): MemeFinding | "pending" | nul
   if (relation === "edited") {
     const changes = (first.changes ?? []).filter(Boolean);
     return make("edited", "Edited", `Changed from a copy on ${domainOf(first)}`,
-      `An earlier version of this picture was on ${domainOf(first)} (${firstSeenLabel(first)}), and this one differs from it.${changes.length ? ` What changed, as a model reads it: ${changes.slice(0, 2).join(" ")}` : ""}`, first);
+      `An earlier version of this picture was on ${domainOf(first)} (${firstSeenLabel(first)}), and this one differs from it.${changes.length ? ` ${changeDirection(first).lead} ${changes.slice(0, 2).join(" ")}` : ""}`, first);
   }
   const kind = relation === "cropped" ? "A cropped copy of this picture" : relation === "resized" ? "The same picture, at another size," : "The same picture";
   const others = edits ? ` ${plural(edits, "edited version")} of it ${edits === 1 ? "was" : "were"} also found.` : "";

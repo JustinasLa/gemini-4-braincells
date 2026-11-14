@@ -275,6 +275,9 @@ input:focus-visible { outline: none; }
 .line .res b { color: var(--cv); font-weight: 500; }
 .line.seen, .panel-inner.still .pane, .panel-inner.still .ev { animation: none; }
 .line.active .txt::after { content: "█"; margin-left: 2px; color: var(--cv); }
+.term .line .txt b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term .line.active .txt { display: flex; min-width: 0; }
+.line.fold { grid-template-columns: 12px minmax(0, 1fr); color: var(--text-3); cursor: help; }
 .t-detector { --tc: #e6e2d8; } .t-nemotron { --tc: #8fd14f; } .t-oxylabs { --tc: #7aa2f0; } .t-gemini { --tc: #b9a3f0; } .t-you { --tc: #ffffff; } .t-archive { --tc: var(--origin); }
 
 .hud { position: absolute; right: 16px; bottom: 122px; z-index: 7; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
