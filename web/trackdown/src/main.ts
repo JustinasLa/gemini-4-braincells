@@ -648,7 +648,8 @@ async function startTrace(raw: string, mock = false) {
     panel.set(trace, result.state !== "done");
     const rows = trace.steps.map((step) => `<div class="line ${step.state === "running" ? "active" : ""}" data-state="${step.state}"><span class="gt">${step.state === "done" ? "✓" : step.state === "failed" ? "!" : "›"}</span><span class="tool t-${step.tool}">${esc(TOOL[step.tool].label)}</span><span class="txt"><b>${esc(step.text)}</b>${step.detail ? `<small>${esc(step.detail)}</small>` : ""}</span><span class="res">${esc(step.state ?? "pending")}${step.found?.length ? ` · ${step.found.length}` : ""}</span></div>`).join("");
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
-    consoleEl.innerHTML = `<div class="term-head"><span class="d g"></span><span class="file">${mock ? "MOCK · fictional data" : "Live lookup"} · ${esc(result.state)}</span><button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
+    const dot = result.state === "failed" ? "r" : result.state === "running" ? "g live" : "g";
+    consoleEl.innerHTML = `<div class="term-head"><span class="d ${dot}" title="Lookup ${esc(result.state)}"></span>${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
     const running = trace.steps.find((step) => step.state === "running");
     setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
