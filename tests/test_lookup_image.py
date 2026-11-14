@@ -4,6 +4,7 @@ whose only content is its image (no network; fictional accounts)."""
 import hashlib
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
@@ -13,7 +14,7 @@ from lookup.models import ImageRef, LookupInput
 from lookup.service import Deps, Lookup
 from lookup.upload import sniff_image
 from media.nemotron import MediaAnalysis
-from sources.models import SearchHit
+from sources.models import PageFacts, SearchHit
 
 SUPER_VL = "nemotron-3.5-super-vl"
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
@@ -563,3 +564,45 @@ def test_a_search_snippet_alone_never_makes_a_page_the_uploads_origin():
     page("https://unread.example/b", snippet, snippet)  # dated, but its read never came back
     job._finish_graph()
     assert job.result.origin_id.endswith("/copy")
+
+
+@pytest.mark.parametrize(
+    "headline,claims,expected_match",
+    [
+        ("Unrelated title", ["Unrelated page text"], []),
+        (None, ["Unrelated page text"], []),  # the old search title remains on the Page
+        (None, [], []),  # an empty successful read still supersedes the search hit
+        ("An open letter", ["SEARCH PUBLIC SIGNERS BY NAME"], ["SEARCH PUBLIC SIGNERS BY NAME"]),
+        ("Stand with Example", [], ["Stand with Example"]),
+    ],
+)
+def test_upload_page_filter_uses_its_own_read_not_the_search_hit(headline, claims, expected_match):
+    job, page = _graph_job()
+    pg = page("https://source.example/a", "Stand with Example", "Sign the letter")
+    job.add_edge(job.result.subject_id, pg.id, "cites")
+    job._step("copies_web").found = [pg.id]
+    job.deps.oxylabs.scrape_facts = lambda url, deadline=None: PageFacts(
+        url=url, final_url=url, headline=headline, claims=claims
+    )
+
+    job._safe_verify_page(pg)
+    job._finish_graph()
+
+    assert (pg in job.result.pages) == bool(expected_match)
+    if expected_match:
+        assert pg.caption_match == expected_match
+        assert job._step("copies_web").found == [pg.id]
+    else:
+        assert job._step("copies_web").found == []
+        assert all(pg.id not in (e.from_, e.to) for e in job.result.edges)
+
+
+def test_upload_page_filter_keeps_search_matches_when_the_read_fails():
+    job, page = _graph_job()
+    pg = page("https://unread.example/a", "Stand with Example", "Sign the letter")
+    # FakeOxylabs.scrape_facts raises: no read evidence exists to replace the search hit.
+    job._safe_verify_page(pg)
+    job._finish_graph()
+
+    assert pg in job.result.pages
+    assert pg.caption_match == ["Stand with Example", "Sign the letter"]

@@ -2407,7 +2407,14 @@ class Lookup:
                 elif match := self._caption_match(p.text):
                     posts.append(p.model_copy(update={"caption_match": match}))
             for pg in self.result.pages:
-                if match := self._caption_match(pg.headline, pg.snippet):
+                # A successful read supersedes the search hit, even when it returned no
+                # text. Its claims can carry the caption; a stale snippet cannot verify it.
+                texts = (
+                    (self._page_read[pg.id],)
+                    if pg.id in self._page_read
+                    else (pg.headline, pg.snippet)
+                )
+                if match := self._caption_match(*texts):
                     pg.caption_match = match
                     pages.append(pg)
             ids = {p.id for p in posts} | {pg.id for pg in pages}
