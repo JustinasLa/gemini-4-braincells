@@ -1,5 +1,6 @@
 import dataclasses
 import re
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -178,6 +179,56 @@ def test_stored_analysis_is_reused_without_fetch_or_model_call():
     )
     assert client.calls == [] and fetcher.calls == []
     assert run.findings[0].cached and run.findings[0].analysis.description == "A poster"
+
+
+class CarrierFetcher(FakeFetcher):
+    def __init__(self, missing_dids):
+        super().__init__()
+        self.missing_dids = set(missing_dids)
+
+    def fetch(self, *, did, cid, pds_host=None, embed_kind=None):
+        self.calls.append((did, cid, pds_host, embed_kind))
+        if did in self.missing_dids:
+            raise BlobFetchError("carrier no longer serves this blob")
+        return SimpleNamespace(
+            data=b"img", mime_type="image/jpeg", url=f"https://cdn/{did}/{cid}"
+        )
+
+
+@pytest.mark.parametrize("cached_screenshot", [False, True])
+def test_shared_blob_uses_another_carrier_when_the_first_is_unavailable(cached_screenshot):
+    posts = [_post(1, "did:a", "same"), _post(2, "did:b", "same")]
+    fetcher = CarrierFetcher(missing_dids={"did:a"})
+    client = ScreenshotClient()
+    stored = _stored(ScreenshotClient(), screenshot_status="failed") if cached_screenshot else None
+    if stored is not None:
+        stored["media_hash"] = "same"
+    run = process_cluster_media(posts, client, fetcher, cache_lookup=lambda _: stored)
+
+    assert run.failures == [] and run.screenshot_failures == 0
+    assert [call[0] for call in fetcher.calls] == ["did:a", "did:b"]
+    assert client.calls == ([] if cached_screenshot else ["same"])
+    assert client.shot_calls == ["same"]
+    assert run.findings[0].group.dids == ["did:a", "did:b"]
+    if not cached_screenshot:
+        assert run.findings[0].media_url == "https://cdn/did:b/same"
+
+
+def test_shared_blob_tries_each_source_once_before_recording_failure():
+    posts = [
+        _post(1, "did:a", "same"),
+        _post(2, "did:a", "same"),
+        _post(3, "did:b", "same"),
+    ]
+    fetcher = CarrierFetcher(missing_dids={"did:a", "did:b"})
+    client = FakeClient()
+    run = process_cluster_media(posts, client, fetcher)
+
+    assert [call[0] for call in fetcher.calls] == ["did:a", "did:b"]
+    assert client.calls == [] and run.findings == []
+    assert len(run.failures) == 1
+    assert run.failures[0].stage == "fetch"
+    assert run.failures[0].dids == ("did:a", "did:b")
 
 
 def test_non_vl_error_is_not_swallowed():

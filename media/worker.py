@@ -400,12 +400,23 @@ class _Fetched:
 
 
 def _media_input(fetcher: Fetcher, group: MediaGroup) -> _Fetched:
-    first = group.posts[0]
-    blob = fetcher.fetch(
-        did=first.did, cid=group.media_hash, pds_host=first.pds_host, embed_kind=first.embed_kind
-    )
-    media = MediaInput(group.media_hash, blob.mime_type, data=blob.data, source_uri=blob.url)
-    return _Fetched(media, getattr(blob, "media_kind", "image"), blob.url)
+    # The CID identifies the file, but CDN/PDS availability is per account. An older
+    # carrier can lose its copy while another account still serves the same file.
+    sources = dict.fromkeys((p.did, p.pds_host, p.embed_kind) for p in group.posts)
+    last_error = None
+    for did, pds_host, embed_kind in sources:
+        try:
+            blob = fetcher.fetch(
+                did=did, cid=group.media_hash, pds_host=pds_host, embed_kind=embed_kind
+            )
+        except BlobFetchError as exc:
+            last_error = exc
+            continue
+        media = MediaInput(group.media_hash, blob.mime_type, data=blob.data, source_uri=blob.url)
+        return _Fetched(media, getattr(blob, "media_kind", "image"), blob.url)
+    if last_error is not None:
+        raise last_error
+    raise BlobFetchError(f"media {group.media_hash} has no carriers")
 
 
 def _stored_screenshot(stored: dict[str, Any]) -> tuple[ScreenshotPost | None, str] | None:
