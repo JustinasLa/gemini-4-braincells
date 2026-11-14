@@ -209,9 +209,15 @@ Two steps are inserted between `coverage` and `media`:
 The trace starts before synchronous upload OCR, or just after the post read supplies its image
 URL, alongside the existing searches. TinEye, Yandex imageview and Yandex sites run in parallel
 (three Oxylabs `/scrape` calls; caps 20/15/15 s). Matches dedupe by image or thumbnail URL,
-preferring TinEye and its earliest dates over promoted ranks. At most `Deps.image_matches_max`
-(default 20) images are downloaded with eight workers: 5 s and 8 MiB per attempt, full image
-then thumbnail fallback. Only HTTP(S), global resolved IPs and `image/*` responses are accepted;
+preferring TinEye and its earliest dates over promoted ranks; a duplicate fills in what the kept
+match lacks (a page URL brings its own domain). At most `Deps.image_matches_max` (default 20)
+matches are ever queued for download, counted cumulatively: a queued match is never evicted, so
+a later hit never buys a second batch. Until TinEye answers, Yandex hits may take only the cap
+minus TinEye's reserve (10, at most half the cap), since only TinEye's dated matches can be the
+image origin; held-back Yandex hits get the free slots once TinEye is back. Downloads use eight
+workers: 5 s and 8 MiB per attempt, full image then thumbnail (a thumbnail that arrives after
+the full image failed is still tried, each URL once). Only HTTP(S) on ports 80/443, global
+resolved IPs and `image/*` responses are accepted;
 connections pin the checked IP, redirects are checked again, and no credentials/cookies are
 sent. Up to `Deps.image_diffs_max` (default 4) edited/cropped comparisons run in parallel with
 20 s Nemotron timeouts, starting only with 23 s remaining before the 10 s assessment reserve.

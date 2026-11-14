@@ -21,6 +21,9 @@ DOWNLOAD_S = 5.0
 DOWNLOAD_BYTES = 8 * 1024 * 1024
 DIFF_S = 20.0
 DIFF_NEED_S = DIFF_S + 3.0
+# slots kept for TinEye (one result page; at most half the cap): only its dated matches can be
+# the image origin, so faster Yandex hits never fill the whole cap before TinEye answers
+TINEYE_RESERVE = 10
 MISSING = "variation matching is not installed on this server"
 _UNSUITABLE = re.compile(
     r"\b(?:deepfakes?|fake[ds]?|manipulated|manipulation|doctored|doctoring)\b", re.I
@@ -90,6 +93,12 @@ class Trace:
         self.aliases: dict[str, str] = {}
         self.priorities: dict[str, tuple] = {}
         self.next_match = 1
+        # ids queued for download + comparison: never evicted, never more than the cap in all
+        self.admitted: set[str] = set()
+        self.tried: dict[str, set[str]] = {}  # match id -> URLs already downloaded or refused
+        self.failed: set[str] = set()  # admitted, every URL tried, no comparison
+        self.tineye_settled = False  # TinEye answered or failed: its reserve is open to Yandex
+        self.overflow: list[tuple] = []  # (hit, rid) Yandex hits held back for the reserve
 
     def _active(self) -> bool:
         return (
@@ -163,18 +172,37 @@ class Trace:
         ]
 
     def _accept(self, result, rid):
+        return self._accept_hits([(hit, rid) for hit in result.hits])
+
+    def _settle_tineye(self):
+        """TinEye answered (or failed): its reserved slots open to the Yandex hits held back."""
+        with self.job.lock:
+            self.tineye_settled = True
+            held, self.overflow = self.overflow, []
+        return self._accept_hits(held)
+
+    def _accept_hits(self, pairs):
         added = []
         with self.job.lock:
             if not self._active():
                 return added
-            for hit in sorted(result.hits, key=self._priority):
+            for hit, rid in sorted(pairs, key=lambda pair: self._priority(pair[0])):
                 urls = [url for url in (hit.image_url, hit.thumb_url) if url]
                 mid = next((self.aliases[url] for url in urls if url in self.aliases), None)
                 if mid is not None:
                     match = self.matches[mid].model_copy(deep=True)
-                    for field in ("page_url", "domain", "thumb_url", "width", "height"):
+                    if match.page_url is None and hit.page_url:
+                        # the page's own domain comes with it (not the image host's)
+                        match.page_url, match.domain = hit.page_url, hit.domain or match.domain
+                    for field in ("domain", "thumb_url", "width", "height"):
                         if getattr(match, field) is None:
                             setattr(match, field, getattr(hit, field))
+                    if mid in self.failed and any(
+                        url not in self.tried.get(mid, ()) for url in urls
+                    ):
+                        # a new URL for a match whose downloads all failed: one more try
+                        self.failed.discard(mid)
+                        added.append(match)
                     if (
                         hit.first_seen
                         and hit.time_source
@@ -190,10 +218,20 @@ class Trace:
                     )
                 else:
                     cap = max(0, self.job.deps.image_matches_max)
-                    if not cap:
-                        continue
-                    if len(self.matches) >= cap:
-                        worst = max(self.matches, key=self.priorities.__getitem__)
+                    limit = (
+                        cap
+                        if hit.engine == "tineye" or self.tineye_settled
+                        else cap - min(TINEYE_RESERVE, cap // 2)
+                    )
+                    if len(self.matches) >= limit:
+                        if hit.engine != "tineye" and not self.tineye_settled and cap > limit:
+                            self.overflow.append((hit, rid))
+                            continue
+                        # only a match not yet queued for download can make room
+                        evictable = [m for m in self.matches if m not in self.admitted]
+                        if not evictable or len(self.matches) > limit:
+                            continue
+                        worst = max(evictable, key=self.priorities.__getitem__)
                         if self._priority(hit) >= self.priorities[worst]:
                             continue
                         del self.matches[worst]
@@ -353,11 +391,22 @@ class Trace:
                 return None
         return None
 
+    def _next_url(self, mid):
+        """The match's next untried URL (full image first, then thumbnail), read under the lock
+        so a thumbnail added while this comparison runs is still tried; None marks it failed."""
+        with self.job.lock:
+            current = self.matches.get(mid)
+            tried = self.tried.setdefault(mid, set())
+            for url in (current.image_url, current.thumb_url) if current else ():
+                if url and url not in tried:
+                    tried.add(url)
+                    return url
+            self.failed.add(mid)
+            return None
+
     def _compare(self, item):
         match, base, relate = item
-        for url in dict.fromkeys([match.image_url, match.thumb_url]):
-            if not url:
-                continue
+        while url := self._next_url(match.id):
             fetched = self._download(url)
             if fetched is None:
                 continue
@@ -446,7 +495,7 @@ class Trace:
         base = self.job._upload
         try:
             for engine_view in (("tineye", False), ("yandex", False), ("yandex", True)):
-                pending[searches.submit(self._search, engine_view)] = "search"
+                pending[searches.submit(self._search, engine_view)] = "search:" + engine_view[0]
             while pending and self._active():
                 done, _ = wait(
                     pending,
@@ -459,11 +508,13 @@ class Trace:
                         value = future.result()
                     except Exception:
                         value = None
-                    if stage == "search":
+                    if stage.startswith("search"):
                         finished += 1
                         if value is not None:
                             answered += 1
                             waiting.extend(self._accept(*value))
+                        if stage == "search:tineye":
+                            waiting.extend(self._settle_tineye())
                         self._step(
                             "reverse_image",
                             ("done" if answered else "failed") if finished == 3 else "running",
@@ -509,8 +560,18 @@ class Trace:
                     elif stage == "diff" and value is not None:
                         diffs_done += 1
                     if base is not None and not skip and self._active():
+                        cap = max(0, self.job.deps.image_matches_max)
                         for match in waiting:
-                            if match.id in self.matches:
+                            with self.job.lock:
+                                # the cap counts every match ever queued, so an evicted or
+                                # replaced match never frees a download; a retry (new URL for
+                                # an admitted match) is already counted
+                                admit = match.id in self.matches and (
+                                    match.id in self.admitted or len(self.admitted) < cap
+                                )
+                                if admit:
+                                    self.admitted.add(match.id)
+                            if admit:
                                 pending[
                                     comparisons.submit(self._compare, (match, base, relate))
                                 ] = "compare"

@@ -800,13 +800,91 @@ def test_later_tineye_adds_dated_origin_after_yandex_is_compared():
         return relate(base, data)
 
     searches.tineye = later
-    job = job_for(searches, relate=compare, image_matches_max=1)
+    # cap 2: Yandex may take one slot before TinEye answers, the other is TinEye's; a compared
+    # match is never replaced, so the downloads stay within the cap
+    job = job_for(searches, relate=compare, image_matches_max=2)
     run_trace(job)
-    assert len(job.result.image_matches) == 1
-    origin = job.result.image_matches[0]
-    assert origin.engine == "tineye" and origin.first_seen == OLD
-    assert origin.relation == "same" and job.result.image_origin_id == origin.id
+    assert len(job.result.image_matches) == 2
+    origin = next(m for m in job.result.image_matches if m.id == job.result.image_origin_id)
+    assert origin.engine == "tineye" and origin.first_seen == OLD and origin.relation == "same"
+    assert origin.image_url.endswith("/dated.png")
     assert len([receipt for receipt in job.result.receipts if receipt.tool == "fetch"]) == 2
+
+
+def test_downloads_never_exceed_the_cap_when_tineye_lands_after_yandex():
+    """Sol r2 #1: fast Yandex hits were compared, then evicted by TinEye's, and the
+    replacements were downloaded too (20 kept, 40 downloaded)."""
+    compared = threading.Event()
+
+    class Many(Searches):
+        def tineye(self, client, url, *, deadline):
+            assert compared.wait(timeout=2)
+            return result("tineye", url, [hit(f"t{i}.png", rank=i) for i in range(10)])
+
+        def yandex(self, client, url, *, sites, deadline):
+            tag = "s" if sites else "v"
+            hits = [hit(f"{tag}{i}.png", engine="yandex", when=None, rank=i) for i in range(20)]
+            return result("yandex", url, hits)
+
+    def compare(base, data):
+        compared.set()
+        return relate(base, data)
+
+    job = job_for(Many(), relate=compare)
+    run_trace(job)
+    fetches = [receipt for receipt in job.result.receipts if receipt.tool == "fetch"]
+    assert len(fetches) <= 20
+    matches = job.result.image_matches
+    assert len(matches) == 20
+    tineye = [m for m in matches if m.engine == "tineye"]
+    assert len(tineye) == 10 and all(m.relation == "same" for m in tineye)
+    assert job.result.image_origin_id in {m.id for m in tineye}
+
+
+def test_thumbnail_added_after_a_failed_download_is_still_compared():
+    """Sol r2 #2: the full image fails, a later Yandex sites hit brings a thumbnail."""
+    failed = threading.Event()
+
+    def fetch(request):
+        if request.url.path == "/broken.png":
+            failed.set()
+            return httpx.Response(404)
+        return transport(request)
+
+    view = replace(hit("broken.png", engine="yandex", when=None), page_url=None)
+    site = replace(view, thumb_url="https://images.example/thumb.png")
+
+    class Late(Searches):
+        def tineye(self, client, url, *, deadline):
+            return result("tineye", url, [])
+
+        def yandex(self, client, url, *, sites, deadline):
+            if not sites:
+                return result("yandex", url, [view])
+            assert failed.wait(timeout=2)
+            time.sleep(0.2)  # the comparison has given up on the full image by now
+            return result("yandex", url, [site])
+
+    job = job_for(Late(), image_transport=httpx.MockTransport(fetch))
+    run_trace(job)
+    [match] = job.result.image_matches
+    assert match.thumb_url == site.thumb_url and match.relation == "same"
+    urls = [receipt.source_url for receipt in job.result.receipts if receipt.tool == "fetch"]
+    assert urls.count("https://images.example/broken.png") == 1
+    assert "https://images.example/thumb.png" in urls
+
+
+def test_adopted_page_url_brings_its_own_domain():
+    """Sol r2 #3: imageview set domain from the image host; the sites page is elsewhere."""
+    job = job_for()
+    trace = imagetrace.Trace(job)
+    view = replace(hit(engine="yandex", when=None), page_url=None, domain="images.example")
+    site = replace(view, page_url="https://article.example/story", domain="article.example")
+    trace._accept(result("yandex", "query", [view]), 1)
+    trace._accept(result("yandex", "query", [site]), 2)
+    [match] = job.result.image_matches
+    assert match.page_url == "https://article.example/story"
+    assert match.domain == "article.example"
 
 
 class FixtureSources(TextSources):
