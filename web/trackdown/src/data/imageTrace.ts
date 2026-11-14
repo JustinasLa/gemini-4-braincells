@@ -209,7 +209,8 @@ export function memeFinding(result: LookupResult): MemeFinding | "pending" | nul
   const what = upload ? "upload" : "post";
   // pictures of the same template are other pictures: they never make this one a copy or an edit
   const related = state.matches.filter((match) => relationOf(match) !== "different" && !isTemplate(match));
-  const templates = state.matches.filter(isTemplate).length;
+  // distinct replies, not pictures: one reply can carry several
+  const templates = new Set(state.matches.filter(isTemplate).map((match) => match.page_url || match.id)).size;
   const make = (kind: MemeFindingKind, word: string, tag: string, sentence: string, match?: ImageMatch & { id: string }): MemeFinding => ({ kind, word, tag, sentence: templates ? `${sentence} ${plural(templates, "reply on X shows", "replies on X show")} the same template with other content.` : sentence, color: FINDING_COLOR[kind], match });
   if (!related.length) return make("first", "First sighting", templates ? `${plural(templates, "same-template picture")} in replies` : "No other copies found", "The image search found no other copy of this picture. It may be new, or not indexed yet.");
   if (!upload && !Number.isFinite(posted)) return make("seen", "Seen before", `${plural(related.length, "matching copy", "matching copies")} found`, `The image search found ${plural(related.length, "matching copy", "matching copies")}, but this post has no time to compare their dates with.`);

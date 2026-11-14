@@ -1371,11 +1371,12 @@ class Lookup:
         with self.lock:
             if self._final is not None:
                 return
+            had = {m.id for m in self.result.image_matches if m.relation == "template"}
             keep = [m for m in self.result.image_matches if m.relation != "template"]
             self.result.image_matches = keep + list(found)
             subj = self.result.subject_id
             for m in found:
-                if subj:
+                if subj and m.id not in had:  # published as they come in: one edge each
                     self.add_edge(
                         subj,
                         m.id,

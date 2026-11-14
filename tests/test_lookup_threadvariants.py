@@ -282,3 +282,98 @@ def test_pair_lays_out_reference_and_candidate():
     cand = Image.new("RGB", (300, 500), "black")
     p = pair(ref, cand)
     assert (p.width, p.height) == (2 * 640 + 16, 640 + 34)
+
+
+# ---------------------------------------------------------------- review round 1
+
+
+def test_unchanged_copy_is_not_a_template_match():
+    """The same layout with nothing different is a copy of the picture, not another version."""
+
+    class SameMatcher(FakeMatcher):
+        def __call__(self, client, ref, cand, *, timeout_s):
+            self.calls.append(cand)
+            return TemplateVerdict(True, "", True), 300, "nemotron-3.5-super-vl"
+
+    root = _status(ROOT, "campaign", "We're removing fake entries from example-site.org", replies=1)
+    convs = {ROOT: [{"status": root, "replies": [_reply(1, "TPL0001")], "cursor": {}}]}
+    job, _ = _upload_job(convs, SameMatcher(), [])
+    assert not [m for m in job.result.image_matches if m.relation == "template"]
+    rec = next(x for x in job.result.receipts if "one by one" in x.summary)
+    assert "1 looked unchanged (not counted)" in rec.summary
+
+
+def test_fxtwitter_outage_fails_the_step_with_receipts():
+    from lookup.fxtwitter import FxTwitterError
+
+    class DownFx(FakeFx):
+        def conversation(self, sid, *, cursor=None, deadline=None):
+            raise FxTwitterError("HTTP 503")
+
+    data = _png("black")
+    ref = ImageRef(sha256=hashlib.sha256(data).hexdigest(), mime="image/png", bytes=len(data))
+    job = Lookup(
+        "lk_down",
+        LookupInput(image=ref),
+        Deps(
+            oxylabs=SiteOxylabs(),
+            fxtwitter=DownFx({}),
+            nemotron=SiteReader(),
+            match_templates=FakeMatcher(),
+            image_transport=_cdn([]),
+        ),
+        image=data,
+    )
+    job._caption = "example-site.org Search public signers"
+    job._domains = ["example-site.org"]
+    from lookup.models import Post
+
+    job.add_post(Post(id=f"x:{ROOT}", platform="x", text="example-site.org"))
+    job._thread_variants()
+    st = job._step("thread_variants")
+    assert (st.state, st.detail) == ("failed", "no reply thread could be read (1 tried)")
+    bad = [x for x in job.result.receipts if x.tool == "fxtwitter" and not x.ok]
+    assert bad and "FxTwitter did not answer" in bad[0].summary
+
+
+def test_a_fast_match_is_published_while_a_slow_comparison_runs_out_of_time():
+    import threading
+    import time as _time
+
+    from lookup.threadvariants import ThreadScan
+
+    release = threading.Event()
+
+    class SplitMatcher:
+        def __call__(self, client, ref, cand, *, timeout_s):
+            if cand == TPL_BYTES:
+                return TemplateVerdict(True, 'shows "Xi" instead', True), 200, "m"
+            release.wait(10)  # never answers within the lookup's time
+            return TemplateVerdict(False, "", False), 9000, "m"
+
+    data = _png("black")
+    ref = ImageRef(sha256=hashlib.sha256(data).hexdigest(), mime="image/png", bytes=len(data))
+    job = Lookup(
+        "lk_slow",
+        LookupInput(image=ref),
+        Deps(oxylabs=None, nemotron=object(), match_templates=SplitMatcher()),
+        image=data,
+    )
+    job.deadline = _time.monotonic() + 10 + 3.0  # 3 s of provider time left
+    scan = ThreadScan(job, (data, None))
+    fast = (_reply(1, "TPL0001"), "https://pbs.twimg.com/media/TPL0001.jpg", ROOT)
+    slow = (_reply(2, "CAT0002"), "https://pbs.twimg.com/media/CAT0002.jpg", ROOT)
+    from lookup.fxtwitter import to_item
+
+    usable = [((to_item(c[0]), c[1], c[2]), b) for c, b in ((fast, TPL_BYTES), (slow, _png("red")))]
+    t0 = _time.monotonic()
+    try:
+        found = scan._compare(data, usable)
+    finally:
+        release.set()
+    assert _time.monotonic() - t0 < 4.5  # ended at the deadline, not after the slow call
+    assert [m.page_url for m in found] == ["https://x.com/user1/status/2121470000000000001"]
+    assert [m.id for m in job.result.image_matches] == [found[0].id]
+    assert (scan.compared, scan.late) == (1, 1)
+    rec = next(x for x in job.result.receipts if "one by one" in x.summary)
+    assert "1 not answered in time" in rec.summary

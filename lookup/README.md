@@ -144,7 +144,11 @@ reads it (its text goes on the card and into the monitor check and the reading),
   Only the second decides. One picture per call, not a grid: in a grid the model judged each
   panel against the others and rejected real matches. A match is an `image_matches` entry with
   `relation: "template"` and `engine: "x_replies"`, with the reply's URL, its exact time
-  (snowflake) and what differs; never the image origin, never a copy of the text.
+  (snowflake) and what differs; never the image origin, never a copy of the text. A picture
+  the model finds unchanged is a copy, not another version: not counted. Matches are published
+  as each comparison returns; the wait ends at the provider deadline (late ones are counted in
+  the receipt). Threads that could not be read get a failed receipt; with none read, the step
+  fails rather than reporting an empty scan.
 - the upload is never its own origin: with no dated match, `origin_id` is null.
 
 Uploads need a public URL: `LOOKUP_PUBLIC_BASE_URL`, or `https://{PUBLIC_HOST}`. The production

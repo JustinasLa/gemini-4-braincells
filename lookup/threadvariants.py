@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -63,6 +63,16 @@ def _small(url: str) -> str:
     return str(u.copy_with(params={"format": u.params.get("format") or "jpg", "name": "small"}))
 
 
+def _order(m: ImageMatch):
+    return (m.first_seen is None, m.first_seen, m.id)
+
+
+def _failed(why: str) -> Exception:
+    from lookup.service import StepUnavailable
+
+    return StepUnavailable(why, "failed")
+
+
 def _skip(why: str) -> Exception:
     """The step can't run here: shown as skipped with this reason."""
     from lookup.service import StepUnavailable
@@ -79,35 +89,42 @@ class ThreadScan:
         )
 
     # ------------------------------------------------------------ threads
-    def _threads(self, roots: list[str]) -> list[tuple[str, dict, Conversation]]:
-        """Read each root's conversation (and the subject's second page); in parallel."""
+    def _threads(self, roots: list[str]) -> tuple[list[tuple[str, dict, Conversation]], list]:
+        """Read each root's conversation (and the subject's second page), in parallel.
+        Returns (pages read, [(root id, why) for each thread that could not be read])."""
         job = self.job
-        out: list[tuple[str, dict, Conversation]] = []
 
         def read(sid: str, pages: int):
-            got = []
-            cursor = None
+            got, cursor = [], None
             for _ in range(pages):
-                conv, call, _gone = job._fx_read(sid, replies=True, cursor=cursor)
+                conv, call, gone = job._fx_read(sid, replies=True, cursor=cursor)
                 if conv is None:
-                    break
+                    why = "FxTwitter says the post is gone" if gone else "FxTwitter did not answer"
+                    return got, (None if got else (sid, why, call))
                 got.append((sid, call, conv))
                 cursor = conv.cursor
                 if not cursor:
                     break
-            return got
+            return got, None
 
         subj = job.result.subject_id
+        out: list[tuple[str, dict, Conversation]] = []
+        failed: list[tuple[str, str, dict]] = []
         with ThreadPoolExecutor(max_workers=len(roots) or 1) as pool:
-            futs = [
-                pool.submit(read, sid, SUBJECT_PAGES if f"x:{sid}" == subj else 1) for sid in roots
-            ]
-            for f in futs:
+            futs = {
+                pool.submit(read, sid, SUBJECT_PAGES if f"x:{sid}" == subj else 1): sid
+                for sid in roots
+            }
+            for f, sid in futs.items():
                 try:
-                    out += f.result()
+                    got, fail = f.result()
                 except Exception as exc:  # BudgetExceeded or a client bug: that thread only
                     log.info("lookup %s: thread read failed: %s", job.result.id, exc)
-        return out
+                    got, fail = [], (sid, f"not read ({type(exc).__name__})", {})
+                out += got
+                if fail:
+                    failed.append(fail)
+        return out, failed
 
     # ------------------------------------------------------------ run
     def run(self, roots: list[str]) -> None:
@@ -120,7 +137,19 @@ class ThreadScan:
             ref = self.ref_bytes or self._download(self.ref_url)
             if not ref:
                 raise _skip("the traced picture could not be downloaded")
-            threads = self._threads(roots[:THREADS])
+            threads, failed = self._threads(roots[:THREADS])
+            for sid, why, call in failed:  # missing evidence is recorded, not hidden
+                job.receipt(
+                    "fxtwitter",
+                    "/2/conversation",
+                    f"Replies to post {sid} could not be read: {why}",
+                    source_url=f"https://x.com/i/status/{sid}",
+                    call=call,
+                    ok=False,
+                )
+            if not threads and failed:
+                raise _failed(f"no reply thread could be read ({len(failed)} tried)")
+            unread = f" · {len(failed)} threads could not be read" if failed else ""
             ref_key = _media_key(self.ref_url) if self.ref_url else None
             seen: set[str] = {ref_key} if ref_key else set()
             cands: list[tuple[Any, str, str]] = []  # (reply XItem, image url, thread root id)
@@ -146,6 +175,7 @@ class ThreadScan:
             if not cands:
                 st.state = "done"
                 st.detail = f"{len(threads)} reply pages read · no reply pictures to compare"
+                st.detail += unread
                 return
             images = self._download_all([url for _, url, _ in cands])
             usable = [(c, b) for c, b in zip(cands, images, strict=True) if b]
@@ -155,6 +185,8 @@ class ThreadScan:
             st.detail = (
                 f"{len(threads)} reply pages read · {self.compared} reply pictures compared · "
                 f"{len(matches)} show the same template with other content"
+                + (f" · {self.late} not compared in time" if self.late else "")
+                + unread
             )
 
     # ------------------------------------------------------------ images
@@ -180,7 +212,9 @@ class ThreadScan:
     # ------------------------------------------------------------ compare
     def _compare(self, ref: bytes, usable: list) -> list[ImageMatch]:
         """Each reply picture beside the traced one, one call each, all at once (~0.5 s for a
-        thread's worth on Verda); one receipt for the whole comparison."""
+        thread's worth on Verda). Matches are published as they come in, so a slow call never
+        holds back one that is done; the wait ends at the provider deadline and nothing waits
+        for late calls after it. One receipt for the whole comparison."""
         job = self.job
         client = job.deps.nemotron
         if client is None:
@@ -192,27 +226,57 @@ class ThreadScan:
                 return None
             return self.matcher(client, ref, data, timeout_s=min(COMPARE_S, left))
 
-        with ThreadPoolExecutor(max_workers=COMPARE_WORKERS) as pool:
-            results = list(pool.map(one, [data for _, data in usable]))
-        answered = [(c, r) for c, r in zip(usable, results, strict=True) if r is not None]
-        same = [(c, r[0]) for c, r in answered if r[0].same_template]
-        failed = len(usable) - len(answered)
+        pool = ThreadPoolExecutor(max_workers=COMPARE_WORKERS)
+        futs = {pool.submit(one, data): (c, data) for c, data in usable}
+        found: list[ImageMatch] = []
+        answered = failed = same_no_change = 0
+        latency = None
         rid = job.receipt(
             "nemotron",
             "chat.completions",
-            f"Nemotron compared {len(answered)} reply pictures with the traced one, one by one: "
-            f"{len(same)} show the same template with other content"
-            + (f"; {failed} comparisons failed" if failed else ""),
-            ok=bool(answered),
-            latency_ms=max((r[1] for _, r in answered), default=None),
+            f"Nemotron is comparing {len(usable)} reply pictures with the traced one",
         )
-        found = [
-            self._match(reply, url, root, data, v.differs, rid)
-            for ((reply, url, root), data), v in same
-        ]
-        found.sort(key=lambda m: (m.first_seen is None, m.first_seen, m.id))
+        wait_s = max(0.0, job._provider_deadline() - time.monotonic())
+        try:
+            for fut in as_completed(futs, timeout=wait_s):
+                (reply, url, root), data = futs[fut]
+                try:
+                    res = fut.result()
+                except Exception:
+                    res = None
+                if res is None:
+                    failed += 1
+                    continue
+                v, ms, _model = res
+                answered += 1
+                latency = max(latency or 0, ms)
+                if not v.same_template:
+                    continue
+                if not v.differs:
+                    # the same layout with nothing different is a copy of the picture, not
+                    # another version of it: not a template match (reverse search finds copies)
+                    same_no_change += 1
+                    continue
+                found.append(self._match(reply, url, root, data, v.differs, rid))
+                job._publish_templates(sorted(found, key=_order))
+        except TimeoutError:  # concurrent.futures' is the builtin since 3.11
+            pass  # the provider deadline: what came back is kept, the rest is counted as late
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        self.compared = answered
+        self.late = len(usable) - answered - failed
+        with job.lock:
+            rec = job.result.receipts[rid - 1]
+            rec.summary = (
+                f"Nemotron compared {answered} reply pictures with the traced one, one by one: "
+                f"{len(found)} show the same template with other content"
+                + (f"; {same_no_change} looked unchanged (not counted)" if same_no_change else "")
+                + (f"; {failed} comparisons failed" if failed else "")
+                + (f"; {self.late} not answered in time" if self.late else "")
+            )[:400]
+            rec.ok, rec.latency_ms = bool(answered), latency
+        found.sort(key=_order)
         job._publish_templates(found)
-        self.compared = len(answered)
         return found
 
     def _match(self, reply, url: str, root: str, data: bytes, differs: str, rid: int):
