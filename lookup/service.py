@@ -47,7 +47,7 @@ from lookup.xpage import (
     unavailable_detail,
     unavailable_reason,
 )
-from sources.links import url_variants
+from sources.links import X_HOSTS, url_variants
 from sources.oxylabs import OxylabsError
 
 log = logging.getLogger(__name__)
@@ -938,16 +938,47 @@ class Lookup:
         except httpx.HTTPError:
             return url
 
+    def _user_text(self) -> str | None:
+        return (self.result.input.text or "").strip() or None
+
     def _tombstone_note(self, detail: str) -> None:
         self._unreadable = True
         self.note(
             f"{detail}, so its text can't be read; "
             + (
                 "copies are searched with the text you gave."
-                if self._subject_text
+                if self._user_text()
                 else "copies and spread were not searched."
             )
         )
+
+    def _input_tombstone(
+        self, short: str, final: str, reason: str, call: dict, publisher: str | None = None
+    ) -> str:
+        """The submitted link is an X tombstone: say so once, and let nothing read from the page
+        (its title is X's notice, not content) seed the searches. Returns the page id."""
+        detail = unavailable_detail(reason)
+        with self.lock:
+            if not self._unreadable:
+                rid = self.receipt(
+                    "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final, call=call
+                )
+                self.add_page(
+                    Page(
+                        id="",
+                        url=short,
+                        final_url=final,
+                        role="linked",
+                        publisher=publisher,
+                        receipt_id=rid,
+                    )
+                )
+                self._tombstone_note(detail)
+            pg = next(p for p in self.result.pages if p.url == short or p.final_url == final)
+            pg.headline, pg.claims = None, []
+            self._subject_text, self._card_title = self._user_text(), None
+            self.result.subject_id = pg.id
+            return pg.id
 
     def _linked(self, url: str, is_input: bool) -> None:
         with self.step("linked") as st:
@@ -960,30 +991,29 @@ class Lookup:
             call = dict(self.deps.oxylabs.last_call)
             if facts.unavailable:  # an X tombstone (e.g. behind t.co): its title isn't content
                 detail = unavailable_detail(facts.unavailable)
-                rid = self.receipt(
-                    "oxylabs",
-                    "/scrape",
-                    f"Linked page read: {detail}",
-                    source_url=facts.final_url or url,
-                    call=call,
-                )
-                pg = self.add_page(
-                    Page(
-                        id="",
-                        url=short if short != url else url,
-                        final_url=facts.final_url or url,
-                        role="linked",
-                        publisher=facts.publisher,
-                        receipt_id=rid,
-                    )
-                )
+                final = facts.final_url or url
                 if is_input:
-                    self._tombstone_note(detail)
-                    with self.lock:
-                        self.result.subject_id = pg.id
-                elif self.result.subject_id:
-                    self.add_edge(pg.id, self.result.subject_id, "link", note="the post links it")
-                st.found = [pg.id]
+                    pid = self._input_tombstone(
+                        short, final, facts.unavailable, call, facts.publisher
+                    )
+                else:
+                    rid = self.receipt(
+                        "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final,
+                        call=call,
+                    )  # fmt: skip
+                    pid = self.add_page(
+                        Page(
+                            id="",
+                            url=short if short != url else url,
+                            final_url=final,
+                            role="linked",
+                            publisher=facts.publisher,
+                            receipt_id=rid,
+                        )
+                    ).id
+                    if self.result.subject_id:
+                        self.add_edge(pid, self.result.subject_id, "link", note="the post links it")
+                st.found = [pid]
                 st.detail = detail
                 return
             pub = facts.published_at
@@ -1038,6 +1068,12 @@ class Lookup:
         except Exception as exc:
             log.info("lookup %s quick page read failed: %s", self.result.id, exc)
             return
+        final = (meta or {}).get("url") or url
+        if (x := next((u for u in (final, url) if domain(u) in X_HOSTS), None)) and (
+            reason := page_unavailable_reason(md, x)
+        ):  # an X tombstone: its "# Post" heading is X's notice, not the page's text
+            self._input_tombstone(short, final, reason, call)
+            return
         head = next(
             (
                 ln[2:].strip()
@@ -1050,7 +1086,6 @@ class Lookup:
         if not head:
             return
         head = head[:300]
-        final = (meta or {}).get("url") or url
         # one critical section: the fact extraction (_linked) must not land between the check
         # and the add, or this quick read's receipt would replace the facts' (RLock: re-entrant)
         with self.lock:
@@ -1142,7 +1177,7 @@ class Lookup:
 
     def _copies_skip_detail(self, short: str) -> str:
         unread = self._unreadable or (self.result.kind == "x_post" and not self.result.subject_id)
-        if unread and not self._subject_text:
+        if unread and not self._user_text():
             return "the post's text couldn't be read"
         return short
 

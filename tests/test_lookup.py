@@ -1110,3 +1110,52 @@ def test_link_resolving_to_an_x_tombstone_is_not_read_as_content():
     )
     for sid in ("copies_web", "copies_x"):
         assert steps[sid].detail == "the post's text couldn't be read"
+
+
+@pytest.mark.parametrize("order", ["page_text_first", "facts_first", "facts_fail"])
+def test_link_to_an_x_tombstone_never_seeds_searches_whatever_finishes_first(order):
+    import threading
+
+    tomb = "https://x.com/LeroyLovesUSA/status/796772863869075460"
+    md = (XPAGES / "post_suspended_LeroyLovesUSA_796772863869075460.md").read_text()
+    page_done, facts_done = threading.Event(), threading.Event()
+
+    class Oxy(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            self.calls.append(("scrape", url))
+            if order == "facts_first":
+                facts_done.wait(5)
+            try:
+                return md, {"url": tomb}
+            finally:
+                page_done.set()
+
+        def scrape_facts(self, url, deadline=None):
+            self.calls.append(("facts", url))
+            try:
+                if order == "page_text_first":
+                    page_done.wait(5)
+                if order == "facts_fail":
+                    page_done.wait(5)
+                    raise OxylabsError("oxylabs /scrape failed (500)", status=500)
+                return PageFacts(url=url, final_url=tomb, headline="Post", unavailable="suspended")
+            finally:
+                facts_done.set()
+
+    deps = make_deps()
+    deps.oxylabs = Oxy()
+    job = Lookup("lk_race", LookupInput(url="https://news.example/redirect"), deps)
+    job.run()
+    detail = "X shows this post is from a suspended account"
+    assert not [c for c in deps.oxylabs.calls if c[0] == "search"]
+    assert all(p.headline is None and not p.claims for p in job.result.pages)
+    assert job._subject_text is None and job._card_title is None
+    assert f"{detail}, so its text can't be read; copies and spread were not searched." in (
+        job.result.notes
+    )
+    assert [r.summary for r in job.result.receipts].count(f"Linked page read: {detail}") == 1
+    steps = {s.id: s for s in job.result.steps}
+    if order == "facts_fail":
+        assert steps["linked"].detail == "Oxylabs couldn't read the page (HTTP 500)"
+    else:
+        assert (steps["linked"].state, steps["linked"].detail) == ("done", detail)
