@@ -614,3 +614,5 @@ input:focus-visible { outline: none; }
   .btn { min-height: 44px; }
   .status .st-skip { min-height: 44px; padding: 12px 8px; }
 }
+.judge-error { display: grid; justify-items: start; gap: 10px; }
+.judge-error .btn { min-height: 44px; }
