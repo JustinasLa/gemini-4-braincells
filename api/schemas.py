@@ -8,9 +8,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 Status = Literal["coordinated", "likely_organic", "insufficient"]
 
-# C0 control characters (and DEL) except tab, newline and carriage return. PostgreSQL text
-# cannot hold NUL, and none of these carry meaning in a handle, link or post text.
-_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Input PostgreSQL can't store (NUL; lone UTF-16 surrogates can't even be encoded) and C0
+# controls that carry no meaning in a handle, link or post text are removed. Controls that
+# str.split() treats as whitespace become a space, so they don't join two words (#14).
+_SPACE_LIKE = re.compile(r"[\x0b\x0c\x1c-\x1f]")
+_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1b\x7f\ud800-\udfff]")
 
 
 class SignalBrief(BaseModel):
@@ -109,10 +111,12 @@ class AnalyzeRequest(BaseModel):
     url: str | None = Field(default=None, max_length=2000)
     handle: str | None = Field(default=None, max_length=300)
 
-    @field_validator("text", "url", "handle")
+    @field_validator("text", "url", "handle", mode="before")
     @classmethod
-    def _strip_control(cls, v: str | None) -> str | None:
-        return _CONTROL.sub("", v) if v else v
+    def _strip_control(cls, v: object) -> object:
+        # Before validation: pydantic rejects lone surrogates itself, and its 422 body echoing
+        # them can't be encoded either (a 500). Other types are left for pydantic to reject.
+        return _CONTROL.sub("", _SPACE_LIKE.sub(" ", v)) if isinstance(v, str) else v
 
     @model_validator(mode="after")
     def _one_input(self) -> "AnalyzeRequest":

@@ -7,8 +7,9 @@ Answers two separate questions and never mixes them up:
    appears; they are weaker evidence and are never turned into a coordination verdict.
 """
 
+import re
 from typing import Annotated
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 from fastapi import APIRouter, Depends
 
@@ -36,22 +37,38 @@ AUTHOR_CONTEXT = (
 )
 
 
-def bsky_target(url: str) -> tuple[str, str | None] | None:
-    """(author, rkey) for a Bluesky post link or at:// post URI; (author, None) for a profile.
+_AT_POST = re.compile(r"^at://([^/\s]+)/app\.bsky\.feed\.post/([^/?#\s]+)/?$", re.I)
+_AT_ACTOR = re.compile(r"^at://([^/\s]+)/?$", re.I)
+_BSKY_LINK = re.compile(r"^(?:https?://)?(?:www\.)?(?:bsky\.app|staging\.bsky\.app)/", re.I)
 
-    The author is a DID or a handle, as written in the link. None for anything else.
+NOT_LOOKED_UP = (
+    "This link is not looked up: only Bluesky post and profile links, at:// post URIs and "
+    "public web pages are."
+)
+
+
+def bsky_target(url: str) -> tuple[str, str | None] | None:
+    """(author, rkey) for a Bluesky post link or at:// post URI; (author, None) for a profile
+    link (`bsky.app/profile/<x>` only, not its feeds or lists). The author is a DID or a handle,
+    as written. The scheme may be missing, as in links copied from a share sheet. None otherwise.
     """
-    if url.startswith("at://"):
-        parts = url.removeprefix("at://").split("/")
-        if len(parts) == 1 and parts[0]:
-            return unquote(parts[0]), None
-        if len(parts) >= 3 and parts[0] and parts[1] == "app.bsky.feed.post" and parts[2]:
-            return unquote(parts[0]), parts[2]
+    url = url.strip()
+    if m := _AT_POST.match(url):
+        return unquote(m[1]), m[2]
+    if m := _AT_ACTOR.match(url):
+        return unquote(m[1]), None
+    if not _BSKY_LINK.match(url):
         return None
-    target = classify(url)
-    if target is None or target.kind not in ("bsky_post", "bsky_profile") or not target.handle:
+    full = url if re.match(r"^https?://", url, re.I) else f"https://{url}"
+    target = classify(full)
+    if target is None or not target.handle:
         return None
-    return unquote(target.handle).removeprefix("@"), target.post_id
+    author = unquote(target.handle).removeprefix("@")
+    if target.kind == "bsky_post":
+        return author, target.post_id
+    if target.kind == "bsky_profile" and len([s for s in urlsplit(full).path.split("/") if s]) == 2:
+        return author, None  # exactly /profile/<x>: a feed or list link says nothing about posts
+    return None
 
 
 @router.post("", response_model=AnalyzeResponse)
@@ -85,7 +102,11 @@ def analyze(
         in_post = store.clusters_for_post(author, rkey)
         clusters.update((c.id, c) for c in in_post)
         if not in_post:  # the author's clusters are context, not a verdict on this post
-            author_clusters = [c for c in store.clusters_for_handle(author) if c.id not in clusters]
+            author_clusters = sorted(
+                (c for c in store.clusters_for_handle(author) if c.id not in clusters),
+                key=lambda c: c.window_end,
+                reverse=True,
+            )
             if author_clusters:
                 ids = ", ".join(f"#{c.id}" for c in author_clusters)
                 which = f"cluster{'s' if len(author_clusters) > 1 else ''} {ids}"
@@ -93,6 +114,8 @@ def analyze(
 
     # Bluesky links point back into Bluesky, not at an outside source: never sent to the web check.
     web_url = url if url and not bsky and checkable_url(url) else None
+    if url and not bsky and not web_url:  # file:, localhost, media files, Bluesky feeds/lists
+        notes.append(NOT_LOOKED_UP)
     findings: list[WebFinding] = []
     if (web_url or phrase) and checker is None:
         notes.append("Live web checks are not configured on this server.")
@@ -110,13 +133,13 @@ def analyze(
         return AnalyzeResponse(
             status="matched",
             clusters=sorted(clusters.values(), key=lambda c: c.window_end, reverse=True),
-            author_clusters=sorted(author_clusters, key=lambda c: c.window_end, reverse=True),
+            author_clusters=author_clusters,
             web_findings=findings,
             notes=notes,
         )
     return AnalyzeResponse(
         status="insufficient",
-        author_clusters=sorted(author_clusters, key=lambda c: c.window_end, reverse=True),
+        author_clusters=author_clusters,
         web_findings=findings,
         notes=[NOT_IN_WINDOW, *notes],
     )

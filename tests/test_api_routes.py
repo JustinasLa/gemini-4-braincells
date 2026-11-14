@@ -171,6 +171,8 @@ def test_analyze_short_text_skips_web_search_and_cluster_lookup(client):
         f"https://bsky.app/profile/did:plc:abc/post/{RKEY}",
         f"at://did:plc:abc/app.bsky.feed.post/{RKEY}",
         f"https://bsky.app/profile/alice.bsky.social/post/{RKEY}?ref=share",
+        f"bsky.app/profile/did:plc:abc/post/{RKEY}",  # copied without a scheme
+        f"AT://did:plc:abc/app.bsky.feed.post/{RKEY}/",
     ],
 )
 def test_analyze_bsky_post_in_cluster_is_matched(client, url):
@@ -212,6 +214,54 @@ def test_analyze_bsky_link_with_text_checks_only_the_text(client):
     url = f"https://bsky.app/profile/did:plc:abc/post/{RKEY}"
     c.post("/api/analyze", json={"url": url, "text": text})
     assert ("check", [[]]) in store.calls  # the text is searched, the bsky link is not scraped
+
+
+def test_analyze_control_chars_that_separate_words_become_spaces(client):
+    c, store = client
+    text = "water\x0csupply was poisoned last night in the city"
+    c.post("/api/analyze", json={"text": text})
+    phrases = [arg for kind, arg in store.calls if kind == "text"]
+    assert phrases and phrases[0].startswith("water supply was")
+
+
+def test_analyze_lone_surrogate_is_not_a_500(client):
+    c, store = client
+    res = c.post(
+        "/api/analyze",
+        content=b'{"handle": "bot\\ud800.bsky.social", "text": "\\udfff"}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert res.status_code == 200
+    assert ("handle", "bot.bsky.social") in store.calls
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://bsky.app/profile/bot.bsky.social/feed/news",
+        "https://bsky.app/profile/bot.bsky.social/lists/abc",
+        "at://did:plc:abc/app.bsky.actor.profile/self",
+        "file:///etc/passwd",
+        "https://cdn.example/photo.jpg",
+    ],
+)
+def test_analyze_links_it_does_not_look_up_say_so(client, url):
+    c, store = client
+    body = c.post("/api/analyze", json={"url": url}).json()
+    assert body["status"] == "insufficient"  # a feed or list is not the creator's handle
+    assert body["clusters"] == [] and body["author_clusters"] == []
+    assert any("not looked up" in n for n in body["notes"])
+    assert not [call for call in store.calls if call[0] in ("check", "post", "handle")]
+
+
+def test_bsky_target_forms():
+    from api.routes.analyze import bsky_target
+
+    assert bsky_target("https://bsky.app/profile/@Alice.bsky.social") == ("Alice.bsky.social", None)
+    assert bsky_target("www.bsky.app/profile/did:plc:x/post/rk") == ("did:plc:x", "rk")
+    assert bsky_target("at://did:plc:x") == ("did:plc:x", None)
+    assert bsky_target("at://did:plc:x/app.bsky.feed.post/rk/extra") is None
+    assert bsky_target("https://example.com/profile/x/post/y") is None
 
 
 def test_bsky_post_url():
