@@ -106,7 +106,8 @@ function spread(trace: TraceCase & { lookup: LookupResult }): string {
     : `<p class="st-call"><b>No campaign found</b> Bluesky, last 48 h</p>`;
 }
 
-export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?: string): string {
+/** What a picture trace found, worked out once for the result page and for the map's panel. */
+function summary(trace: TraceCase & { lookup: LookupResult }) {
   const lookup = trace.lookup;
   // a tree with nothing in it but the reader's own picture is not a family: nothing was found, and
   // the picture search's own finding ("found nowhere else") is the answer
@@ -120,7 +121,20 @@ export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?:
   const versions = family ? variants.length : matches.length;
   // without a family, matches the comparison could not confirm are look-alikes, not copies
   const group = family ? "Other versions" : matches.length && matches.every((match) => relationOf(match) === "unknown") ? "Look-alikes" : "Copies";
-  const h = head(lookup, family);
+  return { lookup, family, members, variants, matches, versions, group, h: head(lookup, family) };
+}
+
+/** The answer in a few words, and the versions as plain rows: all the map's panel shows of a picture trace. */
+export function storyBrief(trace: TraceCase & { lookup: LookupResult }) {
+  const { family, members, variants, matches, versions, group, h } = summary(trace);
+  const rows = family
+    ? variants.map((node) => ({ id: members.get(node.members[0])!.id, title: node.label, sub: memberDomain(members.get(node.members[0])) }))
+    : matches.map((match) => ({ id: match.id, title: domainOf(match), sub: "" }));
+  return { title: h.title, lead: h.lead, tone: h.tone, group, versions, rows };
+}
+
+export function storyHtml(trace: TraceCase & { lookup: LookupResult }, preview?: string): string {
+  const { lookup, family, members, variants, matches, versions, group, h } = summary(trace);
   const sub = family?.nodes.find((node) => node.kind === "submitted");
   // the reader's own file while it is at hand: it shows before the upload is answered and never reloads
   const stored = lookup.id === "lookup-pending" ? undefined : comparisonSource(trace);

@@ -83,3 +83,8 @@ details.home-ex > summary::after { content: " +"; }
 details.home-ex[open] > summary::after { content: " −"; }
 details.home-ex[open] > summary { width: 100%; }
 details.home-ex > summary:hover { color: #fff; }
+
+/* The map's panel for a picture trace: the answer in a few words, then the versions. */
+.meme-brief { margin: 0 0 6px; font: 600 28px/1.1 var(--sans); letter-spacing: -0.02em; color: #fff; }
+.meme-brief[data-tone="new"] { color: var(--shill); }
+.meme-brief[data-tone="known"] { color: var(--chill); }
