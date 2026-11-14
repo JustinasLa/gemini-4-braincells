@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datasketch import MinHash, MinHashLSH
 
 from signals.config import DetectorConfig
-from signals.textnorm import normalize_text
+from signals.textnorm import is_unspaced, normalize_text, shingles, word_count
 from signals.window import WindowData
 
 CONTENT_KINDS = ("text", "neardup", "media", "url")
@@ -109,14 +109,13 @@ class MinHashCache:
                 self._adj[o].add(u)
         return self._adj
 
-    def get(self, uri: str, toks: list[str]) -> MinHash:
+    def get(self, uri: str, shingle_set: set[str]) -> MinHash:
         mh = self._d.get(uri)
         if mh is None:
             mh = MinHash(
                 num_perm=self.num_perm, seed=1, permutations=self._perms, scheme=self._scheme
             )
-            shingles = {" ".join(toks[i : i + 3]) for i in range(max(1, len(toks) - 2))}
-            mh.update_batch([s.encode() for s in sorted(shingles)])
+            mh.update_batch([s.encode() for s in sorted(shingle_set)])
             if len(self._d) >= self.capacity:
                 self._d.clear()
             self._d[uri] = mh
@@ -124,7 +123,12 @@ class MinHashCache:
 
 
 def _text_ok(norm: str, cfg: DetectorConfig) -> bool:
-    return len(norm) >= cfg.min_text_chars and len(norm.split()) >= cfg.min_text_tokens
+    """Long enough to be a meaningful shared text. Unspaced scripts (Japanese, Chinese, Thai...)
+    pack more meaning per character, so they need half the characters."""
+    chars_ok = len(norm) >= cfg.min_text_chars or (
+        is_unspaced(norm) and len(norm.replace(" ", "")) >= cfg.min_text_chars // 2
+    )
+    return chars_ok and word_count(norm) >= cfg.min_text_tokens
 
 
 def build_keys(
@@ -147,9 +151,8 @@ def build_keys(
         norm = cache.norm(p.uri, p.text)
         if p.text_hash and _text_ok(norm, cfg):
             add("text", p.text_hash, p.did, p.t, p.uri)
-            toks = norm.split()
-            if len(toks) >= cfg.minhash_min_tokens:
-                long_posts.append((p.uri, toks, p.did, p.t))
+            if word_count(norm) >= cfg.minhash_min_tokens:
+                long_posts.append((p.uri, shingles(norm), p.did, p.t))
         for m in p.media_hashes:
             add("media", m, p.did, p.t, p.uri)
         for u in p.embed_urls:
