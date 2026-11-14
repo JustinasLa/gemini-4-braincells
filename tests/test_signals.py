@@ -409,3 +409,30 @@ def test_declared_automation_guard_needs_old_accounts_that_say_so():
     assert guard(old_bots).score == 1.0
     assert guard(fresh_bots) is None  # new accounts calling themselves bots don't get a pass
     assert guard(humans) is None  # "robotics" doesn't match the word "bot"
+
+
+def test_declared_automation_ignores_bios_not_loaded_yet():
+    from signals.score import AccountInfo, organic_guards
+
+    members = [f"did:plc:q{i}" for i in range(6)]
+    info = {
+        d: AccountInfo(
+            did=d,
+            age_days=700.0,
+            display_name="Quakes",
+            description="Bot posting new quakes in near-real time",
+        )
+        for d in members[:3]
+    }
+    info.update(
+        {
+            d: AccountInfo(did=d, age_days=700.0, display_name="Quakes", description=None)
+            for d in members[3:]
+        }
+    )  # bios not fetched yet
+    g = next(
+        x
+        for x in organic_guards(members, [], info, WindowData(start=0, end=600), DEFAULT)
+        if x.name == "declared_automation"
+    )
+    assert g.score == 1.0 and g.detail["with_known_bio"] == 3

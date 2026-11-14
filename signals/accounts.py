@@ -6,6 +6,8 @@ import psycopg
 
 from signals.score import AccountInfo
 
+BRIDGY_PDS = "atproto.brid.gy"
+
 
 def load_account_info(
     conn: psycopg.Connection, dids: list[str], now: datetime | None = None
@@ -31,7 +33,11 @@ def load_account_info(
             did=r[0],
             handle=r[1],
             display_name=r[2],
-            age_days=(now - r[3]).total_seconds() / 86400 if r[3] else None,
+            # Bridged accounts (Bridgy Fed, from the fediverse) get a new DID and profile when the
+            # bridge is set up, so "created" is the bridging date, not the account's age.
+            age_days=(now - r[3]).total_seconds() / 86400
+            if r[3] and r[9] != BRIDGY_PDS and not (r[1] or "").endswith(".brid.gy")
+            else None,
             followers=r[4],
             follows=r[5],
             posts_count=r[6],
