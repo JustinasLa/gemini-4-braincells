@@ -11,12 +11,13 @@ from analyst.agent import GeminiAgent
 from analyst.context import ClusterContext
 from analyst.gemini import VerdictModel
 from analyst.guard import enforce, no_evidence_verdict
-from analyst.prompt import SYSTEM, build_prompt
+from analyst.prompt import SYSTEM, build_prompt, fit_evidence
 from analyst.tools import ToolBox
 from analyst.verdict import Verdict
 
 
 def analyze(ctx: ClusterContext, model: VerdictModel) -> Verdict:
+    ctx = fit_evidence(ctx)  # the guard accepts only evidence the prompt showed
     if not ctx.evidence:
         return no_evidence_verdict(ctx)
     draft = model.draft(SYSTEM, build_prompt(ctx))
@@ -24,6 +25,7 @@ def analyze(ctx: ClusterContext, model: VerdictModel) -> Verdict:
 
 
 def investigate(ctx: ClusterContext, agent: GeminiAgent, tools: ToolBox) -> Verdict:
+    ctx = fit_evidence(ctx)  # shown evidence + what the tools return, nothing else
     if not ctx.evidence:
         return no_evidence_verdict(ctx)
     result = agent.run(SYSTEM, build_prompt(ctx), tools)

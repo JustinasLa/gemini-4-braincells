@@ -255,3 +255,55 @@ def test_legacy_media_row_without_optional_details_is_supported():
     context.evidence.append(EvidenceItem(9, "media", "Legacy summary", {}, None, None))
     assert "[9] (media)" in build_prompt(context)
     assert "Legacy summary" in build_prompt(context)
+
+
+def test_fit_evidence_guard_sees_only_shown_and_signals_come_first():
+    from dataclasses import replace
+
+    from analyst.context import EvidenceItem
+    from analyst.guard import enforce
+    from analyst.prompt import MAX_EVIDENCE_CHARS, build_prompt, fit_evidence
+    from analyst.verdict import CitedEvidence, VerdictDraft
+
+    big = "x" * 3000
+    media = [
+        EvidenceItem(
+            id=i,
+            kind="media",
+            summary="m",
+            detail={"description": big, "extracted_text": [big]},
+            source_url=None,
+            model="nemotron-3.5-super-vl",
+        )
+        for i in range(1, 40)
+    ]
+    signal = EvidenceItem(
+        id=100,
+        kind="signal",
+        summary="organic guard",
+        detail={"polarity": "against"},
+        source_url=None,
+        model="detector",
+    )
+    full = replace(ctx(), evidence=[*media, signal])
+    fitted = fit_evidence(full)
+    shown = fitted.evidence_ids
+    assert 100 in shown and fitted.evidence_omitted > 0
+    prompt = build_prompt(fitted)
+    assert "[100]" in prompt and "omitted for size" in prompt
+    assert len(prompt) < MAX_EVIDENCE_CHARS + 4000
+    hidden = next(e.id for e in media if e.id not in shown)
+    draft = VerdictDraft(
+        status="coordinated",
+        confidence=0.8,
+        summary="s",
+        evidence=[
+            CitedEvidence(evidence_id=hidden, why="w"),
+            CitedEvidence(evidence_id=100, why="w"),
+        ],
+        counter_evidence=[],
+        would_change_verdict=[],
+        disagreement_reason="",
+    )
+    v = enforce(draft, fitted, model="m")
+    assert [c.evidence_id for c in v.evidence] == [100]  # the hidden id is not accepted

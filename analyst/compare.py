@@ -31,7 +31,7 @@ from analyst import store
 from analyst.agent import GeminiAgent
 from analyst.gemini import GeminiVerdictModel
 from analyst.guard import enforce
-from analyst.prompt import SYSTEM, build_prompt
+from analyst.prompt import SYSTEM, build_prompt, fit_evidence
 from analyst.tools import Budget, MemorySink, ToolBox, WebCache
 from common.config import get_settings
 from common.db import connect
@@ -76,6 +76,7 @@ def run_one(model: str, mode: str, cluster_ids: list[int], cache: WebCache, web)
     with connect(timeout_s=10) as conn:
         for cid in cluster_ids:
             ctx = store.load_context(conn, cid)
+            ctx = fit_evidence(ctx) if ctx is not None else ctx
             rec = {"model": model, "mode": mode, "cluster_id": cid, "detector": ctx.status}
             started = time.monotonic()
             try:

@@ -317,7 +317,9 @@ def test_every_attempt_logs_latency_tokens_and_outcome(caplog, monkeypatch):
 @pytest.mark.parametrize("error", [_status_error(400), _status_error(503), RuntimeError("boom")])
 def test_terminal_failure_logs_one_complete_record(error, caplog):
     client, calls, _ = _client(error, max_retries=1)
-    with pytest.raises(NemotronError):
+    # API failures become NemotronError; a programming error is re-raised unchanged
+    expected = RuntimeError if isinstance(error, RuntimeError) else NemotronError
+    with pytest.raises(expected):
         client.analyze(MediaInput("hash", "image/png", data=b"x"))
     [record] = [record.nemotron_call for record in caplog.records]
     assert len(calls.calls) == 1
@@ -353,3 +355,12 @@ def test_comparison_uses_same_log_fields_and_keeps_prompt_tokens(caplog):
     assert failed["error"] == "APIStatusError" and failed["latency_ms"] >= 0
     assert success["prompt_tokens"] == 10
     assert _metrics([success, failed])["prompt_tokens_mean"] == 10
+
+
+def test_super_vl_guard_requires_version_3_5():
+    from media.nemotron import is_super_vl_model
+
+    assert is_super_vl_model("nemotron-3.5-super-vl")
+    assert is_super_vl_model("nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4")
+    assert not is_super_vl_model("nemotron-2-super-vl")
+    assert not is_super_vl_model("nvidia/nemotron-3.5-super-120b-a12b")  # text-only label

@@ -138,10 +138,13 @@ def is_vl_model(model_id: str | None) -> bool:
 
 
 def is_super_vl_model(model_id: str | None) -> bool:
-    """Require the Nemotron, Super and VL tokens, not just any vision-language model."""
-    return bool(model_id) and {"nemotron", "super", "vl"}.issubset(
-        re.split(r"[^a-z0-9]+", model_id.lower())
-    )
+    """Nemotron 3.5 Super VL specifically: the nemotron, super and vl tokens and version 3.5
+    (e.g. 'nemotron-3.5-super-vl', 'nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4')."""
+    if not model_id:
+        return False
+    tokens = re.split(r"[^a-z0-9]+", model_id.lower())
+    version = any(a == "3" and b == "5" for a, b in zip(tokens, tokens[1:], strict=False))
+    return version and {"nemotron", "super", "vl"}.issubset(tokens)
 
 
 class RateLimiter:
@@ -356,7 +359,7 @@ class NemotronClient:
                     max_tokens=self.max_tokens,
                     **extra,
                 )
-            except Exception as exc:
+            except openai.OpenAIError as exc:
                 status = getattr(exc, "status_code", None)
                 retryable = isinstance(exc, openai.APIConnectionError | openai.RateLimitError) or (
                     isinstance(status, int) and status >= 500
@@ -375,6 +378,16 @@ class NemotronClient:
                 delay = min(60.0, 2**attempt) * (1 + random.random() / 2)
                 self._sleep(delay)
                 continue
+            except Exception as exc:  # a programming error, not an API failure: log, re-raise
+                log_call_attempt(
+                    model=self.model,
+                    media_hash=media_hash,
+                    started=started,
+                    attempt=attempt + 1,
+                    outcome=type(exc).__name__,
+                    error_type=type(exc).__name__,
+                )
+                raise
             returned_model = getattr(response, "model", None)
             valid_model = is_super_vl_model(returned_model)
             latency_ms = log_call_attempt(
