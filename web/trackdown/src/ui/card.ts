@@ -1,6 +1,6 @@
 import { hashStr } from "../data/build";
 import type { Media, TraceNode } from "../types";
-import { esc, fmtDate, fmtNum, roleOf } from "./format";
+import { esc, fmtClock, fmtDate, fmtNum, roleOf } from "./format";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 import { imageCardHtml } from "./variations";
@@ -60,10 +60,8 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
   const handle = a.handle === a.name ? "" : `${n.platform === "bluesky" || n.platform === "x" ? "@" : ""}${esc(a.handle.replace(/^@/, ""))}`;
   const unknownTime = n.undated || n.timeUnknown;
   if (compact) {
-    const t = new Date(n.t);
-    const clock = `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}:${String(t.getUTCSeconds()).padStart(2, "0")}`;
     return `<header>${shield}<div class="who"><b>${esc(a.name)}</b>${handle ? `<span>${handle}</span>` : ""}</div></header>
-      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${unknownTime ? "time unknown" : clock}</time></div>`;
+      <div class="chip-meta">${a.ageDays != null ? `<span class="age">${a.ageDays} d old</span>` : ""}${a.followers != null ? `<span>${a.followers} fol.</span>` : ""}<time>${unknownTime ? "time unknown" : fmtClock(n.t)}</time></div>`;
   }
   const role = roleOf(n.role);
   const mark = role.mark ? `<div class="rolemark">${esc(role.mark)}</div>` : "";
