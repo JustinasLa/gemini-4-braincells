@@ -33,7 +33,7 @@ document.querySelector("#app")!.innerHTML = `
       <span class=trace-wrap><button class=btn solid data-act=trace aria-label=New trace>${icon.search}<span class=lbl>New trace</span></button><button class=qr-btn data-act=qr aria-label=Open on phone (QR code) title=Open on phone>QR</button></span>
     </div>
   </header>
-  <nav id="judge-links" hidden style="position:fixed;z-index:1000;top:58px;right:12px;background:#171717;padding:16px;gap:16px;flex-direction:column"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=methodology">Methodology &amp; limits</a></nav>
+  <nav id="judge-links" hidden style="position:fixed;z-index:1000;top:58px;right:12px;background:#171717;padding:16px;gap:16px;flex-direction:column"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=methodology">Methodology &amp; limits</a><a href="?view=judge">Try a post</a></nav>
   <main class="stage" id="stage" tabindex="0" role="application" aria-roledescription="spread map" aria-label="Spread map. Arrow keys move between posts: left to the earlier copy, right to a later one, up and down between siblings.">
     <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
@@ -518,6 +518,7 @@ function showHome() {
       <div class="home-wm">SHILL OR CHILL</div>
       <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
       <form class="home-form" aria-describedby="home-note"><div class="home-q"><span class="home-att" hidden><img alt="" /><span class="nm">Pasted image</span><button type="button" class="x" aria-label="Remove the image">×</button></span><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /></div><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
+      <nav class="home-judge-links" aria-label="Judge pages"><a href="?view=feed">Live cluster feed</a><a href="?view=metrics">Measured accuracy</a><a href="?view=judge">Try a post</a></nav>
       <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
