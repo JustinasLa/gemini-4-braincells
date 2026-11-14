@@ -38,11 +38,11 @@ document.querySelector("#app")!.innerHTML = `
     <div class="sr-only" aria-live="polite" id="announce"></div>
     <div class="ruler" data-ui><canvas id="ruler"></canvas></div>
     <div class="term hidden" id="console" data-ui></div>
-    <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>skip</button></div>
+    <div class="status" id="status" data-ui inert><span class="st-tool"></span><span class="st-txt"></span><button class="st-skip label" data-skip>Skip</button></div>
     <div class="legend" id="legend" data-ui></div>
     <div class="hud" data-ui>
       <div class="zoom"><button data-z="in" aria-label="Zoom in">${icon.plus}</button><button data-z="out" aria-label="Zoom out">${icon.minus}</button><button data-z="fit" aria-label="Fit">${icon.fit}</button><button data-z="tools" aria-label="Key and map" aria-expanded="false" title="Key and map (M)">KEY</button></div>
-      <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
+      <div class="minimap" id="minimap"><span class="mm-title label">Map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
     <div class="empty-stage" id="empty" data-ui hidden><h2>No chain of posts to draw</h2><p>The detector grouped this live cluster by how its accounts behaved, not by copied posts we can lay out. The verdict and the evidence are in the panel.</p></div>
@@ -267,7 +267,7 @@ function cancelTrace() {
 }
 function consoleHead(state: "run" | "done", c: TraceCase) {
   const mode = c.synthetic ? "--simulated" : c.historical ? "--archive" : "";
-  return `<div class="term-head"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="file">trackdown.sh ${mode}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "skip" : "close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
+  return `<div class="term-head"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="file">trackdown.sh ${mode}</span><button class="x" data-skip title="Skip (Esc)">${state === "run" ? "Skip" : "Close"}</button></div><div class="term-body"><div class="cmd">trackdown --post ${esc(c.submittedId.slice(0, 12))}${state === "done" ? " --done" : ""}</div></div>`;
 }
 const statusEl = $("#status");
 statusEl.addEventListener("click", (e) => {
@@ -280,7 +280,7 @@ function setStatus(tool: keyof typeof TOOL | null, text: string) {
   statusEl.classList.toggle("on", !!text);
   statusEl.inert = !text; // a hidden status line must not hold a focus stop
   const tl = $(".st-tool", statusEl);
-  tl.className = `st-tool t-${tool ?? "detector"}`;
+  tl.className = "st-tool";
   tl.textContent = tool ? TOOL[tool].label : "";
   $(".st-txt", statusEl).textContent = text;
 }
@@ -465,7 +465,7 @@ async function showEvent(c: TraceCase, r: Reveal) {
   el.className = "reveal";
   el.style.setProperty("--vc", r.css);
   const slot = r.image ? `<img class="meme-slot" alt="The submitted picture" src="${esc(r.image)}" referrerpolicy="no-referrer" draggable="false">` : "";
-  el.innerHTML = `<canvas></canvas><div class="center">${slot}<div class="vw${r.word.length > 8 ? " long" : ""}">${esc(r.word.toUpperCase())}</div><div class="vt">${esc(r.tag)}</div></div><span class="tap label">click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
+  el.innerHTML = `<canvas></canvas><div class="center">${slot}<div class="vw${r.word.length > 8 ? " long" : ""}">${esc(r.word.toUpperCase())}</div><div class="vt">${esc(r.tag)}</div></div><span class="tap label">Click to continue</span><span class="credit">${c.historical ? "Dürer, Rhinocerus, 1515" : "Botticelli, The Birth of Venus, c. 1485 · ORB keypoints"}</span>`;
   el.querySelector(".meme-slot")?.addEventListener("error", (e) => (e.target as HTMLElement).remove());
   stage.appendChild(el);
   eventEl = el;
@@ -509,7 +509,7 @@ function showHome() {
   const cases = simulatedCases();
   const sims = cases.filter((c) => !c.historical);
   const hist = cases.filter((c) => c.historical);
-  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>historical record</em>' : ""}</button>`;
+  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}">${esc(c.title)}${c.historical ? ' <em>Historical record</em>' : ""}</button>`;
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
@@ -699,7 +699,7 @@ async function startTrace(raw: LookupRequest, mock = false) {
     };
     const rows = trace.steps.map((step, i) => ["done", "running", "failed"].includes(step.state ?? "pending") ? row(step, i) : "").join("") + folded("pending", "queued") + folded("skipped", "skipped");
     const scroll = consoleEl.querySelector(".term-body")?.scrollTop ?? 0;
-    consoleEl.innerHTML = `<div class="term-head">${mock ? `<span class="file">MOCK · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
+    consoleEl.innerHTML = `<div class="term-head">${mock ? `<span class="file">Mock · fictional data</span>` : ""}<button class="x" data-close-console aria-label="Hide trace console">Hide</button></div><div class="term-body" role="log" aria-live="polite">${rows}${result.error ? `<p class="lookup-error" role="alert">${esc(result.error)}</p>` : ""}</div>`;
     $(".term-body", consoleEl).scrollTop = scroll;
     trace.steps.forEach((step, i) => shownSteps.add(stepKey(step, i)));
     if (ready && result.state === "running") settle(trace);
