@@ -42,6 +42,13 @@ _CARD_END = re.compile(
     r"^(.*?)\]\((https?://t\.co/\w+)\)(?:\[From ([^\]]+)\]\(https?://t\.co/\w+\))?\s*$"
 )
 _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^)]*)\)")
+# an image link next to the author's name: verified-organization or affiliate badge
+_BADGE = re.compile(r"\[!\[[^\]]*\]\([^)]*\)\]\(/[A-Za-z0-9_]{1,15}\)")
+_LINKS_ONLY = re.compile(r"^(?:\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|\[[^\]]*\]\([^)]*\))+$")
+_HEADER_LINES = 4  # name, up to two badge lines, @handle
+_LEADING_MENTIONS = re.compile(r"^(?:@[A-Za-z0-9_]{1,15}\s+)+")
+# X page controls that sit inside a post's text block but are not its words
+_CHROME = frozenset(("Show more", "GIF", "Made with AI", "Quote", "00:00", "Show translation"))
 _TITLE = re.compile(r'^# (.+?) on X: "(.*)"\s*$', re.S)
 
 
@@ -138,7 +145,7 @@ def _clean_text(lines: list[str]) -> str:
     out = []
     for ln in lines:
         ln = ln.strip()
-        if not ln or ln in ("Show more", "GIF", "Made with AI", "Quote", "00:00"):
+        if not ln or ln in _CHROME:
             continue
         ln = _MD_LINK.sub(lambda m: m.group(1), ln).replace("\\_", "_").replace("\\*", "*")
         out.append(ln.removesuffix(" Show more"))
@@ -190,18 +197,31 @@ def _items_block(md: str) -> list[list[str]]:
     return items
 
 
+def _header(lines: list[str], i: int) -> tuple[str | None, int]:
+    """The author header at lines[i:]: '[Name](/h)[@h](/h)' on one line, or the same links split
+    over several lines with badge images between them (affiliated and verified accounts).
+    Returns (name, index after the header), or (None, i) when lines[i:] doesn't start with one."""
+    parts: list[str] = []
+    j = i
+    while j < len(lines) and len(parts) < _HEADER_LINES:
+        ln = lines[j].strip()
+        j += 1
+        if not ln:
+            continue
+        parts.append(ln)
+        if n := _NAME.match(_BADGE.sub("", "".join(parts))):
+            return n.group(1), j
+        if not _LINKS_ONLY.match(ln):
+            break
+    return None, i
+
+
 def _parse_item(lines: list[str]) -> XItem | None:
     m = _AVATAR.match(lines[0].strip())
     if not m:
         return None
     handle, avatar = m.group(3), m.group(2)
-    name = None
-    i = 1
-    while i < len(lines) and not lines[i].strip():
-        i += 1
-    if i < len(lines) and (n := _NAME.match(lines[i].strip())):
-        name = n.group(1)
-        i += 1
+    name, i = _header(lines, 1)
     item = XItem(handle=handle, name=name, status_id=None, text="", avatar_url=avatar)
     own: list[str] = []
     quoted: list[str] = []
@@ -217,11 +237,7 @@ def _parse_item(lines: list[str]) -> XItem | None:
         if q := _AVATAR.match(ln):  # a quoted post starts
             item.quoted_handle = q.group(3)
             target = quoted
-            # skip its name line
-            if i < len(lines) and _NAME.match(lines[i].strip()):
-                i += 1
-            elif i + 1 < len(lines) and _NAME.match(lines[i + 1].strip()):
-                i += 2
+            _, i = _header(lines, i)  # skip its name line(s)
             continue
         if r := _REL_TIME.match(ln):
             if target is quoted and r.group(2).lower() == (item.quoted_handle or "").lower():
@@ -324,6 +340,10 @@ def parse_post_page(md: str, status_id: str) -> PostPage:
         return PostPage(None, [], [])
     main = items[idx]
     _, full = title_text(md)
+    if full and not main.text.startswith("@"):
+        # a reply's title starts with the @handles it replies to; the post body and screenshots
+        # of it show them apart from the text ("Replying to"), so they aren't its words
+        full = _LEADING_MENTIONS.sub("", full)
     if full and len(full) > len(main.text) and not main.quoted_text:
         main.text = full  # timeline items can be truncated ("... Show more"); the title isn't
     seen = {main.status_id}

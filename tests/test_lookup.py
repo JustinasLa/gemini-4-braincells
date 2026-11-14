@@ -1384,3 +1384,112 @@ def test_bluesky_search_receipt_link_is_url_encoded():
     job._copies_bsky()
     (rc,) = [r for r in job.result.receipts if r.endpoint == "searchPosts"]
     assert parse_qs(urlsplit(rc.source_url).query)["q"] == ['"Salt & pepper fries are back at the"']
+
+
+# X's logged-out page splits the author header of affiliated or verified accounts over several
+# lines with a badge image between name and handle; the shape of real pages (2026-11-14).
+SPLIT_SID = "2121345211959804234"
+SPLIT_MD = f"""## Post
+
+# Ada Example on X: "@bob\\_example A petition is underway and I am signing it too"
+
+## Conversation
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)
+
+  [![X](https://pbs.twimg.com/profile_images/9/x_normal.jpg)](/X)
+
+  [@ada\\_example](/ada_example)
+
+  A petition is underway and I am signing it too
+
+  [8:51 PM · Nov 13, 2026](/ada_example/status/{SPLIT_SID})·[9.1M
+
+  Views](/ada_example/status/{SPLIT_SID})
+
+  [8.2K](/compose/post?in_reply_to={SPLIT_SID})
+
+  18K
+
+  1.2M
+
+  3K
+* [![@cy_example](https://pbs.twimg.com/profile_images/3/c_normal.jpg)](/cy_example)
+
+  [Cy](/cy_example)
+
+  [![Verified](https://pbs.twimg.com/profile_images/8/v_normal.jpg)](/cy_example)
+
+  [@cy\\_example](/cy_example)
+
+  [1h](/cy_example/status/{QUOTE})
+
+  Sure.
+"""
+TRANSLATE_MD = f"""## Conversation
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)[@ada\\_example](/ada_example)
+
+  Show translation
+
+  Der Kapitän spricht sich für die Teilnahme aus [ex.de/AB12](https://t.co/abc "https://ex.de/AB12")
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})·[47.2K
+
+  Views](/ada_example/status/{SUBJ})
+"""
+
+
+def test_parse_split_author_header_keeps_name_and_handle_out_of_the_text():
+    page = parse_post_page(SPLIT_MD, SPLIT_SID)
+    m = page.main
+    assert (m.handle, m.name) == ("ada_example", "Ada Example")
+    # the title's leading reply @mention is not part of the words the post body shows
+    assert m.text == "A petition is underway and I am signing it too"
+    assert (m.views, m.replies, m.reposts, m.likes, m.bookmarks) == (
+        9_100_000,
+        8_200,
+        18_000,
+        1_200_000,
+        3_000,
+    )
+    [r] = page.replies
+    assert (r.handle, r.name, r.text, r.status_id) == ("cy_example", "Cy", "Sure.", QUOTE)
+
+
+def test_parse_split_header_of_a_quoted_post():
+    md = QUOTE_MD.replace(
+        "[Ada Example](/ada_example)[@ada\\_example](/ada_example)",
+        "[Ada Example](/ada_example)\n\n  [![X](https://pbs.twimg.com/x.jpg)](/X)\n\n"
+        "  [@ada\\_example](/ada_example)",
+    )
+    assert md != QUOTE_MD
+    m = parse_post_page(md, COPY).main
+    assert m.text == "🤷" and m.quoted_handle == "ada_example" and m.quoted_id == SUBJ
+    assert m.quoted_text == TEXT
+
+
+def test_parse_drops_show_translation_button():
+    m = parse_post_page(TRANSLATE_MD, SUBJ).main
+    assert m.text == "Der Kapitän spricht sich für die Teilnahme aus ex.de/AB12"
+
+
+def test_title_keeps_a_text_that_really_starts_with_a_mention():
+    # not a reply: the body itself starts with the @mention, and the title is longer (the body
+    # was cut with "Show more"), so the title's text is used whole
+    md = f"""# Ada Example on X: "@bob_example is right about the ferry times"
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)[@ada\\_example](/ada_example)
+
+  @bob\\_example is right Show more
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})
+"""
+    m = parse_post_page(md, SUBJ).main
+    assert m.text == "@bob_example is right about the ferry times"
