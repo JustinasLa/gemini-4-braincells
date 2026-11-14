@@ -102,10 +102,18 @@ _TEXT_FORMS = (
 # Formats that read only the header on open, so the size check runs before any decoding
 # (ICO, for one, decodes its largest image inside Image.open). Memes and screenshots use these.
 _FORMATS = ("JPEG", "PNG", "GIF", "WEBP")  # JPEG also opens MPO (phone photos)
-# A "change" that says nothing changed (seen live: "The bottom caption 'X' is unchanged.").
+# A "change" that only says nothing changed (seen live: "The bottom caption 'X' is
+# unchanged."). Dropped only when no edit is left once these phrases are taken out, so "The
+# caption changed from 'X' to 'Y' against an unchanged background." is kept.
 _NO_CHANGE = re.compile(
-    r"\b(?:unchanged|(?:did|does|has|have)\s+not\s+change[d]?|(?:didn't|hasn't|haven't)\s+change"
+    r"\b(?:unchanged|(?:did|does|has|have)\s+not\s+changed?"
+    r"|(?:didn't|doesn't|hasn't|haven't)\s+changed?|nothing\s+(?:else\s+)?(?:has\s+)?changed"
     r"|(?:remains?|remained|stays?|stayed|is|are)\s+the\s+same|no\s+(?:visible\s+)?changes?)\b",
+    re.I,
+)
+_EDIT = re.compile(
+    r"\b(?:added|removed|changed|replaced|cropped|shifted|converted|recolou?red|swapped|moved"
+    r"|rotated|flipped|mirrored|blurred|inserted|deleted|erased|pasted|became|turned)\b",
     re.I,
 )
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
@@ -366,7 +374,7 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
         if (
             not sentence
             or _FORBIDDEN.search(unquoted)
-            or _NO_CHANGE.search(_QUOTE.sub("''", sentence))  # a caption may say "no change"
+            or _says_no_change(sentence)
             or (marked and _MARKER.search(unquoted))
         ):
             continue
@@ -407,6 +415,12 @@ class _OcrText:
 
 def _words(text: str) -> list[str]:
     return _WORD.findall(text.casefold())
+
+
+def _says_no_change(sentence: str) -> bool:
+    """A sentence that only states no change (quoted image text, e.g. 'NO CHANGE', ignored)."""
+    text = _QUOTE.sub("''", sentence)
+    return bool(_NO_CHANGE.search(text)) and not _EDIT.search(_NO_CHANGE.sub("", text))
 
 
 def _exempt_image_text(sentence: str, ocr: _OcrText) -> str:

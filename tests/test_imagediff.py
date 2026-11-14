@@ -1059,6 +1059,13 @@ def test_gif_walk_never_under_reports_pillow():
         ("There is no visible change to the face.", False),
         ("The caption changed from 'NO CHANGE' to 'BIG CHANGE'.", True),  # quoted image text
         ("The colours were shifted to a warmer tone.", True),
+        ("The background hasn't changed.", False),
+        ("The colours haven't changed.", False),
+        ("Nothing else changed.", False),
+        # one real edit with a no-change clause: kept
+        ("The image is the same size but the caption changed from 'X' to 'Y'.", True),
+        ("The caption changed from 'X' to 'Y' against an unchanged background.", True),
+        ("Nothing else changed; the hat was added.", True),
     ],
 )
 def test_no_change_sentences_dropped(images, sentence, kept):
@@ -1069,4 +1076,5 @@ def test_no_change_sentences_dropped(images, sentence, kept):
     }
     result, _ = compare(images, payload)
     assert (sentence in result.changes) is kept
-    assert FULL["changes"][0] in result.changes
+    assert result.changes[-1] == FULL["changes"][0]
+    assert result.kinds == (["other", "caption_changed"] if kept else ["caption_changed"])

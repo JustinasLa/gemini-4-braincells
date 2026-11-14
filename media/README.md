@@ -224,7 +224,7 @@ worker, is logged at ERROR here.
   one of the two text-report forms the prompt asks for ("The caption changed from 'X' to 'Y'." /
   "The text 'X' was added/removed ...") and the reply's own transcription confirms the quote, so
   a caption swap from 'REAL NEWS' to 'FAKE NEWS' is reported but scare quotes are not exempt. A
-  sentence saying something did not change is dropped. Adult or graphic media (model flag or the
+  sentence that only says something did not change is dropped (one with an edit in it is kept). Adult or graphic media (model flag or the
   shared `safe_description` word list) gives exactly "Adult content." or "Graphic content." with
   no text lists.
 
@@ -237,11 +237,15 @@ watermark removed, and 3 identical pairs (re-encoded at JPEG q55-70 and/or resiz
 Sequential calls, 2026-11-14. "Kind" = the expected kind is among `kinds`; "clean" = also no
 unrelated kind (a crop may also report what it cut off), and an identical pair returns no change.
 
-**Verda, `nemotron-3.5-super-vl` (Super VL confirmed), 3 runs.** Prompt as of commit `7bda242`:
-the final prompt differs only in that the red-box rule moved from the system prompt to the
-per-call text, sent only when a box is drawn. The later code guards don't change the model's
-reply. Re-run on Verda before relying on these for the final prompt (Verda was down from
-~09:50 UTC).
+**Verda, `nemotron-3.5-super-vl` (Super VL confirmed), 3 runs.** Prompt as of commit `7bda242`.
+The final prompt differs in the red-box text only. At `7bda242` every call carried a system rule
+("B may carry a thin red rectangle drawn by our tool ... never report it; look inside it for the
+change") and a per-call note ("Any red box only marks where a pixel comparison saw a
+difference ... never report it"), box or no box. The final prompt drops both and adds a reworded
+per-call note ("The red box on B only marks ...") only when a box is drawn. The label rule now
+reads `Ignore the "A: earlier" / "B: later" labels.` The later code guards don't change the
+model's reply. Re-run on Verda before relying on these numbers for the final prompt (Verda was
+down from ~09:50 UTC).
 
 | Layout | Valid | Kind right | Clean | Caption text read | p50 latency | p90 latency |
 |---|---|---|---|---|---|---|
