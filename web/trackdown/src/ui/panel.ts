@@ -1,9 +1,9 @@
 // Right-hand window: tabs for the verdict, the provenance chain, the receipts and the selected folio.
-import { modelTool, readingsDisagree, readingsOf, type LookupAssessment } from "../data/lookup";
+import { hasVerdict, modelTool, readingsDisagree, readingsOf, type LookupAssessment } from "../data/lookup";
 import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
-import { esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, relOf, roleOf, STATUS, TOOL } from "./format";
+import { clusterShort, esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, relOf, roleOf, STATUS, TOOL } from "./format";
 import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
@@ -145,13 +145,18 @@ export class Panel {
     const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "View collected cards" : "Replay the trackdown"}</button></div>` : "";
     return `
       ${c.lookup ? factualFindings(c.lookup) : ""}
-      <section class="verdict" style="--vc:${v.css}">
+      ${!hasVerdict(c) ? `<section class="verdict noverdict" aria-label="Coordination">
+        <div class="label">Coordination · no call</div>
+        <p class="vs">${esc(c.lookup ? coordinationNote(c.lookup) : c.summary)} Only a match with a cluster we monitor gives a coordination call.</p>
+        ${this.readings(c)}
+        ${notice}
+      </section>` : `<section class="verdict" style="--vc:${v.css}">
         <div class="vhead"><div class="vcoin" style="background-image:url(${coinImg(c.status)})" role="img" aria-label="${esc(v.word)} coin"></div><div><div class="vword${v.word.length > 8 ? " long" : ""}">${esc(v.word.toUpperCase())}</div><div class="vtag">${c.findingsOnly ? "Not monitored" : esc(c.tag ?? v.tag)}${c.live ? " · live" : ""}</div></div></div>
         <p class="vs">${esc(c.lookup ? coordinationNote(c.lookup) : c.summary)}</p>
         ${!scored && c.lookup ? "" : `<div class="conf${scored ? "" : " abstain"}"><div class="row"><span class="label">${c.lookup ? "Coordination confidence" : "Confidence"}</span><b>${scored ? Math.round(c.confidence * 100) + "%" : unscored}</b></div><div class="bar"><i></i></div>${scored ? "" : `<div class="conf-note">${unscoredNote}</div>`}</div>`}
         ${this.readings(c)}
         ${notice}
-      </section>
+      </section>`}
       ${c.lookup ? `<div class="sect label">Model summary · collected evidence</div><p class="lookup-message">${esc(c.summary)}</p>` : ""}
       ${stats}
       ${replay}
@@ -188,7 +193,7 @@ export class Panel {
         return `<button class="hop" data-go="${esc(id)}" style="--c:${roleOf(n.role).color}"><span class="rn">${i + 1}</span><span style="min-width:0"><div class="h-t">${esc(n.author.name)}</div><div class="h-s">${esc(roleOf(n.role).label)} · ${n.timeUnknown || n.undated ? "time unknown" : fmtDate(n.t, false)}</div></span><span class="h-gap">${prev ? `<b>${n.timeUnknown || prev.timeUnknown || n.undated || prev.undated ? "gap unknown" : `+${fmtDur(n.t - prev.t)}`}</b>${e ? esc(relOf(e.rel).label) : ""}${e?.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}` : `<b>${start}</b>`}</span></button>`;
       })
       .join("")}
-      ${c.clusters.length ? `<div class="sect label">${c.lookup ? "Monitored clusters / copy samples" : "Detected clusters"} <span>${c.clusters.length}</span></div>${c.clusters.map((cl) => `<div class="ev" style="--tc:${STATUS[cl.status].color}"><div class="by">${STATUS[cl.status].short} · ${esc(cl.label)}</div><p>${esc(cl.stat)}</p></div>`).join("")}` : ""}`;
+      ${c.clusters.length ? `<div class="sect label">${c.lookup ? "Monitored clusters / copy samples" : "Detected clusters"} <span>${c.clusters.length}</span></div>${c.clusters.map((cl) => `<div class="ev" style="--tc:${STATUS[cl.status].color}"><div class="by">${clusterShort(cl.status, !!c.lookup)} · ${esc(cl.label)}</div><p>${esc(cl.stat)}</p></div>`).join("")}` : ""}`;
   }
 
   private receipts(c: TraceCase) {

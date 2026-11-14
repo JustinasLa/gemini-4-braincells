@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 
-const bundle = await build({ stdin: { contents: 'export * from "./src/data/imageTrace.ts"; export * from "./src/data/lookup.ts"; export * from "./src/data/mockMeme.ts"; export { comparisonSource } from "./src/ui/compare.ts"; export { isLineageRel } from "./src/ui/format.ts";', resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, platform: "node", format: "esm" });
+const bundle = await build({ stdin: { contents: 'export * from "./src/data/imageTrace.ts"; export * from "./src/data/lookup.ts"; export * from "./src/data/mockMeme.ts"; export { comparisonSource } from "./src/ui/compare.ts"; export { isLineageRel } from "./src/ui/format.ts"; export { hasVerdict } from "./src/data/lookup.ts";', resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, platform: "node", format: "esm" });
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`);
 let checks = 0;
 const check = (name, run) => { run(); checks++; console.log(`✓ ${name}`); };
@@ -179,5 +179,65 @@ check("conversion does not mutate the server result and minimal optional matches
   const trace = api.lookupCase({ ...fixture, image_matches: [{ id: "img:minimal" }], image_origin_id: null });
   assert.equal(trace.nodes.at(-1).imageMatch.id, "img:minimal");
   assert.equal(trace.nodes.at(-1).timeUnknown, true);
+});
+check("finding: an X post whose same picture was online earlier is a Copy; edits elsewhere are counted", () => {
+  const f = api.memeFinding(fixture);
+  assert.equal(f.kind, "copy");
+  assert.equal(f.match.id, "img:origin", "the earliest older match decides (crawl date + one day still before the post)");
+  assert.match(f.sentence, /archive\.example before this post/);
+  assert.match(f.sentence, /1 edited version of it was also found/);
+});
+check("finding: when the earliest older match is edited, the submission is Edited, with the model's change list", () => {
+  const edited = structuredClone(fixture);
+  edited.image_matches.find((match) => match.id === "img:edited").first_seen = "2026-11-01T00:00:00Z";
+  const f = api.memeFinding(edited);
+  assert.equal(f.kind, "edited");
+  assert.match(f.sentence, /What changed, as a model reads it: Caption changed/);
+});
+check("finding: nothing dated before the post is Original; undated copies are named as possibly older", () => {
+  const later = structuredClone(fixture);
+  for (const match of later.image_matches) if (match.first_seen) Object.assign(match, { first_seen: "2026-11-20T00:00:00Z", time_source: "page" });
+  later.image_origin_id = null;
+  const f = api.memeFinding(later);
+  assert.equal(f.kind, "original");
+  assert.match(f.sentence, /2 undated copies could still be older/);
+  const crawl = structuredClone(fixture);
+  for (const match of crawl.image_matches) if (match.first_seen) Object.assign(match, { first_seen: "2026-11-13T20:00:00Z", time_source: "crawl_date" });
+  assert.equal(api.memeFinding(crawl).kind, "original", "a crawl date within a day of the post is not provably older");
+});
+check("finding: no related match is First sighting; 'different' matches don't count", () => {
+  const none = { ...structuredClone(fixture), image_matches: fixture.image_matches.filter((match) => match.relation === "different"), image_origin_id: null };
+  assert.equal(api.memeFinding(none).kind, "first");
+  assert.equal(api.memeFinding(api.memeFixture("meme-empty")).kind, "first");
+});
+check("finding: an upload's matches were all online before it, dated or not", () => {
+  const upload = api.memeFixture("meme-upload");
+  const f = api.memeFinding(upload);
+  assert.equal(f.kind, "copy");
+  assert.match(f.sentence, /before this upload/);
+  const undated = structuredClone(upload);
+  for (const match of undated.image_matches) Object.assign(match, { first_seen: null, time_source: null });
+  assert.equal(api.memeFinding(undated).kind, "copy", "a same-picture match outranks an edited one when none is dated");
+});
+check("finding: pending while searching or comparing; none for failed, skipped or text lookups", () => {
+  const running = structuredClone(fixture);
+  running.steps[1].state = "running";
+  assert.equal(api.memeFinding(running), "pending");
+  const failed = api.memeFixture("meme-failed");
+  failed.steps[0].state = "failed";
+  assert.equal(api.memeFinding(failed), null);
+  const text = { ...structuredClone(fixture), kind: "text", image_matches: [], image_origin_id: null };
+  text.steps = text.steps.map((step) => ({ ...step, state: "skipped" }));
+  assert.equal(api.memeFinding(text), null);
+  const untimed = structuredClone(fixture);
+  untimed.posts[0].created_at = null;
+  assert.equal(api.memeFinding(untimed).kind, "seen", "a post with no time can't be ordered against its copies");
+  const unknownOnly = { ...structuredClone(fixture), image_matches: fixture.image_matches.filter((match) => match.id === "img:unknown").map((match) => ({ ...match, first_seen: "2026-11-01T00:00:00Z", time_source: "page" })) };
+  assert.equal(api.memeFinding(unknownOnly).kind, "seen", "an older match whose relation wasn't checked is no Copy claim");
+});
+check("coin only for a real verdict: a lookup's insufficient is no call, every other case keeps its verdict", () => {
+  assert.equal(api.hasVerdict(api.lookupCase(fixture)), false);
+  assert.equal(api.hasVerdict({ ...api.lookupCase(fixture), status: "coordinated" }), true);
+  assert.equal(api.hasVerdict({ status: "insufficient" }), true, "a simulated or monitored case's Can't tell is a detector result");
 });
 console.log(`\n${checks} meme trace checks passed.`);

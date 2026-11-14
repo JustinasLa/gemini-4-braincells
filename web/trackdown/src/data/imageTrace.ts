@@ -149,3 +149,72 @@ export function appendImageTrace(trace: TraceCase): TraceCase {
     steps: trace.steps.map((step) => ({ ...step, found: [...new Set([...(step.found ?? []), ...(trace.lookup!.steps.find((raw) => raw.id === step.id)?.found ?? []).filter((id) => validIds.has(id))])] })),
   };
 }
+
+// ---------------------------------------------------------------- the finding: what the submitted picture is
+export type MemeFindingKind = "original" | "copy" | "edited" | "first" | "seen";
+export interface MemeFinding {
+  kind: MemeFindingKind;
+  /** the reveal's wordmark */
+  word: string;
+  /** one short line under the word */
+  tag: string;
+  /** the full sentence for the panel */
+  sentence: string;
+  color: string;
+  /** the match the finding rests on (the earliest older copy), when there is one */
+  match?: ImageMatch & { id: string };
+}
+const FINDING_COLOR: Record<MemeFindingKind, string> = { original: "#e4b36a", first: "#e4b36a", copy: "#c9c4bb", edited: "#d9783d", seen: "#9aa6bf" };
+const DAY = 86_400_000;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const shortDate = (match: ImageMatch) => {
+  const time = imageTime(match);
+  return time == null ? "date unknown" : `${match.time_source === "crawl_date" ? "seen by " : ""}${new Date(time).toISOString().slice(0, 10)}`;
+};
+
+/** What the image search says the submitted picture is, from facts the lookup returned. Never a
+ *  coordination call. "pending" while the image search or comparison still runs; null when there is
+ *  no image search to report on (a text lookup, or a search that failed or was skipped).
+ *
+ *  A match is OLDER than the submission when an upload (it was online before the upload; an uploaded
+ *  file has no time of its own), or when its date is before the post (a crawl date gets the server's
+ *  one-day slack, since it is only an upper bound). The earliest older match decides Copy vs Edited. */
+export function memeFinding(result: LookupResult): MemeFinding | "pending" | null {
+  const state = imageTraceState(result);
+  if (!state.enabled) return null;
+  if (state.searching || state.comparing) return "pending";
+  const reverse = result.steps.find((step) => step.id === "reverse_image");
+  if (!reverse || reverse.state === "failed" || reverse.state === "skipped") return null;
+  const subject = result.posts.find((post) => post.id === result.subject_id);
+  const posted = Date.parse(subject?.created_at ?? "");
+  const upload = result.kind === "image" && !Number.isFinite(posted);
+  const what = upload ? "upload" : "post";
+  const related = state.matches.filter((match) => relationOf(match) !== "different");
+  const make = (kind: MemeFindingKind, word: string, tag: string, sentence: string, match?: ImageMatch & { id: string }): MemeFinding => ({ kind, word, tag, sentence, color: FINDING_COLOR[kind], match });
+  if (!related.length) return make("first", "First sighting", "No other copies found", "The image search found no other copy of this picture. It may be new, or not indexed yet.");
+  if (!upload && !Number.isFinite(posted)) return make("seen", "Seen before", `${plural(related.length, "matching copy", "matching copies")} found`, `The image search found ${plural(related.length, "matching copy", "matching copies")}, but this post has no time to compare their dates with.`);
+  const older = related
+    .filter((match) => upload || (imageTime(match) != null && imageTime(match)! + (match.time_source === "crawl_date" ? DAY : 0) < posted))
+    // earliest first; undated (uploads only) last, a same-picture match before an edited one
+    .sort((a, b) => (imageTime(a) ?? Infinity) - (imageTime(b) ?? Infinity) || Number(relationOf(a) === "edited") - Number(relationOf(b) === "edited"));
+  const edits = related.filter((match) => relationOf(match) === "edited").length;
+  if (!older.length) {
+    const undated = related.filter((match) => imageTime(match) == null).length;
+    return make("original", "Original", "Earliest copy we found",
+      `No copy we found is dated before this post${undated ? `; ${plural(undated, "undated copy", "undated copies")} could still be older` : ""}. ${plural(related.length - undated, "later copy", "later copies")} found. A search sample, not proof of who made it.`);
+  }
+  const first = older.find((match) => relationOf(match) !== "unknown");
+  if (!first) {
+    const match = older[0];
+    return make("seen", "Seen before", `Similar picture on ${domainOf(match)}`, `A similar picture was on ${domainOf(match)} before this ${what} (${firstSeenLabel(match)}). How the two differ was not checked.`, match);
+  }
+  const relation = relationOf(first);
+  if (relation === "edited") {
+    const changes = (first.changes ?? []).filter(Boolean);
+    return make("edited", "Edited", `Changed from a copy on ${domainOf(first)}`,
+      `An earlier version of this picture was on ${domainOf(first)} (${firstSeenLabel(first)}), and this one differs from it.${changes.length ? ` What changed, as a model reads it: ${changes.slice(0, 2).join(" ")}` : ""}`, first);
+  }
+  const kind = relation === "cropped" ? "A cropped copy of this picture" : relation === "resized" ? "The same picture, at another size," : "The same picture";
+  const others = edits ? ` ${plural(edits, "edited version")} of it ${edits === 1 ? "was" : "were"} also found.` : "";
+  return make("copy", "Copy", `Already on ${domainOf(first)} · ${shortDate(first)}`, `${kind} was on ${domainOf(first)} before this ${what} (${firstSeenLabel(first)}).${others}`, first);
+}

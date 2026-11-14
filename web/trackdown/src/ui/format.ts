@@ -65,6 +65,10 @@ export const STATUS: Record<Status, { word: string; css: string; short: string; 
   insufficient: { word: "Can't tell", css: "var(--unsure)", color: "#9aa6bf", short: "Can't tell", tag: "Not enough evidence" },
 };
 
+/** A cluster's short label: its status, except a lookup's "insufficient" cluster (a copy sample, or a
+ *  monitored cluster that shares only an account), which is no call rather than a Can't tell verdict. */
+export const clusterShort = (status: Status, lookup: boolean) => lookup && status === "insufficient" ? "No call" : STATUS[status].short;
+
 export const ROLE: Record<Role, { label: string; color: string; mark?: string }> = {
   origin: { label: "Earliest known", color: "#e4b36a", mark: "Earliest known" },
   mutation: { label: "Altered copy", color: "#d9783d", mark: "Altered copy" },
