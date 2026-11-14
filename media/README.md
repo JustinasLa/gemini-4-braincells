@@ -5,6 +5,17 @@ Super VL describes the media, transcribes the text in it (OCR of memes, screensh
 graphics) and lists cautious manipulated-context cues. Each result becomes an
 `evidence(kind='media')` row that the API, the dashboard and the Gemini analyst read.
 
+## Where Nemotron is used
+
+- **Candidate-cluster worker → evidence rows → dashboard + Gemini prompt.** Nemotron reads
+  the images/video thumbnails; the dashboard shows its findings and provenance. Gemini receives
+  each media evidence id, model id, description, bounded OCR (up to 600 characters), reuse and
+  manipulation cues, account/post counts, and OCR-template shared/varying tokens and image counts.
+  It can cite these rows like any other evidence; OCR is not proof of authorship or coordination.
+- **Link lookup (`lookup/`, incoming on `dev/lookup`).** The lookup path sends the images of a
+  submitted X/Bluesky post to Nemotron, then searches the OCR text to find where a screenshot
+  circulates. This integration is being merged separately; it is not part of this worker change.
+
 ```
 python -m media model                  # served model id + root, and the VL check
 python -m media cluster 42 --dry-run   # read one cluster's media, print the findings
@@ -43,8 +54,9 @@ Identical files across accounts are already a detector signal (`duplicate_media`
   (`VERDA_BASE_URL`, `VERDA_MODEL=nemotron-3.5-super-vl`, root
   `nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`); otherwise NVIDIA's build API
   (`NVIDIA_API_KEY`, `NVIDIA_MEDIA_MODEL`).
-- **VL check:** `describe_model()` reads `/models` at start-up, and every response's `model` must
-  name a VL model (`is_vl_model`), else `NotVisionModelError` stops the worker (exit 2) before
+- **Super VL check:** `describe_model()` reads `/models` at start-up, and every response's `model`
+  must contain the Nemotron, Super and VL tokens (`is_super_vl_model`), else
+  `NotVisionModelError` stops the worker (exit 2) before
   anything is stored. Reason: on 2026-11-14 NVIDIA's build API answered an image request for
   `nvidia/nemotron-3.5-super-vl-120b-a12b` under the label
   `private/nvidia/nemotron-3.5-super-120b-a12b`, so we can't claim Super VL from there.
@@ -57,8 +69,10 @@ Identical files across accounts are already a detector signal (`duplicate_media`
   `prompt_version`, from any cluster), rate limit `MEDIA_RPM` (30), exponential backoff with
   jitter on 429/5xx/connection errors (4 tries), and failed blobs are retried with backoff
   (5 min doubling to 6 h), not every pass.
-- **Logging:** every call logs requested and returned model, latency, prompt, completion and
-  reasoning tokens, and finish reason; the same numbers are stored in `detail.usage`.
+- **Logging:** every API attempt, including failures and comparison runs, logs requested and
+  returned model, latency in ms, prompt/completion/reasoning tokens, finish reason, attempt number
+  and outcome (`ok`, `retry`, or an error type). Missing response fields are `None`, not zero.
+  Successful analyses also store tokens in `detail.usage` and latency in `detail.latency_ms`.
 - **Wording:** the prompt forbids guessing intent or calling anyone a bot/shill, and asks for
   "adult content" with no detail for sexual media (some spam clusters are porn ads).
 
@@ -68,8 +82,11 @@ Run on the same frozen sample of real candidate-cluster media (`python -m media.
 the sample and per-item results stay outside git because they point at real posts).
 
 Sample (2026-11-14 00:24 EET): 30 media items, the two most reused per cluster, from 18 live
-candidate clusters (9 `coordinated`, 21 `insufficient` items; 13 images, 13 videos, 2 quote
-posts with media); 27 were still downloadable. Endpoint: Verda, `nemotron-3.5-super-vl`.
+candidate clusters (9 `coordinated`, 21 `insufficient` items); 27 were still downloadable.
+The previously recorded type tally (13 images + 13 videos + 2 quote-media items) totals only 28,
+not 30, so it is not a complete breakdown. `compare.py` samples by unique blob, not fixed type
+quotas; the frozen sample is not retained in this repository, so the remaining types cannot be
+verified here. Endpoint: Verda, `nemotron-3.5-super-vl`.
 "Explicit words" uses a word list in `compare.py` that is broader than the guard's.
 
 | Version | Change | Valid JSON | `content` null | Cut off at `max_tokens` | OCR text found | Explicit words in description | Adult items flagged | p50 latency | Mean completion (reasoning) tokens |
