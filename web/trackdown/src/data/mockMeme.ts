@@ -28,10 +28,12 @@ export function memeFixture(flag = "meme", origin = "http://localhost:3005"): Lo
     match.image_url = `${origin}/__meme_missing__/image.png`;
     match.thumb_url = `${origin}/__meme_missing__/thumb.png`;
   }
+  const upload = flag === "meme-upload"; // an uploaded picture: no time of its own, only crawl-dated matches
+  if (upload) for (const match of matches) if (match.first_seen) match.time_source = "crawl_date";
   return {
-    id: "lk_mock_meme", state: "done", error: null, kind: "x_post", input: { url: "https://social.example/observatory/status/100", text: null },
+    id: "lk_mock_meme", state: "done", error: null, kind: upload ? "image" : "x_post", input: upload ? { url: null, text: null, image: { sha256: "0".repeat(64), mime: "image/svg+xml", bytes: 1 } } : { url: "https://social.example/observatory/status/100", text: null },
     started_at: started, finished_at: started, status: "insufficient", subject_id: "x:submitted", origin_id: null,
-    posts: [{ id: "x:submitted", platform: "x", url: "https://social.example/observatory/status/100", author_handle: "observatory", author_name: "MOCK Observatory", text: "MOCK · trace this fictional observatory meme", created_at: started, time_source: "snowflake", role: "submitted", similarity: null, metrics: {}, metrics_as_of: null, card: null, media_urls: [submittedImage], receipt_id: 11 }],
+    posts: [{ id: "x:submitted", platform: "x", url: "https://social.example/observatory/status/100", author_handle: upload ? null : "observatory", author_name: upload ? null : "MOCK Observatory", text: upload ? "" : "MOCK · trace this fictional observatory meme", created_at: upload ? null : started, time_source: upload ? null : "snowflake", role: "submitted", similarity: null, metrics: {}, metrics_as_of: null, card: null, media_urls: [submittedImage], receipt_id: 11 }],
     accounts: [], pages: [], media: [], edges: [], clusters: [], spread: null,
     receipts: [{ id: 12, tool: "nemotron", endpoint: "mock/image-comparison", summary: "MOCK image comparisons; descriptions are fictional, not a real model call.", source_url: "https://archive.example/meme", query: null, request_id: "mock-meme", latency_ms: 0, cached: false, at: started }],
     assessment: null,

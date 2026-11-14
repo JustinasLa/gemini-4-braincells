@@ -158,7 +158,7 @@ there is an image search to report (the server always sends `image_matches`, `[]
 skips both steps for inputs without an image). Say “edited”, “changed”, “variation”, never
 “fake”, “deepfake”, or claims about intent. Different-looking matches are not counted as variations.
 Dev-only `?mockLookup=meme`, `?mockLookup=meme-empty`, `?mockLookup=meme-failed`, and
-`?mockLookup=meme-blocked` show fictional `.example` results and self-contained images, including
+`?mockLookup=meme-blocked` (and `meme-upload`, an image upload with only crawl-dated matches) show fictional `.example` results and self-contained images, including
 progressive searching/comparing states. The mock submission is a link with a local image; it needs
 no backend. `?mockLookup=meme-loading` holds each loading phase for 15 seconds for inspection.
 All mocks remain dev-only and labelled MOCK. Run `npm run check:meme` for pure checks.
