@@ -101,7 +101,7 @@ text is also near-duplicate text), and adding them would count the same evidence
 
 | Family | Signals | What it measures |
 |---|---|---|
-| content | `duplicate_text`, `near_duplicate_text`, `duplicate_media`, `shared_link` | share of members posting the same thing, times how exclusive the item is to this cluster |
+| content | `duplicate_text`, `near_duplicate_text`, `duplicate_media`, `shared_link`, `semantic_duplicate` | share of members posting the same thing, times how exclusive the item is to this cluster; `semantic_duplicate`: posts that say the same thing in different words (Gemini embeddings `gemini-embedding-001`, cosine >= 0.85; an account counts when it matches at least a third of the other accounts; computed for candidate clusters only) |
 | timing | `burst_synchrony`, `clockwork_posting` | members acting within the same tight time span; accounts acting at near-constant intervals |
 | network | `repeated_co_engagement`, `reply_flood`, `mutual_amplification` | pairs engaging with the same posts again and again; one text replied under many threads; members amplifying each other |
 | identity | `fresh_accounts`, `empty_profiles`, `templated_handles`, `shared_small_pds` | young accounts, no avatar/bio/followers, handles from one template, many accounts on one small independent server |
@@ -113,10 +113,12 @@ Identity signals need account metadata (profile and PLC creation date). Fetching
 so it is done only for members of clusters where some family already looked suspicious, strongest
 first (`signals/enrich.py`).
 
-## Step 4: the null model and the p-value
+## Step 4: two null tests and how they are combined
 
-Synchronised bursts are the core evidence, and they are also what organic crowds produce. So
-the timing signal is tested against a null model instead of a fixed threshold:
+Synchronised bursts and fresh, empty accounts are the core evidence, and organic crowds produce
+both too. So they are tested against null models instead of fixed thresholds.
+
+### (a) Timing
 
 1. **Statistic**: for every shared item with enough member actions, count the members' actions
    inside the densest `sync_seconds` span; pool over items and divide by all member actions on
@@ -133,7 +135,29 @@ counts for half, and a clearly non-significant p counts for nothing. The histogr
 worlds and the observed value are stored with the cluster (`signals.null_distribution`), so the
 dashboard can draw "only k of N random worlds look this synchronised".
 
-The p-value tests timing only. Content and identity signals have no null model yet (see limits).
+### (b) Identity (since v1.5)
+
+Are fresh accounts or empty profiles over-represented in the cluster compared with ordinary
+active accounts (`signals/baseline.py`, `identity_tests` in `signals/score.py`)?
+
+1. **Base rates**: every pass samples 40 random active accounts from the window (seeded, so a
+   replay samples the same ones) and enriches them like cluster members. Over the last 24 h, the
+   base rates are the share of fresh accounts (under 30 days) and of empty profiles (no avatar, no
+   bio, under 5 followers). A test runs only once at least 100 sampled accounts have data.
+2. **Test**: one-sided binomial test of the cluster's count against the smoothed base rate
+   `(k+1)/(n+2)`, so a small sample never claims a zero base rate. A wave of genuinely new users
+   raises the base rate, and the test gets weaker by itself.
+3. Bridged fediverse accounts (Bridgy Fed) don't count for age: their creation date is the date
+   the bridge was set up, so their age is unknown.
+
+### (c) Combining the tests
+
+The tests that could run are combined with Bonferroni: `p = min(1, m × min p_i)` over the `m`
+available tests. Every test's p and the decisive one are stored in
+`signals.null_model.combined`. The `clusters.p_value` column stores at least 1e-30 (a REAL column
+can't hold smaller values); the exact value stays in the JSON.
+
+Content has no null model yet (see limits).
 
 ## Step 5: organic guards (counter-evidence)
 
@@ -147,6 +171,8 @@ as reasons the cluster might be organic:
 | `language_diversity` | members post in several languages |
 | `transparent_automation` | members openly share one custom handle domain (one declared operator, such as a feed service) and are not new |
 | `clock_aligned_posting` | shared posts cluster right after full or half hours, the pattern of independent schedulers |
+| `members_converse` | members reply to each other's posts: a conversation, not a broadcast (spam rings we reviewed had 0 such replies) |
+| `declared_automation` | the name or bio of most accounts over 90 days old says bot, feed or automated alerts; only accounts whose bio was loaded count |
 
 The strongest guard is the cluster's `organic_guard_score`.
 
@@ -157,7 +183,7 @@ The strongest guard is the cluster's `organic_guard_score`.
 - **Status** (thresholds in `signals/config.py`; the version is stored on every cluster as
   `detector_version`):
   - `coordinated` needs **all** of: at least `min_families_coordinated` families fired (score at
-    or above `family_fire`), a timing p-value at or below `max_p_coordinated`, a score at or above
+    or above `family_fire`), a combined p-value (timing and identity tests) at or below `max_p_coordinated`, a score at or above
     `min_score_coordinated`, and the organic guard below `organic_guard_strong`.
   - `likely_organic`: the organic guard is strong and at most one family fired.
   - `insufficient`: everything else, including strong signals with a strong guard. Conflicting
@@ -299,12 +325,13 @@ it on live traffic.
 - **Slow-drip campaigns** spread over hours, run with aged or bought accounts and fully
   paraphrased text, mostly evade it: no burst, no duplicate text, no fresh accounts. They come out
   `insufficient`. Hijacked old accounts posting spam can even look organic.
-- **Timing is the only tested null.** A cluster with duplicate content and fresh accounts but no
-  burst is `insufficient`, not `coordinated`. Identity and content base rates aren't modelled yet.
+- **Content has no null model.** A campaign spread over time on aged accounts has no significant
+  test (timing and identity both look normal), so it stays `insufficient`, even when its content
+  is duplicated or Gemini embeddings show the same message.
 - **Declared automation looks coordinated.** Independent schedulers (clocks, weather, news feeds)
   and one publisher's set of topic-feed accounts post the same thing at the same second. Guards
-  catch schedulers that post on the hour and operators that share a custom handle domain, not all
-  of them. Such clusters can sit on the boundary and change status while they update.
+  catch schedulers that post on the hour, operators that share a custom handle domain, and aged
+  accounts that call themselves bots or feeds in their name or bio, not all of them. Such clusters can sit on the boundary and change status while they update.
 - **Very large rings aren't scored.** A Leiden community bigger than `max_cluster_size` is
   dropped, so one huge ring that the graph can't split into smaller communities is never shown.
 - **Piggybacking on viral items is invisible.** Items used by too many accounts are dropped on

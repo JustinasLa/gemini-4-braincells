@@ -14,7 +14,10 @@ npm run ship                        # build and copy to ../public/trackdown/ for
 ```
 
 URL flags: `?case=tap-water|rhinoceros|bridge|flood|glow` picks an archive case, `?static` skips the intro run.
-`?lookup=<URL-encoded link>` starts a live lookup. In the Vite development server only,
+`?lookup=<URL-encoded link>` starts a live lookup. An image (a meme, a screenshot) starts an image
+lookup from the home screen's Upload image button, by dropping it on the home screen or by pasting
+it into the input (`POST /api/lookup/image`, lookup/README.md); photos over 2 MB or 2048 px are sent
+as a 2048 px JPEG. In the Vite development server only,
 `?mockLookup` runs a progressive fictional fixture; the header, panel and console label it MOCK.
 The fixture is excluded from production builds and never runs by default.
 
@@ -80,7 +83,7 @@ Phones: Fit, TIME/WEB and KEY sit in the map toolbar.
   `api/schemas.py`. Status, confidence, evidence and source URLs are shown as the API returns
   them. Parent links are inferred: a post's parent is the earliest earlier post sharing its link,
   image hash or normalised text.
-- **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise,
+- **Trace a post** calls `POST /api/lookup` with `{url}` for HTTP(S) links or `{text}` otherwise (the API looks up an `@handle` as that Bluesky profile),
   then polls `GET /api/lookup/{id}` every 1.5 seconds for up to 150 seconds. Each response updates
   the step console, cards and receipts. The verdict coin is revealed only for a completed job;
   failures and timeouts leave partial receipts available without a final verdict. Starting another

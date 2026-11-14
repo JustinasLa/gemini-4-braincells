@@ -3,22 +3,56 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from common.config import get_settings
 from lookup.jobs import JobStore, RateLimited
-from lookup.models import LookupInput
-from lookup.service import IMAGE_CALL_S, Deps
+from lookup.models import ImageRef, LookupBody, LookupInput
+from lookup.service import IMAGE_CALL_S, MAX_IMAGE_BYTES, Deps
+from lookup.upload import sniff_image
+from signals.textnorm import normalize_text, word_count
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/lookup", tags=["lookup"])
+
+# A Bluesky handle is a domain name (atproto handle syntax); a DID names the same account.
+_HANDLE_RE = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", re.I
+)
+_DID_RE = re.compile(r"did:(?:plc:[a-z2-7]{24}|web:[a-z0-9.-]+)", re.I)
+
+
+def handle_profile_url(text: str) -> str | None:
+    """The Bluesky profile link for an account typed as text, else None.
+
+    `@name.bsky.social`, `@example.com`, `name.bsky.social` and DIDs are accounts; `@name`
+    without a dot means `name.bsky.social`. A bare domain without `@` (`example.com`) stays text,
+    since people type websites that way too.
+    """
+    t = text.strip()
+    if len(t) > 253 or any(c.isspace() for c in t):
+        return None
+    if _DID_RE.fullmatch(t):
+        return f"https://bsky.app/profile/{t.lower()}"
+    at = t.startswith("@")
+    name = t.removeprefix("@").lower()
+    if at and "." not in name and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", name):
+        name += ".bsky.social"
+    if not _HANDLE_RE.fullmatch(name):
+        return None
+    if at or name.endswith(".bsky.social"):
+        return f"https://bsky.app/profile/{name}"
+    return None
+
 
 _store: JobStore | None = None
 
@@ -105,6 +139,7 @@ def make_deps() -> Deps:
         media_urls=cache.MEDIA_URLS,
         verify_max=s.lookup_verify_max,
         profiles_max=s.lookup_profiles_max,
+        verify_read_s=s.lookup_verify_read_s,
         time_budget_s=s.lookup_time_budget_s,
         second_reading_s=s.lookup_second_reading_s,
     )
@@ -134,7 +169,7 @@ def _client(request: Request) -> str:
 
 @router.post("", status_code=202)
 def start_lookup(
-    body: LookupInput, request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
+    body: LookupBody, request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
 ) -> JSONResponse:
     url = (body.url or "").strip()
     text = (body.text or "").strip()
@@ -144,8 +179,11 @@ def start_lookup(
         if len(url) > 2000 or not url.lower().startswith(("http://", "https://")):
             raise HTTPException(400, "url must be an http(s) link")
         inp = LookupInput(url=url)
+    elif profile := handle_profile_url(text):  # an @handle: look up that Bluesky account
+        inp = LookupInput(url=profile)
     elif text:
-        if len(text.split()) < 5:
+        # word_count counts Japanese/Chinese/Thai text, which has no spaces between words
+        if word_count(normalize_text(text)) < 5:
             raise HTTPException(400, "text needs at least 5 words to search for")
         inp = LookupInput(text=text[:2000])
     else:
@@ -156,6 +194,67 @@ def start_lookup(
         raise HTTPException(429, str(exc)) from exc
     snap = job.snapshot()
     return JSONResponse(snap, status_code=200 if snap["state"] != "running" else 202)
+
+
+def _media_configured() -> bool:
+    s = get_settings()
+    return bool(s.lookup_media and (s.verda_inference_key or s.nvidia_api_key))
+
+
+@router.post("/image", status_code=202)
+async def start_image_lookup(
+    request: Request, jobs: Annotated[JobStore, Depends(get_jobs)]
+) -> JSONResponse:
+    """Trace an uploaded image (a meme, a screenshot): the raw bytes are the request body.
+
+    Nemotron reads it; the text inside drives the same searches as a post's text, so copies,
+    the earliest known copy and reworded variants are found. The bytes stay in the job (memory
+    only, `LOOKUP_JOB_TTL_S`) and are never stored."""
+    if not _media_configured():
+        raise HTTPException(503, "Image lookups need Nemotron, which is not configured here.")
+    too_big = HTTPException(413, f"the image is larger than {MAX_IMAGE_BYTES >> 20} MB")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_IMAGE_BYTES:
+        raise too_big  # before reading any of it
+    try:
+        jobs.check_budget(_client(request))  # a refused client never makes us read the body
+    except RateLimited as exc:
+        raise HTTPException(429, str(exc)) from exc
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > MAX_IMAGE_BYTES:
+            raise too_big
+    data = bytes(buf)
+    mime = sniff_image(data)  # the bytes decide, not the declared content type
+    if mime is None:
+        raise HTTPException(415, "upload a JPEG, PNG, WebP or GIF image")
+    ref = ImageRef(sha256=hashlib.sha256(data).hexdigest(), mime=mime, bytes=len(data))
+    try:
+        job = jobs.start(LookupInput(image=ref), _client(request), image=data)
+    except RateLimited as exc:
+        raise HTTPException(429, str(exc)) from exc
+    snap = job.snapshot()
+    return JSONResponse(snap, status_code=200 if snap["state"] != "running" else 202)
+
+
+@router.get("/{job_id}/image")
+def get_lookup_image(job_id: str, jobs: Annotated[JobStore, Depends(get_jobs)]) -> Response:
+    """The image an image lookup was started with, while its job lives."""
+    job = jobs.get(job_id)
+    upload = job.upload if job is not None else None
+    if upload is None:
+        raise HTTPException(404, "no uploaded image for this lookup id (it may have expired)")
+    data, mime = upload
+    return Response(
+        data,
+        media_type=mime,
+        headers={
+            "cache-control": "private, max-age=3600",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 @router.get("/{job_id}")

@@ -36,13 +36,37 @@ census: the notes say so.
 
 ```
 POST /api/lookup             {"url": "https://x.com/user/status/123"}   or {"text": "..."}
+                             a text that is one Bluesky account (`@name.bsky.social`, `@name`,
+                             `name.bsky.social`, `@example.com`, a DID) is looked up as its
+                             profile link `https://bsky.app/profile/<handle>`; other text needs
+                             5+ words (`signals.textnorm.word_count`: CJK/Thai counted per ~2 chars)
   -> 202 LookupResult (state "running"); repeated input within LOOKUP_CACHE_TTL_S -> cached result
 GET  /api/lookup/{id}/events -> text/event-stream: `event: snapshot` + `data: <LookupResult>` at
                                 once and on every change (checked every 150 ms), `event: ping`
                                 every 10 s; ends after the snapshot whose state isn't "running"
 GET  /api/lookup/{id}        -> LookupResult; the fallback: poll every ~0.6 s until state is
                                 "done" or "failed"
+POST /api/lookup/image       body: the raw image bytes (JPEG, PNG, WebP or GIF, at most 8 MB)
+  -> 202 LookupResult with kind "image"; the same bytes within LOOKUP_CACHE_TTL_S -> cached result
+GET  /api/lookup/{id}/image  -> the uploaded image, while the job lives (404 after that)
 ```
+
+**Image lookups** (the meme / screenshot tracer). The type comes from the file's magic bytes,
+not the declared content type. The bytes stay in the job, in memory, for `LOOKUP_JOB_TTL_S`
+and are never written to disk or the database; the JSON carries only their sha256, type and
+size. The upload is the submitted post (`upload:<sha256[:16]>`, no author, no time). Nemotron
+reads it, and:
+
+- with 5+ words of text in the image, that text drives the same searches as a post's text
+  (web, X, Bluesky; candidates read on their own pages). The earliest copy read on its own page
+  is `origin_id`; copies below 0.8 similarity are reworded variants, counted in a note. A meme
+  also gets " meme" added to the coverage query, which brings up meme pages.
+- with less text (a short caption), or none, there's no exact-phrase search. The coverage step
+  looks for pages about the image by its caption, or by Nemotron's description (never for adult
+  content). Those pages are role "coverage": about the image, never copies or the origin.
+- the upload is never its own origin: with no verified copy, `origin_id` is null.
+
+Search is by text, not pixels: an image with no text and no well-known look finds little.
 
 Trackdown (web/trackdown) opens the stream and falls back to polling when it errors or no
 snapshot arrives within 4 s (a buffering proxy). `deploy/Caddyfile` leaves the stream
@@ -50,7 +74,8 @@ uncompressed and unbuffered. The trace is finished on screen when the `assess` s
 the second reading is added to the panel when it arrives.
 
 Errors: 400 bad input, 429 rate limit (`LOOKUP_MAX_PER_HOUR` overall, `LOOKUP_MAX_PER_IP_PER_HOUR`
-per client), 503 when Oxylabs isn't configured, 404 unknown/expired id.
+per client), 503 when Oxylabs (or, for images, Nemotron) isn't configured, 404 unknown/expired
+id, 413 image over 8 MB, 415 not a JPEG/PNG/WebP/GIF.
 Jobs live in the API process (single uvicorn worker) for `LOOKUP_JOB_TTL_S`.
 
 ## LookupResult (JSON)
@@ -63,8 +88,8 @@ All arrays grow while `state` is `running`; the client re-renders on each poll. 
   "id": "lk_3f9a...",
   "state": "running",                 // running | done | failed
   "error": null,
-  "input": {"url": "https://x.com/user/status/123", "text": null},
-  "kind": "x_post",                   // x_post | x_profile | bsky_post | bsky_profile | web | text
+  "input": {"url": "https://x.com/user/status/123", "text": null},  // image: {"image": {"sha256", "mime", "bytes"}}
+  "kind": "x_post",                   // x_post | x_profile | bsky_post | bsky_profile | web | text | image
   "started_at": "...", "finished_at": null,
   "status": "insufficient",           // matched | insufficient  (see the status rule)
   "subject_id": "x:123",              // the submitted post's id in `posts`, or null
@@ -181,7 +206,11 @@ Step ids: `input`, `post`, `author`, `linked`, `copies_web`, `copies_x`, `copies
    and `media` (the images in parallel) all start at once.
 3. `verify` starts when `copies_x` and `copies_web` are back: their candidates, best match first
    (`LOOKUP_VERIFY_MAX` for the whole run), and the search-hit pages dated before the post. Each
-   verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Candidates
+   verified copy or quote queues its author's profile at once (`LOOKUP_PROFILES_MAX`). Each read
+   of a candidate copy or older page gets `LOOKUP_VERIFY_READ_S` (8 s; Oxylabs `/scrape` p90 is
+   ~7 s): the reading waits for the slowest of them, so a straggler stays an unread mention
+   instead of holding everything back. The step then says "R of N read" (N queued, R came back);
+   "more candidates not read" counts the ones never queued. Candidates
    from the search for an image's text are queued when `media` is done.
 4. `monitor` runs once every search, page and image is in (it needs the link, the text and the
    Bluesky accounts), while `verify` finishes.

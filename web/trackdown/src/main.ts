@@ -4,7 +4,7 @@ import fullCv from "./assets/venus-full-cv.json";
 import venusFullUrl from "./assets/venus-full.webp";
 import { analyze, listLive, liveCase, type ClusterSummary } from "./data/api";
 import { simulatedCases } from "./data/cases";
-import { LookupError, lookupCase, readingReady, startLookup, type LookupResult } from "./data/lookup";
+import { IMAGE_TYPES, LookupError, lookupCase, readingReady, startLookup, type LookupRequest, type LookupResult } from "./data/lookup";
 import { simulateFromInput } from "./data/simulate";
 import { Graph, type Mode } from "./engine/graph";
 import type { TraceCase } from "./types";
@@ -173,7 +173,7 @@ function railSpan(a?: number, b?: number) {
 }
 
 // rail captions are one line in a 300px rail: short forms of the case kickers
-const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Old photo", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live" };
+const SHORT_KICKER: Record<string, string> = { "Historical record": "History", "Breaking news burst": "Breaking news", "Out-of-context photo": "Old photo", "Recycled satire": "Satire", "Token pump": "Token pump", "Your input": "Your input", "Live cluster": "Live", "Live image lookup": "Image" };
 
 const USER_KEY = "soc-trackdown-traces";
 const userCases: TraceCase[] = (() => {
@@ -242,6 +242,15 @@ function setMode(m: Mode) {
   $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
   setTimeout(() => g.fit(undefined, 1100), 380);
 }
+// An uploaded image lives on the server only while its lookup does (1 h): a saved image trace
+// reopened later says so instead of showing a broken image.
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !/\/api\/lookup\/[^/]+\/image$/.test(img.src)) return;
+  const box = img.closest(".media");
+  if (box) box.outerHTML = `<div class="media photo"><span class="cap">Uploaded image · no longer kept on the server (uploads are kept for 1 hour)</span></div>`;
+}, true);
+
 document.addEventListener("click", (e) => {
   const a = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
   if (!a || a.closest("#panel") || a.closest(".event")) return;
@@ -569,8 +578,8 @@ function showHome() {
     <a class="home-back" href="/monitor/">← Live monitor</a>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
-      <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
-      <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
+      <p class="home-tag">Paste a post or drop in a meme. We trace it back to the earliest copy we can find, show its variations, and check whether its spread was coordinated.</p>
+      <form class="home-form" aria-describedby="home-note"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link, an @handle or an image" autocomplete="off" /><label class="btn home-upload" title="Upload an image: a meme or a screenshot (JPEG, PNG, WebP, GIF)">${icon.image}<span class="lbl">Upload image</span><input type="file" accept="${IMAGE_TYPES.join(",")}" aria-label="Upload an image to trace" /></label><button class="btn solid" type="submit">Trace it</button></form>
       <div class="home-ex"><span class="label">Or explore an example</span>${[...sims, ...hist].map(caseBtn).join("")}<p class="home-note" id="home-note">Examples use fictional accounts, except the historical record.</p></div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
@@ -584,6 +593,32 @@ function showHome() {
   $("form", homeEl).addEventListener("submit", (e) => {
     e.preventDefault();
     startTrace(input.value);
+  });
+  // an image comes in three ways: the Image button, a drop anywhere on the home, a paste
+  const imageOf = (files?: FileList | null, items?: DataTransferItemList | null) =>
+    [...(files ?? [])].find((f) => f.type.startsWith("image/"))
+    ?? [...(items ?? [])].find((i) => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile() ?? null;
+  // checked here, before the home screen goes: a HEIC or SVG gets a toast, not a failed trace
+  const traceImage = (f: File) => IMAGE_TYPES.includes(f.type) ? void startTrace(f)
+    : toast(`${f.type.replace("image/", "").toUpperCase() || "That"} images can't be read here. Use a JPEG, PNG, WebP or GIF.`);
+  const file = $<HTMLInputElement>('input[type="file"]', homeEl);
+  file.addEventListener("change", () => { const f = imageOf(file.files); file.value = ""; if (f) traceImage(f); });
+  input.addEventListener("paste", (e) => {
+    const f = imageOf(e.clipboardData?.files, e.clipboardData?.items);
+    if (f) { e.preventDefault(); traceImage(f); }
+  });
+  homeEl.addEventListener("dragover", (e) => {
+    if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
+    e.preventDefault();
+    home.classList.add("drop");
+  });
+  homeEl.addEventListener("dragleave", (e) => { if (!e.relatedTarget || !home.contains(e.relatedTarget as Node)) home.classList.remove("drop"); });
+  homeEl.addEventListener("drop", (e) => {
+    e.preventDefault();
+    home.classList.remove("drop");
+    const f = imageOf(e.dataTransfer?.files, e.dataTransfer?.items);
+    if (f) traceImage(f);
+    else toast("Drop an image file (JPEG, PNG, WebP or GIF).");
   });
   homeEl.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>("[data-hcase]");
@@ -602,9 +637,10 @@ function hideHome() {
     el.remove();
   }, 700);
 }
-async function startTrace(raw: string, mock = false) {
-  const text = raw.trim();
-  if (!text) {
+async function startTrace(raw: LookupRequest, mock = false) {
+  const image = typeof raw === "string" ? null : raw;
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text && !image) {
     homeEl?.querySelector(".home-form")?.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(6px)" }, { transform: "translateX(0)" }], { duration: 300 });
     return;
   }
@@ -683,11 +719,11 @@ async function startTrace(raw: string, mock = false) {
       setStatus(running?.tool ?? null, running ? `${running.text}${running.detail ? ` · ${running.detail}` : ""}` : result.state === "running" ? "Waiting for live receipts…" : "");
     }
   };
-  update({ id: "lookup-pending", state: "running", error: null, input: { url: /^https?:\/\//i.test(text) ? text : null, text: /^https?:\/\//i.test(text) ? null : text }, kind: "text", started_at: new Date().toISOString(), finished_at: null, status: "insufficient", subject_id: null, origin_id: null, posts: [], accounts: [], pages: [], media: [], edges: [], clusters: [], spread: null, receipts: [], assessment: null, steps: [{ id: "input", tool: "you", label: "Start lookup", state: "running", detail: "Requesting live data; no coordination verdict yet.", found: [], started_at: null, ended_at: null }], notes: [] });
+  update({ id: "lookup-pending", state: "running", error: null, input: image ? { url: null, text: null, image: { sha256: "", mime: image.type, bytes: image.size } } : { url: /^https?:\/\//i.test(text) ? text : null, text: /^https?:\/\//i.test(text) ? null : text }, kind: image ? "image" : "text", started_at: new Date().toISOString(), finished_at: null, status: "insufficient", subject_id: null, origin_id: null, posts: [], accounts: [], pages: [], media: [], edges: [], clusters: [], spread: null, receipts: [], assessment: null, steps: [{ id: "input", tool: "you", label: "Start lookup", state: "running", detail: "Requesting live data; no coordination verdict yet.", found: [], started_at: null, ended_at: null }], notes: [] });
   try {
     const result = mock && import.meta.env.DEV
       ? await (await import("./data/mockLookup")).runMockLookup(update, controller.signal)
-      : await startLookup(text, update, controller.signal);
+      : await startLookup(image ?? text, update, controller.signal);
     if (controller.signal.aborted || run !== tracing) return;
     const trace = current!;
     if (result.state === "failed") {
@@ -705,7 +741,8 @@ async function startTrace(raw: string, mock = false) {
     if (controller.signal.aborted || run !== tracing) return;
     const message = error instanceof Error ? error.message : "Lookup failed. Please try again later.";
     // once the primary reading is shown, a late failure keeps that trace instead of starting over
-    if (error instanceof LookupError && error.unavailable && !settled) {
+    // the legacy web analysis and the simulation take text; an image has no fallback
+    if (error instanceof LookupError && error.unavailable && !settled && !image) {
       setStatus(null, "Lookup unavailable; trying the legacy web analysis…");
       toast(`${message} Trying web analysis instead.`);
       let trace: TraceCase | null = null;
