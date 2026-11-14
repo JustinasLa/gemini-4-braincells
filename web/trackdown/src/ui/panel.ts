@@ -16,6 +16,7 @@ export class Panel {
   c: TraceCase | null = null;
   pending = false;
   tab: Tab = "verdict";
+  private shown = ""; // case + tab + pending of the last render: re-rendering the same view skips the entry animation
   onReplay: () => void = () => {};
   onCloseSheet: () => void = () => {};
   constructor(el: HTMLElement, g: Graph) {
@@ -90,7 +91,10 @@ export class Panel {
       ...(sel ? [["folio", "Post", ""]] : []),
     ] as [Tab, string, string][];
     const body = this.pending && this.tab === "verdict" ? this.pendingHtml() : this.tab === "verdict" ? this.verdict(c) : this.tab === "provenance" ? this.provenance(c) : this.tab === "receipts" ? this.receipts(c) : this.detail(sel!);
-    this.el.innerHTML = `<div class="panel-inner"><div class="win-head"><div class="tabs" role="tablist" aria-label="Result">${tabs
+    const view = `${c.id}|${this.tab}|${this.pending}|${this.tab === "folio" ? sel?.id : ""}`;
+    const still = view === this.shown;
+    this.shown = view;
+    this.el.innerHTML = `<div class="panel-inner${still ? " still" : ""}"><div class="win-head"><div class="tabs" role="tablist" aria-label="Result">${tabs
       .map(([id, label, n]) => `<button role="tab" id="tab-${id}" aria-controls="tabpanel" data-tab="${id}" aria-selected="${this.tab === id}" tabindex="${this.tab === id ? 0 : -1}" class="${this.tab === id ? "on" : ""}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`)
       .join("")}</div><button class="sheet-close mobile-only" data-act="sheet-close" aria-label="Close">${sm(icon.close, 14)}</button></div><div class="pane" role="tabpanel" id="tabpanel" aria-labelledby="tab-${this.tab}">${body}</div></div>`;
     const bar = this.el.querySelector<HTMLElement>(".conf .bar i");
@@ -142,8 +146,7 @@ export class Panel {
       </section>
       ${stats}
       ${replay}
-      ${this.spread(c)}
-      <p class="colophon">We judge behaviour (timing, copies, account age), never people or opinions. “Shill” names a cluster's spread, not any account in it.</p>`;
+      ${this.spread(c)}`;
   }
 
   private provenance(c: TraceCase) {
@@ -196,8 +199,7 @@ export class Panel {
   private spread(c: TraceCase) {
     if (!c.lookup) return "";
     const spread = c.lookup.spread;
-    const notes = [...new Set([...(spread?.note ? [spread.note] : []), ...c.lookup.notes])];
-    return `${spread ? `<div class="sect label">Spread · observed sample, not a verdict</div><section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd><dt>Smallest inter-account copy gap</dt><dd>${spread.min_gap_s == null ? "Unknown" : `${spread.min_gap_s} s`}</dd></dl></section>` : ""}${notes.map((note) => `<div class="notice">${esc(note)}</div>`).join("")}`;
+    return `${spread ? `<div class="sect label">Spread · observed sample, not a verdict</div><section class="data-group"><dl><dt>Posts / distinct accounts</dt><dd>${spread.n_posts} / ${spread.n_accounts}</dd><dt>Same-text matches (similarity ≥ 0.8)</dt><dd>${spread.n_verbatim}</dd><dt>First / last (UTC)</dt><dd>${esc(spread.first_at ?? "Unknown")} / ${esc(spread.last_at ?? "Unknown")}</dd><dt>Time span</dt><dd>${spread.span_s == null ? "Unknown" : fmtDur(spread.span_s * 1000)}</dd><dt>Accounts in first hour</dt><dd>${spread.first_hour_accounts ?? "Unknown"}</dd><dt>Smallest inter-account copy gap</dt><dd>${spread.min_gap_s == null ? "Unknown" : `${spread.min_gap_s} s`}</dd></dl></section>` : ""}`;
   }
 
   private detail(n: TraceNode) {
