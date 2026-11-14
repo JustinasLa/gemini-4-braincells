@@ -640,7 +640,8 @@ async function startTrace(raw: LookupRequest, mock = false) {
   // the finale shows once: at settle, or later when the image search that decides it finishes
   let revealed = false;
   const reveal = (trace: TraceCase) => {
-    if (revealed) return;
+    // an uploaded image is nearly always a copy: no coin flip or Copy banner, straight to the trace
+    if (revealed || image) return;
     const r = revealOf(trace);
     if (r === "wait") return;
     revealed = true;
