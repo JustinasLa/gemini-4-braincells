@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.13.4",
+  "checkpoint_id": "01M7CG7AQ55AZRRQ0S174GAXD5",
+  "strategy": "manual-commit",
+  "branch": "valtteri/api-analyze-smoke",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "docs/TEST-POSTS.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 84,
+    "cache_creation_tokens": 78698,
+    "cache_read_tokens": 2354276,
+    "output_tokens": 23949,
+    "api_call_count": 30
+  }
+}
