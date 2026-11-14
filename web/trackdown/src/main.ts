@@ -21,6 +21,7 @@ import { initTooltips } from "./ui/tooltip";
 import { comparisonSource } from "./ui/compare";
 import { initMemeTrace } from "./ui/variations";
 import { mountStory } from "./ui/story";
+import { PANEL_MIN, clampPanel, panelMax, parseSaved, stepPanel } from "./ui/panelwidth";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
 
@@ -93,62 +94,72 @@ const g = new Graph(stage);
 {
   const grip = $("#panel-grip");
   const KEY = "trackdown.panelW";
-  const MIN = 320;
-  const maxW = () => Math.max(MIN, Math.min(960, innerWidth - 380)); // leave the canvas room to read
-  const setW = (w: number | null) => {
-    if (w == null) app.style.removeProperty("--panel-w");
-    else app.style.setProperty("--panel-w", `${Math.round(Math.min(maxW(), Math.max(MIN, w)))}px`);
-    grip.setAttribute("aria-valuenow", String(Math.round($("#panel").getBoundingClientRect().width || w || 0)));
+  // `want` is the width the user chose; what's applied is that, clamped to the current window
+  let want: number | null = null;
+  const apply = () => {
+    const max = panelMax(innerWidth);
+    grip.setAttribute("aria-valuemax", String(max));
+    if (want == null) {
+      app.style.removeProperty("--panel-w");
+      grip.setAttribute("aria-valuenow", String(Math.round(parseFloat(getComputedStyle(app).getPropertyValue("--panel-w")) || 400)));
+    } else {
+      const w = clampPanel(want, innerWidth);
+      app.style.setProperty("--panel-w", `${w}px`);
+      grip.setAttribute("aria-valuenow", String(w));
+    }
   };
+  const current = () => clampPanel(want ?? (parseFloat(getComputedStyle(app).getPropertyValue("--panel-w")) || 400), innerWidth);
   const save = () => {
     try {
-      const v = app.style.getPropertyValue("--panel-w");
-      v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY);
+      want == null ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, String(want));
     } catch {}
   };
   try {
-    const saved = parseFloat(localStorage.getItem(KEY) || "");
-    if (saved) setW(saved);
+    want = parseSaved(localStorage.getItem(KEY));
   } catch {}
-  grip.setAttribute("aria-valuemin", String(MIN));
+  grip.setAttribute("aria-valuemin", String(PANEL_MIN));
+  apply();
   grip.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     grip.setPointerCapture(e.pointerId);
     app.classList.add("resizing");
-    const move = (ev: PointerEvent) => setW(innerWidth - ev.clientX);
+    const startX = e.clientX;
+    const startW = current();
+    const move = (ev: PointerEvent) => {
+      want = clampPanel(startW + (startX - ev.clientX), innerWidth);
+      apply();
+    };
     const up = () => {
       grip.removeEventListener("pointermove", move);
       grip.removeEventListener("pointerup", up);
       grip.removeEventListener("pointercancel", up);
+      grip.removeEventListener("lostpointercapture", up);
       app.classList.remove("resizing");
       save();
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", up);
     grip.addEventListener("pointercancel", up);
+    grip.addEventListener("lostpointercapture", up);
   });
   grip.addEventListener("dblclick", () => {
-    setW(null);
+    want = null;
+    apply();
     save();
   });
   grip.addEventListener("keydown", (e) => {
-    const step = e.shiftKey ? 80 : 20;
-    const w = $("#panel").getBoundingClientRect().width;
-    if (e.key === "ArrowLeft") setW(w + step);
-    else if (e.key === "ArrowRight") setW(w - step);
-    else if (e.key === "Home") setW(maxW());
-    else if (e.key === "End") setW(MIN);
-    else return;
+    if (e.key === "Escape") return;
+    e.stopPropagation(); // the grip's keys are its own, never a graph or playback shortcut
+    const w = stepPanel(current(), e.key, e.shiftKey, innerWidth);
+    if (w == null) return;
     e.preventDefault();
-    e.stopPropagation(); // not also a graph-selection arrow key
+    want = w;
+    apply();
     save();
   });
-  // keep a saved width inside the window when it shrinks
-  addEventListener("resize", () => {
-    const v = parseFloat(app.style.getPropertyValue("--panel-w"));
-    if (v) setW(v);
-  });
+  // a smaller window squeezes the panel; the chosen width comes back when the window grows again
+  addEventListener("resize", apply);
 }
 (window as unknown as { __g: Graph }).__g = g;
 const panel = new Panel($("#panel"), g);
