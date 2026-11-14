@@ -62,8 +62,18 @@ export function swarmStrip(report: SwarmReport, opts: { live?: string | null; st
   const chips = swarmChips(report);
   const why = report.verdict === "unclear" && report.why_unclear?.trim() ? `<p class="sw-why">${esc(report.why_unclear.trim())}</p>` : "";
   const note = !opts.stack && report.basis_note?.trim() ? `<p class="sw-note">${esc(report.basis_note.trim())}</p>` : "";
+  // score and guard measure different signals, not complementary probabilities or confidence.
+  const strength = (value: number) => report.n_accounts > 0 && Number.isFinite(value) && value >= 0 && value <= 1 ? `${Math.round(value * 100)}/100` : "Unavailable";
+  const meaning = report.verdict === "organic" ? "The spread looks organic."
+    : report.verdict === "swarm" ? "The spread shows signs of coordination."
+    : "The evidence is insufficient or conflicting.";
   return `<section class="st-sec sw${opts.stack ? " stack" : ""}" data-verdict="${esc(report.verdict)}" style="--vc:${v.css}" aria-labelledby="sw-word">
     <h2 class="sw-word" id="sw-word">${esc(v.word)}</h2>
+    <div class="sw-confidence" role="group" aria-label="Confidence and signal strengths">
+      <p class="sw-certainty">Confidence: <b>not calibrated</b></p>
+      <dl class="sw-scores"><div><dt>Swarm signal</dt><dd>${strength(report.score)}</dd></div><div><dt>Organic signal</dt><dd>${strength(report.guard)}</dd></div></dl>
+      <p class="sw-limit">${meaning} These are signal strengths, not probabilities. Whether the content is true or false is not assessed here.</p>
+    </div>
     ${plot(report)}
     <div class="sw-say">
       ${chips.length ? `<ul class="sw-chips">${chips.map((c) => `<li>${c.label ? `<b>${esc(c.label)}</b>` : ""}${esc(c.summary)}</li>`).join("")}</ul>` : why}
