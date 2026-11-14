@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datasketch import MinHash, MinHashLSH
 
 from signals.config import DetectorConfig
-from signals.textnorm import normalize_text, tokens
+from signals.textnorm import is_cjk_char_token, normalize_text, tokens
 from signals.window import WindowData
 
 CONTENT_KINDS = ("text", "neardup", "media", "url")
@@ -115,12 +115,21 @@ class MinHashCache:
             mh = MinHash(
                 num_perm=self.num_perm, seed=1, permutations=self._perms, scheme=self._scheme
             )
-            shingles = {" ".join(toks[i : i + 3]) for i in range(max(1, len(toks) - 2))}
+            shingles = _shingles(toks)
             mh.update_batch([s.encode() for s in sorted(shingles)])
             if len(self._d) >= self.capacity:
                 self._d.clear()
             self._d[uri] = mh
         return mh
+
+
+def _shingles(toks: list[str]) -> set[str]:
+    """Word 3-shingles. Japanese/Chinese posts (mostly one-character tokens) use 5-character
+    shingles instead: with 3 characters, templated share posts that differ in one word (an app's
+    "today's result: X") pass the 0.6 Jaccard bar, while light edits of a copy still do with 5."""
+    cjk = sum(1 for t in toks if is_cjk_char_token(t))
+    k = 5 if cjk * 2 >= len(toks) else 3
+    return {" ".join(toks[i : i + k]) for i in range(max(1, len(toks) - k + 1))}
 
 
 def _text_ok(norm: str, toks: list[str], cfg: DetectorConfig) -> bool:

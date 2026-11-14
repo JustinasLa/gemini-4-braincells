@@ -137,6 +137,25 @@ def test_japanese_and_thai_copy_paste_are_text_keys(text):
     assert [k for k in keys if k[0] == "neardup"]
 
 
+def test_templated_japanese_share_posts_are_not_near_duplicates():
+    # Review of #52: one app's share text that differs in one word ("today's result: X") must
+    # not link accounts; 3-character shingles put these at Jaccard ~0.63, 5-character at ~0.51.
+    a = "ポケモンスリープで今日の睡眠リサーチの結果、カビゴンが出ました"
+    b = "ポケモンスリープで今日の睡眠リサーチの結果、ピカチュウが出ました"
+    wd = WindowData(start=0, end=600)
+    for i, t in enumerate([a, b]):
+        wd.posts.append(
+            WPost(
+                uri=f"at://did:plc:t{i}/app.bsky.feed.post/1",
+                did=f"did:plc:t{i}",
+                t=float(i),
+                text=t,
+                text_hash=text_hash(t),
+            )
+        )
+    assert not [k for k in build_keys(wd, DEFAULT)]
+
+
 def test_short_japanese_greeting_is_not_a_key():
     assert not [k for k in build_keys(_same_text_window("おはようございます"), DEFAULT)]
 

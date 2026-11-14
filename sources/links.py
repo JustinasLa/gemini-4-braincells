@@ -53,9 +53,17 @@ def _clean(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
+_FILLER = frozenset("ーｰ〜")  # long-vowel marks, also typed in rows as divider lines
+
+
 def _unspaced_chars(s: str) -> int:
-    """Characters of unspaced scripts in `s`, not counting combining marks (Thai vowel signs)."""
-    return sum(1 for c in UNSPACED_RE.findall(s) if not unicodedata.category(c).startswith("M"))
+    """Characters of unspaced scripts in `s`, not counting combining marks (Thai vowel signs)
+    or long-vowel marks (a ーーーー divider line is not text)."""
+    return sum(
+        1
+        for c in UNSPACED_RE.findall(s)
+        if c not in _FILLER and not unicodedata.category(c).startswith("M")
+    )
 
 
 def _mostly_unspaced(s: str) -> bool:
@@ -82,10 +90,14 @@ def _cut_chars(s: str, max_chars: int, min_chars: int) -> str:
         out = joined
     if out and _unspaced_chars(out) >= min_chars:
         return out
-    end = max_chars
+    start = 0
+    if _unspaced_chars(s[:max_chars]) < min_chars:  # leading emoji, digits or Latin: skip them
+        m = UNSPACED_RE.search(s)
+        start = m.start() if m else 0
+    end = start + max_chars
     while end < len(s) and unicodedata.category(s[end]).startswith("M"):
         end += 1
-    return s[:end]
+    return s[start:end]
 
 
 def claim_phrase(
@@ -114,7 +126,8 @@ def claim_phrase(
         if _unspaced_chars(best) < min_chars:
             return None
         # End punctuation differs between copies (。！ or none), so it isn't searched for.
-        return _cut_chars(best, max_chars, min_chars).rstrip(",;:、，。！？!?. ")
+        phrase = _cut_chars(best, max_chars, min_chars).rstrip(",;:、，。！？!?. ")
+        return phrase if _unspaced_chars(phrase) >= min_chars else None
     words = best.split()
     if len(words) < min_words:
         return None

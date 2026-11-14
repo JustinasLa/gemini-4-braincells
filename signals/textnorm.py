@@ -74,6 +74,11 @@ def normalize_text(text: str | None) -> str:
     return _WS_RE.sub(" ", t).strip()
 
 
+def is_cjk_char_token(tok: str) -> bool:
+    """A one-character token from a kana or CJK ideograph (see tokens())."""
+    return len(tok) == 1 and _CJK_RE.match(tok) is not None
+
+
 def tokens(norm_text: str) -> list[str]:
     """Words of a normalised text. Kana and CJK ideographs (Japanese, Chinese) are one token per
     character; words of every other script are unchanged."""

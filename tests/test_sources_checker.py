@@ -106,6 +106,15 @@ def test_claim_phrase_unspaced_review_cases():
         "我们"
     )
     assert claim_phrase(["ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ"]) == "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ"
+    # Filler is never the phrase: divider lines, leading emoji or digits.
+    notice = (
+        "【お知らせ】\nーーーーーーーーーーーーーーーーーーーー\n明日のライブは中止になりました。"
+    )
+    assert claim_phrase([notice]) == "明日のライブは中止になりました"
+    assert claim_phrase(["🔥" * 40 + " 東京で火災が発生しました原因は調査中です"]) == (
+        "東京で火災が発生しました原因は調査中です"
+    )
+    assert claim_phrase(["ーーーーーーーーーーーーーーーー"]) is None
 
 
 def test_check_builds_page_and_search_evidence_with_urls():
