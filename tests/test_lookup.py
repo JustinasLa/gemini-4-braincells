@@ -1513,3 +1513,40 @@ def test_title_of_a_reply_that_starts_with_its_own_mention():
 """
     m = parse_post_page(md, SUBJ).main
     assert m.text == "@carol is right about the ferry times"
+
+
+@pytest.mark.parametrize(
+    ("title", "body", "want"),
+    [
+        # Sol review r2: a reply handle that extends the body's own first mention
+        (
+            "@caroline @carol is right about the ferry times",
+            "[@carol](/carol) is right Show more",
+            "@carol is right about the ferry times",
+        ),
+        (
+            "@carol @carol is right about the ferry times",
+            "[@carol](/carol) is right Show more",
+            "@carol is right about the ferry times",
+        ),
+        # truncated text with no space in it: the cut first word still lines up
+        (
+            "@bob @carol你好世界今天真好",
+            "[@carol](/carol)你好... Show more",
+            "@carol你好世界今天真好",
+        ),
+        ("@bob 你好世界今天真好啊", "你好…", "你好世界今天真好啊"),
+    ],
+)
+def test_title_reply_prefix_cut_lines_up_with_the_body(title, body, want):
+    md = f"""# Ada Example on X: "{title}"
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)[@ada\\_example](/ada_example)
+
+  {body}
+
+  [9:50 PM · Nov 13, 2026](/ada_example/status/{SUBJ})
+"""
+    assert parse_post_page(md, SUBJ).main.text == want

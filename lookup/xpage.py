@@ -48,6 +48,8 @@ _LINKS_ONLY = re.compile(r"^(?:\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|\[[^\]]*\]\([^)
 _HEADER_LINES = 4  # name, up to two badge lines, @handle
 _LEADING_MENTIONS = re.compile(r"^(?:@[A-Za-z0-9_]{1,15}\s+)+")
 _ONE_MENTION = re.compile(r"^@[A-Za-z0-9_]{1,15}\s+")
+_HANDLE_START = re.compile(r"^@[A-Za-z0-9_]+")
+_ALIGN_CHARS = 12  # enough to tell the body's start apart; links differ after (t.co in titles)
 # X page controls that sit inside a post's text block but are not its words
 _CHROME = frozenset(("Show more", "GIF", "Made with AI", "Quote", "00:00", "Show translation"))
 _TITLE = re.compile(r'^# (.+?) on X: "(.*)"\s*$', re.S)
@@ -338,18 +340,30 @@ def _title_words(full: str, body: str) -> str:
     """The title's text without the @handles a reply's title starts with. The post body (and
     screenshots of it) show those apart from the text ("Replying to"), so they aren't its words;
     a body may still start with a mention of its own. Mentions are cut until the title lines up
-    with the body's first word; with nothing to line up with, a body that doesn't start with a
+    with the start of the body; with nothing to line up with, a body that doesn't start with a
     mention means all of them go."""
-    first = body.split(maxsplit=1)[0] if body.strip() else ""
     rest = full
-    while first:
-        if rest.startswith(first):
+    while True:
+        if _lines_up(rest, body):
             return rest
         m = _ONE_MENTION.match(rest)
         if not m:
             break
         rest = rest[m.end() :]
     return full if body.startswith("@") else _LEADING_MENTIONS.sub("", full)
+
+
+def _lines_up(title: str, body: str) -> bool:
+    """The title starts like the body: same first characters (a truncated body ends in an
+    ellipsis, so that is ignored), and the same whole first @handle when the body starts with
+    one ('@carol' is not '@caroline')."""
+    key = body.rstrip(" .…\n")[:_ALIGN_CHARS]
+    if not key or not title.startswith(key):
+        return False
+    if bm := _HANDLE_START.match(body):
+        tm = _HANDLE_START.match(title)
+        return tm is not None and tm.group(0) == bm.group(0)
+    return True
 
 
 def parse_post_page(md: str, status_id: str) -> PostPage:
