@@ -30,7 +30,7 @@ export function mountVariations(panel: HTMLElement, trace: TraceCase, tab: strin
   if (!state?.enabled) return;
   // the phone verdict bar shows the image search's progress whichever panel tab is open
   if (peek && (state.searching || state.comparing)) peek.innerHTML = `<span class="pk-t"><b>${state.searching ? "Searching for earlier copies…" : "Comparing variations…"}</b><span>${trace.mock ? "MOCK · " : ""}Meme trace · view progress</span></span><span class="pk-go">Open ↑</span>`;
-  if (!["verdict", "receipts"].includes(tab)) return;
+  if (tab !== "verdict") return;
   const count = state.groups.reduce((total, group) => total + group.matches.length, 0);
   const original = state.origin;
   const finding = trace.lookup ? memeFinding(trace.lookup) : null;

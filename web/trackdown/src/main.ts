@@ -126,21 +126,21 @@ function setInsets() {
 
 // ---------------------------------------------------------------- header
 /** The header chip: the verdict when there is one; for a lookup without one, the image finding
- *  (or "Live trace"), never "Can't tell". */
-function chipOf(c: TraceCase): { short: string; css: string } {
+ *  (or no chip at all), never "Can't tell". */
+function chipOf(c: TraceCase): { short: string; css: string } | null {
   if (hasVerdict(c)) return STATUS[c.status];
   const finding = c.lookup ? memeFinding(c.lookup) : null;
-  return finding && finding !== "pending" ? { short: finding.word, css: finding.color } : { short: "Live trace", css: "var(--unsure)" };
+  return finding && finding !== "pending" ? { short: finding.word, css: finding.color } : null;
 }
 function renderResources(c: TraceCase) {
   const v = chipOf(c);
   $("#title").textContent = c.title;
   const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
-  $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
+  $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center">${v ? `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>` : ""}${tag}</span>`;
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
-  peek.style.setProperty("--vc", v.css);
-  peek.innerHTML = `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span><span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
+  peek.style.setProperty("--vc", v?.css ?? "var(--unsure)");
+  peek.innerHTML = `${v ? `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>` : ""}<span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
   const empty = !hasChain(c) && !c.findingsOnly && !c.lookup; // a link lookup draws what it collected
   if (empty) app.dataset.empty = "";
   else delete app.dataset.empty;
