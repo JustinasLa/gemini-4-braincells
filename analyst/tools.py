@@ -14,6 +14,7 @@ already appear in this cluster's posts or evidence, or in an earlier tool result
 """
 
 import logging
+import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -157,25 +158,28 @@ class WebCache:
         self._failure_ttl = failure_ttl_s
         self._max_entries = max_entries
         self._data: dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
 
     def get(self, key: str) -> tuple[bool, Any]:
-        hit = self._data.get(key)
-        if hit:
-            if time.monotonic() < hit[0]:
-                return True, hit[1]
-            del self._data[key]
-        return False, None
+        with self._lock:
+            hit = self._data.get(key)
+            if hit:
+                if time.monotonic() < hit[0]:
+                    return True, hit[1]
+                del self._data[key]
+            return False, None
 
     def put(self, key: str, value: Any) -> None:
-        now = time.monotonic()
-        expired = [k for k, (expires, _) in self._data.items() if expires <= now]
-        for k in expired:
-            del self._data[k]
-        self._data.pop(key, None)  # replacing a key refreshes its insertion order
-        if len(self._data) >= self._max_entries:
-            del self._data[next(iter(self._data))]  # oldest insertion first
-        ttl = self._ttl if value is not None else self._failure_ttl
-        self._data[key] = (now + ttl, value)
+        with self._lock:
+            now = time.monotonic()
+            expired = [k for k, (expires, _) in self._data.items() if expires <= now]
+            for k in expired:
+                del self._data[k]
+            self._data.pop(key, None)  # replacing a key refreshes its insertion order
+            if len(self._data) >= self._max_entries:
+                del self._data[next(iter(self._data))]  # oldest insertion first
+            ttl = self._ttl if value is not None else self._failure_ttl
+            self._data[key] = (now + ttl, value)
 
 
 # --- declarations the model sees (JSON schema, Gemini function calling) ---

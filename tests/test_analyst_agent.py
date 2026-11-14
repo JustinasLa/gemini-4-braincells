@@ -227,6 +227,34 @@ def test_cache_replacing_a_key_does_not_evict_another_result():
     assert cache.get("third") == (True, ["new"])
 
 
+def test_expired_cache_gets_are_safe_across_model_comparison_threads(monkeypatch):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    class SlowReads(dict):
+        def get(self, key):
+            hit = super().get(key)
+            time.sleep(0.01)  # make concurrent readers overlap before deleting expired data
+            return hit
+
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 100)
+    cache = WebCache(ttl_s=1)
+    cache.put("expired", ["hit"])
+    cache._data = SlowReads(cache._data)
+    monkeypatch.setattr("analyst.tools.time.monotonic", lambda: 102)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        assert list(pool.map(cache.get, ["expired"] * 8)) == [(False, None)] * 8
+
+
+def test_cache_capacity_is_safe_across_concurrent_insertions():
+    from concurrent.futures import ThreadPoolExecutor
+
+    cache = WebCache(max_entries=8)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda key: cache.put(str(key), [key]), range(1000)))
+    assert len(cache._data) == 8
+
+
 def test_cached_page_gets_each_clusters_own_sharing_counts():
     from dataclasses import replace
 
