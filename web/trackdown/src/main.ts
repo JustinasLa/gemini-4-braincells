@@ -149,7 +149,7 @@ function renderResources(c: TraceCase) {
   const v = chipOf(c);
   $("#title").textContent = c.title;
   const tag = c.mock ? '<span class="tag sim">MOCK · fictional data</span>' : c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : "";
-  $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center">${v ? `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>` : ""}${tag}</span>`;
+  $("#badges").innerHTML = tag; // the simulated / historical tag only: the answer is in the result, not a header chip
   const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
   const peek = $("#peek");
   peek.style.setProperty("--vc", v?.css ?? "var(--unsure)");

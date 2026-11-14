@@ -3,12 +3,13 @@ import { hasVerdict, modelTool, readingsDisagree, readingsOf, type LookupAssessm
 import type { Graph } from "../engine/graph";
 import type { TraceCase, TraceNode } from "../types";
 import { coinImg } from "./coin";
-import { esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, markRuns, relOf, roleOf, STATUS, TOOL } from "./format";
+import { esc, fmtDate, fmtDur, fmtNum, httpUrl, isLineageEdge, markRuns, roleOf, STATUS, TOOL } from "./format";
 import { PLATFORM } from "./card";
 import { cropHtml } from "./crop";
 import { icon } from "./icons";
 import { coordinationNote, factualFindings } from "./findings";
 import { mountVariations } from "./variations";
+import { hasStory } from "./story";
 
 const LEAN: Record<string, string> = { organic_looking: "looks organic", copy_campaign_looking: "looks like a copy campaign", unclear: "unclear" };
 const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" height="${n}"`);
@@ -127,6 +128,10 @@ export class Panel {
     const replay = hasChain(c) || c.lookup ? `<div class="replay"><button class="btn" data-act="replay">${sm(icon.play)} ${c.lookup ? "Replay" : "Replay"}</button></div>` : "";
     // a lookup answers first, in one sentence; the rest of the reading and the sources fold under it
     const [lead, rest] = leadSentence(c.summary);
+    // a picture trace: its answer is the brief above (ui/variations.ts); here only the call and the sources
+    if (hasStory(c)) return `
+      <p class="meme-note">${esc(hasVerdict(c) ? `${STATUS[c.status].word}: ${STATUS[c.status].tag.toLowerCase()}, in a group we watch.` : "No coordination call.")}</p>
+      <details class="more-sources"><summary>Sources</summary>${factualFindings(c.lookup)}</details>`;
     return `
       ${c.lookup && lead ? `<section class="answer" aria-label="What we found"><p class="answer-lead">${esc(lead)}</p>${rest ? `<details><summary>More</summary><p class="lookup-message">${esc(rest)}</p></details>` : ""}</section>` : ""}
       ${!hasVerdict(c) ? `<section class="verdict noverdict" aria-label="Coordination">
@@ -176,19 +181,8 @@ export class Panel {
     const outE = c.edges.filter((e) => e.from === n.id && isLineageEdge(e, n, nodes.get(e.to)));
     const shotOf = c.edges.filter((e) => e.from === n.id && e.rel === "screenshot_of" && nodes.has(e.to));
     const shownIn = c.edges.filter((e) => e.to === n.id && e.rel === "screenshot_of" && nodes.has(e.from));
-    const other = c.edges.filter((e) => e.to === n.id && !isLineageEdge(e, nodes.get(e.from), n) && e.rel !== "screenshot_of" && nodes.has(e.from));
     const a = n.author;
     const fresh = (a.ageDays ?? 999) < 30;
-    const rel = inE
-      .concat(other)
-      .map((e) => {
-        const p = nodes.get(e.from);
-        if (!p) return "";
-        const when = n.undated || p.undated || n.timeUnknown || p.timeUnknown ? "" : `, ${fmtDur(n.t - p.t)} apart`;
-        const label = relOf(e.rel).label;
-        return `<div><b>${esc(label[0].toUpperCase() + label.slice(1))}${e.sim != null ? ` · match ${e.sim.toFixed(2)}` : ""}</b> from <a href="#" data-go="${esc(p.id)}">${esc(p.author.name)}</a>${when}${e.tool ? ` <span class="rel-by">· ${esc(TOOL[e.tool]?.long ?? e.tool)}</span>` : ""}.${e.note ? ` <span class="rel-note">${esc(e.note)}.</span>` : ""}</div>`;
-      })
-      .join("");
     // a screenshot link describes the screenshot, never a person
     const shotLine = (e: TraceCase["edges"][number], peer: TraceNode, text: string) => `<div><b>${text}</b> <a href="#" data-go="${esc(peer.id)}">${esc(peer.author.name)}</a>${e.sim != null ? ` · word similarity ${e.sim.toFixed(2)}` : ""}${e.tool ? ` <span class="rel-by">· ${esc(TOOL[e.tool]?.long ?? e.tool)}</span>` : ""}.${e.note ? ` <span class="rel-note">${esc(e.note)}.</span>` : ""}</div>`;
     const shots = [
@@ -209,7 +203,6 @@ export class Panel {
       </div>
       ${this.realData(n)}
       ${shots ? `<div class="rel">${shots}</div>` : ""}
-      ${rel ? `<div class="rel">${rel}</div>` : n.role === "origin" ? `<div class="rel"><b>Earliest copy we found.</b> Nothing older matched; an older copy could still exist offline.</div>` : ""}
       <div class="navrow">
         ${inE[0] ? `<button class="btn" data-go="${esc(inE[0].from)}">${sm(icon.arrowL)} Earlier post</button>` : ""}
         ${outE[0] ? `<button class="btn" data-go="${esc(outE[0].to)}">Later post ${sm(icon.arrowR)}</button>` : ""}
