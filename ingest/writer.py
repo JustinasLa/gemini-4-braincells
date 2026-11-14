@@ -38,6 +38,11 @@ WHERE t.uri = d.uri AND t.deleted_at IS NULL
 """
 
 
+# What a malformed row can raise when written: Postgres rejecting it, or the driver unable to
+# encode it (UnicodeEncodeError is a ValueError). Both mean "skip this row", never "stop ingest".
+_ROW_ERRORS = (psycopg.Error, ValueError)
+
+
 def _hour(dt: datetime) -> datetime:
     return dt.replace(minute=0, second=0, microsecond=0)
 
@@ -120,7 +125,7 @@ class Writer:
         and skip only the rows Postgres rejects."""
         try:
             return self._flush(batch, host, events_per_s, safe=False)
-        except psycopg.Error as exc:
+        except _ROW_ERRORS as exc:
             if self.conn.broken or self.conn.closed:
                 raise  # the database is gone: let the process fail and restart
             log.warning(
@@ -138,7 +143,7 @@ class Writer:
             try:
                 with self.conn.transaction():  # savepoint: a bad row rolls back alone
                     cur.execute(sql, row)
-            except psycopg.Error as exc:
+            except _ROW_ERRORS as exc:
                 if self.conn.broken or self.conn.closed:
                     raise
                 self.rows_skipped += 1
@@ -155,11 +160,11 @@ class Writer:
         if batch.n == 0:
             return 0.0
         t0 = time.monotonic()
+        new_hours = sorted(batch.hours() - self._hours_ready)
         with self.conn.transaction():
             cur = self.conn.cursor()
-            for h in sorted(batch.hours() - self._hours_ready):
+            for h in new_hours:
                 cur.execute("SELECT noise_ensure_partitions(%s, %s)", (h, h))
-                self._hours_ready.add(h)
             dids = batch.dids()
             if dids:
                 cur.execute(
@@ -206,12 +211,13 @@ class Writer:
                     ]
                 self._many(cur, _ACTION_SQL[table], params, safe, table)
             for table, rows in batch.deletes.items():
-                cur.execute(
-                    _DELETE_SQL.format(table=table),
-                    ([d.uri for d in rows], [d.seen_at for d in rows]),
-                )
+                if safe:  # one delete per savepoint, so a bad one is skipped alone
+                    params = [([d.uri], [d.seen_at]) for d in rows]
+                else:
+                    params = [([d.uri for d in rows], [d.seen_at for d in rows])]
+                self._many(cur, _DELETE_SQL.format(table=table), params, safe, f"{table} delete")
             if batch.account_events:
-                self._account_events(cur, batch.account_events)
+                self._account_events(cur, batch.account_events, safe)
             if batch.last_time_us is not None:
                 cur.execute(
                     """
@@ -231,12 +237,16 @@ class Writer:
                         events_per_s,
                     ),
                 )
+        # Only after commit: a rolled-back flush also rolled back its CREATE TABLE.
+        self._hours_ready.update(new_hours)
         self.rows_written += batch.n
         return time.monotonic() - t0
 
-    @staticmethod
-    def _account_events(cur: psycopg.Cursor, events: list[AccountEvent]) -> None:
-        cur.executemany(
+    def _account_events(
+        self, cur: psycopg.Cursor, events: list[AccountEvent], safe: bool = False
+    ) -> None:
+        self._many(
+            cur,
             """
             INSERT INTO account_events (did, kind, active, status, handle, seq, time_us, event_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING
@@ -245,20 +255,27 @@ class Writer:
                 (e.did, e.kind, e.active, e.status, e.handle, e.seq, e.time_us, e.event_time)
                 for e in events
             ],
+            safe,
+            "account event",
         )
+        status, handle = [], []
         for e in events:
             at = e.event_time or us_to_dt(e.time_us)
             if e.kind == "account" and e.status:
-                cur.execute(
-                    "UPDATE accounts SET status = %s, status_at = %s WHERE did = %s "
-                    "AND (status_at IS NULL OR status_at <= %s)",
-                    (e.status, at, e.did, at),
-                )
+                status.append((e.status, at, e.did, at))
             elif e.kind == "identity" and e.handle:
-                cur.execute(
-                    "UPDATE accounts SET handle = %s WHERE did = %s",
-                    (e.handle, e.did),
-                )
+                handle.append((e.handle, e.did))
+        for p in status:  # in event order, as before
+            self._many(
+                cur,
+                "UPDATE accounts SET status = %s, status_at = %s WHERE did = %s "
+                "AND (status_at IS NULL OR status_at <= %s)",
+                [p],
+                safe,
+                "account status",
+            )
+        for p in handle:
+            self._many(cur, "UPDATE accounts SET handle = %s WHERE did = %s", [p], safe, "handle")
 
     def maintain(self, retention_hours: int, likes_retention_hours: int | None = None) -> list[str]:
         """Create partitions for the next hours; drop raw partitions past retention.

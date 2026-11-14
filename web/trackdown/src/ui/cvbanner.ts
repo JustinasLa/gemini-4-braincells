@@ -2,6 +2,7 @@
 // Keypoints and match scores come from OpenCV ORB run on the painting (assets/venus-cv.json).
 import cv from "../assets/venus-cv.json";
 import venusUrl from "../assets/venus-banner.webp";
+import { MONO } from "./format";
 
 interface Pt { x: number; y: number; s: number; score: number; pin?: boolean; fx?: number; fy?: number } // pin: always shown (covers nudity), showing the picture at fx, fy
 const PTS = (cv as { points: Pt[] }).points;
@@ -82,7 +83,6 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
   const hidden = new Set<number>();
   const quiet = new Set<number>(); // pins under text: box only, no score over the words
   const offLinks = new Set<number>();
-  const avoidDone = new Set<string>();
   let avoidKey = "";
   const draw = (now: number) => {
     if (stopped || !canvas.isConnected) return;
@@ -124,15 +124,14 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
       if (!patches.length && pic.complete) pts0.forEach((p, i) => patches.push(warpPatch(pic, p, i)));
       // no boxes or lines over the text this banner sits behind
       const key = `${W}x${H}:${Math.floor(t / 250)}`;
-      if (key !== avoidKey) {
+      const remeasure = key !== avoidKey;
+      if (remeasure) {
         avoidKey = key;
         hidden.clear();
         quiet.clear();
         offLinks.clear();
       }
-      if (opts.avoid && !avoidDone.has(key)) {
-        avoidDone.clear();
-        avoidDone.add(key);
+      if (opts.avoid && remeasure) {
         const pad = 14;
         const zones = opts.avoid()
           .filter((el): el is Element => !!el)
@@ -205,7 +204,7 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
           return;
         }
         const shown = p.score * Math.min(1, tt / 520);
-        ctx.font = `600 ${Math.max(9, Math.min(12, sz / 5))}px "JetBrains Mono", monospace`;
+        ctx.font = `600 ${Math.max(9, Math.min(12, sz / 5))}px ${MONO}`;
         ctx.fillStyle = "#fff";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";

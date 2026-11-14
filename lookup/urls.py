@@ -30,7 +30,6 @@ X_RESERVED = {"i", "home", "explore", "search", "settings", "notifications", "me
 X_STATUS_RE = re.compile(
     r"https?://(?:www\.|mobile\.)?(?:x|twitter)\.com/([A-Za-z0-9_]{1,15})/status(?:es)?/(\d{5,20})"
 )
-BSKY_POST_RE = re.compile(r"https?://(?:www\.)?bsky\.app/profile/([^/\s?#]+)/post/([a-z0-9]+)")
 
 
 @dataclass(frozen=True)
@@ -67,10 +66,12 @@ def classify(raw: str) -> Target | None:
         return None
     segs = [s for s in parts.path.split("/") if s]
     if host in X_HOSTS:
-        if len(segs) >= 3 and segs[1] in ("status", "statuses") and segs[2].isdigit():
-            return Target("x_post", x_post_url(segs[0], segs[2]), segs[0], segs[2])
         if len(segs) >= 4 and segs[0] == "i" and segs[1] == "web" and segs[3].isdigit():
             return Target("x_post", f"https://x.com/i/web/status/{segs[3]}", None, segs[3])
+        if len(segs) >= 3 and segs[1] in ("status", "statuses") and segs[2].isdigit():
+            if segs[0].lower() == "i":  # x.com/i/status/<id>: no handle in the link
+                return Target("x_post", f"https://x.com/i/web/status/{segs[2]}", None, segs[2])
+            return Target("x_post", x_post_url(segs[0], segs[2]), segs[0], segs[2])
         if len(segs) == 1 and segs[0].lower() not in X_RESERVED:
             return Target("x_profile", f"https://x.com/{segs[0]}", segs[0])
     if host in BSKY_HOSTS and len(segs) >= 2 and segs[0] == "profile":

@@ -29,6 +29,7 @@ _HANDLE_RE = re.compile(
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", re.I
 )
 _DID_RE = re.compile(r"did:(?:plc:[a-z2-7]{24}|web:[a-z0-9.-]+)", re.I)
+_UNREADABLE = re.compile(r"[\x00\ud800-\udfff]")
 
 
 def handle_profile_url(text: str) -> str | None:
@@ -127,8 +128,14 @@ def make_deps() -> Deps:
     oxylabs = OxylabsClient(s.oxylabs_web_api_key, timeout_s=75, max_retries=1)
     if s.lookup_provider_cache_ttl_s > 0:
         oxylabs = cache.CachedOxylabs(oxylabs, cache.oxylabs_cache(s.lookup_provider_cache_ttl_s))
+    fxtwitter = None
+    if s.lookup_fxtwitter:
+        from lookup.fxtwitter import FxTwitterClient
+
+        fxtwitter = FxTwitterClient(base_url=s.lookup_fxtwitter_url)
     return Deps(
         oxylabs=oxylabs,
+        fxtwitter=fxtwitter,
         bsky=BlueskyClient(),
         store=_db_store(),
         nemotron=nemotron,
@@ -142,6 +149,11 @@ def make_deps() -> Deps:
         verify_read_s=s.lookup_verify_read_s,
         time_budget_s=s.lookup_time_budget_s,
         second_reading_s=s.lookup_second_reading_s,
+        reverse_image=s.lookup_reverse_image,
+        wikipedia=s.lookup_family_web,
+        wayback=s.lookup_family_web,
+        public_base_url=s.lookup_public_base_url
+        or (f"https://{s.public_host}" if s.public_host else ""),
     )
 
 
@@ -173,8 +185,10 @@ def start_lookup(
 ) -> JSONResponse:
     url = (body.url or "").strip()
     text = (body.text or "").strip()
-    if "\x00" in url or "\x00" in text:
-        raise HTTPException(400, "input contains a NUL character")
+    # NUL can't be stored, and a lone surrogate can't be encoded: the job would start and its
+    # JSON snapshot fail to serialize (a 500 that still spent the caller's lookup budget).
+    if _UNREADABLE.search(url) or _UNREADABLE.search(text):
+        raise HTTPException(400, "input contains a NUL character or an unpaired surrogate")
     if url:
         if len(url) > 2000 or not url.lower().startswith(("http://", "https://")):
             raise HTTPException(400, "url must be an http(s) link")
@@ -249,6 +263,27 @@ def get_lookup_image(job_id: str, jobs: Annotated[JobStore, Depends(get_jobs)]) 
     return Response(
         data,
         media_type=mime,
+        headers={
+            "cache-control": "private, max-age=3600",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
+@router.get("/{job_id}/family/{member_id}")
+def get_family_image(
+    job_id: str, member_id: str, jobs: Annotated[JobStore, Depends(get_jobs)]
+) -> Response:
+    """A family tree copy as this lookup downloaded and matched it (a small JPEG), while the job
+    lives: many hosts refuse to be shown on another site, and this is the picture we checked."""
+    job = jobs.get(job_id)
+    data = getattr(job, "family_images", {}).get(member_id) if job is not None else None
+    if data is None:
+        raise HTTPException(404, "no such family picture for this lookup id (it may have expired)")
+    return Response(
+        data,
+        media_type="image/jpeg",
         headers={
             "cache-control": "private, max-age=3600",
             "x-content-type-options": "nosniff",
