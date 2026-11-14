@@ -14,6 +14,37 @@ const { factualFindings, coordinationNote } = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
+const { outputFiles: apiFiles } = await build({
+  entryPoints: [fileURLToPath(new URL("../web/trackdown/src/data/api.ts", import.meta.url))],
+  bundle: true,
+  write: false,
+  platform: "node",
+  format: "esm",
+});
+const { clusterCase } = await import(
+  `data:text/javascript;base64,${Buffer.from(apiFiles[0].text).toString("base64")}`
+);
+
+test("live clusters never substitute score or analyst confidence for detector confidence", () => {
+  const cluster = {
+    id: 1, status: "coordinated", score: 0.97, synthetic: false,
+    members: [], posts: [], evidence: [],
+  };
+  for (const analyst of [undefined, { confidence: 0.92 }]) {
+    for (const confidence of [undefined, null]) {
+      const trace = clusterCase({ ...cluster, analyst, confidence });
+      assert.equal(trace.status, "coordinated");
+      assert.equal(trace.scored, false);
+      assert.equal(trace.confidence, 0);
+    }
+  }
+  for (const confidence of [0, 0.63]) {
+    const trace = clusterCase({ ...cluster, analyst: { confidence: 0.92 }, confidence });
+    assert.equal(trace.scored, true);
+    assert.equal(trace.confidence, confidence);
+  }
+});
+
 function result() {
   return {
     status: "insufficient",
