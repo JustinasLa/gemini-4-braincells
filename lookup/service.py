@@ -1458,13 +1458,13 @@ class Lookup:
             self._thread_scan = scan
         scan.run(self._thread_roots())
 
-    def _carries_caption(self, text: str | None) -> bool:
+    def _carries_caption(self, *texts: str | None) -> bool:
         """An uploaded image's copy repeats a real part of its text: runs of it covering 6+
         words (or half of a shorter text). A short post that only names the site or a few of its
         words ("#standwithjensen standwithjensen.com") is about the image, not a copy of it."""
         n_cap = len(textsim.tokens(self._caption)) if self._caption else 0
         need = min(6, max(textsim.RUN_MIN, n_cap // 2))
-        runs = textsim.caption_runs(text, self._caption)
+        runs = [run for text in texts for run in textsim.caption_runs(text, self._caption)]
         return sum(textsim.n_words(r) for r in runs) >= need
 
     def _text_queries(self, where: Literal["web", "x", "bsky"]) -> list[tuple[str, str]]:
@@ -1831,7 +1831,11 @@ class Lookup:
             pg.publisher = facts.publisher or pg.publisher
             pg.author = facts.author or pg.author
             pg.published_at = facts.published_at
-            pg.headline = facts.headline or pg.headline
+            if self.result.kind == "image":
+                pg.headline = facts.headline
+                pg.snippet = "\n".join(facts.claims) or None
+            else:
+                pg.headline = facts.headline or pg.headline
             pg.claims = facts.claims
             self._page_read[pg.id] = (facts.headline, *facts.claims)
             pg.receipt_id = rid
@@ -2475,7 +2479,7 @@ class Lookup:
                     # page that only names the site is about it, like a short post
                     and (
                         not image
-                        or any(self._carries_caption(text) for text in self._page_read.get(pg.id, ()))
+                        or self._carries_caption(*self._page_read.get(pg.id, ()))
                     )
                 ),
                 key=latest,

@@ -621,3 +621,28 @@ def test_upload_page_filter_keeps_search_matches_when_the_read_fails():
 
     assert pg in job.result.pages
     assert pg.caption_match == ["Stand with Example", "Sign the letter"]
+
+
+def test_image_origin_counts_valid_caption_runs_across_read_fields():
+    job, page = _graph_job()
+    pg = page(
+        "https://read.example/a",
+        "Sign the letter SEARCH",
+        "PUBLIC SIGNERS BY NAME",
+        read="Sign the letter SEARCH\nPUBLIC SIGNERS BY NAME",
+    )
+    job._finish_graph()
+    assert job.result.origin_id == pg.id
+
+
+def test_image_page_displays_its_actual_read_instead_of_stale_search_text():
+    job, page = _graph_job()
+    pg = page("https://read.example/a", "Stale search title", "Stale search snippet")
+    job.deps.oxylabs.scrape_facts = lambda url, deadline=None: PageFacts(
+        url=url, final_url=url, claims=["SEARCH PUBLIC SIGNERS BY NAME"]
+    )
+    job._safe_verify_page(pg)
+    job._finish_graph()
+    assert pg in job.result.pages
+    assert pg.headline is None
+    assert pg.snippet == "SEARCH PUBLIC SIGNERS BY NAME"
