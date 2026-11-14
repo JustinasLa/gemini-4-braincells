@@ -210,7 +210,9 @@ class MediaRun:
         ]
         rows.extend(
             {
-                "summary": f"Nemotron media analysis failed for {failure.media_hash}: {failure.error}",
+                "summary": (
+                    f"Nemotron media analysis failed for {failure.media_hash}: {failure.error}"
+                ),
                 "detail": {
                     "media_hash": failure.media_hash,
                     "status": "failed",

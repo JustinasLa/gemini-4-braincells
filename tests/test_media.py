@@ -297,6 +297,7 @@ def test_every_attempt_logs_latency_tokens_and_outcome(caplog, monkeypatch):
         "model": client.model,
         "returned_model": None,
         "hash": "hash",
+        "task": "analyze",
         "latency_ms": 250,
         "prompt_tokens": None,
         "completion_tokens": None,
