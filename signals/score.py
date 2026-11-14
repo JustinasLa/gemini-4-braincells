@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 
 import numpy as np
+import tldextract
 
 from signals.baseline import BaseRates
 from signals.config import DetectorConfig
@@ -499,6 +500,20 @@ _SHARED_HANDLE_DOMAINS = {
 
 _SHAPE_RE = [(re.compile(r"[a-z]+"), "a"), (re.compile(r"[0-9]+"), "9")]
 
+# Public Suffix List, from the snapshot bundled with tldextract: never fetched at run time, so the
+# detector stays offline and deterministic. Private suffixes count too (github.io, ...), so
+# x.github.io is its own domain and not "github.io".
+_PSL = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None, include_psl_private_domains=True)
+
+
+def operator_domain(handle: str) -> str | None:
+    """The domain an operator registered, when the handle is a subdomain of it:
+    alerts.weather.im -> weather.im. None when the handle IS a registered domain (joao.com.br,
+    bob.co.uk, marta.fail): unrelated people under one public suffix are not one operator."""
+    r = _PSL(handle)
+    top = r.top_domain_under_public_suffix
+    return top if top and handle != top and handle.endswith("." + top) else None
+
 
 def handle_shape(handle: str) -> str:
     local, _, domain = handle.lower().partition(".")
@@ -697,9 +712,9 @@ def organic_guards(
     if len(handles) >= cfg.min_cluster_size:
         domains: dict[str, list] = {}
         for d, h, age in handles:
-            parts = h.split(".")
-            if len(parts) >= 3:  # sub.domain.tld: the operator's own domain
-                domains.setdefault(".".join(parts[-2:]), []).append((d, age))
+            dom = operator_domain(h)
+            if dom:
+                domains.setdefault(dom, []).append((d, age))
         common = {dom: v for dom, v in domains.items() if dom not in _SHARED_HANDLE_DOMAINS}
         if common:
             dom = max(sorted(common), key=lambda k: len(common[k]))

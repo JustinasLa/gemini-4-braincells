@@ -226,6 +226,13 @@ Earlier fixes from the same kind of review: weather feeds sharing a custom handl
   burst is `insufficient`, not `coordinated` (identity base rates are planned).
 - Independent scheduled bots (clock, weather, news feeds) look synchronized; guards catch the
   ones that post on the hour or share a declared domain, not all.
+- `transparent_automation` reads the operator's domain off the Public Suffix List (v1.9, bundled
+  snapshot, never fetched). So `feed1.weather.im` and `feed2.weather.im` are one operator, but people
+  with their own `name.com.br` or `name.co.uk` handles are not. On 6,709 team-DB clusters the old
+  last-two-labels rule grouped only `co.uk` users, and it changed no status. Organic FPR is the
+  same before and after: 0/211 live, 0/84 synthetic, with identical counts. Community servers that
+  hand out handles (`swifties.social`, `dftba.social`) still count as one operator. That errs
+  toward Chill or Can't tell, never toward a false Shill.
 - Short texts (< 5 tokens) are ignored as content keys; copy-paste of one-liners isn't caught.
 - Japanese, Chinese, Thai and other unspaced scripts get content keys since v1.8 (about one word
   per two characters; near-duplicates on character 3-grams). Like word 3-grams for English, this

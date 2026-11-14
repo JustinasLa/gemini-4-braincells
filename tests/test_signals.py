@@ -10,7 +10,13 @@ from signals.config import DEFAULT
 from signals.detect import detect
 from signals.graph import rarity
 from signals.keys import build_keys
-from signals.score import _max_in_window, content_signals, handle_shape, shared_keys
+from signals.score import (
+    _max_in_window,
+    content_signals,
+    handle_shape,
+    operator_domain,
+    shared_keys,
+)
 from signals.synth import SYNTH_PREFIX, campaign, empty_window, hard_negative, inject
 from signals.textnorm import text_hash
 from signals.window import WAction, WindowData, WPost
@@ -654,3 +660,43 @@ def test_load_window_counts_active_posters_without_an_extra_query():
     assert wd.posts[0].t == t + 3  # earliest copy kept
     assert wd.active_accounts == 2
     assert not any("count(DISTINCT" in s for s in seen)
+
+
+@pytest.mark.parametrize(
+    "handle, expected",
+    [
+        ("alerts.weather.im", "weather.im"),
+        ("train.marta.fail", "marta.fail"),
+        ("news.bbc.co.uk", "bbc.co.uk"),
+        ("a.b.github.io", "b.github.io"),
+        ("joao.com.br", None),  # a person's own domain under a public suffix
+        ("bob.co.uk", None),
+        ("marta.fail", None),  # the operator's bare domain is not a subdomain of it
+        ("x.github.io", None),  # private suffix: x.github.io is its own registered domain
+    ],
+)
+def test_operator_domain_uses_the_public_suffix_list(handle, expected):
+    assert operator_domain(handle) == expected
+
+
+def test_people_under_one_public_suffix_are_not_one_operator():
+    from signals.score import AccountInfo, organic_guards
+
+    members = [f"did:plc:br{i}" for i in range(5)]
+    info = {
+        d: AccountInfo(did=d, handle=f"person{i}.com.br", age_days=900.0, followers=10)
+        for i, d in enumerate(members)
+    }
+    guards = organic_guards(members, [], info, WindowData(start=0, end=600), DEFAULT)
+    assert "transparent_automation" not in {g.name for g in guards}
+
+    feeds = {
+        d: AccountInfo(did=d, handle=f"feed{i}.weather.im", age_days=900.0, followers=10)
+        for i, d in enumerate(members)
+    }
+    g = next(
+        x
+        for x in organic_guards(members, [], feeds, WindowData(start=0, end=600), DEFAULT)
+        if x.name == "transparent_automation"
+    )
+    assert g.detail["domain"] == "weather.im" and g.score == 1.0
