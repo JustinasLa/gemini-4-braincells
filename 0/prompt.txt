@@ -1,0 +1,24 @@
+Delegated task node:delegated-task:command%3Amcp%3A17caffd4-a92b-46b2-b28c-dfb53545103a%3Adelegate-task%3A20a6dcb9-4830-4cc3-90f0-6bf13a2dd59a (Sol review r1: Nemotron fast lookup) [completed]:
+1. **must-fix — Subject data is published before its dependencies are ready.** [lookup/service.py:498](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:498)  
+   `_wait_text` can return after `_x_post` assigns `_subject_text`, before it assigns the card and images. The coordinator then permanently skips those steps. An event-gated reproduction finished with a known card URL and image while reporting “the post links no page” and “the post has no images.” Publish subject fields atomically, check readiness under the same lock, and retain/join the subject future. Add this interleaving to the concurrency tests.
+
+2. **must-fix — Image calls can consume the primary reading’s reserve.** [lookup/service.py:1467](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:1467)  
+   `_spend(10)` permits an image call with only 20 seconds left, but `NemotronClient` has a 20-second timeout plus limiter waiting. Downloads also start before the budget check and have no absolute deadline. The coordinator waits for media, so a late image call can leave no time for the primary reading; an image-only lookup can wait indefinitely on a trickling download. Pass the provider deadline through downloads, limiter waits and inference, and bound the coordinator’s media wait.
+
+3. **must-fix — Image-cache receipts lose provenance and can falsely claim freshness.** [lookup/service.py:1472](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:1472)  
+   Ordinary hits produce “cached read” without an original read time: the cached analysis stores no timestamp, and the receipt receives no `fetched_at`. There is also a race between the outer cache check and `NemotronClient.analyze`’s internal check. A reproduction made one provider call but recorded both lookups as fresh. Return cache-hit metadata and the original analysis time from the cache-owning operation, and use those fields for receipts.
+
+4. **should-fix — Cached relative dates are recalculated against the current time.** [lookup/service.py:1043](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:1043)  
+   Search consumers pass `_now()` into `_classify_hit`, including on cache hits. A cached “3 hours ago” snippet therefore moves forward on every lookup. A nine-minute-old cached response reproduced a 540-second shift, which can change older-page verification eligibility. Use `call["fetched_at"]` for cached search results in every search consumer.
+
+5. **should-fix — The second reading’s individual deadline is not enforced.** [lookup/service.py:1693](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:1693)  
+   `_assess` waits until the latest deadline, while Gemini’s `Assessor.assess` ignores its `deadline` argument. If Gemini exceeds its configured bound through retries or timeout behavior, a completed primary reading can still leave the job running until the overall deadline; `_reading` also accepts responses after their individual deadline. Enforce each reading’s deadline independently, bound Gemini’s request/retry budget, and reject late publication.
+
+6. **should-fix — Image-cache keys omit context that affects the result.** [lookup/service.py:1468](/home/dev/.t3/worktrees/gemini-4-braincells/feat-nemotron-fast-look-b6fdf3ecdc47167e/lookup/service.py:1468)  
+   Analysis receives the submitted post text as context, but the shared cache is keyed only by image bytes. Reusing a photo with a different caption can therefore reuse an earlier contextual interpretation or manipulation cue for 24 hours. Include the effective context in the key, or make the cached image analysis independent of post context.
+
+VERDICT: changes requested
+
+---
+
+full send
