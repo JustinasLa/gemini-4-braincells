@@ -23,6 +23,7 @@ export interface BannerOpts {
   src?: HTMLImageElement; // optional different picture (no keypoints drawn unless `cv` is given)
   cv?: { points: Pt[]; links: { a: number; b: number; score: number }[] }; // keypoints for `src`
   focusY?: number;
+  avoid?: () => (Element | null)[]; // keep detections off these elements (text blocks)
 }
 
 /** Draws into `canvas` until it leaves the DOM. Returns a stop function. */
@@ -73,15 +74,46 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
     ctx.filter = "none";
     if (!opts.src || opts.cv) {
       const P = pts0.map((p) => ({ x: ix + p.x * iw, y: iy + p.y * ih, s: p.s * iw, score: p.score }));
+      // no boxes or lines over the text this banner sits behind
+      const hidden = new Set<number>();
+      const offLinks = new Set<number>();
+      if (opts.avoid) {
+        const pad = 14;
+        const zones = opts.avoid()
+          .filter((el): el is Element => !!el)
+          .map((el) => el.getBoundingClientRect())
+          .filter((q) => q.width && q.height)
+          .map((q) => ({ x0: q.left - r.left - pad, y0: q.top - r.top - pad, x1: q.right - r.left + pad, y1: q.bottom - r.top + pad }));
+        const sx = (x: number) => W / 2 + (x - W / 2) * z;
+        const sy = (y: number) => H / 2 + (y - H / 2) * z;
+        P.forEach((p, i) => {
+          const h = (p.s * 1.8 * z) / 2;
+          const x = sx(p.x);
+          const y = sy(p.y);
+          if (zones.some((q) => x + h > q.x0 && x - h < q.x1 && y + h > q.y0 && y - h < q.y1)) hidden.add(i);
+        });
+        const crosses = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+          zones.some((q) => {
+            for (let k = 0; k <= 24; k++) {
+              const x = sx(a.x + ((b.x - a.x) * k) / 24);
+              const y = sy(a.y + ((b.y - a.y) * k) / 24);
+              if (x > q.x0 && x < q.x1 && y > q.y0 && y < q.y1) return true;
+            }
+            return false;
+          });
+        links0.forEach((l, li) => {
+          if (!hidden.has(l.a) && !hidden.has(l.b) && crosses(P[l.a], P[l.b])) offLinks.add(li);
+        });
+      }
       // match lines draw in after both ends are detected
       ctx.lineWidth = 1;
       ctx.strokeStyle = "rgba(235,235,235,0.75)";
       ctx.setLineDash([6, 6]);
-      for (const l of links0) {
+      for (const [li, l] of links0.entries()) {
         const ta = delay + (rank.get(l.a) ?? 0) * per;
         const tb = delay + (rank.get(l.b) ?? 0) * per;
         const p = Math.min(1, Math.max(0, (t - Math.max(ta, tb) - 150) / 600));
-        if (p <= 0) continue;
+        if (p <= 0 || hidden.has(l.a) || hidden.has(l.b) || offLinks.has(li)) continue;
         const a = P[l.a];
         const b = P[l.b];
         ctx.beginPath();
@@ -93,7 +125,7 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
       // detection boxes: bright patch, green frame, score ticking up to the real value
       P.forEach((p, i) => {
         const tt = t - delay - (rank.get(i) ?? 0) * per;
-        if (tt < 0) return;
+        if (tt < 0 || hidden.has(i)) return;
         const e = Math.min(1, tt / 260);
         const grow = (1 - e) * p.s * 0.8;
         const sz = p.s + grow;
@@ -117,7 +149,7 @@ export function mountBanner(canvas: HTMLCanvasElement, opts: BannerOpts = {}): (
         ctx.textBaseline = "middle";
         ctx.shadowColor = "#000";
         ctx.shadowBlur = 4;
-        ctx.fillText(shown.toFixed(4), p.x, p.y);
+        ctx.fillText(shown.toFixed(2), p.x, p.y);
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
       });

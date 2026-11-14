@@ -110,7 +110,7 @@ function rhinoceros(): TraceCase {
       { tool: "archive", text: "Dürer never saw the rhinoceros. He worked from a written description and a sketch sent from Lisbon." },
       { tool: "archive", text: "His woodcut adds things the animal didn't have: plates like armour, and a small twisted horn on its back." },
       { tool: "archive", text: "Hans Burgkmair's woodcut from the same year is closer to life, but Dürer's became the standard picture for centuries, down to school textbooks in the 20th century." },
-      { tool: "archive", against: true, text: "Wrong is not the same as coordinated. The copies came from different printers over four centuries, with no sign of a common push." },
+      { tool: "archive", text: "Wrong is not the same as coordinated. The copies came from different printers over four centuries, with no sign of a common push." },
     ],
     wouldChange: ["Many printers releasing the same image at once, paid by one patron to make a point"],
     steps: [

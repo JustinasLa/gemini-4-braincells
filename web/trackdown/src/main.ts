@@ -13,7 +13,7 @@ import { bannerReady, mountBanner } from "./ui/cvbanner";
 import { Dock, drawRuler, Minimap } from "./ui/dock";
 import { esc, fmtDur, fmtShort, ROLE, STATUS, TOOL } from "./ui/format";
 import { icon } from "./ui/icons";
-import { Panel } from "./ui/panel";
+import { hasChain, Panel } from "./ui/panel";
 import { initTooltips } from "./ui/tooltip";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string, root: ParentNode = document) => root.querySelector<T>(s)!;
@@ -22,12 +22,11 @@ const sm = (svg: string, n = 12) => svg.replace("<svg", `<svg width="${n}" heigh
 document.querySelector("#app")!.innerHTML = `
 <div class="app">
   <header class="topbar">
-    <button class="wordmark" data-act="home" title="Start over">SHILL OR CHILL</button>
-    <div class="case-head"><button class="btn ghost" data-act="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
+    <button class="wordmark" data-act="home" title="Start over" aria-label="Shill or Chill: start over">SHILL OR CHILL</button>
+    <div class="case-head"><button class="btn ghost" data-act="rail" aria-label="Cases" aria-expanded="false" aria-controls="rail">${sm(icon.menu, 14)}<span class="lbl">Cases</span></button><h1 id="title"></h1><span id="badges"></span></div>
     <div class="top-actions">
-      <div class="seg" id="mode"><button data-mode="timeline" class="on">Timeline</button><button data-mode="web">Web</button></div>
-      <button class="btn icon mobile-only" data-act="sheet" aria-label="Verdict">${icon.receipt}</button>
-      <button class="btn solid" data-act="trace">${icon.search}<span class="lbl">New trace</span></button>
+      <div class="seg" id="mode" role="group" aria-label="Layout"><button data-mode="timeline" class="on" aria-pressed="true">Timeline</button><button data-mode="web" aria-pressed="false">Web</button></div>
+      <button class="btn solid" data-act="trace" aria-label="New trace">${icon.search}<span class="lbl">New trace</span></button>
     </div>
   </header>
   <aside class="rail"><div class="rail-inner" id="rail"></div></aside>
@@ -41,6 +40,8 @@ document.querySelector("#app")!.innerHTML = `
       <div class="minimap" id="minimap"><span class="mm-title label">map</span></div>
     </div>
     <div class="dock" id="dock" data-ui></div>
+    <div class="empty-stage" id="empty" data-ui hidden><h2>No chain of posts to draw</h2><p>This live cluster was flagged from how its accounts behaved, not from copied posts we can lay out. The verdict and the evidence are in the panel.</p></div>
+    <button class="peek" id="peek" data-ui data-act="sheet" aria-label="Show verdict and evidence"></button>
     <div class="vignette"></div>
   </main>
   <aside class="panel" id="panel"></aside>
@@ -87,6 +88,14 @@ function renderResources(c: TraceCase) {
   $("#title").textContent = c.title;
   const tag = c.synthetic ? '<span class="tag sim">simulated</span>' : c.historical ? '<span class="tag hist">historical record</span>' : c.live ? '<span class="tag live">live</span>' : "";
   $("#badges").innerHTML = `<span style="display:flex;gap:10px;align-items:center"><span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span>${tag}</span>`;
+  const origin = c.synthetic ? "Simulated" : c.historical ? "Historical record" : c.live ? "Live" : "";
+  const peek = $("#peek");
+  peek.style.setProperty("--vc", v.css);
+  peek.innerHTML = `<span class="vchip" style="--vc:${v.css}">${v.short.toUpperCase()}</span><span class="pk-t"><b>${esc(c.title)}</b><span>${origin}</span></span><span class="pk-go">Details ↑</span>`;
+  const empty = !hasChain(c) && !c.findingsOnly;
+  if (empty) app.dataset.empty = "";
+  else delete app.dataset.empty;
+  $("#empty").hidden = !empty;
   document.title = `${c.title} · Shill or Chill`;
 }
 
@@ -122,8 +131,8 @@ function renderRail() {
   const sims = simulatedCases();
   const live = liveRows
     .map(
-      (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(4)}"></span>
-      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster ${r.id}</span>
+      (r) => `<button class="cat-item" data-live="${r.id}" style="--vc:${STATUS[r.status].css}"><span class="thumb" style="${thumbStyle("live" + r.id, 64).style}" data-score="${r.score.toFixed(2)}"></span>
+      <span class="vd">${STATUS[r.status].short}${r.synthetic ? " · synthetic" : ""}</span><span class="ttl">Cluster #${r.id}</span>
       <span class="meta">${r.size ?? "?"} accounts · score ${r.score.toFixed(2)}</span></button>`,
     )
     .join("");
@@ -157,7 +166,10 @@ seg.addEventListener("click", (e) => {
   if (b) setMode(b.dataset.mode as Mode);
 });
 function setMode(m: Mode) {
-  seg.querySelectorAll("[data-mode]").forEach((x) => x.classList.toggle("on", (x as HTMLElement).dataset.mode === m));
+  seg.querySelectorAll<HTMLElement>("[data-mode]").forEach((x) => {
+    x.classList.toggle("on", x.dataset.mode === m);
+    x.setAttribute("aria-pressed", String(x.dataset.mode === m));
+  });
   g.setMode(m);
   $(".ruler").style.opacity = m === "timeline" ? "1" : "0";
   setTimeout(() => g.fit(undefined, 1100), 380);
@@ -169,6 +181,7 @@ document.addEventListener("click", (e) => {
   if (act === "trace" || act === "home") showHome();
   if (act === "rail") {
     app.classList.toggle("rail-open");
+    $('[data-act="rail"]').setAttribute("aria-expanded", String(app.classList.contains("rail-open")));
     setTimeout(() => g.fit(undefined, 800), 650);
   }
   if (act === "sheet") app.classList.toggle("sheet-open");
@@ -200,6 +213,10 @@ dock.onScrub = () => {
   if (tracing) cancelTrace();
 };
 panel.onReplay = () => current && runTrace(current);
+panel.onCloseSheet = () => {
+  app.classList.remove("sheet-open");
+  $("#peek").focus();
+};
 
 // ---------------------------------------------------------------- opening a case
 function openCase(c: TraceCase, how: "spread" | "static") {
@@ -398,6 +415,7 @@ async function runTrace(c: TraceCase) {
   panel.set(c, false);
   setStatus(null, "");
   if (!wasSkipped) {
+    closeEvent();
     afterReveal = () => setPhase("done");
     showEvent(c, run);
   } else setPhase("done");
@@ -418,7 +436,6 @@ function closeEvent() {
   setTimeout(() => e.remove(), 480);
 }
 async function showEvent(c: TraceCase, run: number) {
-  closeEvent();
   const v = STATUS[c.status];
   const el = document.createElement("div");
   el.className = "reveal";
@@ -431,7 +448,7 @@ async function showEvent(c: TraceCase, run: number) {
     src = new Image();
     src.src = rhinoUrl;
   }
-  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5 });
+  mountBanner($<HTMLCanvasElement>("canvas", el), { darken: c.historical ? 0.5 : 0.42, per: 70, src, focusX: 0.5, avoid: () => [...el.querySelectorAll(".coin-slot, .vw, .vt, .tap")] });
   el.addEventListener("click", closeEvent);
   await bannerReady;
   await wait(300);
@@ -449,20 +466,24 @@ function showHome() {
   closeEvent();
   if (homeEl) return;
   const cases = simulatedCases();
+  const sims = cases.filter((c) => !c.historical);
+  const hist = cases.filter((c) => c.historical);
+  const caseBtn = (c: TraceCase) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}${c.historical ? ' <em>real history</em>' : ""}</button>`;
   homeEl = document.createElement("div");
   homeEl.className = "home";
   homeEl.innerHTML = `<canvas></canvas>
     <div class="home-c">
       <div class="home-wm">SHILL OR CHILL</div>
-      <p class="home-tag">Paste a post. We trace it back to the first copy and check whether its spread was coordinated.</p>
-      <form class="home-form"><input name="q" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
-      <div class="home-ex"><span class="label">or open a case</span>${cases.map((c) => `<button data-hcase="${c.id}" style="--vc:${STATUS[c.status].css}">${esc(c.title)}</button>`).join("")}</div>
+      <p class="home-tag">Paste a post. We trace it back to the earliest copy we can find and check whether its spread was coordinated.</p>
+      <form class="home-form"><input name="q" aria-label="Post text, link or handle" placeholder="Paste a post, a link or an @handle" autocomplete="off" /><button class="btn solid" type="submit">Trace it</button></form>
+      <div class="home-ex"><span class="label">Or explore a simulated example</span>${[...sims, ...hist].map(caseBtn).join("")}</div>
     </div>
     <span class="credit">Botticelli, The Birth of Venus, c. 1485 · ORB keypoints</span>`;
   document.body.appendChild(homeEl);
   const img = new Image();
   img.src = venusFullUrl;
-  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25 });
+  const home = homeEl;
+  stopHomeBanner = mountBanner($<HTMLCanvasElement>("canvas", homeEl), { darken: 0.4, per: 90, delay: 300, src: img, cv: fullCv as never, focusX: 0.5, focusY: 0.25, avoid: () => [...home.querySelectorAll(".home-wm, .home-tag, .home-form, .home-ex, .credit")] });
   const input = $<HTMLInputElement>("input", homeEl);
   setTimeout(() => input.focus(), 400);
   $("form", homeEl).addEventListener("submit", (e) => {
@@ -518,6 +539,8 @@ function toast(msg: string) {
 // ---------------------------------------------------------------- keyboard
 document.addEventListener("keydown", (e) => {
   if ((e.target as HTMLElement).closest("textarea,input")) return;
+  // Space and Enter belong to the focused control
+  if ((e.key === " " || e.key === "Enter") && (e.target as HTMLElement).closest("button,a,[role=tab]")) return;
   if (e.key === "Escape") {
     if (eventEl) closeEvent();
     else if (tracing) skipFlag = true;

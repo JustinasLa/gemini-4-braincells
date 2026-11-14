@@ -236,7 +236,7 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   const { ctx: c, w, h } = fitCanvas(canvas);
   c.clearRect(0, 0, w, h);
   if (g.mode !== "timeline" || !g.case) return;
-  const ns = g.nodes.filter((n) => n.vis).sort((a, b) => a.tx - b.tx);
+  const ns = g.nodes.filter((n) => n.vis && !n.d.undated).sort((a, b) => a.tx - b.tx);
   c.font = '600 11px "JetBrains Mono", monospace';
   c.textBaseline = "middle";
   c.textAlign = "left";
@@ -252,6 +252,7 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     if (g.timeBreaks.some((b) => Math.abs(g.toScreen(b.x, 0).x - s.x - 40) < 95)) continue;
     const label = n.d.t - lastT > 86400000 ? fmtDate(n.d.t, false) : fmtClock(n.d.t);
     if (label === lastLabel) continue;
+    if (s.x + 5 + c.measureText(label.toUpperCase()).width > w - 6) continue; // never clip at the edge
     lastLabel = label;
     c.fillStyle = "rgba(255,255,255,0.6)";
     c.fillRect(s.x, h - 12, 1, 12);
@@ -265,11 +266,12 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   for (const b of g.timeBreaks) {
     const s = g.toScreen(b.x, 0);
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
-    lastPill = s.x;
     const label = `${fmtDur(b.gap)} later`;
     c.font = '600 10px "JetBrains Mono", monospace';
     const up = label.toUpperCase();
     const tw = c.measureText(up).width + 16;
+    if (s.x - tw / 2 < 2 || s.x + tw / 2 > w - 2) continue;
+    lastPill = s.x;
     c.fillStyle = "#050506";
     c.fillRect(s.x - tw / 2, h / 2 - 10, tw, 18);
     c.setLineDash([3, 3]);

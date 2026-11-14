@@ -52,6 +52,7 @@ export interface TraceNode {
   likes?: number;
   cluster?: string;
   flags?: string[]; // short behaviour chips ("acct 3 d old", "same text")
+  undated?: boolean; // `t` only places the card; the real publication date is unknown (web results)
 }
 
 export interface TraceEdge {
@@ -105,4 +106,5 @@ export interface TraceCase {
   wouldChange: string[];
   steps: TraceStep[];
   summary: string;
+  findingsOnly?: boolean; // no detector verdict: receipts are search findings, not signs either way
 }

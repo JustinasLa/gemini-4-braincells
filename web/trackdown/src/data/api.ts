@@ -64,6 +64,9 @@ const host = (u: string) => {
   }
 };
 
+/** API summaries use ASCII comparisons; show them as typeset text. */
+const tidy = (s: string) => s.replace(/>=/g, "≥").replace(/<=/g, "≤").replace(/!=/g, "≠");
+
 const toolFor = (model?: string | null, kind?: string): Tool =>
   /nemotron/i.test(model ?? "") || kind === "media" ? "nemotron" : /oxylabs/i.test(model ?? "") || kind === "source" ? "oxylabs" : /gemini/i.test(model ?? "") || kind === "analyst" ? "gemini" : "detector";
 
@@ -111,14 +114,21 @@ export async function liveCase(id: number): Promise<TraceCase> {
     .slice(0, 6)
     .forEach((e, i) => {
       const id = `src-${e.id}`;
-      nodes.push({ id, t: (nodes[0]?.t ?? Date.now()) + (i + 1) * 60000, platform: "factcheck", role: "source", author: { name: host(e.source_url!), handle: host(e.source_url!), hue: 210 }, text: e.summary ?? "", url: e.source_url! });
+      nodes.push({ id, t: (nodes[0]?.t ?? Date.now()) + (i + 1) * 60000, undated: true, platform: "factcheck", role: "source", author: { name: host(e.source_url!), handle: host(e.source_url!), hue: 210 }, text: tidy(e.summary ?? ""), url: e.source_url! });
       if (nodes[0]) edges.push({ from: nodes[0].id, to: id, rel: "cites", tool: "oxylabs" });
     });
   const receipts: Receipt[] = d.evidence
     .filter((e) => e.kind !== "analyst" && e.summary)
     .slice(0, 10)
-    .map((e) => ({ tool: toolFor(e.model, e.kind), text: e.summary!, url: e.source_url ?? undefined, against: (e.detail as { polarity?: string }).polarity === "against" }));
-  for (const c of d.analyst?.counter_evidence ?? []) receipts.push({ tool: "gemini", text: c, against: true });
+    .map((e) => {
+      // `against` means "points away from the verdict", the same as in the case files
+      const det = e.detail as { polarity?: string; score?: number };
+      const organicSign = det.polarity === "against";
+      const coordSign = det.polarity === "for" && Number(det.score ?? 1) > 0;
+      const against = d.status === "likely_organic" ? coordSign : organicSign;
+      return { tool: toolFor(e.model, e.kind), text: tidy(e.summary!), url: e.source_url ?? undefined, against };
+    });
+  for (const c of d.analyst?.counter_evidence ?? []) receipts.push({ tool: "gemini", text: tidy(c), against: true });
   const live = nodes.filter((n) => n.cluster === "live").map((n) => n.id);
   return {
     id: `live-${d.id}`,
@@ -135,7 +145,7 @@ export async function liveCase(id: number): Promise<TraceCase> {
     clusters: live.length >= 3 ? [{ id: "live", label: d.status === "coordinated" ? "Coordinated cluster" : "Cluster", status: d.status, members: live, stat: `${d.size ?? d.members.length} accounts` }] : [],
     receipts,
     wouldChange: d.analyst?.would_change_verdict ?? [],
-    summary: d.verdict?.summary ?? d.top_signals.map((s) => s.summary).filter(Boolean).slice(0, 2).join(" "),
+    summary: tidy(d.verdict?.summary ?? d.top_signals.map((s) => s.summary).filter(Boolean).slice(0, 2).join(" ")),
     steps: [
       { tool: "detector", text: `Loaded ${posts.length} posts from ${d.members.length} accounts`, found: nodes.filter((n) => n.role !== "source").map((n) => n.id) },
       { tool: "oxylabs", text: `${nodes.filter((n) => n.role === "source").length} source pages checked`, found: nodes.filter((n) => n.role === "source").map((n) => n.id) },
@@ -162,28 +172,29 @@ export async function analyze(input: string): Promise<TraceCase | null> {
   res.web_findings.forEach((f, i) => {
     const h = f.source_url ? host(f.source_url) : "web";
     const id = `wf-${i}`;
-    nodes.push({ id, t: now - (i + 1) * 3600000, platform: "factcheck", role: i === 0 ? "origin" : "source", author: { name: h, handle: h, hue: 210 }, text: f.summary, url: f.source_url ?? undefined });
+    nodes.push({ id, t: now - (i + 1) * 3600000, undated: true, platform: "factcheck", role: "source", author: { name: h, handle: h, hue: 210 }, text: tidy(f.summary), url: f.source_url ?? undefined });
     edges.push({ from: id, to: "you", rel: "cites", tool: "oxylabs" });
   });
   return {
     id: `adhoc-${now}`,
-    title: input.slice(0, 48),
+    title: `“${input.trim().length > 44 ? input.trim().slice(0, 42).trimEnd() + "…" : input.trim()}”`,
     kicker: "Your input",
     status: "insufficient",
     confidence: 0,
     synthetic: false,
     live: true,
     submittedId: "you",
-    originId: nodes[1]?.id ?? "you",
+    originId: "you",
+    findingsOnly: true,
     nodes,
     edges,
     clusters: [],
     receipts: [
-      ...res.notes.map((n) => ({ tool: "detector" as Tool, text: n })),
-      ...res.web_findings.map((f) => ({ tool: "oxylabs" as Tool, text: f.summary, url: f.source_url ?? undefined })),
+      ...res.notes.map((n) => ({ tool: "detector" as Tool, text: tidy(n) })),
+      ...res.web_findings.map((f) => ({ tool: "oxylabs" as Tool, text: tidy(f.summary), url: f.source_url ?? undefined })),
     ],
     wouldChange: ["The post shows up in the accounts and window we monitor"],
-    summary: "Not in the window we monitor, so there is no coordination verdict. Web findings below are weaker, text-level evidence.",
+    summary: "This post isn't in the accounts and time window we monitor, so there is no coordination verdict. The web results are related pages found by search, not a confirmed chain of copies.",
     steps: [
       { tool: "you", text: "Input submitted", found: ["you"] },
       { tool: "oxylabs", text: `${res.web_findings.length} web findings`, found: nodes.slice(1).map((n) => n.id) },

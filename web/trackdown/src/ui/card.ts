@@ -15,10 +15,12 @@ function cvBoxes(seed: string, score?: number): string {
   for (let i = 0; i < 2; i++) {
     const s = 22 + r() * 14;
     const x = i === 0 ? 4 + r() * (44 - s) : 52 + r() * (44 - s);
-    const y = 24 + r() * (60 - s);
+    const bh = s * 1.25;
+    // lower half only, so a box never covers the headline it is reading
+    const y = 50 + r() * Math.max(0, 46 - bh);
     // only the link's own similarity is shown; no invented per-box numbers
-    const label = score != null && i === 0 ? `MATCH ${score.toFixed(4)}` : i === 0 ? "TEXT" : "OBJ";
-    out.push(`<i class="cvbox" style="left:${x.toFixed(1)}%;top:${y.toFixed(1)}%;width:${s.toFixed(1)}%;height:${(s * 1.25).toFixed(1)}%"><span>${label}</span></i>`);
+    const label = score != null && i === 0 ? `MATCH ${score.toFixed(2)}` : i === 0 ? "TEXT" : "OBJ";
+    out.push(`<i class="cvbox" style="left:${x.toFixed(1)}%;top:${y.toFixed(1)}%;width:${s.toFixed(1)}%;height:${bh.toFixed(1)}%"><span>${label}</span></i>`);
   }
   return out.join("");
 }
@@ -65,5 +67,5 @@ export function cardHtml(n: TraceNode, compact: boolean, no: number, matchScore?
     <p class="txt">${esc(n.text)}</p>
     ${n.media ? mediaHtml(n.media, n.id, matchScore) : ""}
     ${flags}
-    <footer>${eng}<time>${fmtDate(n.t)}</time></footer>`;
+    <footer>${eng}${n.undated ? "<time>date unknown</time>" : `<time>${fmtDate(n.t)}</time>`}</footer>`;
 }

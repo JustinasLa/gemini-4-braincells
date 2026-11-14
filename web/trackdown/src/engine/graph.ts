@@ -841,8 +841,8 @@ export class Graph {
     const k = this.k;
     const ox = this.W / 2 - this.cx * k;
     const oy = this.H / 2 - this.cy * k;
-    // semantic zoom: cards fade out under ~0.42, dots fade in
-    const op = clamp((k - 0.15) / 0.08, 0, 1);
+    // semantic zoom: below ~0.5 a card's text is too small to read, so it becomes a labelled marker
+    const op = clamp((k - 0.42) / 0.1, 0, 1);
     if (Math.abs(op - this.cardOpacity) > 0.001) {
       this.cardOpacity = op;
       this.world.style.setProperty("--card-op", op.toFixed(3));
@@ -864,6 +864,8 @@ export class Graph {
   }
 
   private lastBackdrop = "";
+  /** world-space boxes of the cluster tab labels drawn this frame (map labels avoid them) */
+  private clusterTabs: { x0: number; y0: number; x1: number; y1: number }[] = [];
 
   private drawUnder(now: number, ox: number, oy: number, op: number) {
     const c = this.uctx;
@@ -933,6 +935,7 @@ export class Graph {
       }
     }
     // territories
+    this.clusterTabs = [];
     if (this.case) this.case.clusters.forEach((cl) => this.drawHull(c, cl, now));
     // links
     const hl = this.hl;
@@ -1012,11 +1015,12 @@ export class Graph {
       if (k > 0.45 && op > 0.5 && (e.e.sim != null || e.e.rel === "cites") && (!e.b.compact || on)) {
         const mx = bez(pts[0], pts[2], pts[4], pts[6], 0.5);
         const my = bez(pts[1], pts[3], pts[5], pts[7], 0.5);
-        this.pill(c, mx, my, e.e.sim != null ? e.e.sim.toFixed(4) : "CITES", e.e.sim != null ? C.cv : "#5b8fe6", REL[e.e.rel].label.toUpperCase());
+        this.pill(c, mx, my, e.e.sim != null ? e.e.sim.toFixed(2) : "CITES", e.e.sim != null ? C.cv : "#5b8fe6", e.e.sim != null ? REL[e.e.rel].label.toUpperCase() : "");
       }
     }
     // far zoom: cities on the map
     if (op < 1) {
+      const labels: { n: VNode; r: number; text: string }[] = [];
       for (const n of this.nodes) {
         if (!n.vis) continue;
         const col = this.colors[n.d.role] ?? C.ink2;
@@ -1031,13 +1035,47 @@ export class Graph {
         c.strokeStyle = big ? col : "#3fe07a";
         c.lineWidth = 1.4 / k;
         c.strokeRect(n.x - r * 1.3, n.y - r * 1.3, r * 2.6, r * 2.6);
-        if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId) {
-          c.font = `600 ${11.5 / k}px "JetBrains Mono", monospace`;
-          c.fillStyle = "#f2efe9";
-          c.textAlign = "center";
-          const label = (n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Submitted" : n.d.author.name).toUpperCase();
-          c.fillText(label, n.x, n.y - r - 9 / k);
+        if (big || n.d.role === "mutation" || n.d.id === this.hoverId || n.d.id === this.selId)
+          labels.push({ n, r, text: n.d.role === "origin" ? "Earliest known" : n.d.role === "submitted" ? "Submitted" : n.d.author.name });
+      }
+      // labels: most important first; one that would overlap a placed label (or a cluster tab) is dropped
+      const rank = (n: VNode) => (n.d.id === this.selId ? 0 : n.d.id === this.hoverId ? 1 : n.d.role === "submitted" ? 2 : n.d.role === "origin" ? 3 : 4);
+      labels.sort((a, b) => rank(a.n) - rank(b.n));
+      const placed = this.clusterTabs.slice();
+      // markers count as occupied too, so a label never sits on another post
+      const markers = labels.length ? this.nodes.filter((n) => n.vis).map((n) => {
+        const big = n.d.role === "origin" || n.d.role === "submitted";
+        const r = ((big ? 9 : n.compact ? 4.5 : 6.5) / k) * 1.3;
+        return { id: n.d.id, x0: n.x - r, x1: n.x + r, y0: n.y - r, y1: n.y + r };
+      }) : [];
+      c.font = `600 ${12.5 / k}px "Inter Tight", sans-serif`;
+      c.textAlign = "center";
+      c.textBaseline = "alphabetic";
+      c.lineJoin = "round";
+      for (const l of labels) {
+        const w = c.measureText(l.text).width;
+        const h = 15 / k;
+        // above the marker, else below it, else not at all
+        const over = (b: { x0: number; x1: number; y0: number; y1: number }, p: { x0: number; x1: number; y0: number; y1: number }) => b.x0 < p.x1 && b.x1 > p.x0 && b.y0 < p.y1 && b.y1 > p.y0;
+        const must = rank(l.n) <= 3; // selected, hovered, submitted and earliest always get a label
+        const hitsLabel = (b: { x0: number; x1: number; y0: number; y1: number }) => placed.some((p) => over(b, p));
+        const hits = (b: { x0: number; x1: number; y0: number; y1: number }) => hitsLabel(b) || markers.some((m) => m.id !== l.n.d.id && over(b, m));
+        const at = (y: number) => ({ y, x0: l.n.x - w / 2 - 3 / k, x1: l.n.x + w / 2 + 3 / k, y0: y - h, y1: y + 3 / k });
+        let box = at(l.n.y - l.r * 1.3 - 6 / k);
+        if (hits(box)) {
+          const below = at(l.n.y + l.r * 1.3 + h + 2 / k);
+          if (!hits(below)) box = below;
+          else if (!must) continue;
+          else if (hitsLabel(box) && !hitsLabel(below)) box = below; // may cover a marker, never another label
         }
+        const y = box.y;
+        placed.push(box);
+        c.globalAlpha = hl && !hl.has(l.n.d.id) ? 0.35 : clamp(1 - op * 1.7, 0, 1);
+        c.strokeStyle = "rgba(5,5,6,0.9)";
+        c.lineWidth = 4 / k;
+        c.strokeText(l.text, l.n.x, y);
+        c.fillStyle = "#f2efe9";
+        c.fillText(l.text, l.n.x, y);
       }
       c.globalAlpha = 1;
     }
@@ -1228,12 +1266,19 @@ export class Graph {
     // tab label on the top edge, like a detector's class + score
     const fs = 11 / Math.max(k, 0.14);
     c.font = `600 ${fs}px "JetBrains Mono", monospace`;
-    const label = `${STATUS[cl.status].short.toUpperCase()} · ${cl.stat.toUpperCase()}`;
+    // the tab never runs past its box: drop detail from the right until it fits
+    const parts = [STATUS[cl.status].short, ...cl.stat.split(" · ")].map((x) => x.toUpperCase());
+    let label = parts.join(" · ");
+    while (parts.length > 1 && c.measureText(label).width + fs * 1.2 > x1 - x0) {
+      parts.pop();
+      label = parts.join(" · ");
+    }
     const w = c.measureText(label).width + fs * 1.2;
     const h = fs * 1.9;
     c.globalAlpha = 1;
     c.fillStyle = col;
     c.fillRect(x0 - 1 / k, y0 - h, w, h);
+    this.clusterTabs.push({ x0, y0: y0 - h, x1: x0 + w, y1: y0 });
     c.fillStyle = "#050506";
     c.textAlign = "left";
     c.textBaseline = "middle";
