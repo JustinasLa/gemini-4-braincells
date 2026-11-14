@@ -23,6 +23,7 @@ import httpx
 
 from lookup import family, imagetrace, textsim
 from lookup.bsky import BlueskyClient, BlueskyTimeUp, parse_time, post_url
+from lookup.fxtwitter import Conversation, FxNotFound, FxTwitterError
 from lookup.models import (
     Account,
     Card,
@@ -112,6 +113,7 @@ IMAGE_LABELS = {
 # that hangs ends here instead of holding the reading until the whole budget is gone.
 SEARCH_CAP_S = 10.0
 PAGE_CAP_S = 15.0  # X post/profile pages (markdown)
+FX_CAP_S = 6.0  # FxTwitter API (p50 well under 1 s); slower means it is struggling: fall back
 FACTS_CAP_S = 20.0  # /scrape with AI extraction
 IMAGE_DOWNLOAD_S = 10.0  # an image from the platform CDN
 IMAGE_CALL_S = 20.0  # the lookup's Nemotron image client: one attempt, this timeout, no limiter
@@ -210,6 +212,9 @@ def _x_img(url: str) -> str:
 @dataclass
 class Deps:
     oxylabs: Any  # sources.oxylabs.OxylabsClient (search, scrape_facts, scrape_markdown)
+    # lookup.fxtwitter.FxTwitterClient: X posts are read through it first (it sees posts X's
+    # logged-out page hides, with exact counts); the Oxylabs page read is the fallback
+    fxtwitter: Any = None
     bsky: BlueskyClient | None = None
     store: Callable[[], Any] | None = None  # context manager factory yielding api.store.Store
     nemotron: Any = None  # media.nemotron.NemotronClient
@@ -680,6 +685,30 @@ class Lookup:
                 return
 
     # ---------------------------------------------------------------- X
+    def _fx_read(
+        self, status_id: str, cap_s: float = FX_CAP_S, *, replies: bool = True
+    ) -> tuple[Conversation | None, dict, bool]:
+        """The post (and one page of its replies) through FxTwitter. Returns (conversation, call,
+        not_found); (None, ..) when FxTwitter isn't configured or failed: read the X page then.
+        `not_found`: FxTwitter says the post is gone; the X page says why (tombstones)."""
+        fx = self.deps.fxtwitter
+        if fx is None:
+            return None, {}, False
+        self._spend(need_s=1.0)
+        deadline = self._provider_deadline(cap_s)
+        try:
+            conv = (
+                fx.conversation(status_id, deadline=deadline)
+                if replies
+                else fx.status(status_id, deadline=deadline)
+            )
+            return conv, dict(fx.last_call), False
+        except FxNotFound:
+            return None, dict(fx.last_call), True
+        except FxTwitterError as exc:
+            log.info("lookup %s: FxTwitter read failed: %s", self.result.id, exc)
+            return None, dict(fx.last_call), False
+
     def _scrape_x(self, url: str, cap_s: float = PAGE_CAP_S) -> tuple[str, dict]:
         self._spend()
         md, _meta = self.deps.oxylabs.scrape_markdown(url, deadline=self._provider_deadline(cap_s))
@@ -725,7 +754,23 @@ class Lookup:
     def _x_post(self) -> None:
         t = self.target
         with self.step("post") as st:
-            md, call = self._scrape_x(t.url)
+            # one bound for the read, FxTwitter and its fallback together
+            read_end = time.monotonic() + PAGE_CAP_S
+            conv, call, _gone = self._fx_read(t.post_id)
+            if conv is not None and conv.main.status_id == t.post_id:
+                m, replies, ancestors = conv.main, conv.replies, []
+                parent_call: dict | None = None
+                if conv.parent_id:
+                    try:  # the post it replies to: one more quick read, for the thread
+                        parent, parent_call, _ = self._fx_read(conv.parent_id, replies=False)
+                    except BudgetExceeded:
+                        parent = None
+                    if parent is not None and parent.main.status_id == conv.parent_id:
+                        parent.main.is_main = False
+                        ancestors = [parent.main]
+                self._read_post(st, m, ancestors, replies, call, fx=True, parent_call=parent_call)
+                return
+            md, call = self._scrape_x(t.url, cap_s=max(1.0, read_end - time.monotonic()))
             page: PostPage = parse_post_page(md, t.post_id)
             m = page.main
             if m is None:
@@ -750,83 +795,112 @@ class Lookup:
                 if reason:
                     self._tombstone_note(detail)
                 return
-            counts = ", ".join(
-                f"{v:,} {k}"
-                for k, v in (
-                    ("views", m.views),
-                    ("replies", m.replies),
-                    ("reposts", m.reposts),
-                    ("likes", m.likes),
-                    ("bookmarks", m.bookmarks),
+            self._read_post(st, m, page.ancestors, page.replies, call, fx=False)
+
+    def _read_post(
+        self,
+        st: Step,
+        m: XItem,
+        ancestors: list[XItem],
+        replies: list[XItem],
+        call: dict,
+        *,
+        fx: bool,
+        parent_call: dict | None = None,
+    ) -> None:
+        """The submitted X post, read through FxTwitter (`fx`) or on its logged-out page.
+        `parent_call`: the FxTwitter read of the post it replies to (`ancestors`), made apart
+        from the post's: its receipt is its own. Without it the ancestors came on the post's
+        page."""
+        t = self.target
+        counts = ", ".join(
+            f"{v:,} {k}"
+            for k, v in (
+                ("views", m.views),
+                ("replies", m.replies),
+                ("reposts", m.reposts),
+                ("likes", m.likes),
+                ("bookmarks", m.bookmarks),
+            )
+            if v is not None
+        )
+        rid = self.receipt(
+            "fxtwitter" if fx else "oxylabs",
+            "/2/conversation" if fx else "/scrape",
+            f"X post by @{m.handle} read through FxTwitter (X's own data, exact counts): {counts}"
+            if fx
+            else f"X post by @{m.handle} read: {counts}",
+            source_url=t.url,
+            call=call,
+        )
+        now = call.get("fetched_at") or _now()
+        post = self._x_post_from_item(m, "submitted", sim=1.0, rid=rid, verified=True, as_of=now)
+        if m.quoted_text:
+            post.text = (m.text + "\n\n> " + m.quoted_text).strip()
+        self.add_post(post)
+        with self.lock:
+            self.result.subject_id = post.id
+        self._subject_text = m.text or m.quoted_text
+        self._subject_time = m.created_at
+        self._card_url, self._card_title = m.card_url, m.card_title
+        self._media_urls = list(post.media_urls)
+        if m.card_image and not self._media_urls:
+            self._media_urls.append(_x_img(m.card_image))
+        self.receipt(
+            "x-id",
+            "snowflake",
+            "Exact creation times of X posts are read from "
+            "their ids (snowflakes), not from the page",
+            source_url=t.url,
+        )
+        found = [post.id]
+        if m.quoted_id:
+            q = Post(
+                id=f"x:{m.quoted_id}",
+                platform="x",
+                url=x_post_url(m.quoted_handle, m.quoted_id),
+                author_handle=m.quoted_handle,
+                text=m.quoted_text or "",
+                created_at=snowflake_time(m.quoted_id),
+                time_source="snowflake",
+                role="mention",
+                receipt_id=rid,
+            )
+            self.add_post(q)
+            self.add_edge(q.id, post.id, "quote", note="quoted by the submitted post")
+            found.append(q.id)
+        prev = None
+        a_rid, a_now = rid, now
+        if ancestors and parent_call:
+            a = ancestors[0]
+            a_rid = self.receipt(
+                "fxtwitter",
+                "/2/status",
+                f"X post by @{a.handle} that the submitted post replies to, read through FxTwitter",
+                source_url=x_post_url(a.handle, a.status_id),
+                call=parent_call,
+            )
+            a_now = parent_call.get("fetched_at") or _now()
+        for a in ancestors:
+            ap = self.add_post(
+                self._x_post_from_item(
+                    a, "mention", sim=None, rid=a_rid, verified=False, as_of=a_now
                 )
-                if v is not None
             )
-            rid = self.receipt(
-                "oxylabs",
-                "/scrape",
-                f"X post by @{m.handle} read: {counts}",
-                source_url=t.url,
-                call=call,
-            )
-            now = call.get("fetched_at") or _now()
-            post = self._x_post_from_item(
-                m, "submitted", sim=1.0, rid=rid, verified=True, as_of=now
-            )
-            if m.quoted_text:
-                post.text = (m.text + "\n\n> " + m.quoted_text).strip()
-            self.add_post(post)
-            with self.lock:
-                self.result.subject_id = post.id
-            self._subject_text = m.text or m.quoted_text
-            self._subject_time = m.created_at
-            self._card_url, self._card_title = m.card_url, m.card_title
-            self._media_urls = list(post.media_urls)
-            if m.card_image and not self._media_urls:
-                self._media_urls.append(_x_img(m.card_image))
-            self.receipt(
-                "x-id",
-                "snowflake",
-                "Exact creation times of X posts are read from "
-                "their ids (snowflakes), not from the page",
-                source_url=t.url,
-            )
-            found = [post.id]
-            if m.quoted_id:
-                q = Post(
-                    id=f"x:{m.quoted_id}",
-                    platform="x",
-                    url=x_post_url(m.quoted_handle, m.quoted_id),
-                    author_handle=m.quoted_handle,
-                    text=m.quoted_text or "",
-                    created_at=snowflake_time(m.quoted_id),
-                    time_source="snowflake",
-                    role="mention",
-                    receipt_id=rid,
-                )
-                self.add_post(q)
-                self.add_edge(q.id, post.id, "quote", note="quoted by the submitted post")
-                found.append(q.id)
-            prev = None
-            for a in page.ancestors:
-                ap = self.add_post(
-                    self._x_post_from_item(
-                        a, "mention", sim=None, rid=rid, verified=False, as_of=now
-                    )
-                )
-                if prev:
-                    self.add_edge(prev, ap.id, "reply")
-                prev = ap.id
-                found.append(ap.id)
             if prev:
-                self.add_edge(prev, post.id, "reply", note="the submitted post replies to it")
-            for r in page.replies[: self.deps.replies_max]:
-                rp = self.add_post(
-                    self._x_post_from_item(r, "reply", sim=None, rid=rid, verified=False, as_of=now)
-                )
-                self.add_edge(post.id, rp.id, "reply")
-                found.append(rp.id)
-            st.found = found
-            st.detail = counts or "post read"
+                self.add_edge(prev, ap.id, "reply")
+            prev = ap.id
+            found.append(ap.id)
+        if prev:
+            self.add_edge(prev, post.id, "reply", note="the submitted post replies to it")
+        for r in replies[: self.deps.replies_max]:
+            rp = self.add_post(
+                self._x_post_from_item(r, "reply", sim=None, rid=rid, verified=False, as_of=now)
+            )
+            self.add_edge(post.id, rp.id, "reply")
+            found.append(rp.id)
+        st.found = found
+        st.detail = (counts or "post read") + (" · via FxTwitter" if fx else "")
 
     def _x_author(self, handle: str, subject: bool) -> Account | None:
         ctx = self.step("author") if subject else _null_step()
@@ -1622,9 +1696,37 @@ class Lookup:
         sid = p.id.split(":", 1)[1]
         # a candidate copy is evidence, not the subject: a straggler stays an unread mention
         # rather than holding the reading (verify_read_s)
-        md, call = self._scrape_x(p.url, cap_s=self.deps.verify_read_s)
-        page = parse_post_page(md, sid)
-        m = page.main
+        # one bound for the read (verify_read_s), FxTwitter and its fallback together
+        read_end = time.monotonic() + self.deps.verify_read_s
+        conv, call, gone = self._fx_read(
+            sid, cap_s=min(FX_CAP_S, self.deps.verify_read_s), replies=False
+        )
+        if gone:
+            return None  # FxTwitter says it's gone: no page read needed to drop it
+        if conv is not None and conv.main.status_id == sid:
+            m, fx = conv.main, True
+            # only the parent's id matters here (does this post reply to the subject?)
+            page = PostPage(
+                m,
+                [
+                    XItem(
+                        handle=conv.parent_handle or "",
+                        name=None,
+                        status_id=conv.parent_id,
+                        text="",
+                    )
+                ]
+                if conv.parent_id
+                else [],
+                [],
+            )
+        else:
+            left = read_end - time.monotonic()
+            if left < 1.0:
+                return None  # FxTwitter used the read's time: an unread mention, not a hold-up
+            md, call = self._scrape_x(p.url, cap_s=left)
+            page, fx = parse_post_page(md, sid), False
+            m = page.main
         if m is None:
             return None
         subj = self.result.subject_id
@@ -1670,9 +1772,10 @@ class Lookup:
             "mention": "mentions it",
         }[role]
         rid = self.receipt(
-            "oxylabs",
-            "/scrape",
-            f"@{m.handle}'s post read: {kind}; {_fmt(m.views)} views, {_fmt(m.likes)} likes",
+            "fxtwitter" if fx else "oxylabs",
+            "/2/status" if fx else "/scrape",
+            f"@{m.handle}'s post read{' through FxTwitter' if fx else ''}: {kind}; "
+            f"{_fmt(m.views)} views, {_fmt(m.likes)} likes",
             source_url=p.url,
             call=call,
         )
@@ -2250,7 +2353,13 @@ class Lookup:
             self.result.spread = _spread(carriers)
             if any(p.platform == "x" for p in posts):
                 self.note(
-                    "X counts are what the logged-out page showed when it was read; X "
+                    (
+                        "X counts are X's own numbers when the post was read through "
+                        "FxTwitter, else what the logged-out page showed (it hides zero "
+                        "counts). Post times come from the post ids."
+                    )
+                    if any(r.tool == "fxtwitter" for r in self.result.receipts)
+                    else "X counts are what the logged-out page showed when it was read; X "
                     "hides zero counts. Post times come from the post ids."
                 )
             if not image or self._phrase():

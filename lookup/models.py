@@ -279,7 +279,16 @@ class Spread(BaseModel):
 class Receipt(BaseModel):
     id: int
     tool: Literal[
-        "oxylabs", "nemotron", "gemini", "bluesky", "detector", "x-id", "tineye", "yandex", "fetch"
+        "oxylabs",
+        "nemotron",
+        "gemini",
+        "bluesky",
+        "detector",
+        "x-id",
+        "tineye",
+        "yandex",
+        "fetch",
+        "fxtwitter",
     ]
     endpoint: str
     summary: str

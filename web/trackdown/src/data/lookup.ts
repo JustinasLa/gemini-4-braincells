@@ -6,7 +6,7 @@ import { appendImageTrace, type ImageMatch } from "./imageTrace";
 import { appendFamily } from "./family";
 
 // lookup/models.py Edge.tool and Receipt.tool
-type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id" | "tineye" | "yandex" | "fetch";
+type LookupTool = "oxylabs" | "nemotron" | "gemini" | "detector" | "bluesky" | "x-id" | "tineye" | "yandex" | "fetch" | "fxtwitter";
 export interface LookupPost {
   id: string;
   platform: "x" | "bluesky" | "web";
@@ -356,7 +356,7 @@ export const readingsDisagree = (result: LookupResult) => result.readings_disagr
 export const modelTool = (model: string | null | undefined): Tool => /nemotron/i.test(model ?? "") ? "nemotron" : /gemini/i.test(model ?? "") ? "gemini" : "archive";
 
 const toolFor = (tool: string): Tool => {
-  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you", "fetch"].includes(tool)) return tool as Tool;
+  if (["oxylabs", "nemotron", "gemini", "detector", "bluesky", "you", "fetch", "fxtwitter"].includes(tool)) return tool as Tool;
   if (tool === "tineye" || tool === "yandex") return "oxylabs"; // reverse-image engines, read through Oxylabs /scrape
   return "archive";
 };

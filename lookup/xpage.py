@@ -58,6 +58,8 @@ def unavailable_reason(md: str) -> str | None:
         "The content may be private, deleted or only available on the app.": "unavailable",
         "Hmm...this page doesn't exist. Try searching for something else.": "unavailable",
         "This account doesn't exist": "not_found",
+        # logged out, a post marked sensitive shows this instead of the post; it isn't gone
+        "This post is only available in the X app": "sensitive",
     }
     in_item = False
     in_post = False
@@ -103,6 +105,7 @@ def unavailable_tag(reason: str) -> str:
         "protected": "Protected account",
         "unavailable": "Post not available",
         "not_found": "Account doesn't exist",
+        "sensitive": "Hidden from logged-out view",
     }[reason]
 
 
@@ -114,6 +117,8 @@ def unavailable_detail(reason: str) -> str:
         "(only approved followers can see it)",
         "unavailable": "X says this post isn't available (it may be private, deleted or app-only)",
         "not_found": "X says this account doesn't exist",
+        "sensitive": "X hides this post from logged-out visitors (marked sensitive: "
+        '"only available in the X app")',
     }[reason]
 
 

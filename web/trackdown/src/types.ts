@@ -26,7 +26,7 @@ export type Relation = "repost" | "quote" | "copy" | "media" | "link" | "reply" 
   | "screenshot_of"; // from the post carrying a screenshot to the real post it shows (not a copy link)
 
 /** Which part of the pipeline produced a link or a receipt. */
-export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive" | "bluesky" | "fetch";
+export type Tool = "detector" | "nemotron" | "oxylabs" | "gemini" | "you" | "archive" | "bluesky" | "fetch" | "fxtwitter";
 
 export interface Author {
   name: string;

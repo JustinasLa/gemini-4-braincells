@@ -145,6 +145,7 @@ export const TOOL: Record<Tool, { label: string; long: string }> = {
   archive: { label: "archive", long: "Archive / post-ID timestamp" },
   bluesky: { label: "bluesky", long: "Bluesky public AppView" },
   fetch: { label: "fetch", long: "Direct image download" },
+  fxtwitter: { label: "fxtwitter", long: "FxTwitter API (X's own post data)" },
 };
 
 /** T3 Code's font stacks: the system UI font, Inter (Google Fonts) where there is none. Canvas text
