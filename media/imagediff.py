@@ -128,6 +128,14 @@ _NO_CHANGE_FORMS = tuple(
         rf"(?:\s+(?:to|in)\s+{_SUBJECT.removesuffix(r'\s+')})?\.?",
     )
 )
+# The composite's own panel labels, read back as image text or as an edit (live, prod lookup
+# lk_a83a7c2ff47c2545: "The top label changed from 'A: earlier' to 'B: later'.").
+_LABEL = re.compile(
+    r"(?<!\w)[AB]\s*:\s*(?:earlier|later)\b"
+    r"|(?<!\w)['\"\u2018\u201c](?:earlier|later)['\"\u2019\u201d]",
+    re.I,
+)
+_LABEL_LINE = re.compile(r"\s*(?:[AB]\s*:\s*)?(?:earlier|later)?\s*", re.I)
 _MAX_SIDE = 1024  # each input is downscaled to this before it is sent
 _MAX_COMPOSITE = 2048  # composite width cap
 # Larger inputs are refused from the header, before decoding (decompression bombs). This is far
@@ -371,8 +379,8 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
         raise ValueError("changes must be a string or list")
     raw = [raw] if isinstance(raw, str) else raw
     sentences = [" ".join(" ".join(_strings([value])).split()) for value in raw]
-    before = [text[:300] for text in _strings(payload.get("text_before"), limit=20)]
-    after = [text[:300] for text in _strings(payload.get("text_after"), limit=20)]
+    before = _without_labels(_strings(payload.get("text_before"), limit=20))
+    after = _without_labels(_strings(payload.get("text_after"), limit=20))
     flags = [flag.lower() for flag in _strings(payload.get("content_flags"))]
     _, flags = safe_description(" ".join(sentences + before + after), flags)
     kinds = payload.get("kinds", [])
@@ -386,6 +394,7 @@ def _normalise(payload: dict[str, Any], model: str, *, marked: bool = False) -> 
         if (
             not sentence
             or _FORBIDDEN.search(unquoted)
+            or _LABEL.search(sentence)  # our own "A: earlier" / "B: later" panel labels
             or _says_no_change(sentence)
             or (marked and _MARKER.search(unquoted))
         ):
@@ -427,6 +436,16 @@ class _OcrText:
 
 def _words(text: str) -> list[str]:
     return _WORD.findall(text.casefold())
+
+
+def _without_labels(lines: list[str]) -> list[str]:
+    """Transcribed lines without our panel labels (an entry that is only a label is dropped)."""
+    out = []
+    for line in lines:
+        line = " ".join(_LABEL.sub(" ", line).split())
+        if line and not _LABEL_LINE.fullmatch(line):
+            out.append(line[:300])
+    return out
 
 
 def _says_no_change(sentence: str) -> bool:

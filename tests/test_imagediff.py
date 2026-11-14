@@ -1188,3 +1188,40 @@ def test_real_rate_limiter_reserves_and_sleeps_within_budget(images):
     assert describe_changes(client, *images, timeout_s=10) is not None
     assert len(slept) == 1 and 0.5 < slept[0] <= 1.0
     assert limiter._next >= time.monotonic() + 2.0  # the next caller waits a full interval
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The top label changed from 'A: earlier' to 'B: later'.",  # live, lk_a83a7c2ff47c2545
+        "The label 'A: earlier' was replaced with 'B: later'.",
+        "The text 'earlier' at the top was replaced with 'later'.",
+        "The heading A: earlier became B: later.",
+    ],
+)
+def test_panel_label_changes_are_dropped(images, sentence):
+    payload = {
+        **FULL,
+        "changes": [sentence, *FULL["changes"]],
+        "kinds": ["caption_changed", "caption_changed"],
+    }
+    result, _ = compare(images, payload, layout="composite")
+    assert result.changes == FULL["changes"] and result.kinds == ["caption_changed"]
+
+
+def test_panel_labels_removed_from_transcriptions(images):
+    payload = {
+        **FULL,
+        "text_before": ["A: earlier", "A:", "earlier", "A: earlier THEY SAID", "LATER THAT DAY"],
+        "text_after": ["B: later", "B: Later WAS AN ACCIDENT", "later"],
+    }
+    result, _ = compare(images, payload, layout="composite")
+    assert result.text_before == ["THEY SAID", "LATER THAT DAY"]
+    assert result.text_after == ["WAS AN ACCIDENT"]
+
+
+def test_prose_later_is_not_a_label(images):
+    sentence = "The sunflower inset was removed in the later version."
+    payload = {**FULL, "changes": [sentence], "kinds": ["element_removed"]}
+    result, _ = compare(images, payload)
+    assert result.changes == [sentence]
