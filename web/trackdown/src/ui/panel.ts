@@ -288,4 +288,4 @@ export class Panel {
 /** a post in the copy/spread trace: not a search result, not the real post shown in a screenshot */
 const inTrace = (n: TraceNode) => n.role !== "source" && n.role !== "screenshotted";
 /** a drawable chain: at least two posts in the trace */
-export const hasChain = (c: TraceCase) => c.nodes.filter(inTrace).length > 1;
+export const hasChain = (c: TraceCase) => c.nodes.filter((n) => inTrace(n) && (!n.imageMatch || n.id === c.originId)).length > 1; // an image match is in the chain only as its dated origin

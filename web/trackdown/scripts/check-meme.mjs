@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 
-const bundle = await build({ stdin: { contents: 'export * from "./src/data/imageTrace.ts"; export * from "./src/data/lookup.ts"; export * from "./src/data/mockMeme.ts"; export { comparisonSource } from "./src/ui/compare.ts";', resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, platform: "node", format: "esm" });
+const bundle = await build({ stdin: { contents: 'export * from "./src/data/imageTrace.ts"; export * from "./src/data/lookup.ts"; export * from "./src/data/mockMeme.ts"; export { comparisonSource } from "./src/ui/compare.ts"; export { isLineageRel } from "./src/ui/format.ts";', resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, platform: "node", format: "esm" });
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`);
 let checks = 0;
 const check = (name, run) => { run(); checks++; console.log(`✓ ${name}`); };
@@ -11,14 +11,14 @@ check("image matches flow through lookupCase with original styling and variant e
   assert.equal(trace.nodes.length, 7);
   assert.equal(trace.nodes.find((node) => node.id === "img:origin").role, "origin");
   assert.equal(trace.nodes.find((node) => node.id === "img:edited").role, "mutation");
-  assert.equal(trace.edges.length, 6);
-  assert.ok(trace.edges.every((edge) => edge.from === "img:origin" && edge.rel === "variant"));
-  assert.ok(trace.edges.some((edge) => edge.to === fixture.subject_id), "the submission hangs off the image original");
+  assert.deepEqual(trace.edges.map((edge) => `${edge.from}>${edge.to}:${edge.rel}`).sort(), ["img:origin>img:cropped:variant", "img:origin>img:edited:variant", `img:origin>${fixture.subject_id}:variant`].sort(),
+    "edited/cropped matches and the submission link to the Original; unknown/same/resized get no link; no order is claimed for a crawl date");
   assert.equal(trace.originId, "", "a crawl-dated original is no trace origin: no age is derived from it");
   assert.ok(trace.nodes.find((node) => node.id === "img:origin").undated, "a crawl date is not shown as a publication time");
   const paged = structuredClone(fixture);
   paged.image_matches.find((match) => match.id === "img:origin").time_source = "page";
   assert.equal(api.lookupCase(paged).originId, "img:origin", "a page-dated original before the post is the origin");
+  assert.ok(api.lookupCase(paged).edges.some((edge) => edge.from === "img:origin" && edge.to === fixture.subject_id && edge.rel === "media"), "and the submission is its same-image copy");
   const upload = { ...structuredClone(paged), kind: "image" };
   upload.posts[0].created_at = null;
   assert.equal(api.lookupCase(upload).originId, "", "an upload has no time of its own, so no age either");
@@ -77,6 +77,20 @@ check("an upload with only crawl-dated matches states no origin and no ages", ()
   assert.ok(trace.nodes.find((node) => node.id === "x:submitted").timeUnknown);
   assert.ok(trace.nodes.filter((node) => node.imageMatch).every((node) => node.undated));
   assert.equal(api.imageTraceState(api.memeFixture("meme-upload")).origin?.id, "img:origin", "the Original card still shows");
+});
+check("server variant edges win and keep their tool; variant links are not copy lineage", () => {
+  const served = structuredClone(fixture);
+  served.edges = [{ from: "img:same", to: "img:edited", rel: "variant", sim: null, tool: "nemotron", note: "Caption changed" }];
+  const edges = api.lookupCase(served).edges.filter((edge) => edge.rel === "variant");
+  assert.ok(edges.some((edge) => edge.from === "img:same" && edge.to === "img:edited" && edge.tool === "nemotron" && edge.note === "Caption changed"));
+  assert.ok(!edges.some((edge) => edge.to === "img:cropped"), "no fallback edges once the server sent its own");
+  assert.equal(api.isLineageRel("variant"), false);
+});
+check("an image origin already on the map (same id as a post) still anchors the links", () => {
+  const clash = structuredClone(fixture);
+  clash.posts.push({ ...clash.posts[0], id: "img:origin", role: "copy", created_at: "2026-11-01T00:00:00Z" });
+  const trace = api.lookupCase(clash);
+  assert.ok(trace.edges.some((edge) => edge.from === "img:origin" && edge.to === "img:edited"));
 });
 check("relation groups count matches, exclude original and different", () => {
   const state = api.imageTraceState(fixture);

@@ -97,7 +97,7 @@ export const relOf = (rel: string | undefined): (typeof REL)[Relation] =>
 export const isMatchRel = (rel: string | undefined) => rel === "copy" || rel === "media";
 /** Relations that form the copy/spread tree (parent -> child). A screenshot link, or a rel this
  *  app does not know yet, is drawn but kept out of the chain, the path to the earliest copy and lineage. */
-const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites", "variant"]);
+const LINEAGE_RELS = new Set<string>(["repost", "quote", "copy", "media", "link", "reply", "cites"]);
 export const isLineageRel = (rel: string | undefined) => rel != null && LINEAGE_RELS.has(rel);
 /** A lineage edge: a lineage rel between two posts that are both in the copy/spread tree. A post
  *  shown in a screenshot ("screenshotted") is never in it, even when another edge (a reply to it,

@@ -153,7 +153,9 @@ slider; slider on phones). Image dates say “first seen by TinEye” (an upper 
 “page dated”, “time from post id”, or “date unknown”; an upload never becomes its own origin.
 Descriptions are Nemotron’s reading, not verified facts. Boxes from the pixel comparison are 0..1 fractions of
 the submission (`media.variants.relate(upload, match)`): the edited region is drawn on both images,
-a crop box marks the part of the submission a cropped match shows. The section appears only when
+a crop box marks the part of the submission a cropped match shows. Variant links are visual relationships drawn beside the copy chain, never lineage: the server's
+variant edges (image origin → edited/cropped matches) are used as sent. The submission joins the copy
+chain, as a same-image link from the Original, only when real dates put the Original first. The section appears only when
 there is an image search to report (the server always sends `image_matches`, `[]` by default, and
 skips both steps for inputs without an image). Say “edited”, “changed”, “variation”, never
 “fake”, “deepfake”, or claims about intent. Different-looking matches are not counted as variations.

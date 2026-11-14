@@ -126,7 +126,9 @@ try {
     assert.match(html, /ORIGINAL · EARLIEST MATCH FOUND/);
     assert.match(html, /first seen by TinEye on 2026-11-12 · upper bound, not a publish date/);
     assert.doesNotMatch(html, /\b(fake|deepfake)\b/i);
-    assert.ok(trace.edges.some((e) => e.rel === "variant" && isLineageEdge(e, trace.nodes.find((n) => n.id === e.from), trace.nodes.find((n) => n.id === e.to))));
+    // variant links are visual relationships, never copy lineage
+    assert.ok(trace.edges.some((e) => e.rel === "variant"));
+    assert.ok(!trace.edges.some((e) => e.rel === "variant" && isLineageEdge(e, trace.nodes.find((n) => n.id === e.from), trace.nodes.find((n) => n.id === e.to))));
     renderAll(lookupCase({ ...memeFixture("meme-blocked"), image_matches: [{ id: "img:bare" }], image_origin_id: "img:bare" }));
   });
 } finally {
