@@ -94,6 +94,16 @@ def page_unavailable_reason(md: str, url: str) -> str | None:
     return unavailable_reason("\n".join(ln for ln in header if ln.startswith("## ")))
 
 
+def unavailable_tag(reason: str) -> str:
+    """A few words for the verdict screen."""
+    return {
+        "suspended": "Account suspended",
+        "protected": "Protected account",
+        "unavailable": "Post not available",
+        "not_found": "Account doesn't exist",
+    }[reason]
+
+
 def unavailable_detail(reason: str) -> str:
     """Plain wording for an unreadable X post."""
     return {

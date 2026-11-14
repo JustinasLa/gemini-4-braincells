@@ -893,6 +893,8 @@ def test_lookup_x_tombstones(post_file, profile_file, handle, status_id, detail,
         job.result.notes
     )
     assert job._subject_time == snowflake_time(status_id)
+    tag = {"suspended": "Account suspended", "protected": "Protected account"}
+    assert job.result.unreadable == tag.get(post_file.split("_")[1], "Post not available")
     assert any(r.ok and r.summary == detail for r in job.result.receipts)
     assert all(r.ok for r in job.result.receipts if r.source_url == f"https://x.com/{handle}")
     for sid in ("copies_web", "copies_x", "copies_bsky"):
@@ -1171,6 +1173,7 @@ def _assert_tombstone_kept(job, deps):
         job.result.notes
     )
     assert [r.summary for r in job.result.receipts].count(f"Linked page read: {TOMB_DETAIL}") == 1
+    assert job.result.unreadable == "Account suspended"
 
 
 def _tomb_facts(url):
@@ -1243,3 +1246,21 @@ def test_api_handle_and_unspaced_text():
         assert c.post("/api/lookup", json={"text": "nytimes.com"}).status_code == 400
     finally:
         app.dependency_overrides.pop(lookup_route.get_jobs, None)
+
+
+def test_unreadable_is_set_only_when_the_submitted_post_cant_be_read():
+    job = Lookup("lk_ok", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), make_deps())
+    job.run()
+    assert job.result.unreadable is None
+
+    class NoPost(FakeOxylabs):
+        def scrape_markdown(self, url, deadline=None):
+            md, meta = super().scrape_markdown(url, deadline)
+            return ("## Post\n\nSomething went wrong." if "/status/" in url else md), meta
+
+    deps = make_deps()
+    deps.oxylabs = NoPost()
+    job = Lookup("lk_np", LookupInput(url=f"https://x.com/ada_example/status/{SUBJ}"), deps)
+    job.run()
+    assert job.result.unreadable == "Post not readable"
+    assert job.snapshot()["unreadable"] == "Post not readable"

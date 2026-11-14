@@ -46,6 +46,7 @@ from lookup.xpage import (
     parse_profile,
     unavailable_detail,
     unavailable_reason,
+    unavailable_tag,
 )
 from sources.links import X_HOSTS, url_variants
 from sources.oxylabs import OxylabsError
@@ -653,6 +654,10 @@ class Lookup:
                     ok=bool(reason),
                 )
                 st.state, st.detail = "done" if reason else "failed", detail
+                with self.lock:
+                    self.result.unreadable = (
+                        unavailable_tag(reason) if reason else "Post not readable"
+                    )
                 if reason:
                     self._tombstone_note(detail)
                 self._subject_time = snowflake_time(t.post_id)
@@ -858,6 +863,8 @@ class Lookup:
             )
             pv = th.get("post")
             if not pv:
+                with self.lock:
+                    self.result.unreadable = "Post not found"
                 raise StepUnavailable("post not found (deleted or blocked)")
             rid = self.receipt(
                 "bluesky",
@@ -997,6 +1004,7 @@ class Lookup:
         detail = unavailable_detail(reason)
         with self.lock:
             self._tomb_detail = detail
+            self.result.unreadable = unavailable_tag(reason)
             if not self._unreadable:
                 rid = self.receipt(
                     "oxylabs", "/scrape", f"Linked page read: {detail}", source_url=final, call=call

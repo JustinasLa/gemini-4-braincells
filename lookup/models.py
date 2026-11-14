@@ -207,3 +207,6 @@ class LookupResult(BaseModel):
     readings_disagree: bool = False
     steps: list[Step] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    # why the submitted post couldn't be read ("Account suspended"); the UI shows it in place of
+    # "Not enough evidence", since there was nothing to judge
+    unreadable: str | None = None

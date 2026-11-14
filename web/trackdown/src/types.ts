@@ -117,6 +117,7 @@ export interface TraceCase {
   wouldChange: string[];
   steps: TraceStep[];
   summary: string;
+  tag?: string; // replaces the status tag ("Not enough evidence"), e.g. "Account suspended"
   findingsOnly?: boolean; // no detector verdict: receipts are search findings, not signs either way
   lookup?: LookupResult;
   mock?: boolean;
