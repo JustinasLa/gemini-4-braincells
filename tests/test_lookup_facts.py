@@ -215,6 +215,7 @@ def test_brief_distinguishes_read_pages_from_search_hints_and_keeps_urls():
     assert data["pages"][1]["evidence_kind"] == "search_hint"
     assert "not proof of original authorship" in data["origin_scope"]
     assert "earliest_known_source_id" not in data
+    assert "earliest_observed_source_id" in data and "earliest_observed_source_id" in SYSTEM
 
 
 def test_prompt_requires_general_claim_and_provenance_caveats():
