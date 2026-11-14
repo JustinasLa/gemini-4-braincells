@@ -304,6 +304,9 @@ class FakeOxylabs:
 
 
 class FakeStore:
+    def clusters_for_post(self, author, rkey):
+        return []
+
     def clusters_for_url(self, urls):
         return []
 
@@ -989,6 +992,30 @@ def test_lookup_short_read_text_keeps_short_skip_message():
     assert job._step("copies_web").detail == "text too short for an exact-phrase search"
     assert job._step("copies_x").detail == "text too short for an exact-phrase search"
     assert job._step("copies_bsky").detail == "text too short"
+
+
+def test_lookup_monitor_matches_submitted_bluesky_post_cluster():
+    class PostStore(FakeStore):
+        def clusters_for_post(self, author, rkey):
+            assert author == "did:plc:re2otjutgbn6yr7u4poaocl6"
+            assert rkey == "3n2btil3gjk2u"
+            return super().clusters_for_text("")
+
+    @contextmanager
+    def store():
+        yield PostStore()
+
+    job = Lookup(
+        "lk_154",
+        LookupInput(
+            url="https://bsky.app/profile/did:plc:re2otjutgbn6yr7u4poaocl6/post/3n2btil3gjk2u"
+        ),
+        make_deps(store=store),
+    )
+    job._monitor()
+    assert job.result.status == "matched"
+    assert job.result.clusters[0]["match"] == ["post"]
+    assert job.result.clusters[0]["verdict_applies"] is True
 
 
 def test_lookup_monitor_matches_twitter_link_from_x_input():
