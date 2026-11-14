@@ -1,6 +1,6 @@
 // Timeline dock (scrubber + replay), time ruler and minimap.
 import type { Graph, VNode } from "../engine/graph";
-import { esc, fmtClock, fmtDate, fmtDur, fmtShort, roleOf } from "./format";
+import { esc, fmtClock, fmtDate, fmtDur, fmtShort, MONO, roleOf } from "./format";
 import { icon } from "./icons";
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -422,7 +422,7 @@ export class Dock {
     }
 
     // ---- labels under the axis: both ends, the gaps, then calendar ticks wherever they fit
-    c.font = '500 10.5px "JetBrains Mono", monospace';
+    c.font = `500 10.5px ${MONO}`;
     c.textBaseline = "top";
     const taken: [number, number][] = [];
     const free = (a: number, b: number) => a >= L - 8 && b <= R + 8 && !taken.some(([p, q]) => a < q + 10 && b > p - 10);
@@ -456,7 +456,7 @@ export class Dock {
     }
 
     // ---- flags for the two posts the story hangs on
-    c.font = '600 9px "JetBrains Mono", monospace';
+    c.font = `600 9px ${MONO}`;
     c.textBaseline = "alphabetic";
     const flagTaken: [number, number][] = [];
     const flag = (id: string, text: string, col: string) => {
@@ -527,7 +527,7 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
   c.clearRect(0, 0, w, h);
   if (g.mode !== "timeline" || !g.case) return;
   const ns = g.nodes.filter((n) => n.vis && !n.d.undated).sort((a, b) => a.tx - b.tx);
-  c.font = '600 11px "JetBrains Mono", monospace';
+  c.font = `600 11px ${MONO}`;
   c.textBaseline = "middle";
   c.textAlign = "left";
   let lastX = -1e9;
@@ -570,7 +570,7 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     if (!drawn.some(([a]) => a > from && a < s.x) || !drawn.some(([a]) => a > s.x && a < next)) continue;
     if (s.x < 0 || s.x > w || s.x - lastPill < 100) continue;
     const label = `${fmtDur(b.gap)} gap`;
-    c.font = '600 10px "JetBrains Mono", monospace';
+    c.font = `600 10px ${MONO}`;
     const up = label.toUpperCase();
     const tw = c.measureText(up).width + 16;
     if (s.x - tw / 2 < 2 || s.x + tw / 2 > w - 2) continue;
@@ -584,7 +584,7 @@ export function drawRuler(canvas: HTMLCanvasElement, g: Graph) {
     c.setLineDash([]);
     c.fillStyle = "#f2efe9";
     c.fillText(up, s.x, h / 2);
-    c.font = '600 11px "JetBrains Mono", monospace';
+    c.font = `600 11px ${MONO}`;
   }
 }
 

@@ -40,8 +40,8 @@ One visual language, taken from Junction 2026's banner: a Renaissance painting r
 - A cluster is one large detection box with a class/score tab (`SHILL · 31 ACCOUNTS · 94 S`).
 - The verdict arrives as the banner itself: painting, detection boxes, the bronze coin, and the verdict
   as a wide wordmark.
-- Type: Michroma (wide wordmark, like JUNCTION), Inter Tight (text), JetBrains Mono (`//` labels, data,
-  terminal). Black, white, CV green, and the painting's own colours for the verdicts.
+- Type: Michroma (wide wordmark, like JUNCTION), and T3 Code's default stacks: the system UI font
+  with Inter as the fallback (text), SF Mono / Menlo / Consolas (`//` labels, data, terminal). Black, white, CV green, and the painting's own colours for the verdicts.
 
 ## What's on screen
 
