@@ -604,8 +604,8 @@
         <div class="meter"><span class="num">${fix2(s.score)}</span><span class="bar"><i style="width:${clamp01(s.score) * 100}%"></i></span></div></div>
         <p>${esc(tidy(s.summary))}</p>${receipt(byId.get(s.evidence_id))}</div>`;
     return `<section class="card o-sig" aria-labelledby="h-sig">
-      <div class="card-head"><h2 id="h-sig">Evidence</h2><span class="label">${win ? 'Latest window · ' : ''}${forCo.length + guards.length} of ${all.length} fired</span></div>
-      <h3 class="label group-label">Points to coordination</h3>
+      <div class="card-head"><h2 id="h-sig">Evidence</h2><span class="label">${win ? 'Latest window' : plural(all.length, 'check')}</span></div>
+      <h3 class="label group-label">Points to coordination · ${forCo.length} of ${all.length} signals</h3>
       ${forCo.length ? `<div>${forCo.map(one).join('')}</div>` : '<p class="muted">No coordination signal fired.</p>'}
       ${guards.length ? `<h3 class="label group-label">Organic safeguards that held</h3><div>${guards.map(one).join('')}</div>` : ''}
       ${quiet.length ? `<details class="fold"><summary>${plural(quiet.length, 'check')} found nothing: ${esc(quiet.map((s) => sigName(s.name).toLowerCase()).join(', '))}</summary><div>${quiet.map(one).join('')}</div></details>` : ''}
@@ -662,12 +662,13 @@
     if (!a) return `<section class="card o-op" aria-labelledby="h-op"><div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div><p class="muted">Gemini hasn’t reviewed this cluster. Reviews go to the strongest clusters first, within an hourly budget.</p></section>`;
     const call = a.llm_assessment || a.status;
     const agrees = call === c.status;
+    const reviewedAt = (c.verdict && c.verdict.created_at) || a.created_at || null;
     const thenStatus = v && v.detector_status;
     const callChanged = thenStatus && thenStatus !== c.status;
     const older = v && v.cluster_updated_at && c.updated_at && new Date(v.cluster_updated_at) < new Date(c.updated_at) - 1000;
     // "evidence_id 123" in model prose becomes the same citation link as the cited list
     const cite = (id) => (anchored.has(Number(id)) ? `<a class="cite" href="#ev-${Number(id)}" data-jump="${Number(id)}">#${Number(id)}</a>` : `<span class="cite">#${Number(id)}</span>`);
-    const prose = (t) => esc(tidy(t).replace(/\blikely_organic\b/g, 'likely organic'))
+    const prose = (t) => esc(tidy(t).replace(/['"‘“](coordinated|insufficient|likely_organic)['"’”]/g, (m, k) => `“${word(k)}”`).replace(/\blikely_organic\b/g, 'likely organic'))
       .replace(/evidence_ids?[\s:=]*(\d+(?:(?:\s*,\s*|\s+and\s+)\d+)*)/g, (m, ids) => ids.replace(/\d+/g, (id) => cite(id)).replace(/\s+and\s+/g, ' and '));
     const cited = (v && Array.isArray(v.evidence) ? v.evidence : []).filter((x) => x.why || x.summary);
     const list = (title, xs) => (xs.length ? `<div><h3 class="label">${title}</h3><ul>${xs.map((x) => `<li>${x}</li>`).join('')}</ul></div>` : '');
@@ -675,8 +676,8 @@
     return `<section class="card o-op" aria-labelledby="h-op">
       <div class="card-head"><h2 id="h-op">Second opinion</h2><span class="label">Gemini</span></div>
       <p class="opinion-line">${chip(call)}<span>${agrees ? 'Agrees with the detector' : 'Reads it differently'}</span></p>
-      <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.${older && !callChanged ? ` Reviewed ${esc(when(a.created_at))} on an earlier snapshot, so its counts may differ from the evidence on this page.` : ''}</p>
-      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> The detector said ${esc(word(thenStatus))} at the time of this review.</p>` : ''}
+      <p class="muted small" style="margin-top:8px">${a.confidence != null ? `Model-reported confidence ${pct(a.confidence)}. ` : ''}Gemini explains the call; it can’t change it.${older && !callChanged ? ` Reviewed${reviewedAt ? ` ${esc(when(reviewedAt))}` : ''} on an earlier snapshot, so its counts may differ from the evidence on this page.` : ''}</p>
+      ${callChanged ? `<p class="notice"><strong>Reviewed before the call changed.</strong> At the time of this review the detector said “${esc(word(thenStatus))}”.</p>` : ''}
       ${a.summary ? `<p style="margin-top:14px">${prose(a.summary)}</p>` : ''}
       ${!agrees && !callChanged && a.disagreement_reason ? `<p class="notice"><strong>Why it disagrees:</strong> ${prose(a.disagreement_reason)}</p>` : ''}
       <div class="reasons">
@@ -684,7 +685,7 @@
         ${list('What points the other way', ((v && v.counter_evidence) || []).map(prose))}
         ${list('What would change its mind', ((v && v.would_change_verdict) || []).map(prose))}
       </div>
-      <div class="foot-meta">${a.model ? `<span>${esc(a.model)}</span>` : ''}${tools ? `<span>${plural(tools, 'tool call')}</span>` : ''}${v && v.cost_usd != null ? `<span>$${Number(v.cost_usd).toFixed(3)}</span>` : ''}${a.created_at ? `<span>${esc(when(a.created_at))}</span>` : ''}</div>
+      <div class="foot-meta">${a.model ? `<span>${esc(a.model)}</span>` : ''}${tools ? `<span>${plural(tools, 'tool call')}</span>` : ''}${v && v.cost_usd != null ? `<span>$${Number(v.cost_usd).toFixed(3)}</span>` : ''}${reviewedAt && !(older && !callChanged) ? `<span>reviewed ${esc(when(reviewedAt))}</span>` : ''}</div>
     </section>`;
   }
 
@@ -727,7 +728,7 @@
         ${allHits.length > 3 ? `<details><summary>${allHits.length - 3} more ${allHits.length - 3 === 1 ? 'result' : 'results'}</summary><div class="hits" style="margin-top:6px">${allHits.slice(3).map(hit).join('')}</div></details>` : ''}
         <span class="muted small">${url ? `${ext(url, `${esc(host(url))} ↗`, 'out')} · ` : 'No source URL recorded · '}checked ${esc(when(e.created_at))}</span></div>`;
     });
-    return `<section class="card o-src" aria-labelledby="h-src" data-fold><div class="card-head"><h2 id="h-src">On the web</h2><span class="label">Oxylabs, live</span></div><p class="muted small" style="margin:-6px 0 14px">Each check’s account counts are as of the time it ran.</p>
+    return `<section class="card o-src" aria-labelledby="h-src" data-fold><div class="card-head"><h2 id="h-src">On the web</h2><span class="label">Oxylabs, live</span></div>${src.some((e) => /account/i.test(e.summary || '')) ? '<p class="muted small" style="margin:-6px 0 14px">Each check’s account counts are as of the time it ran.</p>' : ''}
       ${items.join('')}${items.length > 4 ? `<button class="linkish" data-showall style="margin-top:10px">Show all ${items.length}</button>` : ''}</section>`;
   }
 
