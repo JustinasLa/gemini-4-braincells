@@ -64,13 +64,13 @@ input:focus-visible { outline: none; }
 .app:not(.tools) .minimap, .app:not(.tools) .legend { display: none; }
 .app.tools .zoom button[data-z="tools"] { color: var(--text); background: var(--surface-2); }
 .term { display: none; }
-.term.lookup-progress { display: block; }
+.term.lookup-progress { display: flex; flex-direction: column; }
 .lookup-active .st-skip { display: none; }
 .lookup-active .panel { border-left-color: var(--line); }
 @media (min-width: 860px) {
   .app.lookup-active { grid-template-columns: 0px 1fr 400px; }
 }
-.term .txt small { display: block; color: var(--text-3); line-height: 1.5; }
+.term .txt small { display: block; color: var(--text-3); line-height: 1.5; overflow-wrap: anywhere; }
 .term [data-state="failed"], .lookup-error { color: var(--shill); }
 .term [data-state="pending"], .term [data-state="skipped"] { opacity: .6; }
 .lookup-message { color: var(--text-2); font: 400 13px/1.6 var(--sans); white-space: pre-line; }
@@ -273,18 +273,19 @@ input:focus-visible { outline: none; }
 /* ---------- stage overlays ---------- */
 .ruler { position: absolute; left: 0; right: 0; top: 0; height: 32px; z-index: 6; pointer-events: none; background: linear-gradient(180deg, rgba(5, 5, 6, 0.92), rgba(5, 5, 6, 0)); }
 .ruler canvas { width: 100%; height: 100%; display: block; }
-.term { position: absolute; left: 16px; top: 44px; z-index: 8; width: 400px; max-width: calc(100% - 32px); background: rgba(8, 8, 10, 0.92); border: 1px solid var(--line-2); box-shadow: 0 20px 50px -20px #000; transition: opacity 0.4s, transform 0.5s var(--ease-out); }
+.term { position: absolute; left: 16px; top: 44px; z-index: 8; width: 400px; max-width: calc(100% - 32px); max-height: calc(100% - 176px); background: rgba(8, 8, 10, 0.92); border: 1px solid var(--line-2); box-shadow: 0 20px 50px -20px #000; transition: opacity 0.4s, transform 0.5s var(--ease-out); }
 .term.hidden { opacity: 0; transform: translateY(-8px); pointer-events: none; }
 .term-head { display: flex; align-items: center; gap: 7px; padding: 9px 12px; border-bottom: 1px solid var(--line); font: 400 11px/1 var(--mono); color: var(--text-3); }
 .term-head .d { width: 9px; height: 9px; border-radius: 50%; background: #3a3a3e; }
 .term-head .d.r { background: #e2533c; } .term-head .d.y { background: #e4b36a; } .term-head .d.g { background: var(--cv); }
+.term-head .d.live { animation: blink 1.2s steps(1) infinite; }
 .term-head .file { margin-left: 6px; }
 .term-head .x { margin-left: auto; font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
 .term-head .x:hover { color: var(--text); }
-.term-body { padding: 10px 14px 12px; max-height: 300px; overflow: auto; font: 400 11.5px/1.6 var(--mono); color: var(--text-2); }
+.term-body { flex: 1 1 auto; min-height: 0; padding: 10px 14px 12px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #2a2a2e transparent; font: 400 11.5px/1.6 var(--mono); color: var(--text-2); }
 .term-body .cmd { color: var(--text-3); margin-bottom: 6px; }
 .term-body .cmd::before { content: "$ "; color: var(--text-4); }
-.line { display: grid; grid-template-columns: 12px 78px 1fr auto; gap: 6px; align-items: start; animation: line-in 0.35s var(--ease-out) both; }
+.line { display: grid; grid-template-columns: 12px 78px minmax(0, 1fr) auto; gap: 6px; align-items: start; animation: line-in 0.35s var(--ease-out) both; }
 @keyframes line-in { from { opacity: 0; transform: translateX(-6px); } }
 .line .gt { color: var(--text-4); }
 .line .tool { text-transform: uppercase; letter-spacing: 0.04em; color: var(--tc); }
@@ -531,7 +532,7 @@ input:focus-visible { outline: none; }
   .stage .dock-right { display: none; }
   .stage .clock { min-width: 0; }
   .clock .d { font-size: 11px; }
-  .term { top: 40px; left: 8px; right: 8px; width: auto; }
+  .term { top: 40px; left: 8px; right: 8px; width: auto; max-height: max(200px, calc(100% - 420px)); }
   .examples { grid-template-columns: 1fr; }
   .banner { height: 120px; }
   .banner .bt { font-size: 20px; }
