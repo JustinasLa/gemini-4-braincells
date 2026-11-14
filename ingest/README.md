@@ -43,6 +43,9 @@ about 1 GB per hour of raw data. Anything a cluster references is copied to
   host stamps another `time_us`).
 - Fails over across `jetstream{1,2}.us-{east,west}.bsky.network` with exponential backoff.
   Override with `JETSTREAM_HOSTS`; `JETSTREAM_URL`'s host is tried first.
+- Lag watchdog: if the stream stays more than 60 s behind real time for 2 minutes while our own
+  queue is nearly empty (the host is late, not us), the reader drops that host and moves to the
+  next one, resuming from the cursor (`INGEST_FAILOVER_LAG_S`, `INGEST_FAILOVER_AFTER_S`).
 - Logs `events/s`, `lag_s`, queue size, rows and duplicates every 30 s.
 
 ## Recording and replay

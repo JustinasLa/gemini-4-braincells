@@ -6,6 +6,7 @@ public Jetstream hosts with exponential backoff, and logs throughput and lag.
 
 import json
 import logging
+import os
 import queue
 import random
 import threading
@@ -32,6 +33,30 @@ REWIND_US = 5_000_000  # resume 5 s before the stored cursor
 STOP = object()
 
 
+class HostLagging(Exception):
+    """Raised inside the reader to drop a host whose stream runs far behind real time."""
+
+
+class LagWatchdog:
+    """True once the stream has been more than `max_lag_s` behind real time for `for_s` seconds
+    while our own queue is nearly empty, i.e. the upstream host is late, not us."""
+
+    def __init__(self, max_lag_s: float = 60.0, for_s: float = 120.0, max_queue: int = 5000):
+        self.max_lag_s, self.for_s, self.max_queue = max_lag_s, for_s, max_queue
+        self.since: float | None = None
+
+    def update(self, lag_s: float | None, queue_size: int, now: float) -> bool:
+        if lag_s is None or lag_s < self.max_lag_s or queue_size > self.max_queue:
+            self.since = None
+            return False
+        if self.since is None:
+            self.since = now
+        if now - self.since >= self.for_s:
+            self.since = None
+            return True
+        return False
+
+
 class Reader(threading.Thread):
     """Reads raw messages from Jetstream into a queue. Owns reconnects and host failover."""
 
@@ -46,6 +71,11 @@ class Reader(threading.Thread):
         self.host: str | None = None
         self.reconnects = 0
         self.stop_event = threading.Event()
+        self.failover_event = threading.Event()
+
+    def request_failover(self) -> None:
+        """Ask the reader to drop the current host and move to the next one."""
+        self.failover_event.set()
 
     def url(self, host: str) -> str:
         params = [("wantedCollections", c) for c in COLLECTIONS]
@@ -65,6 +95,9 @@ class Reader(threading.Thread):
                     self.host = host
                     got_any = False
                     while not self.stop_event.is_set():
+                        if self.failover_event.is_set():
+                            self.failover_event.clear()
+                            raise HostLagging(f"{host} lags behind real time")
                         raw = ws.recv(timeout=30)
                         if isinstance(raw, bytes):
                             raw = raw.decode()
@@ -79,7 +112,13 @@ class Reader(threading.Thread):
                         if not got_any:
                             got_any = True
                             backoff = 1.0
-            except (OSError, TimeoutError, WebSocketException, json.JSONDecodeError) as exc:
+            except (
+                OSError,
+                TimeoutError,
+                WebSocketException,
+                json.JSONDecodeError,
+                HostLagging,
+            ) as exc:
                 if self.stop_event.is_set():
                     break
                 self.reconnects += 1
@@ -112,6 +151,7 @@ def write_loop(
     stats_s: float = 30.0,
     maintain_fn=None,
     lag_fn=None,
+    on_stats=None,
     max_events: int | None = None,
 ) -> int:
     """Drain the queue into the DB until STOP (or max_events). Returns events processed."""
@@ -150,6 +190,8 @@ def write_loop(
         if now - last_stats >= stats_s:
             eps = window_n / (now - last_stats)
             lag = lag_fn() if lag_fn else None
+            if on_stats:
+                on_stats(lag, source.qsize())
             log.info(
                 "events/s=%.0f lag_s=%s queue=%d rows=%d dupes=%d %s",
                 eps,
@@ -193,6 +235,21 @@ def run_live(
         def lag() -> float | None:
             return time.time() - reader.cursor_us / 1e6 if reader.cursor_us else None
 
+        watchdog = LagWatchdog(
+            max_lag_s=float(os.environ.get("INGEST_FAILOVER_LAG_S", "60")),
+            for_s=float(os.environ.get("INGEST_FAILOVER_AFTER_S", "120")),
+        )
+
+        def watch(lag_s: float | None, queue_size: int) -> None:
+            if watchdog.update(lag_s, queue_size, time.monotonic()):
+                log.warning(
+                    "stream %.1fs behind for %.0fs on %s; failing over",
+                    lag_s,
+                    watchdog.for_s,
+                    reader.host,
+                )
+                reader.request_failover()
+
         def maintain() -> None:
             writer.maintain(retention_hours, likes_retention_hours)
             if record_dir:
@@ -204,6 +261,7 @@ def run_live(
                 writer,
                 host_fn=lambda: reader.host,
                 lag_fn=lag,
+                on_stats=watch,
                 maintain_fn=maintain,
                 max_events=max_events,
             )
