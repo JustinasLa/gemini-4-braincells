@@ -1,0 +1,207 @@
+<template>
+  <style>
+    @font-face { font-family: "Michroma"; src: url("assets/fonts/michroma.woff2") format("woff2"); font-weight: 400; }
+    #root { position: absolute; inset: 0; background: #050506; color: #f2efe9; font-family: Inter, sans-serif; overflow: hidden; }
+    .h-kicker { font-family: "JetBrains Mono", monospace; font-size: 28px; color: #3fe07a; letter-spacing: 0.04em; }
+    #h-p1 { position: absolute; inset: 0; }
+    #h-name { position: absolute; left: 60px; top: 40px; font-family: Michroma; font-size: 40px; letter-spacing: 0.14em; }
+    #h-name em { font-style: normal; color: #e2533c; } #h-name i { font-style: normal; color: #5fc9a8; }
+    #h-fhhead { position: absolute; left: 60px; top: 110px; }
+    #h-live { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: #e2533c; margin-right: 12px; }
+    #h-fh { position: absolute; left: 60px; top: 160px; width: 960px; height: 740px; border: 1px solid rgba(242,239,233,0.16); background: #0b0b0d; overflow: hidden; }
+    #h-lines { position: absolute; left: 22px; right: 22px; top: 16px; }
+    .h-ln { height: 36px; line-height: 36px; white-space: nowrap; overflow: hidden; font-size: 18px; color: #d8d4cc; border-bottom: 1px solid rgba(242,239,233,0.06); }
+    .h-ln span { font-family: "JetBrains Mono", monospace; color: #6f6c66; margin-right: 14px; font-size: 15px; }
+    .h-ln i { font-style: normal; font-family: "JetBrains Mono", monospace; color: #9aa6bf; margin-right: 14px; font-size: 15px; display: inline-block; width: 210px; overflow: hidden; vertical-align: top; }
+    #h-viz { position: absolute; left: 1060px; top: 160px; width: 800px; height: 640px; border: 1px solid rgba(242,239,233,0.16); }
+    .h-dot { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: #f2efe9; }
+    #h-viz svg { position: absolute; inset: 0; }
+    #h-viz line { stroke: #3fe07a; stroke-width: 2; opacity: 0.7; }
+    #h-chips { position: absolute; left: 1060px; top: 830px; width: 800px; display: flex; gap: 14px; }
+    .h-chip { flex: 1; text-align: center; padding: 12px 0; border: 1px solid #3fe07a; color: #3fe07a; font-family: "JetBrains Mono", monospace; font-size: 28px; background: rgba(63,224,122,0.08); }
+    #h-p2 { position: absolute; inset: 0; }
+    #h-t2 { position: absolute; left: 60px; top: 40px; font-size: 52px; font-weight: 900; letter-spacing: -0.02em; }
+    #h-t2 em { font-style: normal; color: #3fe07a; }
+    #h-vwrap { position: absolute; left: 60px; top: 130px; width: 1300px; height: 780px; overflow: hidden; border: 1px solid rgba(242,239,233,0.25); background: #000; }
+    #h-vin { position: absolute; left: 0; top: 0; width: 1300px; height: 780px; transform-origin: 30% 40%; }
+    #h-vid { position: absolute; left: 0; top: -52px; width: 1642px; height: 924px; }
+    #h-livetag { position: absolute; left: 76px; top: 146px; background: rgba(5,5,6,0.88); border: 1px solid #3fe07a; color: #3fe07a; font-family: "JetBrains Mono", monospace; font-size: 24px; padding: 6px 12px; }
+    #h-fams { position: absolute; left: 1400px; top: 130px; width: 460px; display: flex; flex-direction: column; gap: 16px; }
+    .h-fam { position: relative; height: 183px; border: 2px solid rgba(242,239,233,0.18); background: #0b0b0d; padding: 20px 22px; }
+    .h-fam b { display: block; font-family: Michroma; font-weight: 400; font-size: 28px; letter-spacing: 0.06em; }
+    .h-fam p { margin-top: 12px; font-family: "JetBrains Mono", monospace; font-size: 24px; line-height: 1.35; color: #8d8a84; }
+    .h-fam.on p { color: #f2efe9; }
+    .h-fam .st { position: absolute; right: 18px; top: 20px; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #8d8a84; }
+    .h-fire { position: absolute; inset: -2px; border: 3px solid #3fe07a; background: rgba(63,224,122,0.06); }
+    .h-fire .st2 { position: absolute; right: 18px; top: 18px; font-family: "JetBrains Mono", monospace; font-size: 22px; font-weight: 700; color: #050506; background: #3fe07a; padding: 2px 8px; }
+    #h-base { margin-top: 6px; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #3fe07a; }
+    #h-p3 { position: absolute; inset: 0; }
+    #h-t3 { position: absolute; left: 0; right: 0; top: 160px; text-align: center; font-size: 60px; font-weight: 900; letter-spacing: -0.02em; }
+    #h-rules { position: absolute; left: 60px; top: 300px; width: 1800px; display: flex; gap: 36px; }
+    .h-rule { flex: 1; height: 250px; border: 2px solid rgba(242,239,233,0.2); background: #0b0b0d; padding: 28px 30px; position: relative; }
+    .h-rule span { font-family: "JetBrains Mono", monospace; font-size: 26px; color: #b4b0a8; }
+    .h-rule b { display: block; margin-top: 16px; font-size: 48px; font-weight: 900; line-height: 1.1; }
+    .h-rule .bx { position: absolute; right: 26px; top: 24px; width: 56px; height: 56px; border: 3px solid #3fe07a; color: #3fe07a; display: flex; align-items: center; justify-content: center; font-size: 38px; }
+    #h-gem { position: absolute; left: 60px; top: 620px; width: 1800px; display: flex; gap: 36px; }
+    .h-g { flex: 1; height: 230px; border: 2px solid rgba(242,239,233,0.2); padding: 28px 32px; position: relative; background: #0b0b0d; }
+    .h-g span { font-family: "JetBrains Mono", monospace; font-size: 28px; color: #b4b0a8; }
+    .h-g b { display: block; margin-top: 16px; font-size: 54px; font-weight: 900; }
+    #h-g1 b { color: #5fc9a8; }
+    #h-strike { position: absolute; left: 28px; right: 28px; top: 112px; height: 7px; background: #e2533c; transform-origin: 0 50%; }
+    #h-stat { position: absolute; left: 32px; bottom: 26px; font-family: Michroma; font-size: 30px; color: #3fe07a; }
+  </style>
+  <div id="root" data-composition-id="how" data-width="1920" data-height="1080">
+    <div id="h-p1">
+      <div id="h-name"><em>SHILL</em> OR <i>CHILL</i></div>
+      <div class="h-kicker" id="h-fhhead"><span id="h-live"></span>REAL BLUESKY POSTS · INGEST ~1 s BEHIND LIVE</div>
+      <div id="h-fh" data-layout-ignore><div id="h-lines">
+        <div class="h-ln"><span>13:21:25</span><i>arabagaur</i>El lehendakari, Imanol Pradales, avisa sobre los resultados de</div>
+        <div class="h-ln"><span>13:27:37</span><i>did:plc:25vahvfq</i>Enem: confira os horários e o que levar no segundo dia de prov</div>
+        <div class="h-ln"><span>13:31:26</span><i>arabagaur</i>Andueza, PSE y las encuestas: &quot;Confiamos en la encuesta de la </div>
+        <div class="h-ln"><span>13:36:25</span><i>did:plc:ekpafmzj</i>東北地方 / Tōhoku: Fix incomplete multilingual names: no multiling</div>
+        <div class="h-ln"><span>13:42:06</span><i>folha.com</i>Outlook voltou? Microsoft diz que falha foi sanada</div>
+        <div class="h-ln"><span>13:43:14</span><i>uol-noticias</i>SpaceX tentará recuperação inédita do megafoguete Starship</div>
+        <div class="h-ln"><span>13:44:16</span><i>uol-noticias</i>Microsoft diz que serviços foram reestabelecidos após pane de </div>
+        <div class="h-ln"><span>13:45:06</span><i>folha.com</i>Galeão cancela quatro voos após caos aéreo nos EUA</div>
+        <div class="h-ln"><span>13:45:19</span><i>did:plc:ffec5ejr</i>近畿地方 / Kansai: Fix incomplete multilingual names: no multiling</div>
+        <div class="h-ln"><span>13:47:35</span><i>br.rfi.fr</i>Cúpula inédita entre Trump, Xi e Putin é confirmada, mas Ucrân</div>
+        <div class="h-ln"><span>13:47:56</span><i>agenciadenoticias</i>Encuestas: La derecha, en 190 escaños a dos semanas de la cita</div>
+        <div class="h-ln"><span>14:14:06</span><i>uol-noticias</i>Galeão tem quatro voos cancelados neste sábado (14) em razão d</div>
+        <div class="h-ln"><span>14:14:10</span><i>uol-noticias</i>Microsoft restabelece serviço do Outlook e Teams após falha gl</div>
+        <div class="h-ln"><span>14:14:13</span><i>uol-noticias</i>Mega-Sena sorteia prêmio de R$ 27 milhões neste domingo</div>
+        <div class="h-ln"><span>14:14:14</span><i>uol-noticias</i>Combates entre grupos armados e milícias deixam mais de 50 mor</div>
+        <div class="h-ln"><span>14:20:09</span><i>osmjp-okayama</i>中国地方 / Chugoku: Fix incomplete multilingual names: no multilin</div>
+        <div class="h-ln"><span>14:24:09</span><i>osmjp-kanagawa</i>東京都 / Tokyo: Fix incomplete multilingual names: no multilingua</div>
+        <div class="h-ln"><span>14:24:12</span><i>lamontagne-cantal</i>Très intéressé par le profil de l&#x27;ouvreur-arrière Jake Stracha</div>
+        <div class="h-ln"><span>14:30:18</span><i>osmjp-kanagawa</i>神奈川県 / Kanagawa Prefecture: Fix incomplete multilingual names:</div>
+        <div class="h-ln"><span>14:48:01</span><i>hinduinfopediain</i>Watch the Related Hindi Video गांधी का खिलाफत अलगाव: उन्नीस सौ</div>
+        <div class="h-ln"><span>14:48:38</span><i>hinduinfopediain</i>Read the Hindi Blog hinduinfopedia.in?p=31719</div>
+        <div class="h-ln"><span>15:32:25</span><i>altugaltug</i>Enjoy reading this: How to write a strong CTA for a Twitter th</div>
+        <div class="h-ln"><span>15:33:57</span><i>circleboom.com</i>How to write a strong CTA for a Twitter thread</div>
+        <div class="h-ln"><span>15:52:03</span><i>fitnasacola</i>Você mais saudável: Conquiste de uma vez por todas saúde e boa</div>
+        <div class="h-ln"><span>15:52:09</span><i>bebenasacola</i>Fralda Pampers Pants Ajuste Total Tamanho XG, 82 Unidades 💰 Po</div>
+        <div class="h-ln"><span>15:55:11</span><i>did:plc:iievcbjd</i>SEW extends time of Storm Warning valid at Nov 14, 1:00 PM PST</div>
+        <div class="h-ln"><span>16:00:05</span><i>suacasanasacola</i>Hyperkin SupaBoy Portable Pocket Console for SNES/SFC - Prime </div>
+        <div class="h-ln"><span>16:00:11</span><i>usebotvaro</i>Carimbo Personalizado de Madeira 10x10cm + Almofada Entintada </div>
+        <div class="h-ln"><span>16:01:30</span><i>modanasacola</i>Móvel Organizador De Calçados Com 3 Portas Basculantes Off-whi</div>
+        <div class="h-ln"><span>16:02:04</span><i>petnasacola</i>Alimentador Automático Smart Cães Gatos Pets Programável Animu</div>
+        <div class="h-ln"><span>16:02:08</span><i>belezanasacola</i>Secador Taiff Tourmaline Íon 2100W – Alta Performance Preto De</div>
+        <div class="h-ln"><span>16:02:12</span><i>technasacola</i>Plauduct TMR Stick Module for Dualsense Edge Controller for PS</div>
+        <div class="h-ln"><span>16:02:29</span><i>qualityfirstconc</i>A welcoming home is one that feels comfortable, cared for, and</div>
+        <div class="h-ln"><span>16:13:03</span><i>fitnasacola</i>Amanda no país do bem-estar De R$83,00 por apenas R$58,50 🛒 Co</div>
+        <div class="h-ln"><span>16:13:12</span><i>bebenasacola</i>Colete Cinto De Segurança Para Andar Moto Infantil Criança 💰 P</div>
+        <div class="h-ln"><span>16:21:03</span><i>suacasanasacola</i>CAMA PET NUVEM COBERTA DONUT FECHADA CAMINHA COM COBERTURA PEL</div>
+        <div class="h-ln"><span>16:21:08</span><i>usebotvaro</i>Piscina Inflável Grande De 2400l Com Bomba De Ar Elétrica 2.6 </div>
+        <div class="h-ln"><span>16:22:28</span><i>petnasacola</i>Canil Gaiola Mesa De Tosa Cães Cachorro Pet Shop Banho Tosa De</div>
+        <div class="h-ln"><span>16:22:39</span><i>technasacola</i>Manual Digital – Informática Descomplicada para Iniciantes 💰 P</div>
+        <div class="h-ln"><span>16:23:17</span><i>did:plc:uly3n2nc</i>#SPC issues Day 1 Marginal Convective Risk at Nov 14, 16:21z f</div>
+        <div class="h-ln"><span>16:23:17</span><i>spc.weather.im</i>The Storm Prediction Center issues Day 1 Convective Outlook (M</div>
+        <div class="h-ln"><span>16:34:09</span><i>bebenasacola</i>Kit 5 Fraldas De Pano Bordadas C/ Bainha Tecido Duplo Menina ❌</div>
+        <div class="h-ln"><span>16:36:06</span><i>crp.weather.im</i>WPC issues Day 1 Marginal Risk Excessive Rainfall Outlook at N</div>
+        <div class="h-ln"><span>16:36:17</span><i>did:plc:o7qwuwkn</i>The Weather Prediction Center issues Day 1 Excessive Rainfall </div>
+      </div></div>
+      <div id="h-viz">
+        <svg width="800" height="640"><line x1="215" y1="160" x2="207" y2="236"/><line x1="215" y1="160" x2="255" y2="176"/><line x1="215" y1="160" x2="244" y2="148"/><line x1="251" y1="201" x2="210" y2="224"/><line x1="251" y1="201" x2="212" y2="132"/><line x1="207" y1="236" x2="255" y2="176"/><line x1="207" y1="236" x2="244" y2="148"/><line x1="210" y1="224" x2="212" y2="132"/><line x1="255" y1="176" x2="244" y2="148"/><line x1="611" y1="325" x2="544" y2="279"/><line x1="611" y1="325" x2="595" y2="345"/><line x1="611" y1="325" x2="612" y2="315"/><line x1="534" y1="291" x2="584" y2="256"/><line x1="534" y1="291" x2="605" y2="252"/><line x1="544" y1="279" x2="595" y2="345"/><line x1="544" y1="279" x2="612" y2="315"/><line x1="584" y1="256" x2="605" y2="252"/><line x1="595" y1="345" x2="612" y2="315"/><line x1="361" y1="489" x2="367" y2="490"/><line x1="361" y1="489" x2="343" y2="431"/><line x1="361" y1="489" x2="393" y2="500"/><line x1="361" y1="452" x2="276" y2="469"/><line x1="361" y1="452" x2="390" y2="499"/><line x1="367" y1="490" x2="343" y2="431"/><line x1="367" y1="490" x2="393" y2="500"/><line x1="276" y1="469" x2="390" y2="499"/><line x1="343" y1="431" x2="393" y2="500"/></svg>
+          <div class="h-dot g0" style="left:266px;top:107px" data-tx="-60" data-ty="43"></div>
+          <div class="h-dot g1" style="left:427px;top:232px" data-tx="175" data-ty="84"></div>
+          <div class="h-dot g2" style="left:48px;top:272px" data-tx="304" data-ty="209"></div>
+          <div class="h-dot g0" style="left:343px;top:500px" data-tx="-100" data-ty="-308"></div>
+          <div class="h-dot g1" style="left:497px;top:570px" data-tx="28" data-ty="-288"></div>
+          <div class="h-dot g2" style="left:762px;top:47px" data-tx="-410" data-ty="396"></div>
+          <div class="h-dot g0" style="left:130px;top:88px" data-tx="69" data-ty="138"></div>
+          <div class="h-dot g1" style="left:157px;top:357px" data-tx="378" data-ty="-87"></div>
+          <div class="h-dot g2" style="left:436px;top:56px" data-tx="-78" data-ty="425"></div>
+          <div class="h-dot g0" style="left:537px;top:268px" data-tx="-336" data-ty="-53"></div>
+          <div class="h-dot g1" style="left:364px;top:194px" data-tx="211" data-ty="53"></div>
+          <div class="h-dot g2" style="left:206px;top:353px" data-tx="62" data-ty="107"></div>
+          <div class="h-dot g0" style="left:574px;top:187px" data-tx="-329" data-ty="-20"></div>
+          <div class="h-dot g1" style="left:338px;top:459px" data-tx="248" data-ty="-123"></div>
+          <div class="h-dot g2" style="left:50px;top:408px" data-tx="285" data-ty="14"></div>
+          <div class="h-dot g0" style="left:685px;top:202px" data-tx="-482" data-ty="-79"></div>
+          <div class="h-dot g1" style="left:461px;top:285px" data-tx="135" data-ty="-41"></div>
+          <div class="h-dot g2" style="left:380px;top:405px" data-tx="1" data-ty="85"></div>
+          <div class="h-dot g0" style="left:512px;top:596px" data-tx="-277" data-ty="-457"></div>
+          <div class="h-dot g1" style="left:313px;top:408px" data-tx="289" data-ty="-102"></div>
+          <div class="h-dot g2" style="left:148px;top:88px" data-tx="237" data-ty="403"></div>
+          <div class="h-dot stray" style="left:118px;top:164px" data-tx="-7" data-ty="22"></div>
+          <div class="h-dot stray" style="left:81px;top:281px" data-tx="3" data-ty="23"></div>
+          <div class="h-dot stray" style="left:643px;top:521px" data-tx="-13" data-ty="-5"></div>
+          <div class="h-dot stray" style="left:293px;top:533px" data-tx="27" data-ty="-21"></div>
+          <div class="h-dot stray" style="left:154px;top:155px" data-tx="-16" data-ty="-1"></div>
+          <div class="h-dot stray" style="left:468px;top:172px" data-tx="-30" data-ty="-5"></div>
+          <div class="h-dot stray" style="left:301px;top:348px" data-tx="27" data-ty="11"></div>
+          <div class="h-dot stray" style="left:412px;top:378px" data-tx="11" data-ty="-27"></div>
+          <div class="h-dot stray" style="left:704px;top:472px" data-tx="22" data-ty="18"></div>
+      </div>
+      <div id="h-chips"><div class="h-chip">text</div><div class="h-chip">links</div><div class="h-chip">images</div><div class="h-chip">likes</div></div>
+    </div>
+    <div id="h-p2">
+      <div id="h-t2">Four kinds of evidence · <em>cluster #10876</em></div>
+      <div id="h-vwrap"><div id="h-vin"><video id="h-vid" class="clip" data-start="5.8" data-duration="8.6" data-media-start="3.0" data-track-index="2" muted playsinline src="assets/clips/live_10876.mp4"></video></div></div>
+      <div id="h-livetag">LIVE SITE · 14 Nov 2026</div>
+      <div id="h-fams">
+        <div class="h-fam on" id="h-fc"><div class="h-fire"><span class="st2">FIRED</span></div><b>CONTENT</b><p>4 of 6 posted<br />the same link</p></div>
+        <div class="h-fam" id="h-ft"><span class="st">did not fire</span><b>TIMING</b><p>no tight bursts</p></div>
+        <div class="h-fam" id="h-fn"><span class="st">did not fire</span><b>NETWORK</b><p>no co-engagement</p></div>
+        <div class="h-fam on" id="h-fi"><div class="h-fire"><span class="st2">FIRED</span></div><b>IDENTITY</b><p>5 of 6 under 30 days old</p><div id="h-base">normal: 3.1% of 35,573 accounts</div></div>
+      </div>
+    </div>
+    <div id="h-p3">
+      <div id="h-t3">A Shill verdict needs all three</div>
+      <div id="h-rules">
+        <div class="h-rule" id="h-r1"><div class="bx">✓</div><span>evidence</span><b>2 of 4 families fired<br />≥ 2 needed</b></div>
+        <div class="h-rule" id="h-r2"><div class="bx">✓</div><span>odds by chance</span><b>p = 5.3×10⁻⁷<br />≤ 0.01</b></div>
+        <div class="h-rule" id="h-r3"><div class="bx">✓</div><span>organic explanation</span><b>none found</b></div>
+      </div>
+      <div id="h-gem">
+        <div class="h-g" id="h-g1"><span>GEMINI</span><b>writes the explanation</b></div>
+        <div class="h-g" id="h-g2"><span>GEMINI</span><b>decides the verdict</b><div id="h-strike"></div><div id="h-stat">→ THE STATISTICS DECIDE</div></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    // Phase 1 — "Shill or Chill reads the live Bluesky firehose" 0.2–3.0, "groups accounts that act together" 3.88–5.16
+    tl.fromTo("#h-name", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 0.15);
+    tl.fromTo("#h-fhhead", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 1.5);
+    tl.fromTo("#h-fh", { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.45, ease: "expo.out" }, 0.3);
+    tl.fromTo("#h-lines", { y: 0 }, { y: -820, duration: 6.0, ease: "none" }, 0.3);
+    tl.fromTo("#h-live", { opacity: 1 }, { opacity: 0.25, duration: 0.5, repeat: 11, yoyo: true, ease: "none" }, 0);
+    tl.fromTo("#h-viz", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 1.2);
+    tl.fromTo(".h-dot", { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(2)", stagger: 0.025 }, 1.3);
+    document.querySelectorAll(".h-dot").forEach((d, i) => {
+      tl.to(d, { x: +d.dataset.tx, y: +d.dataset.ty, duration: 0.9, ease: "power3.inOut" }, 3.7 + (i % 5) * 0.03);
+    });
+    tl.to(".h-dot.g0, .h-dot.g1, .h-dot.g2", { backgroundColor: "#3fe07a", duration: 0.3 }, 4.5);
+    tl.to(".h-dot.stray", { opacity: 0.35, duration: 0.3 }, 4.5);
+    tl.fromTo("#h-viz svg", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 4.6);
+    tl.fromTo(".h-chip", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.25, ease: "expo.out", stagger: 0.12 }, 4.0);
+    tl.to("#h-p1", { opacity: 0, filter: "blur(10px)", duration: 0.22, ease: "power3.in" }, 5.6);
+    // Phase 2 — "four kinds of evidence" 6.05, "Here, two fired" 8.11, "One shared link" 9.67, "brand new accounts" 11.11, "three in a hundred is normal" 12.63
+    tl.set("#h-p2", { opacity: 0 }, 0);
+    tl.set("#h-p2", { opacity: 1 }, 5.8);
+    tl.fromTo("#h-vwrap", { opacity: 0, scale: 1.04 }, { opacity: 1, scale: 1, duration: 0.45, ease: "expo.out" }, 5.8);
+    tl.fromTo("#h-vin", { scale: 1.0 }, { scale: 1.1, duration: 8.6, ease: "power1.inOut" }, 5.8);
+    tl.fromTo("#h-livetag", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 6.1);
+    tl.fromTo("#h-t2", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 6.0);
+    tl.fromTo(".h-fam", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.35, ease: "expo.out", stagger: 0.08 }, 6.1);
+    tl.set(".h-fire, #h-base", { opacity: 0 }, 0);
+    tl.to("#h-ft, #h-fn", { opacity: 0.55, duration: 0.3 }, 8.1);
+    tl.fromTo("#h-fc .h-fire", { opacity: 0, scale: 1.06 }, { opacity: 1, scale: 1, duration: 0.25, ease: "expo.out" }, 9.6);
+    tl.fromTo("#h-fi .h-fire", { opacity: 0, scale: 1.06 }, { opacity: 1, scale: 1, duration: 0.25, ease: "expo.out" }, 11.05);
+    tl.fromTo("#h-base", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 12.6);
+    tl.to("#h-p2", { opacity: 0, filter: "blur(10px)", duration: 0.22, ease: "power3.in" }, 14.2);
+    // Phase 3 — "A verdict also needs" 14.6, "odds under one in a hundred" 15.96, "no organic explanation" 18.12, "Gemini writes" 19.92, "Never the verdict" 21.86
+    tl.set("#h-p3", { opacity: 0 }, 0);
+    tl.set("#h-p3", { opacity: 1 }, 14.4);
+    tl.fromTo("#h-t3", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 14.45);
+    tl.fromTo("#h-r1", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.3, ease: "expo.out" }, 14.6);
+    tl.fromTo("#h-r2", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.3, ease: "expo.out" }, 15.95);
+    tl.fromTo("#h-r3", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.3, ease: "expo.out" }, 18.1);
+    tl.fromTo("#h-g1", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.35, ease: "expo.out" }, 19.85);
+    tl.fromTo("#h-g2", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.35, ease: "expo.out" }, 20.9);
+    tl.fromTo("#h-strike", { scaleX: 0 }, { scaleX: 1, duration: 0.3, ease: "power3.out" }, 21.8);
+    tl.fromTo("#h-stat", { opacity: 0 }, { opacity: 1, duration: 0.2 }, 22.0);
+    window.__timelines["how"] = tl;
+  </script>
+</template>

@@ -1,0 +1,89 @@
+<template>
+  <style>
+    @font-face { font-family: "Michroma"; src: url("assets/fonts/michroma.woff2") format("woff2"); font-weight: 400; }
+    #root { position: absolute; inset: 0; background: #050506; color: #f2efe9; font-family: Inter, sans-serif; overflow: hidden; }
+    #d-cam { position: absolute; left: 278px; top: 0; width: 1363px; height: 1080px; transform-origin: 0 0; }
+    #d-img { position: absolute; inset: 0; width: 1363px; height: 1080px; }
+    #d-label { position: absolute; left: 30px; top: 760px; width: 230px; font-family: "JetBrains Mono", monospace; font-size: 28px; line-height: 1.35; color: #f2efe9; }
+    #d-label b { display: block; font-family: Michroma; font-weight: 400; font-size: 44px; color: #3fe07a; margin-bottom: 8px; }
+    .d-box { position: absolute; border: 3px solid #3fe07a; }
+    .d-tag { position: absolute; left: -3px; top: -46px; white-space: nowrap; background: #3fe07a; color: #050506; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 28px; padding: 5px 12px; }
+    #d-armor { left: 245px; top: 302px; width: 682px; height: 508px; }
+    #d-horn { left: 878px; top: 185px; width: 110px; height: 110px; border-color: #e2533c; }
+    #d-horn .d-tag { background: #e2533c; font-size: 13px; top: -26px; padding: 3px 7px; }
+    #d-wall { position: absolute; left: 114px; top: 92px; width: 1692px; display: grid; grid-template-columns: repeat(4, 405px); gap: 24px 24px; }
+    .d-t { width: 405px; height: 400px; position: relative; overflow: hidden; border: 1px solid rgba(242,239,233,0.2); background: #111114; }
+    .d-t img { position: absolute; left: 0; top: 0; width: 405px; height: 426px; }
+    #d-orig img { width: 405px; height: 300px; object-fit: cover; object-position: 50% 60%; }
+    #d-orig div { position: absolute; left: 0; right: 0; top: 300px; bottom: 0; padding: 20px 22px; font-size: 32px; font-weight: 700; }
+    #d-orig div span { display: block; margin-top: 8px; font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 24px; color: #3fe07a; }
+    #d-walllab { position: absolute; left: 114px; top: 34px; font-family: "JetBrains Mono", monospace; font-size: 26px; color: #b4b0a8; }
+    #d-scrim { position: absolute; inset: 0; background: rgba(5,5,6,0.72); }
+    #d-qa { position: absolute; left: 0; right: 0; top: 330px; display: flex; justify-content: center; gap: 160px; }
+    .d-q { text-align: center; background: rgba(5,5,6,0.97); padding: 26px 40px; }
+    .d-q span { display: block; font-family: Michroma; font-size: 46px; letter-spacing: 0.06em; }
+    .d-q b { display: block; margin-top: 18px; font-family: Michroma; font-weight: 400; font-size: 120px; }
+    #d-yes { color: #e2533c; } #d-no { color: #5fc9a8; }
+    #d-lines { position: absolute; left: 0; right: 0; top: 380px; text-align: center; }
+    .d-line { font-size: 84px; font-weight: 900; letter-spacing: -0.02em; line-height: 1.2; text-shadow: 0 0 24px #050506; }
+    .d-line em { font-style: normal; color: #3fe07a; }
+    #d-l1 { color: #b4b0a8; }
+  </style>
+  <div id="root" data-composition-id="durer" data-width="1920" data-height="1080">
+    <div id="d-cam">
+      <img id="d-img" src="assets/img/rhino.jpg" alt="" />
+      <div class="d-box" id="d-armor"><div class="d-tag">ARMOR PLATES</div></div>
+      <div class="d-box" id="d-horn"><div class="d-tag">HORN ON ITS BACK</div></div>
+    </div>
+    <div id="d-label"><b>1515</b>Albrecht Dürer · woodcut</div>
+    <div id="d-walllab">Copies of it on the web today, found by our trace</div>
+    <div id="d-wall">
+      <div class="d-t" id="d-orig"><img src="assets/img/rhino.jpg" alt="" /><div>Dürer, 1515<span>the original</span></div></div>
+      <div class="d-t"><img src="assets/img/copies/cozop.png" alt="" /></div>
+      <div class="d-t"><img src="assets/img/copies/alamy.png" alt="" /></div>
+      <div class="d-t"><img src="assets/img/copies/adobe.png" alt="" /></div>
+      <div class="d-t"><img src="assets/img/copies/natgeo.png" alt="" /></div>
+      <div class="d-t"><img src="assets/img/copies/dishcuss.png" alt="" /></div>
+      <div class="d-t"><img src="assets/img/copies/nlwiki.png" alt="" /></div>
+      <div class="d-t"><img src="assets/img/copies/hickman.png" alt="" /></div>
+    </div>
+    <div id="d-scrim"></div>
+    <div id="d-qa" data-layout-allow-overlap data-layout-allow-occlusion>
+      <div class="d-q" id="d-q1"><span>WRONG?</span><b id="d-yes">YES</b></div>
+      <div class="d-q" id="d-q2"><span>COORDINATED?</span><b id="d-no">NO</b></div>
+    </div>
+    <div id="d-lines" data-layout-allow-overlap data-layout-allow-occlusion>
+      <div class="d-line" id="d-l1">Copying is not a conspiracy.</div>
+      <div class="d-line" id="d-l2">Coordination leaves <em>receipts.</em></div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    // "So why not flag every copy?" 0.2–1.88 — "In fifteen fifteen" 2.53 — "Dürer" 4.05 — "rhinoceros" 4.89 — "never seen" 6.05
+    tl.fromTo("#d-cam", { opacity: 0, x: 0, y: 0, scale: 1.0 }, { opacity: 1, x: -20, y: -10, scale: 1.04, duration: 4.6, ease: "power2.inOut" }, 0.0);
+    tl.fromTo("#d-label", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.35, ease: "expo.out" }, 2.5);
+    tl.fromTo("#d-armor", { opacity: 0, scale: 1.08 }, { opacity: 1, scale: 1, duration: 0.35, ease: "expo.out" }, 4.85);
+    tl.to("#d-armor", { opacity: 0, duration: 0.2 }, 5.45);
+    tl.to("#d-label", { opacity: 0, duration: 0.2 }, 5.45);
+    tl.to("#d-cam", { x: 960 - 278 - 933 * 2.6, y: 470 - 240 * 2.6, scale: 2.6, duration: 0.7, ease: "power2.inOut" }, 5.45);
+    tl.fromTo("#d-horn", { opacity: 0, scale: 1.4 }, { opacity: 1, scale: 1, duration: 0.3, ease: "expo.out" }, 6.0);
+    // "Europe copied it for centuries" 6.96 — wall of real copies
+    tl.to("#d-cam", { opacity: 0, duration: 0.3, ease: "power3.in" }, 7.65);
+    tl.fromTo("#d-walllab", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 7.8);
+    tl.fromTo(".d-t", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.35, ease: "expo.out", stagger: 0.06 }, 7.75);
+    tl.fromTo("#d-wall", { scale: 1.0 }, { scale: 1.04, duration: 8.8, ease: "none" }, 7.75);
+    // "Wrong? Yes." 8.99 / 9.69 — "Coordinated? No." 10.32 / 11.45
+    tl.fromTo("#d-scrim", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 8.85);
+    tl.fromTo("#d-q1", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.18 }, 8.95);
+    tl.fromTo("#d-yes", { opacity: 0, scale: 1.5 }, { opacity: 1, scale: 1, duration: 0.25, ease: "expo.out" }, 9.65);
+    tl.fromTo("#d-q2", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.18 }, 10.3);
+    tl.fromTo("#d-no", { opacity: 0, scale: 1.5 }, { opacity: 1, scale: 1, duration: 0.25, ease: "expo.out" }, 11.42);
+    tl.to("#d-qa", { opacity: 0, filter: "blur(8px)", duration: 0.2, ease: "power3.in" }, 12.0);
+    tl.to("#d-scrim", { backgroundColor: "rgba(5,5,6,0.96)", duration: 0.3 }, 12.0);
+    // "Copying is not a conspiracy." 12.24 — "Coordination leaves receipts." 14.28 / 15.48
+    tl.fromTo("#d-l1", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 12.2);
+    tl.fromTo("#d-l2", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 14.25);
+    tl.fromTo("#d-l2 em", { color: "#f2efe9" }, { color: "#3fe07a", duration: 0.2 }, 15.45);
+    window.__timelines["durer"] = tl;
+  </script>
+</template>
