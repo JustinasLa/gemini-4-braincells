@@ -811,3 +811,35 @@ def test_edited_real_post_that_differs_says_it_was_edited():
     r = judge(s, [c], ANCHOR)
     assert r.label == "differs"
     assert any("may show an earlier version" in d for d in r.differences)
+
+
+def test_screenshot_of_affiliated_x_account_matches_its_parsed_page():
+    # The real post is read from X's logged-out page, whose author header is split over lines
+    # with a badge between name and handle. Those lines once leaked into the post text, so a
+    # faithful screenshot was labelled "differs" (2026-11-14, live on @elonmusk and @SecDuffy).
+    from lookup.receipts_x import _candidate
+    from lookup.xpage import parse_post_page
+
+    sid = "2121345211959804234"
+    md = f"""## Conversation
+
+* [![@ada_example](https://pbs.twimg.com/profile_images/1/a_normal.jpg)](/ada_example)
+
+  [Ada Example](/ada_example)
+
+  [![X](https://pbs.twimg.com/profile_images/9/x_normal.jpg)](/X)
+
+  [@ada\\_example](/ada_example)
+
+  Show translation
+
+  {TEXT}
+
+  [8:51 PM · Nov 13, 2026](/ada_example/status/{sid})·[9.1M
+
+  Views](/ada_example/status/{sid})
+"""
+    c = _candidate(parse_post_page(md, sid).main, 5, "/scrape")
+    r = judge(shot(platform="x", handle="ada_example", shown_time=None), [c], ANCHOR)
+    assert r.label == "matches" and r.similarity == 1.0
+    assert r.differences == [] and r.original_text == TEXT
