@@ -1,0 +1,21 @@
+{
+ "snapshot": "bsky_post",
+ "variant": "nemotron-on",
+ "raw_model": "nemotron-3.5-super-vl",
+ "raw_content": null,
+ "finish": "length",
+ "usage": {
+  "completion_tokens": 8192,
+  "prompt_tokens": 9146,
+  "total_tokens": 17338,
+  "completion_tokens_details": {
+   "accepted_prediction_tokens": null,
+   "audio_tokens": null,
+   "reasoning_tokens": 8192,
+   "rejected_prediction_tokens": null,
+   "text_tokens": null
+  },
+  "prompt_tokens_details": null
+ },
+ "latency_ms": 15280
+}
