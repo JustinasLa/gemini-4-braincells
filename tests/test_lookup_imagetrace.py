@@ -767,7 +767,8 @@ def test_fast_yandex_is_published_and_compared_while_tineye_exhausts_13_second_b
     searches = Searches()
 
     def slow(client, url, *, deadline):
-        observed.append(compared.wait(timeout=1))
+        # the provider window is 3.1 s (13.1 s budget - 10 s reserve); 1 s was tight under load
+        observed.append(compared.wait(timeout=3))
         threading.Event().wait(max(0, deadline - time.monotonic()))
         raise TimeoutError("provider deadline")
 
@@ -1042,3 +1043,23 @@ def test_captured_fixtures_through_real_search_into_lookup_origins_and_receipts(
         for receipt in fetch_receipts
     )
     assert any("tineye first seen 2008-04-22" in receipt.summary for receipt in fetch_receipts)
+
+
+def test_variations_detail_counts_comparisons_dropped_as_different():
+    """Sol r3: a comparison that found a different picture still counts as compared."""
+
+    class One(Searches):
+        def tineye(self, client, url, *, deadline):
+            return result("tineye", url, [hit("different.png", when=None)])
+
+        def yandex(self, client, url, *, sites, deadline):
+            return result("yandex", url, [])
+
+    job = job_for(One())
+    run_trace(job)
+    assert job.result.image_matches == []
+    step = next(step for step in job.result.steps if step.id == "variations")
+    assert step.state == "done"
+    assert (
+        step.detail == "1 image compared (1 a different picture, not shown); 0 change descriptions"
+    )

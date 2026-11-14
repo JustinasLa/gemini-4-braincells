@@ -97,6 +97,7 @@ class Trace:
         self.admitted: set[str] = set()
         self.tried: dict[str, set[str]] = {}  # match id -> URLs already downloaded or refused
         self.failed: set[str] = set()  # admitted, every URL tried, no comparison
+        self.compared: set[str] = set()  # comparisons published (incl. "different", dropped)
         self.tineye_settled = False  # TinEye answered or failed: its reserve is open to Yandex
         self.overflow: list[tuple] = []  # (hit, rid) Yandex hits held back for the reserve
 
@@ -162,6 +163,8 @@ class Trace:
                 self.matches[match.id] = self.matches[match.id].model_copy(
                     update=match.model_dump(include=fields)
                 )
+                if match.relation != "unknown":
+                    self.compared.add(match.id)
                 self._sync_matches()
 
     def _sync_matches(self):
@@ -582,12 +585,17 @@ class Trace:
         if skip or not initialized:
             self._step("variations", "skipped", skip or "No candidate images to compare")
             return
-        matches = self.job.result.image_matches
-        known = sum(match.relation != "unknown" for match in matches)
+        with self.job.lock:
+            matches = list(self.job.result.image_matches)
+            compared = len(self.compared)
+            dropped = sum(self.matches[mid].relation == "different" for mid in self.compared)
+        detail = f"{compared} image{'' if compared == 1 else 's'} compared"
+        if dropped:
+            detail += f" ({dropped} a different picture, not shown)"
         self._step(
             "variations",
             "done",
-            f"{known} images compared; {diffs_done} change descriptions",
+            f"{detail}; {diffs_done} change descriptions",
             [match.id for match in matches],
         )
 
