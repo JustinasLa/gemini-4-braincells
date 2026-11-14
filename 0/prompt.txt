@@ -1,0 +1,29 @@
+Act as the implementation sub-agent for this task.
+
+Fix GitHub issue #17 in repo gemini-4-braincells (product "Shill or Chill", a Bluesky coordinated-amplification detector). Deadline is tight; keep the change minimal. Worktree starts at origin/main 4ac5d81. Read `.entire/agent-guide.md` first and use `entire graph query/def/neighbors/impact --repo . --head ...` to find code and callers (not grep).
+
+Issue (`gh issue view 17`): word counts use whitespace splitting, so unspaced scripts (Japanese, Chinese, Thai) never reach thresholds:
+```python
+from signals.textnorm import normalize_text, tokens
+t = '今日は東京で大雨が降っていて電車が止まっています。みんな気をつけてください。'
+len(tokens(normalize_text(t)))          # 2  (needs min_text_tokens=5)
+from sources.links import claim_phrase
+claim_phrase([t])                       # None
+```
+Effects: Japanese/Chinese/Thai copy-paste campaigns get no `duplicate_text` / `near_duplicate_text` key (`signals/keys.py`), and POST /api/analyze answers 'Text too short ... (needs 5+ words)' for a long Japanese sentence. Japanese is ~4% of posts.
+
+Files: `signals/textnorm.py` (`normalize_text`, `tokens`, `text_hash`), `signals/keys.py` (min_text_tokens / shingles for near-duplicates; check `signals/config.py` for the thresholds), `sources/links.py` (`claim_phrase`, `_SENTENCE_SPLIT`). Run `entire graph impact --repo . --head --symbol tokens` and for `claim_phrase` first: `tokens` also feeds similarity elsewhere in signals/ (and ingest uses textnorm for text_hash — text_hash must NOT change, it is stored in the DB). Note `lookup/textsim.py` has its own separate `tokens`; leave it alone unless trivially needed.
+
+Suggested approach (you decide, but keep it small): treat runs of CJK ideographs / Hiragana / Katakana / Hangul-without-spaces / Thai as character-based: e.g. in `tokens()`, split such runs into single characters or character bigrams so that length thresholds and shingles work, while space-separated scripts are unchanged byte-for-byte. Make the effective minimum for unspaced text comparable to 5 words (e.g. ~10 characters), so short greetings ('おはようございます') don't become content keys. For `claim_phrase`: also split sentences on 。！？ and for unspaced text use a character length (e.g. min 10, max ~30 characters) instead of words. The API note text in `api/routes/analyze.py` ('needs 5+ words') is being edited by another agent in parallel — do NOT edit `api/routes/analyze.py`; if its note wording should change, say so in your final reply with the exact suggested string.
+
+THIS IS A DETECTOR CHANGE. Prod publishes recall/FPR from this detector. Rules:
+1. Do not bump `signals/config.py VERSION` (a parallel PR #38 by Kirill bumps it to v1.7; the orchestrator sets the version at merge). Don't touch `organic_guards` in `signals/score.py` (other agents edit it).
+2. Baseline evals on unchanged origin/main are already running/written by the orchestrator into `/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-dev-rehearsal-fixes-e7e6b1c65348029b/a6f19541-74c1-4cee-8c6c-24697dc3506b/scratchpad/evals/baseline/` (files organic-{heldout,dev}.{json,txt}, recall-{heldout,dev}.{json,txt}; a file DONE appears when finished). Do not re-run the baseline. After your change, run the SAME evals on your worktree with the script: `/tmp/claude-1001/-home-dev--t3-worktrees-gemini-4-braincells-dev-rehearsal-fixes-e7e6b1c65348029b/a6f19541-74c1-4cee-8c6c-24697dc3506b/scratchpad/evals/run.sh <your worktree abs path> cjk` (writes to .../scratchpad/evals/cjk/, runs organic heldout+dev offline and recall heldout+dev with live base rates; takes a while — the server is loaded, run it in the background and wait for evals/cjk/DONE). You may first do a quick smoke run on fewer windows (`--max-windows`), but the reported delta must come from the full run. Never pass --write or --database-url.
+3. Compare after vs baseline: organic_synth and organic_live FPR (heldout and dev, incl. fpr_given_clustered and counts), recall overall and per level. Produce a short delta table. If held-out FPR (organic_synth or organic_live heldout) goes UP, do not open the PR as ready: make it a draft, report why, and propose a tighter variant (or none).
+4. Regression tests in `tests/test_signals.py` (and `tests/test_sources_checker.py` for claim_phrase): the Japanese example above yields >=5 tokens / a content key when 5+ accounts post it; a short Japanese greeting does not; space-separated text tokens and `text_hash` unchanged (assert a few known values computed BEFORE your change); claim_phrase returns a Japanese phrase for the example and None for a short one; a Thai example too.
+
+Verify: `uv run pytest -q -p no:cacheprovider` must pass except the one known pre-existing failure `tests/test_media_path.py::test_stored_media_reaches_api_and_dashboard` (fixed separately). ruff check/format on changed files if configured.
+
+Then branch `dev/cjk-text-keys`, commit (end commit message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`), push, open a PR with `gh pr create` titled "signals: CJK/Thai text gets content keys and a web-search phrase (#17)"; body: what/why, the eval delta table (before = origin/main 4ac5d81, after = your head), tests, "Refs #17" (not "Fixes"), ending with "🤖 Generated with [Claude Code](https://claude.com/claude-code)". Add a line to `signals/README.md` only if it documents tokenisation. If push fails on unreadable Entire objects, push from a fresh clone: `git clone --single-branch --branch main https://github.com/JustinasLa/gemini-4-braincells.git ~/work/cjk-push && cd ~/work/cjk-push && git fetch <worktree> dev/cjk-text-keys:dev/cjk-text-keys && git push -u origin dev/cjk-text-keys`. Do NOT merge. Don't deploy. Never copy files from /srv/junction-espoo/plan/ into git; never print secrets/.env.
+
+Final reply: PR URL, head SHA, eval delta table, tests added, pytest line, suggested analyze note wording.
