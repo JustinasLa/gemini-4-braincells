@@ -23,16 +23,9 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud**
   citing only real evidence. Its embeddings catch reworded copies.
 - **Oxylabs Web API** — the receipts. Reads pages that block scrapers, searches for copies and runs
   TinEye and Yandex image search.
-- **Bluesky Jetstream** — the whole network live, public and read-only.
-- **FxTwitter** — X posts in under a second, even hidden ones.
-- **imagehash + OpenCV ORB** — sort copies into resized, cropped or edited, and find the original
-  under new captions.
-- **MinHash, Leiden and a permutation test** — find look-alike posts and groups, and check bursts
-  beat chance.
-- **PostgreSQL + FastAPI** — one database, and each lookup step streamed live.
-- **TypeScript + Vite** — Trackdown, an infinite canvas of copies.
-- **Hostinger, Docker Compose and Caddy** — every service on one box.
-- **Entire** — links agent sessions to their commits.
+- **Hostinger** — the live site, every service on one VPS.
+- **OpenAI Codex** — GPT Astra built features and GPT Sol reviewed them.
+- **Entire** — Sessions, Graph, Brain and Trails for every agent on the team.
 
 ## Credits
 
