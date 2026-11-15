@@ -15,17 +15,17 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud**
 ## Tech stack
 
 > [!IMPORTANT]
-> **NVIDIA Nemotron 3.5 Super VL** — the eyes, self-hosted on Verda. It reads every meme and
-> screenshot: the caption, the picture and what changed between edits. One model for text and
-> image, about 1.5 s per reading, ten times faster than Gemini.
+> **NVIDIA Nemotron 3.5 Super VL** — the eyes, running on our own Verda box. reads every meme and
+> screenshot: the caption, the pic and what got edited. one model for text and images, ~1.5 s a
+> read, 10x faster than Gemini. lowkey goated.
 
-- **Google Gemini** — the investigator. Picks what to search and read, then explains each verdict
-  citing only real evidence. Its embeddings catch reworded copies.
-- **Oxylabs Web API** — the receipts. Reads pages that block scrapers, searches for copies and runs
-  TinEye and Yandex image search.
-- **Hostinger** — the live site, every service on one VPS.
-- **OpenAI Codex** — GPT Astra built features and GPT Sol reviewed them.
-- **Entire** — Sessions, Graph, Brain and Trails for every agent on the team.
+- **Google Gemini** — the detective. decides what to search and what to open, then explains the
+  verdict with real receipts only, no making stuff up. also catches copies that got reworded.
+- **Oxylabs Web API** — the receipts guy. gets into pages that block bots, hunts down copies and
+  runs reverse image search on TinEye and Yandex.
+- **Hostinger** — where it lives. the whole thing runs on one VPS, live rn.
+- **OpenAI Codex** — Astra built stuff, Sol roasted it until it was right.
+- **Entire** — Sessions, Graph, Brain and Trails, so every agent on the team knows what's going on.
 
 ## Credits
 
