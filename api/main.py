@@ -1,4 +1,4 @@
-"""FastAPI backend. Routes and their JSON shapes are listed in README.md (Shared interfaces)."""
+"""FastAPI backend. Routes and their JSON shapes: docs/ARCHITECTURE.md (Shared interfaces)."""
 
 import logging
 from datetime import UTC, datetime

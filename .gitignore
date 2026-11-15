@@ -29,3 +29,6 @@ data/
 web/trackdown/node_modules/
 web/trackdown/dist/
 !web/trackdown/src/data/
+
+# session notes, captures and one-off reports
+/.scratch/

@@ -2,7 +2,7 @@
 
 Every number the dashboard shows about our own accuracy comes from here, through `eval_runs`
 (`GET /api/metrics` serves the latest row per `dataset` + `split`). The rows on the public site
-are written by `deploy/publish-evals.sh` (top-level README, Deploy) on the detector the site runs,
+are written by `deploy/publish-evals.sh` ([docs/DEVELOPMENT.md](../docs/DEVELOPMENT.md#deploy)) on the detector the site runs,
 with `--base-rates` on for recall, organic and calibration so the identity test runs as live;
 the base rates used are stored in `details.base_rates` (calibration: `details.provenance.base_rates`).
 
