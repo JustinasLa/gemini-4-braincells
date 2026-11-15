@@ -18,7 +18,7 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud**
 > **NVIDIA Nemotron 3.5 Super VL** — the eyes, running on our own Verda box. reads every meme and
 > screenshot: the caption, the pic and what got edited. one model for text and images. lowkey goated.
 
-Nemotron vs Gemini on 60 real clusters (2026-11-14, [all speed tests](docs/NEMOTRON-SPEED.md)):
+Nemotron vs Gemini on 60 real clusters (2026-11-14):
 
 | Model | Mean | Failed calls | Coordinated, taken down (of 28) |
 |---|---|---|---|
