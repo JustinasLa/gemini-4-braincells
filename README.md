@@ -17,7 +17,7 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud**
 > [!IMPORTANT]
 > **NVIDIA Nemotron 3.5 Super VL** — the eyes, running on our own Verda box. reads every meme and
 > screenshot: the caption, the pic and what got edited. one model for text and images, ~1.5 s a
-> read, 10x faster than Gemini. lowkey goated.
+> read, 10x faster than Gemini ([speed tests](docs/NEMOTRON-SPEED.md)). lowkey goated.
 
 - **Google Gemini** — the detective. decides what to search and what to open, then explains the
   verdict with real receipts only, no making stuff up. also catches copies that got reworded.
