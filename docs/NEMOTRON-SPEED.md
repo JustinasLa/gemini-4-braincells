@@ -26,12 +26,12 @@ model, no web. The last column counts clusters the model called coordinated wher
 down a member account within 24 h. There are no hand labels yet, so this is the closest thing
 to a correctness score (see [analyst guide](../analyst/README.md#correctness-scored-against-blueskys-own-takedowns)).
 
-| Model | p50 | Mean | p90 | Slowest | Failed calls | Coordinated, taken down (of 28) |
-|---|---|---|---|---|---|---|
-| Gemini Hydrogen, default thinking | 11.6 s | 12.0 s | 17.6 s | 22.8 s | 1 | 17 |
-| Gemini Hydrogen, LOW thinking | 5.9 s | 6.2 s | 7.7 s | 10.2 s | 1 | 15 |
-| **Nemotron** | **1.5 s** | **1.5 s** | **2.1 s** | **2.3 s** | **0** | 12 |
-| Cascade (Nemotron first, Gemini on disagreement) | 2.1 s | 5.2 s | – | – | – | **18** |
+| Model | Mean | Failed calls | Coordinated, taken down (of 28) |
+|---|---|---|---|
+| Gemini Hydrogen, default thinking | 12.0 s | 1 | 17 |
+| Gemini Hydrogen, LOW thinking | 6.2 s | 1 | 15 |
+| **Nemotron** | **1.5 s** | **0** | 12 |
+| Cascade (Nemotron first, Gemini on disagreement) | 5.2 s | – | **18** |
 
 The model timings are computed from the raw runs in
 [`analyst/gate_takedown_results.json`](../analyst/gate_takedown_results.json) (`options`),

@@ -20,12 +20,12 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud**
 
 Nemotron vs Gemini on 60 real clusters (2026-11-14, [all speed tests](docs/NEMOTRON-SPEED.md)):
 
-| Model | Mean | Slowest | Failed calls | Coordinated, taken down (of 28) |
-|---|---|---|---|---|
-| Gemini Hydrogen, default thinking | 12.0 s | 22.8 s | 1 | 17 |
-| Gemini Hydrogen, LOW thinking | 6.2 s | 10.2 s | 1 | 15 |
-| **Nemotron** | **1.5 s** | **2.3 s** | **0** | 12 |
-| Cascade (Nemotron first, Gemini on disagreement) | 5.2 s | – | – | **18** |
+| Model | Mean | Failed calls | Coordinated, taken down (of 28) |
+|---|---|---|---|
+| Gemini Hydrogen, default thinking | 12.0 s | 1 | 17 |
+| Gemini Hydrogen, LOW thinking | 6.2 s | 1 | 15 |
+| **Nemotron** | **1.5 s** | **0** | 12 |
+| Cascade (Nemotron first, Gemini on disagreement) | 5.2 s | – | **18** |
 
 - **Google Gemini** — the detective. decides what to search and what to open, then explains the
   verdict with real receipts only, no making stuff up. also catches copies that got reworded.
