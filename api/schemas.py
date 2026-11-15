@@ -1,4 +1,4 @@
-"""Response and request models: the JSON contract the dashboard reads (see README.md)."""
+"""Response and request models: the JSON contract the dashboard reads (docs/ARCHITECTURE.md)."""
 
 import re
 from datetime import datetime

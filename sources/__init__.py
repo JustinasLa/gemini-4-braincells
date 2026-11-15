@@ -1,1 +1,1 @@
-"""sources component. See README.md for what it does."""
+"""sources component. See docs/ARCHITECTURE.md for what it does."""
