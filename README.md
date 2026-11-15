@@ -14,4 +14,9 @@ Live: **https://noise-radar.srv2159172.hstgr.cloud**
 
 ## Credits
 
-Justinas Launikonis, Temuulen "Tibi" Norovpel, Kirill Jegosin and Valtteri Pertila, at Junction 2026.
+Built at Junction 2026 by:
+
+- [Justinas Launikonis](https://github.com/JustinasLa)
+- [Temuulen "Tibi" Norovpel](https://github.com/akmet777)
+- [Kirill Jegosin](https://github.com/Ar7ti)
+- [Valtteri Pertila](https://github.com/valtteripertila)
