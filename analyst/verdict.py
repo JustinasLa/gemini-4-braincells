@@ -1,4 +1,4 @@
-"""Verdict types. `Verdict` is what lands in evidence.detail (kind='analyst'); see README.md."""
+"""Verdict types. `Verdict` is what lands in evidence.detail (kind='analyst'); see docs/ARCHITECTURE.md."""
 
 from datetime import datetime
 from typing import Literal

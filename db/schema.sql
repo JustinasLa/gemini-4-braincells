@@ -1,4 +1,4 @@
--- Noise Radar schema v1. Shared contract: change only with a note in README.md (Shared interfaces).
+-- Noise Radar schema v1. Shared contract: change only with a note in docs/ARCHITECTURE.md (Shared interfaces).
 -- Applied automatically by the Postgres container on first start.
 
 CREATE EXTENSION IF NOT EXISTS vector;
