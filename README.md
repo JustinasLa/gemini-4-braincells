@@ -29,41 +29,12 @@ Live at **https://noise-radar.srv2159172.hstgr.cloud**, where the web app, Track
 
 Built at Junction 2026 in Espoo by:
 
-- **Justinas Launikonis** ([@JustinasLa](https://github.com/JustinasLa)) — link lookup, meme trace,
-  Trackdown, deployment.
-- **Temuulen "Tibi" Norovpel** ([@akmet777](https://github.com/akmet777)) — Oxylabs source checks,
-  Gemini analyst and API, meme swarms, family tree, code review.
-- **Kirill Jegosin** ([@Ar7ti](https://github.com/Ar7ti)) — ingest, coordination detector,
-  evaluation, methodology.
-- **Valtteri Pertila** ([@valtteripertila](https://github.com/valtteripertila)) — Nemotron media
-  worker, dashboard, mobile judge flow.
+- **Justinas Launikonis** ([@JustinasLa](https://github.com/JustinasLa))
+- **Temuulen "Tibi" Norovpel** ([@akmet777](https://github.com/akmet777))
+- **Kirill Jegosin** ([@Ar7ti](https://github.com/Ar7ti))
+- **Valtteri Pertila** ([@valtteripertila](https://github.com/valtteripertila))
 
 Powered by Google Gemini, NVIDIA Nemotron 3.5 Super VL on Verda, the Oxylabs Web API, Hostinger and
 Bluesky's public Jetstream, with Entire for agent sessions. Written with help from Claude, Codex and
 GitHub Copilot. Lookups also read FxTwitter, TinEye, Yandex, Know Your Meme, Wikipedia and the
 Internet Archive. Trackdown's backdrop is Botticelli's *The Birth of Venus*.
-
-## Documentation
-
-[Project documentation](docs/README.md): methodology, architecture, development and deployment,
-and a guide for each component.
-
-## Tests
-
-With Python 3.12 and [uv](https://docs.astral.sh/uv/), run from the repository root:
-
-```bash
-uv sync
-uv run pytest
-uv run ruff check . && uv run ruff format --check .
-```
-
-Trackdown's tests, type check and lookup rendering check run from `web/trackdown`:
-
-```bash
-npm install && npm test && npm run build && npm run check
-```
-
-Database tests need `TEST_DATABASE_URL` pointing at a Postgres 16 with pgvector and are skipped
-without it. The suites use recorded fixtures, not live services, so they do not cover the live
-Oxylabs, Gemini and Nemotron calls; detector accuracy is measured separately by `eval/`.
